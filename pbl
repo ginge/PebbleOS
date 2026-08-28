@@ -186,6 +186,9 @@ def make_runner(env, options):
 
 
 def _run_runner(env, options, command):
+    if env.BOARD == 'getafix@dvt3':
+        _fatal('DVT3 is a Tuya target. Refusing the inherited SiFli runner; '
+               'see docs/boards/getafix_dvt3.md for hardware bring-up.')
     try:
         make_runner(env, options).run(command)
     except runners.RunnerError as e:

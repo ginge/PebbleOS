@@ -164,6 +164,11 @@ def configure(conf):
     except (TypeError, ValueError) as e:
         conf.fatal(str(e))
 
+    if board.target == 'getafix@dvt3':
+        conf.fatal('DVT3 targets Tuya T5AI, not SiFli. The PebbleOS kernel port is incomplete. '
+                   'Build peripheral bring-up with tools/build_tuya_hardware.py; '
+                   'see docs/boards/getafix_dvt3.md.')
+
     # Has to be 'tools.waf.gettext' as unadorned 'gettext' will find the gettext
     # module in the standard library.
     conf.load('tools.waf.gettext')
@@ -550,6 +555,9 @@ def _build_fw(bld):
 
 
 def build(bld):
+    if bld.env.BOARD == 'getafix@dvt3':
+        bld.fatal('Refusing legacy DVT3/SiFli build. Use tools/build_tuya_hardware.py '
+                  'for Tuya peripheral bring-up; the kernel port is incomplete.')
     bld.DYNAMIC_RESOURCES = []
     bld.LOGHASH_DICTS = []
 

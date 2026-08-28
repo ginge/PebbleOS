@@ -11,7 +11,7 @@ using the (`--board`) flag followed by:
 :`asterix`: (Core Devices) Pebble 2 Duo
 :`obelix@bb2`, `obelix@dvt`, `obelix@pvt`: (Core Devices) Pebble Time 2
 :`getafix@dvt`, `getafix@dvt2`: (Core Devices) Pebble Round 2
-:`getafix@dvt3`: experimental DVT2-derived port baseline (see {doc}`../boards/getafix_dvt3`)
+:`getafix@dvt3`: Tuya peripheral bring-up (not yet a PebbleOS kernel target) (see {doc}`../boards/getafix_dvt3`)
 :`qemu_emery`, `qemu_flint`, `qemu_gabbro`: dedicated QEMU targets (see {doc}`qemu`)
 
 Keep in mind that some targets may not currently compile as-is.
