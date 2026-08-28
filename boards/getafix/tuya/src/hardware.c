@@ -1,5 +1,8 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "hardware.h"
+#include "rtc_port.h"
+#include "tkl_adc.h"
+#include <string.h>
 #include "tal_api.h"
 #include "tkl_gpio.h"
 #include "tkl_i2c.h"
@@ -98,8 +101,8 @@ OPERATE_RET tuya_hardware_init(void) {
   panel.power.pin = TUYA_GPIO_NUM_MAX;
   panel.bl.type = TUYA_DISP_BL_TP_CUSTOM;
   TUYA_CALL_ERR_RETURN(tdd_disp_qspi_co5300_register(PANEL_NAME, &panel));
-  TUYA_CALL_ERR_RETURN(tdl_disp_custom_backlight_register(
-      PANEL_NAME, tdd_qspi_co5300_send_cmd_set_bl, NULL));
+  TUYA_CALL_ERR_RETURN(
+      tdl_disp_custom_backlight_register(PANEL_NAME, tdd_qspi_co5300_send_cmd_set_bl, NULL));
   s_display = tdl_disp_find_dev(PANEL_NAME);
   if (!s_display) {
     return OPRT_COM_ERROR;
@@ -240,4 +243,106 @@ OPERATE_RET tuya_hardware_accel_read(float *x_mg, float *y_mg, float *z_mg) {
     return OPRT_INVALID_PARM;
   }
   return qmi8658_read_accel(&g_qmi8658_dev, x_mg, y_mg, z_mg);
+}
+
+static int prv_rtc_bus_read(void *context, uint8_t reg, uint8_t *data, size_t size) {
+  (void)context;
+  OPERATE_RET rt = tkl_i2c_master_send(BUS, RTC_ADDRESS, &reg, 1, FALSE);
+  if (rt == OPRT_OK) {
+    rt = tkl_i2c_master_receive(BUS, RTC_ADDRESS, data, size, FALSE);
+  }
+  return rt;
+}
+static int prv_rtc_bus_write(void *context, uint8_t reg, const uint8_t *data, size_t size) {
+  (void)context;
+  if (size > 7) {
+    return OPRT_INVALID_PARM;
+  }
+  uint8_t bytes[8];
+  bytes[0] = reg;
+  memcpy(bytes + 1, data, size);
+  return tkl_i2c_master_send(BUS, RTC_ADDRESS, bytes, size + 1, FALSE);
+}
+static const TuyaRtcBus s_rtc_bus = {.read = prv_rtc_bus_read, .write = prv_rtc_bus_write};
+
+OPERATE_RET tuya_hardware_rtc_set(const TuyaDateTime *time) {
+  if (!s_ready) {
+    return OPRT_COM_ERROR;
+  }
+  OPERATE_RET rt = tal_mutex_lock(s_bus_lock);
+  if (rt != OPRT_OK) {
+    return rt;
+  }
+  rt = tuya_rtc_set(&s_rtc_bus, time);
+  tal_mutex_unlock(s_bus_lock);
+  return rt;
+}
+OPERATE_RET tuya_hardware_rtc_daily_alarm(uint8_t hour, uint8_t minute, uint8_t second) {
+  if (!s_ready) {
+    return OPRT_COM_ERROR;
+  }
+  OPERATE_RET rt = tal_mutex_lock(s_bus_lock);
+  if (rt != OPRT_OK) {
+    return rt;
+  }
+  rt = tuya_rtc_daily_alarm(&s_rtc_bus, hour, minute, second);
+  tal_mutex_unlock(s_bus_lock);
+  return rt;
+}
+OPERATE_RET tuya_hardware_rtc_alarm_clear(void) {
+  if (!s_ready) {
+    return OPRT_COM_ERROR;
+  }
+  OPERATE_RET rt = tal_mutex_lock(s_bus_lock);
+  if (rt != OPRT_OK) {
+    return rt;
+  }
+  rt = tuya_rtc_alarm_clear(&s_rtc_bus);
+  tal_mutex_unlock(s_bus_lock);
+  return rt;
+}
+
+OPERATE_RET tuya_hardware_battery_read(TuyaBatteryReading *reading,
+                                       const TuyaBatteryCalibration *calibration) {
+  if (!s_ready || !reading) {
+    return OPRT_INVALID_PARM;
+  }
+  static bool adc_ready;
+  if (!adc_ready) {
+    TUYA_ADC_BASE_CFG_T cfg = {0};
+    cfg.ch_list.data = 1u << 15; /* P13, battery divider tap. */
+    cfg.ch_nums = 1;
+    cfg.width = 12;
+    cfg.mode = TUYA_ADC_CONTINUOUS;
+    cfg.type = TUYA_ADC_INNER_SAMPLE_VOL;
+    cfg.conv_cnt = 1;
+    OPERATE_RET rt = tkl_adc_init(TUYA_ADC_NUM_0, &cfg);
+    if (rt != OPRT_OK) {
+      return rt;
+    }
+    adc_ready = true;
+  }
+  int32_t peak = -1;
+  for (unsigned i = 0; i < 16; ++i) {
+    int32_t raw;
+    OPERATE_RET rt = tkl_adc_read_single_channel(TUYA_ADC_NUM_0, 15, &raw);
+    if (rt != OPRT_OK) {
+      return rt;
+    }
+    if (raw < 0 || raw > 65535) {
+      return OPRT_COM_ERROR;
+    }
+    if (raw > peak) {
+      peak = raw;
+    }
+  }
+  TuyaBatteryReading sample = {.raw_peak = peak};
+  if (calibration) {
+    if (!tuya_battery_millivolts(peak, calibration, &sample.millivolts)) {
+      return OPRT_INVALID_PARM;
+    }
+    sample.calibrated = true;
+  }
+  *reading = sample;
+  return OPRT_OK;
 }

@@ -5,10 +5,10 @@
 import argparse
 import json
 import os
-from pathlib import Path
 import shutil
 import subprocess
 import sys
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "boards/getafix/tuya"
@@ -18,7 +18,9 @@ def verify_sdk(sdk, revisions):
     for name, path in (("tuyaopen", sdk), ("t5ai", sdk / "platform/T5AI")):
         result = subprocess.run(
             ["git", "-C", str(path), "rev-parse", "HEAD"],
-            check=True, capture_output=True, text=True,
+            check=True,
+            capture_output=True,
+            text=True,
         )
         if result.stdout.strip() != revisions[name]:
             raise ValueError(f"{name}: expected SDK commit {revisions[name]}")
@@ -35,13 +37,29 @@ def stage_app(source, output):
     for name in ("CMakeLists.txt", "app_default.config", "sdk.lock.json"):
         shutil.copy2(source / name, output / name)
     shutil.copytree(source / "src", output / "src", dirs_exist_ok=True)
+    for subdir in ("os", "util"):
+        shutil.copytree(
+            ROOT / "include/pbl" / subdir,
+            output / "pebble_include/pbl" / subdir,
+            dirs_exist_ok=True,
+        )
+    for name in ("drivers/button_id.h", "services/touch/touch_event.h"):
+        target = output / "pebble_include/pbl" / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / "include/pbl" / name, target)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--sdk", required=True, type=Path, help="Pinned TuyaOpen checkout")
-    parser.add_argument("--python", default=sys.executable, type=Path,
-                        help="Python from a venv containing TuyaOpen build dependencies")
+    parser.add_argument(
+        "--sdk", required=True, type=Path, help="Pinned TuyaOpen checkout"
+    )
+    parser.add_argument(
+        "--python",
+        default=sys.executable,
+        type=Path,
+        help="Python from a venv containing TuyaOpen build dependencies",
+    )
     parser.add_argument("--out", type=Path, default=ROOT / "build/getafix_dvt3_hw")
     args = parser.parse_args()
     sdk, output = args.sdk.resolve(), args.out.resolve()
@@ -52,13 +70,19 @@ def main():
         env = os.environ.copy()
         env["PATH"] = str(python.parent) + os.pathsep + env.get("PATH", "")
         env["OPEN_SDK_PYTHON"] = str(python)
-        print("Building hardware bring-up only; PebbleOS kernel is not included.", flush=True)
-        subprocess.run([str(python), str(sdk / "tos.py"), "build"],
-                       cwd=output, env=env, check=True)
+        print(
+            "Building hardware bring-up only; PebbleOS kernel is not included.",
+            flush=True,
+        )
+        subprocess.run(
+            [str(python), str(sdk / "tos.py"), "build"], cwd=output, env=env, check=True
+        )
     except (ValueError, OSError, subprocess.CalledProcessError) as error:
         print(f"Tuya build failed: {error}", file=sys.stderr)
         return 1
-    print(f"Inspect vendor build artifacts in {output / 'dist'}; no device was flashed.")
+    print(
+        f"Inspect vendor build artifacts in {output / 'dist'}; no device was flashed."
+    )
     return 0
 
 

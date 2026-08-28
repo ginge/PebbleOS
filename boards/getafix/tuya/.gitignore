@@ -1,2 +1,5 @@
 .build/
 dist/
+
+# This SDK app uses a hand-written build definition.
+!CMakeLists.txt

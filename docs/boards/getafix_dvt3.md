@@ -25,10 +25,14 @@ partition layout, QSPI/I2C HAL, and image packaging.
 | Transfer ownership | Waits for the vendor completion callback before reusing the buffer; after timeout it refuses reuse until reset |
 | CST9217 | Vendor CST92xx driver on I2C0 (SCL P20, SDA P21), reset P42; polling, bounds checks, mirrored axes mapped to 260 x 260 |
 | QMI8658 | Vendor driver at 0x6b on the shared bus; 4 g accelerometer at 125 Hz, gyroscope disabled after initialization; returns sensor-frame milligravity values |
-| PCF85063 | Reads 24-hour calendar at 0x51; rejects oscillator-stop, stopped/12-hour clocks, malformed BCD, and impossible dates; does not overwrite retained time |
+| PCF85063 | Reads/writes 24-hour calendar at 0x51; rejects invalid/stopped clocks; transaction-safe calendar writes and daily alarm programming/clear; no wake IRQ yet |
 | Buttons | P18 mapped to Back, P12 to Select, active low, 30 ms debounce with tick-wrap handling |
 | Power | P19 held high to latch power; active-low amplifier P28 held disabled |
 | Charger | Active-low CHRG on P30; charging indication only, not a battery percentage |
+| Battery | P13 / ADC channel 15; 16-sample peak with explicit two-point battery-terminal calibration; no guessed percentage |
+| Navigation | Pebble ButtonId and TouchEvent types; Back/Select keys plus optional vertical swipe Up/Down; bounded touch coordinates and wrap-safe gesture timing |
+| OS primitives | Pebble mutex, recursive mutex, timeout, tick conversion, assertion and checked allocation APIs on vendor FreeRTOS; uses the vendor allocator pair |
+| BLE controller adapter | TKL HCI command/ACL TX and copied event/ACL RX queue; framing checks and sticky failure on packet loss; compiled but not started or connected to Pebble's host |
 
 The backend is a singleton, initialized once, with public operations called by
 one application task. Its I2C transactions share a mutex. On initialization
@@ -40,6 +44,42 @@ The vendor callback maps 0% to a small nonzero value: this is **not** a sleep/of
 API. Brightness starts at 20%. Runtime sleep/power optimization is still pending.
 Display completion confirms buffer ownership release, not electrical success;
 the panel must be checked on hardware.
+
+## Runtime adapter contracts
+
+The build stages the actual Pebble public headers, not local copies of their
+interfaces. `os_adapter.c` uses the pinned application CPU FreeRTOS headers and
+configuration. Its on-device startup self-test checks ordinary and recursive
+mutex ownership, zero-timeout contention, and recursive unlock depth. The
+self-test is linked but has not been executed on a physical board. These are
+**privileged runtime primitives**, not an MPU/syscall or app-loading port.
+
+RTC set/alarm transactions hold the shared I2C mutex for the whole operation.
+If writing a calendar fails partway through, the clock stays stopped so readback
+rejects the partial value; retry with a complete time. Alarms are daily matches,
+not Pebble UTC deadline alarms, and do not yet wake the MCU. Retained time is
+never automatically replaced at boot.
+
+Input callbacks run synchronously in the application task and must not retain
+the supplied touch-event pointer. A vertical swipe of at least 40 logical pixels,
+with less than 30 horizontal pixels and duration at most one second, emits an
+Up/Down press on liftoff and a release on the next sample. Touch is marked
+non-navigational in this mode. Disable `swipe_buttons` when connecting Pebble's
+touch navigation service to avoid duplicate navigation. The current demo logs
+callbacks at DEBUG; they are not delivered to the Pebble event queue yet.
+
+Battery calibration requires two raw peak readings paired with measured battery
+terminal voltages, using the same sampling procedure at both points. Supply
+these through `TuyaBatteryCalibration`. The demo reports uncalibrated ADC values;
+no battery percentage, charging curve, or low-voltage shutdown is inferred.
+
+`hci_port.c` requires exclusive Bluetooth host ownership. Its start function is
+intentionally not called by the demo: do not initialize it alongside Tuya's
+Bluetooth host. RX callbacks copy borrowed IPC buffers into an eight-packet
+queue. Malformed frames, overflow, and TX failures fail the session closed;
+a reset is required, with queues kept alive for late callbacks. The Pebble
+NimBLE NPL/transport integration, bonding storage, pairing and reconnection are
+still missing. Host tests use TAL/HCI test doubles, not a radio simulator.
 
 ## Reproducible build
 
@@ -104,8 +144,12 @@ python -m unittest discover -s tools/tests -p 'test_getafix_boards.py' -v
 ```
 
 The first suite compiles and runs the C core tests and checks build-directory
-ownership. C tests cover pixel colors/byte order, buffer limits, scaling, touch
-bounds, RTC invalid data/leap days, debounce, and tick wrap. They do not simulate
+ownership and staging of the real Pebble headers. C tests cover pixel colors/byte order, buffer limits, scaling, touch
+bounds, RTC invalid data/leap days, debounce, and tick wrap. Additional tests inject
+failure at every RTC set/alarm bus operation (including a torn calendar write),
+check touch liftoff/Up/Down transitions and calibration limits, and exercise HCI
+framing, borrowed-buffer ownership, queue overflow, failed initialization and TX
+failure. They do not simulate
 QSPI DMA, the vendor drivers, or the real devices. The core was also run under
 AddressSanitizer/UBSan (leak detection disabled because the sandbox's ptrace
 prevents LeakSanitizer from working).
@@ -118,15 +162,19 @@ Further work is required before this can act as a Pebble watch:
 1. Choose and implement the kernel/RTOS integration. Tuya's application CPU runs
    its vendor FreeRTOS port; Pebble owns its own startup, interrupt handlers,
    scheduler hooks, MPU, syscalls, heaps, and app loading. Linking both unmodified
-   will not provide a working OS.
+   will not provide a working OS. The pinned vendor build has `configENABLE_MPU=0`;
+   do not load third-party Pebble apps into that privileged configuration.
 2. Replace SiFli flash/OTP/boot metadata and filesystem assumptions with the
    Tuya partition and image model, including recovery and firmware update.
+   The stock 8 MiB layout consumes all flash with boot/AP/CP/OTA/vendor data;
+   there is no Pebble PFS partition. Do not repurpose OTA, RF, or Tuya data
+   without a coordinated boot/update layout and a restore procedure.
 3. Connect display completion and touch/button events to the Pebble compositor
-   and input services. Implement Up/Down navigation for a board with two keys.
-4. Connect RTC set/alarm/tick functions and the IMU service, including axis
+   and input services. The four-button input adapter now supplies Up/Down swipes.
+4. Connect the RTC and tick adapters to Pebble time services and the IMU to its service, including axis
    calibration, wake interrupts, and power management.
-5. Implement battery ADC calibration/fuel estimation, audio, and BLE transport
-   and pairing. Getafix PMIC, backlight, magnetometer, ambient light, and haptics
+5. Measure battery calibration and implement fuel estimation, audio, and the
+   Pebble BLE host/NPL binding over the HCI adapter, including pairing. Getafix PMIC, backlight, magnetometer, ambient light, and haptics
    must not be carried over as if present on the Waveshare board.
 6. Test normal operation, suspend/resume, charging, flash endurance/recovery,
    and application compatibility on hardware before assigning a firmware ID or
@@ -136,6 +184,9 @@ Further work is required before this can act as a Pebble watch:
 
 - `boards/getafix/tuya/src/hardware.c`: Tuya driver integration and ownership.
 - `hardware_core.c`: transport-independent pixel, touch, calendar, debounce code.
+- `rtc_port.c`, `input_port.c`, `battery_port.c`: portable runtime adapters.
+- `os_adapter.c`: privileged Pebble libOS API implementation for the vendor RTOS.
+- `hci_port.c`: controller packet transport; exclusive ownership required.
 - `main.c`: standalone peripheral validation app.
 - `tools/build_tuya_hardware.py`: SDK checks, staging, and build invocation.
 - `soc/`, `src/fw/startup/`, `src/fw/linker/`, `lib/os/`, and `src/fw/kernel/`:
