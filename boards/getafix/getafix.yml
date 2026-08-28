@@ -4,6 +4,7 @@
 revisions:
   - dvt
   - dvt2
+  - dvt3
 
 runners:
   - sftool

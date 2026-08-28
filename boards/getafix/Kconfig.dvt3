@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config BOARD_GETAFIX_DVT3
+    bool
+    default y
+    help
+      Experimental DVT2-derived baseline for the Waveshare T5-E1 port.
+      Still uses Getafix hardware definitions; not runnable on T5-E1.

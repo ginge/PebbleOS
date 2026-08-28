@@ -439,7 +439,7 @@ static const I2CSlavePort s_i2c_w1160 = {
 
 I2CSlavePort *const I2C_W1160 = &s_i2c_w1160;
 
-#ifdef CONFIG_BOARD_GETAFIX_DVT2
+#if defined(CONFIG_BOARD_GETAFIX_DVT2) || defined(CONFIG_BOARD_GETAFIX_DVT3)
 static const I2CSlavePort s_i2c_aw86225 = {
     .bus = &s_i2c_bus_3,
     .address = 0x58,

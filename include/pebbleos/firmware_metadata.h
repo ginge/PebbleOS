@@ -106,6 +106,9 @@ _Static_assert(sizeof(struct FirmwareMetadata) == (sizeof(uint32_t) +
   #define FIRMWARE_METADATA_HW_PLATFORM (FirmwareMetadataPlatformPebbleGetafixDVT)
 #elif defined(CONFIG_BOARD_GETAFIX_DVT2)
   #define FIRMWARE_METADATA_HW_PLATFORM (FirmwareMetadataPlatformPebbleGetafixDVT2)
+#elif defined(CONFIG_BOARD_GETAFIX_DVT3)
+  // Experimental port: a hardware ID must be assigned before distribution.
+  #define FIRMWARE_METADATA_HW_PLATFORM (FirmwareMetadataPlatformUnknown)
 #elif defined(CONFIG_BOARD_QEMU_EMERY)
   #define FIRMWARE_METADATA_HW_PLATFORM (FirmwareMetadataPlatformPebbleEmeryEmu)
 #elif defined(CONFIG_BOARD_QEMU_FLINT)

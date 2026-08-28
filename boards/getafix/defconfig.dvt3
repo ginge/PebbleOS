@@ -1,0 +1,4 @@
+# getafix dvt3 experimental board revision configuration
+# DVT2 baseline only: see docs/boards/getafix_dvt3.md before using.
+
+CONFIG_VIBE_AW86225=y
