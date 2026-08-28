@@ -166,19 +166,34 @@ python tools/check_tuya_kernel.py --sdk /path/to/TuyaOpen --out /tmp/tuya-kernel
 python -m unittest discover -s tools/tests -p 'test_tuya_kernel.py' -v
 ```
 
-The check copies the pinned kernel, applies the patch only to that copy, and
-compiles all ten RTOS sources twice, with MPU disabled and enabled. It refuses
-modified SDK kernel inputs and never changes the SDK or creates firmware. The
-20 compilations pass with the pinned GCC 10.3 toolchain. This does **not** test
-context switching, a linker layout, memory isolation, or a bootable PebbleOS.
+The check copies the pinned kernel and applies the three patches only to that copy.
+It compiles all ten RTOS sources with MPU disabled, enabled, and enabled with
+the Pebble syscall profile. With four bridge sources and three real syscall
+wrapper probes, all 37 compilations pass using the pinned GCC 10.3 toolchain.
+A relocatable link also passes, resolving the bridge and core-affinity APIs.
+It deliberately retains unresolved Pebble/vendor service symbols and does not
+produce executable firmware. The SDK is left unchanged.
 
-The stock vendor build uses two scheduler cores, a different SVC numbering
-scheme, three configurable MPU regions plus an automatic stack region, and TLS
-slot 1 for pthreads. Pebble uses that TLS slot for syscall SP and assumes its own
-context layout and single-core scheduling. Those contracts still require an
-explicit integration; enabling MPU alone is not a safe port. Details are in
-`boards/getafix/tuya/patches/README.md`. The ordinary bring-up build deliberately
-does not apply this experimental patch or change its RTOS configuration.
+The experimental bridge reserves SVC 64 and TLS slots 3/4 for Pebble, validates
+exception-frame bounds and syscall authorization, supports FP frames and
+padding, and rejects unprivileged vendor SVCs. New restricted-task APIs assign
+core affinity before scheduling; the integration profile selects core 1.
+Host tests cover dispatch decisions and frame copying, not processor exception
+entry/return. See `boards/getafix/tuya/patches/README.md` for the contracts.
+
+Task-memory translation now converts Pebble policy into vendor descriptors,
+preserves privileged-only access, rejects unsupported cache/permission modes,
+and validates alignment and overlap before restricted-task allocation. The
+experimental vendor patch suppresses duplicate stack mappings when a configured
+region covers the stack. These adapters are compiled and tested independently;
+they are not yet called by Pebble's task manager. The global MPU map and linker
+layout still must be supplied and checked before enabling them in firmware.
+
+This resolves source-level SVC/TLS collisions and provides a pinned task API,
+but does **not** establish task isolation. The three-region vendor MPU model,
+linker map, context switching on dedicated syscall stacks, privilege-return
+path, app fault teardown and low-power restore still need integration. The
+ordinary bring-up builder does not apply these patches or enable the profile.
 
 ## Remaining PebbleOS integration
 

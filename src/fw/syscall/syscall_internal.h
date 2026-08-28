@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "pbl/mcu/syscall_abi.h"
+
 #include "pbl/util/attributes.h"
 
 #include <stdbool.h>
@@ -17,7 +19,7 @@
     __asm volatile (\
       "push { lr } \n" \
       "bl syscall_internal_maybe_skip_privilege \n" \
-      "svc 2 \n" \
+      PBL_SYSCALL_ASM \
       "b __" #funcName "\n" \
     );\
   }\

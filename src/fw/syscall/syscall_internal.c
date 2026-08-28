@@ -19,6 +19,9 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+_Static_assert(configNUM_THREAD_LOCAL_STORAGE_POINTERS >= PBL_SYSCALL_TLS_REQUIRED,
+               "Insufficient syscall TLS slots");
+
 #include <cmsis_core.h>
 #include <stdint.h>
 #include <inttypes.h>
@@ -37,8 +40,8 @@
 #endif
 
 // Indices into FreeRTOS thread local storage
-#define TLS_SYSCALL_LR_IDX 0
-#define TLS_SYSCALL_SP_IDX 1
+#define TLS_SYSCALL_LR_IDX PBL_SYSCALL_TLS_LR
+#define TLS_SYSCALL_SP_IDX PBL_SYSCALL_TLS_SP
 
 // Helper functions to access FreeRTOS TLS
 static uintptr_t prv_get_syscall_sp(void) {
@@ -223,7 +226,7 @@ void mcu_call_unprivileged(void (*fn)(void *), void *ctx) {
     // while this mcu_call_unprivileged() call is active for the current task.
     "  .global __mcu_call_unprivileged_svc \n"
     "__mcu_call_unprivileged_svc:       \n"
-    "  svc 2                            \n"
+    PBL_SYSCALL_ASM
     // Deliberate fail-closed trap. If the SVC was denied or not rewritten, do
     // not keep executing in the callback's control flow.
     "  udf #0                           \n"
@@ -323,7 +326,7 @@ USED uint64_t syscall_stack_restore_target(void) {
   const uintptr_t psp = __get_PSP();
   if (prv_psp_in_syscall_stack(psp, s_app_syscall_stack) ||
       prv_psp_in_syscall_stack(psp, s_worker_syscall_stack)) {
-    const uint32_t sp = (uint32_t)prv_get_syscall_sp();  // slot1 = pre-syscall task SP
+    const uint32_t sp = (uint32_t)prv_get_syscall_sp();  // saved pre-syscall task SP
     const uint32_t psplim = (uint32_t)ulTaskGetStackStart(xTaskGetCurrentTaskHandle());
     return ((uint64_t)psplim << 32) | sp;
   }
@@ -406,9 +409,9 @@ EXTERNALLY_VISIBLE void NAKED_FUNC USED prv_drop_privilege_wrapper(void) {
 // This function needs to preserve the argument registers and stack exactly as they were on
 // entry, so the arguments are passed correctly into the syscall. The key purpose of this
 // function is to determine whether or not the caller is privileged. If the caller is
-// unprivileged, this function returns normally to the syscall wrapper, and svc 2 is
+// unprivileged, this function returns normally to the syscall wrapper, and SVC is
 // called elevating privileges. If the caller was already privileged, this function
-// returns past the svc 2 instruction so privileges are not elevated.
+// returns past the SVC instruction so privileges are not elevated.
 void NAKED_FUNC USED syscall_internal_maybe_skip_privilege(void) {
   __asm volatile (
     // Save argument registers
@@ -419,7 +422,7 @@ void NAKED_FUNC USED syscall_internal_maybe_skip_privilege(void) {
     " pop {r0-r3, lr} \n" // Restore state
 
     " it eq \n" // If we were privileged, return past the svc function
-    " addeq lr, #2 \n" // svc 2 is 2 bytes long
+    " addeq lr, #2 \n" // SVC is 2 bytes long
 
     // Store our return address in ip, which isn't caller or callee saved
     // since the linker can modify it

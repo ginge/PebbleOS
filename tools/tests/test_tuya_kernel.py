@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import importlib.util
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -26,6 +28,78 @@ class TuyaKernelCheckTest(unittest.TestCase):
             checker.make_config("#define configENABLE_MPU 1\n", 1)
         with self.assertRaises(ValueError):
             checker.make_config(config + config, 1)
+
+    def test_pebble_config_reserves_tls(self):
+        config = "#define configENABLE_MPU 0\n" + (
+            "#define configNUM_THREAD_LOCAL_STORAGE_POINTERS 3\n" * 2
+        )
+        result = checker.make_config(config, 1, True)
+        self.assertEqual(result.count("configNUM_THREAD_LOCAL_STORAGE_POINTERS 5"), 2)
+        self.assertIn("#define configPEBBLE_SYSCALL_BRIDGE 1", result)
+        self.assertIn("#define configPEBBLE_CORE_ID 1", result)
+        for bad in (
+            config.replace("POINTERS 3", "POINTERS 4"),
+            "#define configENABLE_MPU 0\n",
+        ):
+            with self.assertRaises(ValueError):
+                checker.make_config(bad, 1, True)
+        with self.assertRaises(ValueError):
+            checker.make_config(config, 0, True)
+
+    def test_svc_dispatch_policy(self):
+        compiler = shutil.which("cc")
+        if not compiler:
+            self.skipTest("Host C compiler unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / "test-svc"
+            subprocess.run(
+                [
+                    compiler,
+                    "-std=c11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-DPBL_RTOS_TUYA=1",
+                    f"-I{ROOT / 'include'}",
+                    f"-I{checker.SOURCE / 'kernel'}",
+                    str(checker.SOURCE / "kernel/svc_bridge.c"),
+                    str(checker.SOURCE / "tests/test_svc_bridge.c"),
+                    "-o",
+                    str(binary),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            subprocess.run([str(binary)], check=True, capture_output=True, text=True)
+
+    def test_task_memory_policy(self):
+        compiler = shutil.which("cc")
+        if not compiler:
+            self.skipTest("Host C compiler unavailable")
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / "test-memory"
+            subprocess.run(
+                [
+                    compiler,
+                    "-std=c11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    f"-I{ROOT / 'include'}",
+                    f"-I{ROOT / 'src/fw'}",
+                    f"-I{checker.SOURCE / 'kernel'}",
+                    str(checker.SOURCE / "kernel/task_memory.c"),
+                    str(checker.SOURCE / "kernel/task_memory_pebble.c"),
+                    str(checker.SOURCE / "tests/test_task_memory.c"),
+                    "-o",
+                    str(binary),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            subprocess.run([str(binary)], check=True, capture_output=True, text=True)
 
     def test_compiler_outputs_are_redirected_without_a_shell(self):
         entry = {

@@ -1,0 +1,127 @@
+--- a/t5_os/ap/components/os_source/freertos_smp_v2p0/FreeRTOS-Kernel/portable/GCC/ARM_CM33_NTZ/non_secure/port.c
++++ b/t5_os/ap/components/os_source/freertos_smp_v2p0/FreeRTOS-Kernel/portable/GCC/ARM_CM33_NTZ/non_secure/port.c
+@@ -397,7 +397,7 @@
+ /**
+  * @brief C part of SVC handler.
+  */
+-portDONT_DISCARD void vPortSVCHandler_C( uint32_t * pulCallerStackAddress ) PRIVILEGED_FUNCTION;
++portDONT_DISCARD void vPortSVCHandler_C( uint32_t * pulCallerStackAddress, uint32_t ulExcReturn ) PRIVILEGED_FUNCTION;
+ /*-----------------------------------------------------------*/
+ 
+ /**
+@@ -714,8 +714,20 @@
+ 
+ /*-----------------------------------------------------------*/
+ 
+-void vPortSVCHandler_C( uint32_t * pulCallerStackAddress ) /* PRIVILEGED_FUNCTION portDONT_DISCARD */
+-{
++void vPortSVCHandler_C( uint32_t * pulCallerStackAddress, uint32_t ulExcReturn ) /* PRIVILEGED_FUNCTION portDONT_DISCARD */
++{
++    #if defined( configPEBBLE_SYSCALL_BRIDGE ) && configPEBBLE_SYSCALL_BRIDGE
++        #if configENABLE_MPU != 1
++            #error Pebble syscall dispatch requires the MPU port
++        #endif
++        extern bool pebble_tuya_svc_dispatch( uint32_t *frame, uint32_t exc_return );
++        if( pebble_tuya_svc_dispatch( pulCallerStackAddress, ulExcReturn ) )
++        {
++            return;
++        }
++    #else
++        ( void ) ulExcReturn;
++    #endif
+     #if ( configENABLE_MPU == 1 )
+         #if defined( __ARMCC_VERSION )
+ 
+--- a/t5_os/ap/components/os_source/freertos_smp_v2p0/FreeRTOS-Kernel/portable/GCC/ARM_CM33_NTZ/non_secure/portasm.c
++++ b/t5_os/ap/components/os_source/freertos_smp_v2p0/FreeRTOS-Kernel/portable/GCC/ARM_CM33_NTZ/non_secure/portasm.c
+@@ -322,8 +322,9 @@
+         "	ite eq											\n"
+         "	mrseq r0, msp									\n"
+         "	mrsne r0, psp									\n"
+-        "	ldr r1, svchandler_address_const				\n"
+-        "	bx r1											\n"
++        "\tmov r1, lr\n" /* Preserve EXC_RETURN for the Pebble stack-frame decoder. */
++        "\tldr r2, svchandler_address_const\n"
++        "\tbx r2\n"
+         "													\n"
+         "	.align 4										\n"
+         "svchandler_address_const: .word vPortSVCHandler_C	\n"
+--- a/t5_os/ap/components/os_source/freertos_smp_v2p0/FreeRTOS-Kernel/tasks.c
++++ b/t5_os/ap/components/os_source/freertos_smp_v2p0/FreeRTOS-Kernel/tasks.c
+@@ -810,8 +810,19 @@
+ #if ( ( portUSING_MPU_WRAPPERS == 1 ) && ( configSUPPORT_STATIC_ALLOCATION == 1 ) )
+ 
+     BaseType_t xTaskCreateRestrictedStatic( const TaskParameters_t * const pxTaskDefinition,
+-                                            TaskHandle_t * pxCreatedTask )
+-    {
++                                      TaskHandle_t * pxCreatedTask )
++    {
++        return xTaskCreateRestrictedStaticPinnedToCore( pxTaskDefinition, pxCreatedTask, tskNO_AFFINITY );
++    }
++
++    BaseType_t xTaskCreateRestrictedStaticPinnedToCore( const TaskParameters_t * const pxTaskDefinition,
++                                      TaskHandle_t * pxCreatedTask, BaseType_t xCoreID )
++    {
++        if( ( xCoreID != tskNO_AFFINITY ) &&
++            ( ( xCoreID < 0 ) || ( xCoreID >= configNUMBER_OF_CORES ) ) )
++        {
++            return pdFAIL;
++        }
+         TCB_t * pxNewTCB;
+         BaseType_t xReturn = errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY;
+ 
+@@ -843,7 +854,7 @@
+                                   pxTaskDefinition->pvParameters,
+                                   pxTaskDefinition->uxPriority,
+                                   pxCreatedTask, pxNewTCB,
+-                                  pxTaskDefinition->xRegions, tskNO_AFFINITY );
++                                  pxTaskDefinition->xRegions, xCoreID );
+ 
+             prvAddNewTaskToReadyList( pxNewTCB );
+             xReturn = pdPASS;
+@@ -860,6 +871,17 @@
+     BaseType_t xTaskCreateRestricted( const TaskParameters_t * const pxTaskDefinition,
+                                       TaskHandle_t * pxCreatedTask )
+     {
++        return xTaskCreateRestrictedPinnedToCore( pxTaskDefinition, pxCreatedTask, tskNO_AFFINITY );
++    }
++
++    BaseType_t xTaskCreateRestrictedPinnedToCore( const TaskParameters_t * const pxTaskDefinition,
++                                      TaskHandle_t * pxCreatedTask, BaseType_t xCoreID )
++    {
++        if( ( xCoreID != tskNO_AFFINITY ) &&
++            ( ( xCoreID < 0 ) || ( xCoreID >= configNUMBER_OF_CORES ) ) )
++        {
++            return pdFAIL;
++        }
+         TCB_t * pxNewTCB;
+         BaseType_t xReturn = errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY;
+ 
+@@ -894,7 +916,7 @@
+                                       pxTaskDefinition->pvParameters,
+                                       pxTaskDefinition->uxPriority,
+                                       pxCreatedTask, pxNewTCB,
+-                                      pxTaskDefinition->xRegions, tskNO_AFFINITY );
++                                      pxTaskDefinition->xRegions, xCoreID );
+ 
+                 prvAddNewTaskToReadyList( pxNewTCB );
+                 xReturn = pdPASS;
+--- a/t5_os/ap/components/os_source/freertos_smp_v2p0/FreeRTOS-Kernel/include/freertos/task.h
++++ b/t5_os/ap/components/os_source/freertos_smp_v2p0/FreeRTOS-Kernel/include/freertos/task.h
+@@ -3026,6 +3026,16 @@
+ 
+ /** @endcond */
+ 
++/* Restricted tasks must be pinned before being placed on any ready list. */
++#if ( portUSING_MPU_WRAPPERS == 1 ) && ( configSUPPORT_DYNAMIC_ALLOCATION == 1 )
++BaseType_t xTaskCreateRestrictedPinnedToCore( const TaskParameters_t * const params,
++    TaskHandle_t *handle, BaseType_t core ) PRIVILEGED_FUNCTION;
++#endif
++#if ( portUSING_MPU_WRAPPERS == 1 ) && ( configSUPPORT_STATIC_ALLOCATION == 1 )
++BaseType_t xTaskCreateRestrictedStaticPinnedToCore( const TaskParameters_t * const params,
++    TaskHandle_t *handle, BaseType_t core ) PRIVILEGED_FUNCTION;
++#endif
++
+ /* *INDENT-OFF* */
+ #ifdef __cplusplus
+     }
