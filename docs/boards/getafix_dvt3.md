@@ -154,6 +154,32 @@ QSPI DMA, the vendor drivers, or the real devices. The core was also run under
 AddressSanitizer/UBSan (leak detection disabled because the sandbox's ptrace
 prevents LeakSanitizer from working).
 
+## Native kernel prerequisite check
+
+The vendor RTOS's disabled MPU path initially failed compilation. The patch in
+`boards/getafix/tuya/patches/` fixes task-wrapper attributes, restricted-task
+creation's missing core-affinity argument, and conflicting spinlock sections.
+After building the bring-up SDK once, run:
+
+```sh
+python tools/check_tuya_kernel.py --sdk /path/to/TuyaOpen --out /tmp/tuya-kernel-check
+python -m unittest discover -s tools/tests -p 'test_tuya_kernel.py' -v
+```
+
+The check copies the pinned kernel, applies the patch only to that copy, and
+compiles all ten RTOS sources twice, with MPU disabled and enabled. It refuses
+modified SDK kernel inputs and never changes the SDK or creates firmware. The
+20 compilations pass with the pinned GCC 10.3 toolchain. This does **not** test
+context switching, a linker layout, memory isolation, or a bootable PebbleOS.
+
+The stock vendor build uses two scheduler cores, a different SVC numbering
+scheme, three configurable MPU regions plus an automatic stack region, and TLS
+slot 1 for pthreads. Pebble uses that TLS slot for syscall SP and assumes its own
+context layout and single-core scheduling. Those contracts still require an
+explicit integration; enabling MPU alone is not a safe port. Details are in
+`boards/getafix/tuya/patches/README.md`. The ordinary bring-up build deliberately
+does not apply this experimental patch or change its RTOS configuration.
+
 ## Remaining PebbleOS integration
 
 The bring-up backend is not connected to `src/fw/main.c` or Pebble's services.

@@ -1,0 +1,87 @@
+--- a/t5_os/ap/components/os_source/freertos_smp_v2p0/FreeRTOS-Kernel/include/freertos/task.h
++++ b/t5_os/ap/components/os_source/freertos_smp_v2p0/FreeRTOS-Kernel/include/freertos/task.h
+@@ -386,13 +386,13 @@
+ 											   UBaseType_t uxPriority,
+ 											   TaskHandle_t * const pvCreatedTask,
+ 											   const BaseType_t xCoreID );
+-    static inline __attribute__( ( always_inline ) )
++    static inline __attribute__( ( always_inline ) ) PRIVILEGED_FUNCTION
+     BaseType_t xTaskCreate( TaskFunction_t pxTaskCode,
+                             const char * const pcName, /*lint !e971 Unqualified char types are allowed for strings and single characters only. */
+                             const configSTACK_DEPTH_TYPE usStackDepth,
+                             void * const pvParameters,
+                             UBaseType_t uxPriority,
+-                            TaskHandle_t * const pxCreatedTask ) PRIVILEGED_FUNCTION
++                            TaskHandle_t * const pxCreatedTask )
+     {
+         /*
+          * Call the "PinnedToCore" version with tskNO_AFFINITY to create
+@@ -523,14 +523,14 @@
+ 													   const BaseType_t xCoreID );	//@cyg:TODO:Move out from xTaskCreateStatic for build
+ 
+ #if ( configSUPPORT_STATIC_ALLOCATION == 1 )
+-    static inline __attribute__( ( always_inline ) )
++    static inline __attribute__( ( always_inline ) ) PRIVILEGED_FUNCTION
+     TaskHandle_t xTaskCreateStatic( TaskFunction_t pxTaskCode,
+                                     const char * const pcName, /*lint !e971 Unqualified char types are allowed for strings and single characters only. */
+                                     const uint32_t ulStackDepth,
+                                     void * const pvParameters,
+                                     UBaseType_t uxPriority,
+                                     StackType_t * const puxStackBuffer,
+-                                    StaticTask_t * const pxTaskBuffer ) PRIVILEGED_FUNCTION
++                                    StaticTask_t * const pxTaskBuffer )
+     {
+         /*
+          * Call the "PinnedToCore" version with tskNO_AFFINITY to create
+--- a/t5_os/ap/components/os_source/freertos_smp_v2p0/FreeRTOS-Kernel/tasks.c
++++ b/t5_os/ap/components/os_source/freertos_smp_v2p0/FreeRTOS-Kernel/tasks.c
+@@ -484,7 +484,13 @@
+ 
+ /* Spinlock required for SMP critical sections. This lock protects all of the
+  * kernel's data structures such as various tasks lists, flags, and tick counts. */
+-PRIVILEGED_DATA static SPINLOCK_SECTION portMUX_TYPE xKernelLock = portMUX_INITIALIZER_UNLOCKED;
++/* The spinlock needs the vendor SRAM placement. The linker/MPU layout
++ * must keep that section privileged; GCC cannot assign two sections. */
++#if CONFIG_SPINLOCK_SECTION
++static SPINLOCK_SECTION portMUX_TYPE xKernelLock = portMUX_INITIALIZER_UNLOCKED;
++#else
++PRIVILEGED_DATA static portMUX_TYPE xKernelLock = portMUX_INITIALIZER_UNLOCKED;
++#endif
+ 
+ /*lint -restore */
+ 
+@@ -837,7 +843,7 @@
+                                   pxTaskDefinition->pvParameters,
+                                   pxTaskDefinition->uxPriority,
+                                   pxCreatedTask, pxNewTCB,
+-                                  pxTaskDefinition->xRegions );
++                                  pxTaskDefinition->xRegions, tskNO_AFFINITY );
+ 
+             prvAddNewTaskToReadyList( pxNewTCB );
+             xReturn = pdPASS;
+@@ -888,7 +894,7 @@
+                                       pxTaskDefinition->pvParameters,
+                                       pxTaskDefinition->uxPriority,
+                                       pxCreatedTask, pxNewTCB,
+-                                      pxTaskDefinition->xRegions );
++                                      pxTaskDefinition->xRegions, tskNO_AFFINITY );
+ 
+                 prvAddNewTaskToReadyList( pxNewTCB );
+                 xReturn = pdPASS;
+--- a/t5_os/ap/components/os_source/freertos_smp_v2p0/FreeRTOS-Kernel/timers.c
++++ b/t5_os/ap/components/os_source/freertos_smp_v2p0/FreeRTOS-Kernel/timers.c
+@@ -150,7 +150,13 @@
+ 
+ /* Spinlock required in SMP when accessing the timers. For now we use a single lock
+  * Todo: Each timer could possible have its own lock for increased granularity. */
+-    PRIVILEGED_DATA static SPINLOCK_SECTION portMUX_TYPE xTimerLock = portMUX_INITIALIZER_UNLOCKED;
++    /* The spinlock needs the vendor SRAM placement. The linker/MPU layout
++ * must keep that section privileged; GCC cannot assign two sections. */
++#if CONFIG_SPINLOCK_SECTION
++static SPINLOCK_SECTION portMUX_TYPE xTimerLock = portMUX_INITIALIZER_UNLOCKED;
++#else
++PRIVILEGED_DATA static portMUX_TYPE xTimerLock = portMUX_INITIALIZER_UNLOCKED;
++#endif
+ 
+ /*lint -restore */
+ 
