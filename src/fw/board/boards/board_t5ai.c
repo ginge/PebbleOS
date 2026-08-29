@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "board/board.h"
 #include <cmsis_core.h>
+#include <pbl/drivers/watchdog.h>
 
 static UARTDeviceState s_dbg_uart_state;
 static UARTDevice s_dbg_uart_device = {
@@ -27,5 +28,8 @@ const BoardConfigButton BOARD_CONFIG_BUTTON = {
 };
 const BoardConfigPower BOARD_CONFIG_POWER = {.low_power_threshold = 5};
 const BoardConfigActuator BOARD_CONFIG_VIBE = {.ctl = {.pin = UINT8_MAX}};
-void board_early_init(void) {}
+void board_early_init(void) {
+  watchdog_init();
+  watchdog_start();
+}
 void board_init(void) {}

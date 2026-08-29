@@ -307,6 +307,18 @@ elif bld.env.CONFIG_QEMU:
             'pbl_includes',
         ],
     )
+elif bld.env.CONFIG_SOC_T5AI:
+    bld.objects(
+        name='driver_task_watchdog',
+        source=[
+            'task_watchdog.c',
+        ],
+        use=[
+            'freertos',
+            'fw_includes',
+            'pbl_includes',
+        ],
+    )
 
 if bld.env.CONFIG_TOUCH:
     bld.recurse('touch')

@@ -12,6 +12,8 @@ elif bld.env.CONFIG_WATCHDOG_NRF5:
 elif bld.env.CONFIG_WATCHDOG_SF32LB:
     sources.append('sf32lb.c')
     use.append('hal_sifli')
+elif bld.env.CONFIG_WATCHDOG_T5AI:
+    sources.append('t5ai.c')
 
 bld.objects(
     name='driver_watchdog',

@@ -66,6 +66,11 @@ static uint32_t s_pause_ticks_remaining = 0;
 #elif defined(CONFIG_QEMU)
 #define WATCHDOG_FREERTOS_IRQn        WATCHDOG_IRQn
 #define WATCHDOG_FREERTOS_IRQHandler  WATCHDOG_IRQHandler
+#elif defined(CONFIG_SOC_T5AI)
+// LIN is not populated on Getafix DVT3; reserve its NVIC line as the
+// task-watchdog's low-priority software interrupt.
+#define WATCHDOG_FREERTOS_IRQn        LIN_IRQn
+#define WATCHDOG_FREERTOS_IRQHandler  LIN_IRQHandler
 #else
 #define WATCHDOG_FREERTOS_IRQn        CAN2_SCE_IRQn
 #define WATCHDOG_FREERTOS_IRQHandler  CAN2_SCE_IRQHandler
@@ -316,6 +321,7 @@ void task_watchdog_resume(void) {
 }
 
 void task_watchdog_step_elapsed_time_ms(uint32_t elapsed_ms) {
+  (void)elapsed_ms;
   prv_task_watchdog_feed();
 }
 
