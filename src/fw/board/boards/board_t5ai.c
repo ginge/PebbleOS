@@ -22,8 +22,12 @@ const BoardConfig BOARD_CONFIG = {.backlight_on_percent = 20};
 const BoardConfigButton BOARD_CONFIG_BUTTON = {
     .buttons =
         {
-            [BUTTON_ID_BACK] = {.name = "Back", .pin = 18, .active_high = false},
-            [BUTTON_ID_SELECT] = {.name = "Select", .pin = 12, .active_high = false},
+            [BUTTON_ID_BACK] = {.name = "Back", .pin = 18, .pull = GPIO_PuPd_UP,
+                                .active_high = false},
+            [BUTTON_ID_UP] = {.name = "Up", .pin = UINT8_MAX},
+            [BUTTON_ID_SELECT] = {.name = "Select", .pin = 12,
+                                  .pull = GPIO_PuPd_UP, .active_high = false},
+            [BUTTON_ID_DOWN] = {.name = "Down", .pin = UINT8_MAX},
         },
 };
 const BoardConfigPower BOARD_CONFIG_POWER = {.low_power_threshold = 5};

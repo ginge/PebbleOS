@@ -94,12 +94,14 @@ Audit common Getafix code for peripherals that DVT3 does not have. Select generi
 
 Known areas include PMIC, magnetometer, vibration/haptics, ambient-light assumptions, button topology, display transport, and charger detection. The generic provisional battery curve must be calibrated when hardware is available.
 
-### 6. GPIO, EXTI, and buttons — GPIO/EXTI implemented, buttons remain
+### 6. GPIO, EXTI, and buttons — implemented, hardware validation pending
 
 Native T5AI GPIO input, pull, push-pull output, and software open-drain output
 are implemented behind Pebble's GPIO interface. GPIO-backed rising, falling,
-and emulated both-edge interrupts are also implemented. Implement button
-debounce, wake sources, and safe boot pin states next.
+and emulated both-edge interrupts are also implemented. The provisional P18
+Back and P12 Select inputs use a 40 ms FreeRTOS-timer debounce path; absent
+Up/Down buttons are represented explicitly. Confirm the mapping, wake sources,
+and safe boot pin states on hardware.
 
 Board signals recorded from the reference design:
 
