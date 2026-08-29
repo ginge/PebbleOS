@@ -41,6 +41,12 @@ static const I2CSlavePort s_i2c_pcf85063 = {
 };
 I2CSlavePort *const I2C_PCF85063 = &s_i2c_pcf85063;
 
+static const I2CSlavePort s_i2c_cst92xx = {
+    .bus = &s_i2c0_bus,
+    .address = 0x5au,
+};
+I2CSlavePort *const I2C_CST92XX = &s_i2c_cst92xx;
+
 const BoardConfig BOARD_CONFIG = {.backlight_on_percent = 20};
 const BoardConfigButton BOARD_CONFIG_BUTTON = {
     .buttons =

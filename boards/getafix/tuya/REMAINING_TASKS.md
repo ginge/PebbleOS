@@ -141,11 +141,18 @@ Verify all pins from the schematic/BSP before hardware testing.
   policy, deeper sleep/wake, and teardown after hardware validation.
 - Do not expose the vendor framebuffer or UI framework to Pebble applications.
 
-### 9. Touch
+### 9. Touch — initial native path implemented, hardware validation pending
 
-- Implement the CST9217/CST92xx controller using native GPIO/I2C and Pebble input abstractions.
-- Recorded reset pin: P42; confirm interrupt pin and bus address.
-- Handle coordinate mapping, rotation, edge behavior, wake, and gestures needed to substitute for missing Pebble buttons.
+- The CST9217/CST92xx controller is implemented at address `0x5a` using I2C0,
+  P42 reset, validated report framing, and Pebble's touch service. Native
+  466x466 coordinates are range-checked, mirrored to match the module, and
+  mapped into Pebble's 260x260 space; service-level rotation remains intact.
+- No interrupt pin is identified in the module BSP, so the initial driver uses
+  bounded 20 ms polling offloaded to the system task. Confirm interrupt/wake
+  routing before replacing polling or claiming low-power wake support.
+- Validate edge behavior and touch-up reporting on hardware. Add controller
+  gestures only if they preserve Pebble recognizer and button-substitution
+  behavior.
 - Keep classic Pebble button behavior stable for applications.
 
 ### 10. Accelerometer

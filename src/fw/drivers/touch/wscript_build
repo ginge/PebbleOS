@@ -16,6 +16,13 @@ elif bld.env.CONFIG_TOUCH_CST816:
         'driver_gpio',
         'freertos',
     ])
+elif bld.env.CONFIG_TOUCH_CST92XX_T5AI:
+    sources.append('cst92xx/cst92xx_t5ai.c')
+    use.extend([
+        'driver_gpio',
+        'driver_i2c',
+        'freertos',
+    ])
 
 bld.objects(
     name='driver_touch',
