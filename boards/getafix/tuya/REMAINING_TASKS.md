@@ -19,11 +19,18 @@ The current output is not ready to flash. No physical device is available yet, s
 - The target selects the T5AI SoC, STAR-MC1 CPU, and Pebble FreeRTOS.
 - Native configuration succeeds.
 - A minimal CMSIS device header and the exact 64-entry IRQ table from the pinned BSP have been added.
-- Startup, VTOR, SysTick, memory-map, MPU, board-selection, storage-layout, and flash-boundary work is in progress.
-- The native build currently reaches roughly 1175/1775 tasks.
+- Startup, VTOR, SysTick, memory-map, MPU, board selection, and storage layout compile natively.
+- UART0, retained boot state, watchdog, AON RTC, protected-flash translation,
+  the Pebble flash backend, and the native AP-to-CP mailbox flash transport are implemented.
+- The 260x260 compositor framebuffer has a bounded 128 KiB PSRAM region; native
+  PSRAM controller initialization is still required before it can be used safely.
+- The native build compiles all sources and reaches the final link without a RAM overflow.
 - The vendor bridge remains reference code and is not linked into production PebbleOS.
-- The last observed native build failure was the missing `DBG_UART` definition/native UART implementation.
-- The latest full build log is `/tmp/dvt3-native-build.log` if it still exists.
+- The current unresolved symbols are in display/backlight, GPIO/buttons, I2C-backed
+  sensors, battery/ADC, Bluetooth controller transport, platform identity/RNG/stats,
+  and legacy services for hardware DVT3 does not contain.
+- Eighteen Tuya host tests and three Getafix board-selection tests pass.
+- The latest mailbox/flash build log is `/tmp/dvt3-mailbox-build.log` if it still exists.
 
 ## Resume commands
 
@@ -45,7 +52,7 @@ Fix the first real compiler or linker error, rebuild, and repeat. Do not hide fa
 - Preserve DVT2 behavior and shared Pebble abstractions.
 - Do not commit unless explicitly requested.
 
-### 2. Native UART and debug console
+### 2. Native UART and debug console — implemented, hardware validation pending
 
 - Define the DVT3 debug UART through the existing Pebble console/serial interfaces.
 - Implement T5AI pinmux, clocks, baud generation, TX, RX, IRQ handling, and error clearing.
@@ -54,7 +61,7 @@ Fix the first real compiler or linker error, rebuild, and repeat. Do not hide fa
 - Use DMA only when it is a real implementation with correct ownership and cache handling.
 - Remove remaining assumptions that `DBG_UART` is a legacy STM32/Getafix peripheral.
 
-### 3. Native flash controller and storage
+### 3. Native flash controller and storage — implemented, hardware validation pending
 
 - Finish the T5AI flash controller implementation behind Pebble's flash interfaces.
 - Verify erase sizes, write alignment, read behavior, XIP/cache coherency, timeouts, and error reporting against authoritative T5AI reference code.
@@ -63,6 +70,12 @@ Fix the first real compiler or linker error, rebuild, and repeat. Do not hide fa
 - Review the experimental DVT3 flash layout before treating it as final.
 - Keep OTA disabled until packaging, metadata, slotting, rollback, and recovery are defined and tested.
 
+The production path now uses Pebble's flash interfaces and a small native BK7258
+mailbox client for the authoritative CP flash server. It does not link the Tuya
+RTOS or application framework. Before enabling destructive tests, verify the
+mailbox register alias, shared-buffer cache coherency, CP availability, erase
+geometry, and the experimental partition boundaries on hardware.
+
 ### 4. SoC bring-up boundary
 
 - Complete reset entry, vector relocation, clock tree, cache/FPU setup, and core initialization using the Pebble startup path.
@@ -70,6 +83,8 @@ Fix the first real compiler or linker error, rebuild, and repeat. Do not hide fa
 - Confirm which T5AI core boots PebbleOS and keep unused cores quiescent.
 - Validate MPU regions, privilege transitions, syscall wrappers, MSPLIM/PSPLIM, and fault handlers.
 - Implement watchdog and low-power entry through existing Pebble services.
+- Implement and validate the remaining native platform primitives: microsecond
+  delay, hardware RNG, device identity/OTP, and runtime CPU statistics.
 - Avoid pulling vendor scheduler/runtime initialization into Pebble startup.
 
 ### 5. Remove legacy Getafix hardware assumptions
@@ -155,6 +170,10 @@ Verify all pins from the schematic/BSP before hardware testing.
 - Add host tests for board selection, memory/layout calculations, protected-block translation, display conversion, touch mapping, and battery conversion where practical.
 - Run DVT2 configure/build after shared-code changes.
 - Keep warnings introduced by DVT3 at zero or document unavoidable toolchain warnings.
+
+Current host baseline: 18 `test_tuya*.py` tests and 3 Getafix board tests pass.
+The full DVT3 build reaches the final link with no unresolved flash or mailbox
+symbols and no internal-RAM overflow.
 
 ### 16. Hardware validation when a device arrives
 
