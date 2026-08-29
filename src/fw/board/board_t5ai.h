@@ -81,6 +81,7 @@ typedef const struct I2CSlavePort I2CSlavePort;
 #include <pbl/drivers/i2c/t5ai.h>
 extern I2CSlavePort *const I2C_PCF85063;
 extern I2CSlavePort *const I2C_CST92XX;
+extern I2CSlavePort *const I2C_QMI8658;
 typedef const struct MicDevice MicDevice;
 typedef const struct AudioDevice AudioDevice;
 typedef const struct HRMDevice HRMDevice;

@@ -155,12 +155,16 @@ Verify all pins from the schematic/BSP before hardware testing.
   behavior.
 - Keep classic Pebble button behavior stable for applications.
 
-### 10. Accelerometer
+### 10. Accelerometer — initial native path implemented, hardware validation pending
 
-- Port QMI8658 through Pebble's accelerometer service.
-- Expected I2C address: `0x6b`; verify on the module.
-- Initial target settings: 4 g range and 125 Hz, then match Pebble subscription/rate semantics.
-- Implement interrupt routing, FIFO handling, timestamps, power modes, and calibration.
+- The QMI8658 is implemented on I2C0 at address `0x6b`, with WHO_AM_I `0x05`
+  validation, 4 g scaling, Pebble sampling-rate negotiation, timestamps, axis
+  rotation, direct peeks, and power-down while unsubscribed.
+- No interrupt pin is identified in the module BSP, so the initial driver uses
+  bounded system-task polling and delivers one sample at a time. Confirm the
+  interrupt routing before adding FIFO batching, wake-on-motion, shake, or
+  double-tap handling.
+- Validate physical axis orientation and calibration on hardware.
 
 ### 11. Battery measurement and charging state
 

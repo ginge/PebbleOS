@@ -27,6 +27,11 @@ config ACCEL_LSM6DSO
     help
       Support for the ST LSM6DSO accelerometer/gyroscope.
 
+config ACCEL_QMI8658_T5AI
+    bool "QST QMI8658 (T5AI)"
+    help
+      Support for the QMI8658 accelerometer on the T5AI board.
+
 endchoice
 
 if ACCEL_LIS2DW12

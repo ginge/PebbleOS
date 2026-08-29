@@ -62,6 +62,8 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertEqual(dvt3["VIBE"], "n")
         self.assertEqual(dvt3["PMIC"], "n")
         self.assertEqual(dvt3["MAG"], "n")
+        self.assertEqual(dvt3["ACCEL_QMI8658_T5AI"], "y")
+        self.assertEqual(dvt3["ACCEL_LIS2DW12"], "n")
 
     def test_original_dvt_keeps_its_haptics(self):
         config = load_config("dvt", "normal")

@@ -13,6 +13,12 @@ elif bld.env.CONFIG_ACCEL_LIS2DW12:
     accel_sources.append('lis2dw12/lis2dw12.c')
 elif bld.env.CONFIG_ACCEL_LSM6DSO:
     accel_sources.append('lsm6dso/lsm6dso.c')
+elif bld.env.CONFIG_ACCEL_QMI8658_T5AI:
+    accel_sources.append('qmi8658/qmi8658_t5ai.c')
+    accel_use.extend([
+        'driver_i2c',
+        'freertos',
+    ])
 
 if accel_sources:
     bld.objects(
