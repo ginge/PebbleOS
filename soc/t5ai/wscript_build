@@ -6,4 +6,6 @@ bld.objects(
     use=['fw_includes'],
 )
 bld.linker_sources('footer', 'linker.ld')
+bld.linker_sources('memory', 'psram-memory.ld')
 bld.linker_sources('ram-sections', 'retained.ld')
+bld.linker_sources('ram-sections', 'framebuffer.ld')

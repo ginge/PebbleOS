@@ -33,7 +33,15 @@ PBL_LOG_MODULE_DEFINE(service_compositor, CONFIG_SERVICE_COMPOSITOR_LOG_LEVEL);
 // are for the top-left corner, but can easily be translated to the other corners. This is used by
 
 //! This is our root framebuffer that everything gets composited into.
+#ifdef CONFIG_SOC_T5AI
+// The 260x260 ARGB2222 backing store is larger than the free internal AP
+// SRAM once the 4x application ABI is reserved.  DVT3 has dedicated PSRAM;
+// its native early-init path must make this region usable before
+// compositor_init() clears it.
+static FrameBuffer s_framebuffer __attribute__((section(".t5ai_framebuffer"), aligned(32)));
+#else
 static FrameBuffer s_framebuffer;
+#endif
 
 typedef enum {
   //! Render the app with no transparent modals straight through
