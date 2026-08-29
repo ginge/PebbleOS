@@ -127,12 +127,18 @@ Verify all pins from the schematic/BSP before hardware testing.
   routing has not been confirmed. Pebble alarm timing continues to use the AON
   counter without claiming hardware wake support.
 
-### 8. Display
+### 8. Display — initial native path implemented, hardware validation pending
 
-- Implement the QSPI0 transport and CO5300 panel initialization.
-- Recorded panel parameters: 466x466, probable visible offset 6, reset P29; verify against the exact module BSP.
-- Preserve Pebble's 260x260 ARGB2222 rendering contract and convert/scale/position into the panel's RGB565/native format at the display boundary.
-- Define framebuffer ownership, dirty-region updates, DMA/cache rules, rotation, brightness, sleep/wake, and teardown.
+- Native QSPI0 and the pinned CO5300 initialization sequence are implemented
+  for the exact module parameters: 466x466, X offset 6, reset P29, mode 0 at
+  80 MHz. Validate the clock, pin drive, reset timing, and panel response.
+- Pebble's 260x260 ARGB2222 contract is preserved. A bounded 932-byte scanline
+  buffer converts to big-endian RGB565 and nearest-neighbor scales dirty rows
+  at the display boundary, including software 180-degree rotation.
+- The initial transport is deliberately synchronous and FIFO-driven; it avoids
+  claiming DMA/cache ownership before those paths are proven. Add asynchronous
+  DMA, transfer timeout recovery, optimized dirty-region batching, brightness
+  policy, deeper sleep/wake, and teardown after hardware validation.
 - Do not expose the vendor framebuffer or UI framework to Pebble applications.
 
 ### 9. Touch

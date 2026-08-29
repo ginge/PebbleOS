@@ -15,6 +15,9 @@ elif bld.env.CONFIG_DISPLAY_SHARP_LS013B7DH01_NRF5:
         'driver_gpio',
         'hal_nordic',
     ])
+elif bld.env.CONFIG_DISPLAY_CO5300_T5AI:
+    sources.append('t5ai/display_co5300.c')
+    use.append('driver_gpio')
 
 bld.objects(
     name='driver_display',
