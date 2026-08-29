@@ -22,7 +22,7 @@ The current output is not ready to flash. No physical device is available yet, s
 - Startup, VTOR, SysTick, memory-map, MPU, board selection, and storage layout compile natively.
 - UART0, retained boot state, watchdog, AON RTC, protected-flash translation,
   the Pebble flash backend, the native AP-to-CP mailbox flash transport, and
-  native GPIO are implemented.
+  native GPIO and EXTI are implemented.
 - The 260x260 compositor framebuffer has a bounded 128 KiB PSRAM region; native
   PSRAM controller initialization is still required before it can be used safely.
 - The native build compiles all sources and reaches the final link without a RAM overflow.
@@ -94,10 +94,11 @@ Audit common Getafix code for peripherals that DVT3 does not have. Select generi
 
 Known areas include PMIC, magnetometer, vibration/haptics, ambient-light assumptions, button topology, display transport, and charger detection. The generic provisional battery curve must be calibrated when hardware is available.
 
-### 6. GPIO, EXTI, and buttons — GPIO implemented, EXTI/buttons remain
+### 6. GPIO, EXTI, and buttons — GPIO/EXTI implemented, buttons remain
 
 Native T5AI GPIO input, pull, push-pull output, and software open-drain output
-are implemented behind Pebble's GPIO interface. Implement interrupt support,
+are implemented behind Pebble's GPIO interface. GPIO-backed rising, falling,
+and emulated both-edge interrupts are also implemented. Implement button
 debounce, wake sources, and safe boot pin states next.
 
 Board signals recorded from the reference design:

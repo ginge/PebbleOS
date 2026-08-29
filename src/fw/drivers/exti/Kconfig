@@ -21,6 +21,12 @@ config EXTI_SF32LB
     help
       Support for the SiFli SF32LB external interrupt controller.
 
+config EXTI_T5AI
+    bool "T5AI external interrupts"
+    default y if SOC_T5AI
+    help
+      Support for BK7258 GPIO-backed external interrupts.
+
 config EXTI_QEMU
     bool "QEMU External Interrupt"
     default y if SOC_QEMU
