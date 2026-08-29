@@ -22,7 +22,7 @@ The current output is not ready to flash. No physical device is available yet, s
 - Startup, VTOR, SysTick, memory-map, MPU, board selection, and storage layout compile natively.
 - UART0, retained boot state, watchdog, AON RTC, protected-flash translation,
   the Pebble flash backend, the native AP-to-CP mailbox flash transport, and
-  native GPIO and EXTI are implemented.
+  native GPIO, EXTI, buttons, and I2C0 are implemented.
 - The 260x260 compositor framebuffer has a bounded 128 KiB PSRAM region; native
   PSRAM controller initialization is still required before it can be used safely.
 - The native build compiles all sources and reaches the final link without a RAM overflow.
@@ -112,10 +112,10 @@ Board signals recorded from the reference design:
 
 Verify all pins from the schematic/BSP before hardware testing.
 
-### 7. I2C and RTC
+### 7. I2C and RTC — I2C implemented, external RTC remains
 
-- Implement native I2C with timeouts, bus recovery, and Pebble locking semantics.
-- Bring up I2C0 on SCL P20 / SDA P21, subject to schematic verification.
+- Native I2C0 uses SCL P20 / SDA P21 with controller timeouts, reset recovery,
+  repeated-start reads, and Pebble locking semantics; validate on hardware.
 - Port the PCF85063 RTC at address `0x51` through Pebble's RTC/time service.
 - Test oscillator status, alarm/interrupt behavior, coherent reads, and time retention later on hardware.
 

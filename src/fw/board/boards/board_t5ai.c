@@ -2,6 +2,7 @@
 #include "board/board.h"
 #include <cmsis_core.h>
 #include <pbl/drivers/watchdog.h>
+#include <pbl/drivers/i2c.h>
 
 static UARTDeviceState s_dbg_uart_state;
 static UARTDevice s_dbg_uart_device = {
@@ -17,6 +18,22 @@ static UARTDevice s_dbg_uart_device = {
 
 UARTDevice *const DBG_UART = &s_dbg_uart_device;
 IRQ_MAP(UART0, uart_irq_handler, DBG_UART)
+
+static I2CBusState s_i2c0_state;
+static const I2CBusHal s_i2c0_hal = {
+    .base = 0x45850000u,
+    .irqn = I2C0_IRQn,
+    .frequency = 400000u,
+    .scl_pin = 20u,
+    .sda_pin = 21u,
+};
+static I2CBus s_i2c0_bus = {
+    .state = &s_i2c0_state,
+    .hal = &s_i2c0_hal,
+    .name = "i2c0",
+};
+I2CBus *const I2C0_BUS = &s_i2c0_bus;
+IRQ_MAP(I2C0, i2c_irq_handler, I2C0_BUS)
 
 const BoardConfig BOARD_CONFIG = {.backlight_on_percent = 20};
 const BoardConfigButton BOARD_CONFIG_BUTTON = {
@@ -36,4 +53,6 @@ void board_early_init(void) {
   watchdog_init();
   watchdog_start();
 }
-void board_init(void) {}
+void board_init(void) {
+  i2c_init(I2C0_BUS);
+}

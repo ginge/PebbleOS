@@ -10,6 +10,9 @@ if bld.env.CONFIG_I2C_NRF5:
 elif bld.env.CONFIG_I2C_SF32LB:
     use.append('hal_sifli')
     sources.append('sf32lb.c')
+elif bld.env.CONFIG_I2C_T5AI:
+    use.extend(['driver_gpio', 'pbl_includes'])
+    sources.append('t5ai.c')
 
 bld.objects(
     name='driver_i2c',

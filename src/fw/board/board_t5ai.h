@@ -77,6 +77,8 @@ typedef const struct UARTDevice UARTDevice;
 extern UARTDevice *const DBG_UART;
 typedef const struct I2CBus I2CBus;
 typedef const struct I2CSlavePort I2CSlavePort;
+#include <pbl/drivers/i2c/definitions.h>
+#include <pbl/drivers/i2c/t5ai.h>
 typedef const struct MicDevice MicDevice;
 typedef const struct AudioDevice AudioDevice;
 typedef const struct HRMDevice HRMDevice;

@@ -168,8 +168,13 @@ void i2c_reset(I2CSlavePort *slave) {
 }
 
 bool i2c_bitbang_recovery(I2CSlavePort *slave) {
+#ifdef CONFIG_SOC_T5AI
+  PBL_ASSERTN(slave);
+  return i2c_hal_bitbang_recovery(slave->bus);
+#else
   PBL_LOG_ERR("I2C bitbang recovery not supported on this platform");
   return false;
+#endif
 }
 
 /*--------------------DATA TRANSFER FUNCTIONS--------------------------*/
