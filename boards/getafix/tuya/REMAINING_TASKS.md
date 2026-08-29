@@ -22,7 +22,8 @@ The current output is not ready to flash. No physical device is available yet, s
 - Startup, VTOR, SysTick, memory-map, MPU, board selection, and storage layout compile natively.
 - UART0, retained boot state, watchdog, AON RTC, protected-flash translation,
   the Pebble flash backend, the native AP-to-CP mailbox flash transport, and
-  native GPIO, EXTI, buttons, and I2C0 are implemented.
+  native GPIO, EXTI, buttons, I2C0, and external PCF85063 wall-clock support
+  are implemented.
 - The 260x260 compositor framebuffer has a bounded 128 KiB PSRAM region; native
   PSRAM controller initialization is still required before it can be used safely.
 - The native build compiles all sources and reaches the final link without a RAM overflow.
@@ -112,12 +113,19 @@ Board signals recorded from the reference design:
 
 Verify all pins from the schematic/BSP before hardware testing.
 
-### 7. I2C and RTC — I2C implemented, external RTC remains
+### 7. I2C and RTC — implemented, hardware validation pending
 
 - Native I2C0 uses SCL P20 / SDA P21 with controller timeouts, reset recovery,
   repeated-start reads, and Pebble locking semantics; validate on hardware.
-- Port the PCF85063 RTC at address `0x51` through Pebble's RTC/time service.
-- Test oscillator status, alarm/interrupt behavior, coherent reads, and time retention later on hardware.
+- The PCF85063 at address `0x51` seeds Pebble wall-clock time after I2C0 starts
+  and is updated by `rtc_set_time`; stopped, 12-hour, oscillator-stop, invalid
+  BCD, and inconsistent calendar values are rejected without corrupting the
+  retained AON-derived clock.
+- The T5AI AON counter remains the monotonic/subsecond source so routine time
+  reads do not block on I2C. Test coherent reads and time retention on hardware.
+- The external RTC alarm output is not enabled because its MCU interrupt/wake
+  routing has not been confirmed. Pebble alarm timing continues to use the AON
+  counter without claiming hardware wake support.
 
 ### 8. Display
 

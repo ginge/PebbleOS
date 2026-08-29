@@ -79,6 +79,7 @@ typedef const struct I2CBus I2CBus;
 typedef const struct I2CSlavePort I2CSlavePort;
 #include <pbl/drivers/i2c/definitions.h>
 #include <pbl/drivers/i2c/t5ai.h>
+extern I2CSlavePort *const I2C_PCF85063;
 typedef const struct MicDevice MicDevice;
 typedef const struct AudioDevice AudioDevice;
 typedef const struct HRMDevice HRMDevice;

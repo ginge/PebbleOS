@@ -35,6 +35,12 @@ static I2CBus s_i2c0_bus = {
 I2CBus *const I2C0_BUS = &s_i2c0_bus;
 IRQ_MAP(I2C0, i2c_irq_handler, I2C0_BUS)
 
+static const I2CSlavePort s_i2c_pcf85063 = {
+    .bus = &s_i2c0_bus,
+    .address = 0x51u,
+};
+I2CSlavePort *const I2C_PCF85063 = &s_i2c_pcf85063;
+
 const BoardConfig BOARD_CONFIG = {.backlight_on_percent = 20};
 const BoardConfigButton BOARD_CONFIG_BUTTON = {
     .buttons =
