@@ -11,6 +11,8 @@ elif bld.env.CONFIG_RTC_NRF5:
 elif bld.env.CONFIG_RTC_SF32LB:
     sources.append('sf32lb.c')
     use.append('hal_sifli')
+elif bld.env.CONFIG_RTC_T5AI:
+    sources.append('t5ai.c')
 
 bld.objects(
     name='driver_rtc',
