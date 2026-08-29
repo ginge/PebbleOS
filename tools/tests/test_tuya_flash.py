@@ -10,6 +10,67 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class TuyaFlashTest(unittest.TestCase):
     @unittest.skipUnless(shutil.which("cc"), "host C compiler required")
+    def test_flash_backend_bounds_chunking_and_protection(self):
+        source = r'''
+#include <assert.h>
+#include <stdint.h>
+#include <string.h>
+#include "system/status_codes.h"
+
+static uint8_t storage[0x800000];
+static unsigned reads, writes, erases;
+
+status_t t5ai_flash_ipc_init(void) { memset(storage, 0xff, sizeof(storage)); return S_SUCCESS; }
+status_t t5ai_flash_ipc_read(uint32_t offset, void *buffer, size_t length) {
+  assert(length <= 0x200); reads++; memcpy(buffer, storage + offset, length); return S_SUCCESS;
+}
+status_t t5ai_flash_ipc_write(uint32_t offset, const void *buffer, size_t length) {
+  assert(length <= 0x100); writes++; memcpy(storage + offset, buffer, length); return S_SUCCESS;
+}
+status_t t5ai_flash_ipc_erase_4k(uint32_t offset) {
+  assert((offset & 0xfff) == 0); erases++; memset(storage + offset, 0xff, 0x1000); return S_SUCCESS;
+}
+
+#include "src/fw/drivers/flash/t5ai.c"
+
+int main(void) {
+  const uint32_t base = FLASH_REGION_BASE_ADDRESS;
+  uint8_t input[600], output[600];
+  memset(input, 0x5a, sizeof(input));
+  assert(flash_impl_init(false) == S_SUCCESS);
+  assert(flash_impl_read_sync(output, base, sizeof(output)) == S_SUCCESS && reads == 2);
+  assert(flash_impl_write_page_begin(input, FLASH_REGION_FIRMWARE_SLOT_0_BEGIN - 1, 1) == E_INVALID_OPERATION);
+  assert(flash_impl_write_page_begin(input, FLASH_REGION_FILESYSTEM_BEGIN + 250, sizeof(input)) == 6);
+  assert(writes == 1 && flash_impl_get_write_status() == S_SUCCESS);
+  assert(flash_impl_write_protect(FLASH_REGION_FILESYSTEM_BEGIN, FLASH_REGION_FILESYSTEM_BEGIN + 0xfff) == S_SUCCESS);
+  assert(flash_impl_write_page_begin(input, FLASH_REGION_FILESYSTEM_BEGIN, 1) == E_INVALID_OPERATION);
+  assert(flash_impl_unprotect() == S_SUCCESS);
+  assert(flash_impl_erase_subsector_begin(FLASH_REGION_FILESYSTEM_BEGIN + 1) == S_SUCCESS && erases == 1);
+  assert(flash_impl_erase_suspend(FLASH_REGION_FILESYSTEM_BEGIN) == S_NO_ACTION_REQUIRED);
+  assert(flash_impl_erase_sector_begin(FLASH_REGION_FILESYSTEM_BEGIN) == S_SUCCESS && erases == 17);
+  assert(flash_impl_read_sync(output, base - 1, 1) == E_INVALID_ARGUMENT);
+  assert(flash_impl_read_sync(output, base + BOARD_NOR_FLASH_SIZE, 1) == E_INVALID_ARGUMENT);
+  return 0;
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            test_source = directory / "test.c"
+            test_source.write_text(source)
+            binary = directory / "test"
+            subprocess.run(
+                [
+                    "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                    "-DCONFIG_SOC_T5AI=1",
+                    "-I", str(ROOT), "-I", str(ROOT / "include"),
+                    "-I", str(ROOT / "src/fw"), str(test_source),
+                    "-o", str(binary),
+                ],
+                check=True,
+            )
+            subprocess.run([str(binary)], check=True)
+
+    @unittest.skipUnless(shutil.which("cc"), "host C compiler required")
     def test_protected_address_translation(self):
         source = r'''
 #include <assert.h>
