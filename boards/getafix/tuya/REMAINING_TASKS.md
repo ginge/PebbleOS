@@ -27,7 +27,7 @@ The current output is not ready to flash. No physical device is available yet, s
 - The native build compiles all sources and reaches the final link without a RAM overflow.
 - The vendor bridge remains reference code and is not linked into production PebbleOS.
 - The current unresolved symbols are in display/backlight, GPIO/buttons, I2C-backed
-  sensors, battery/ADC, Bluetooth controller transport, manufacturing OTP/stats,
+  sensors, battery/ADC, Bluetooth controller transport, manufacturing OTP,
   and legacy services for hardware DVT3 does not contain.
 - Eighteen Tuya host tests and three Getafix board-selection tests pass.
 - The latest mailbox/flash build log is `/tmp/dvt3-mailbox-build.log` if it still exists.
@@ -83,9 +83,8 @@ geometry, and the experimental partition boundaries on hardware.
 - Confirm which T5AI core boots PebbleOS and keep unused cores quiescent.
 - Validate MPU regions, privilege transitions, syscall wrappers, MSPLIM/PSPLIM, and fault handlers.
 - Implement watchdog and low-power entry through existing Pebble services.
-- Validate the native microsecond delay, hardware RNG, and factory device ID on
-  target. Define a safe manufacturing OTP allocation and implement runtime CPU
-  statistics.
+- Validate the native microsecond delay, hardware RNG, factory device ID, and
+  runtime CPU statistics on target. Define a safe manufacturing OTP allocation.
 - Avoid pulling vendor scheduler/runtime initialization into Pebble startup.
 
 ### 5. Remove legacy Getafix hardware assumptions
