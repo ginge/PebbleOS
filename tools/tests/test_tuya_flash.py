@@ -10,6 +10,44 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class TuyaFlashTest(unittest.TestCase):
     @unittest.skipUnless(shutil.which("cc"), "host C compiler required")
+    def test_mailbox_protocol_encoding_and_crc(self):
+        source = r'''
+#include <assert.h>
+#include <stddef.h>
+#include <stdint.h>
+#include "src/fw/drivers/flash/t5ai_flash_ipc.c"
+
+void dcache_flush(const void *address, size_t size) { (void)address; (void)size; }
+void dcache_invalidate(void *address, size_t size) { (void)address; (void)size; }
+
+int main(void) {
+  static const uint8_t vector[] = "123456789";
+  assert(sizeof(T5AIIPCMessage) == 16);
+  assert(sizeof(T5AIFlashCommand) == 16);
+  assert(prv_crc8(vector, sizeof(vector) - 1) == 0xa2);
+  assert(prv_crc32(vector, sizeof(vector) - 1) == 0x2dfd2d88);
+  assert(prv_ipc_address_word(0x2a) == 0x002a5001);
+  assert(prv_ipc_data_word(5, 16, 0xa2) == 0x05a20010);
+  return 0;
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            test_source = directory / "test.c"
+            test_source.write_text(source)
+            binary = directory / "test"
+            subprocess.run(
+                [
+                    "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                    "-I", str(ROOT), "-I", str(ROOT / "include"),
+                    "-I", str(ROOT / "src/fw"), str(test_source),
+                    "-o", str(binary),
+                ],
+                check=True,
+            )
+            subprocess.run([str(binary)], check=True)
+
+    @unittest.skipUnless(shutil.which("cc"), "host C compiler required")
     def test_flash_backend_bounds_chunking_and_protection(self):
         source = r'''
 #include <assert.h>
