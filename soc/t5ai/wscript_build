@@ -2,7 +2,7 @@
 
 bld.objects(
     name='soc',
-    source=['init.c', 'freertos.c', 'retained.c'],
+    source=['init.c', 'freertos.c', 'retained.c', 'flash_translation.c'],
     use=['fw_includes'],
 )
 bld.linker_sources('footer', 'linker.ld')
