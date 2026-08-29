@@ -178,6 +178,16 @@ elif bld.env.CONFIG_SOC_SF32LB52:
             'hal_sifli',
         ],
     )
+elif bld.env.CONFIG_SOC_T5AI:
+    bld.objects(
+        name='driver_mcu',
+        source=[
+            't5ai/mcu.c',
+        ],
+        use=[
+            'fw_includes',
+        ],
+    )
 
 if bld.env.CONFIG_MIC:
     bld.recurse('mic')
