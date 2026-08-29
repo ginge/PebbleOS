@@ -2,15 +2,38 @@
 
 `getafix@dvt3` is the local port for the Waveshare
 [T5-E1-Touch-AMOLED-1.75](https://www.waveshare.com/wiki/T5-E1-Touch-AMOLED-1.75).
-**The peripheral backend and a Tuya SDK bring-up application are implemented;
-the PebbleOS kernel and watch applications are not yet running on this MCU.**
+The peripheral backend and a Tuya SDK bring-up application are implemented.
+The native target now configures independently as `SOC_T5AI` and compiles
+PebbleOS's bundled FreeRTOS 8.2.1 CM33 port for STAR-MC1. It is not yet a
+bootable or hardware-tested watch image.
 No physical board has been tested or flashed as part of this work.
 
-The original DVT2-derived Kconfig files remain as a reference. `pbl configure`,
-`pbl build`, and the `pbl` device runner reject that legacy DVT3/SiFli route,
-including cached DVT3 builds. Never flash old `pebbleos.bin` baseline images to
-this board. DVT and DVT2 are unchanged. DVT3 is not a shipping hardware identity
+DVT3 uses an isolated revision defconfig and does not inherit DVT2's SiFli
+SoC, PMIC, sensors or drivers. `pbl configure --board getafix@dvt3` configures
+the native T5AI target. Never flash a native build until image packaging,
+startup, flash operations and hardware validation are complete. DVT and DVT2 are unchanged. DVT3 is not a shipping hardware identity
 and is excluded from release matrices.
+
+## Native PebbleOS path
+
+The production direction uses Pebble's kernel, task manager, MPU/syscall port,
+services, application loader and filesystem. `soc/t5ai/` supplies only the
+T5AI boot-handoff, memory and timer boundary. The target has an exact 64-entry
+BK7258 AP interrupt table and a minimal CMSIS device definition derived from
+the pinned BSP. The vendor RTOS bridge remains reference work and is not linked
+into the native target.
+
+The native build currently compiles Pebble FreeRTOS and proceeds through more
+than 1,100 firmware build actions. It stops at missing T5AI-specific drivers,
+starting with debug UART and flash. Display, touch, GPIO/I2C, RTC, ADC/charging,
+IMU, Bluetooth HCI, watchdog, flash erase/program and Tuya image packaging must
+be implemented without vendor-RTOS ownership before the ELF is meaningful.
+
+The experimental storage subdivision stays inside the stock AP virtual
+partition and excludes RF, network and Tuya data sectors. It is explicitly
+non-release: firmware update/recovery semantics and CRC-address translation
+are unresolved. Battery percentage uses Pebble's conservative generic curve
+only as a compile-time placeholder; physical cell measurements are required.
 
 ## Implemented hardware path
 

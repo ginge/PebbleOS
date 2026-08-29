@@ -3,7 +3,9 @@
 
 #pragma once
 
-#if defined(CONFIG_QEMU) && defined(CONFIG_CORTEX_M4)
+#if defined(CONFIG_SOC_T5AI)
+#include "pebble/t5ai.h"
+#elif defined(CONFIG_QEMU) && defined(CONFIG_CORTEX_M4)
 #include "pebble/qemu_cm4.h"
 #elif defined(CONFIG_QEMU) && defined(CONFIG_CORTEX_M33)
 #include "pebble/qemu_cm33.h"

@@ -1,5 +1,7 @@
 sources = []
-if bld.env.CONFIG_BOARD_ASTERIX:
+if bld.env.CONFIG_SOC_T5AI:
+    sources.append(bld.path.make_node("startup_cortex_m.c"))
+elif bld.env.CONFIG_BOARD_ASTERIX:
     sources.append(bld.path.make_node("../../../third_party/hal_nordic/nrfx/mdk/system_nrf52840.c"))
     sources.append(bld.path.make_node("startup_cortex_m.c"))
 elif bld.env.CONFIG_BOARD_OBELIX or bld.env.CONFIG_BOARD_GETAFIX:

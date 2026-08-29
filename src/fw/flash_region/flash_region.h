@@ -6,7 +6,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#ifdef CONFIG_FLASH_QEMU
+#ifdef CONFIG_SOC_T5AI
+#include "flash_region_t5ai.h"
+#elif defined(CONFIG_FLASH_QEMU)
 #include "flash_region_qemu.h"
 #elif defined(CONFIG_FLASH_GD25LQ255E)
 #include "flash_region_gd25lq255e.h"
@@ -36,9 +38,11 @@
 #define FLASH_REGION_FIRMWARE_DEST_BEGIN FLASH_REGION_FIRMWARE_SLOT_1_BEGIN
 #define FLASH_REGION_FIRMWARE_DEST_END FLASH_REGION_FIRMWARE_SLOT_1_END
 
-// If we don't have pblboot, use firmware slot to store CD
+// If the platform does not reserve a dedicated coredump region, use the scratch slot.
+#ifndef FLASH_REGION_CD_BEGIN
 #define FLASH_REGION_CD_BEGIN FLASH_REGION_FIRMWARE_DEST_BEGIN
 #define FLASH_REGION_CD_END FLASH_REGION_FIRMWARE_DEST_END
+#endif
 #endif
 
 #define FLASH_REGION_FIRMWARE_DEST_START (FLASH_REGION_FIRMWARE_DEST_BEGIN + FIRMWARE_OFFSET)

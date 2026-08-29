@@ -9,11 +9,14 @@ NO_REVISION = "_"
 
 
 class BoardSpec:
-    def __init__(self, target, name, revision=None, runners=None):
+    def __init__(
+        self, target, name, revision=None, runners=None, isolated_defconfig=False
+    ):
         self.target = target
         self.name = name
         self.revision = revision
         self.runners = runners or []
+        self.isolated_defconfig = isolated_defconfig
 
     @property
     def normalized(self):
@@ -152,4 +155,12 @@ def parse_board(srcdir, target):
     elif revision is not None:
         raise ValueError(f"Board '{board}' does not define revisions")
 
-    return BoardSpec(target, board, revision, load_runners(board_dir, board))
+    manifest, data = _load_manifest(board_dir, board)
+    isolated = data.get("isolated_defconfig_revisions", [])
+    if not isinstance(isolated, list) or any(
+        item not in revisions for item in isolated
+    ):
+        raise ValueError(f"Invalid isolated_defconfig_revisions in {manifest}")
+    return BoardSpec(
+        target, board, revision, load_runners(board_dir, board), revision in isolated
+    )

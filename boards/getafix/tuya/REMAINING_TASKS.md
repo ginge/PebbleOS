@@ -1,0 +1,198 @@
+# Getafix DVT3 native port: remaining tasks
+
+This is the continuation handoff for the native PebbleOS port to the Waveshare T5-E1 Touch AMOLED 1.75 board. Continue on branch `tuya`.
+
+The current output is not ready to flash. No physical device is available yet, so continue source, build, and host-side validation first.
+
+## Port direction
+
+- Use PebbleOS's patched FreeRTOS 8.2.1 ARM Cortex-M33 MPU/syscall port for production.
+- Reuse Pebble startup, task model, MPU layout, services, app loader, filesystem, NimBLE integration, and driver interfaces wherever practical.
+- Use T5AI/vendor reference code only for unavoidable silicon-specific register operations and initialization sequences.
+- Do not bring in the Tuya RTOS or Tuya application framework.
+- Keep `boards/getafix/tuya` as a standalone vendor/reference bring-up target; it must not silently become the production firmware path.
+- Do not add no-op drivers merely to obtain a successful link. Missing hardware should be represented honestly in configuration or implemented behind the existing Pebble interface.
+
+## Current native state
+
+- `getafix@dvt3` has an isolated defconfig and does not inherit the DVT2 SiFli platform.
+- The target selects the T5AI SoC, STAR-MC1 CPU, and Pebble FreeRTOS.
+- Native configuration succeeds.
+- A minimal CMSIS device header and the exact 64-entry IRQ table from the pinned BSP have been added.
+- Startup, VTOR, SysTick, memory-map, MPU, board-selection, storage-layout, and flash-boundary work is in progress.
+- The native build currently reaches roughly 1175/1775 tasks.
+- The vendor bridge remains reference code and is not linked into production PebbleOS.
+- The last observed native build failure was the missing `DBG_UART` definition/native UART implementation.
+- The latest full build log is `/tmp/dvt3-native-build.log` if it still exists.
+
+## Resume commands
+
+```sh
+cd /home/baz/coredevices/pebbleos
+. .venv/bin/activate
+python pbl configure --board getafix@dvt3
+python pbl build
+```
+
+Fix the first real compiler or linker error, rebuild, and repeat. Do not hide failures with placeholder symbols unless the hardware capability is deliberately disabled in Kconfig.
+
+## Remaining work, in recommended order
+
+### 1. Audit the working tree
+
+- Review every uncommitted change on `tuya` before editing.
+- Check for incomplete experiments, accidental generated files, and changes that affect other boards.
+- Preserve DVT2 behavior and shared Pebble abstractions.
+- Do not commit unless explicitly requested.
+
+### 2. Native UART and debug console
+
+- Define the DVT3 debug UART through the existing Pebble console/serial interfaces.
+- Implement T5AI pinmux, clocks, baud generation, TX, RX, IRQ handling, and error clearing.
+- Start with a correct polled TX path if needed for early boot diagnostics.
+- Add interrupt-driven RX through Pebble's existing serial plumbing.
+- Use DMA only when it is a real implementation with correct ownership and cache handling.
+- Remove remaining assumptions that `DBG_UART` is a legacy STM32/Getafix peripheral.
+
+### 3. Native flash controller and storage
+
+- Finish the T5AI flash controller implementation behind Pebble's flash interfaces.
+- Verify erase sizes, write alignment, read behavior, XIP/cache coherency, timeouts, and error reporting against authoritative T5AI reference code.
+- Verify the 34-byte physical / 32-byte logical protected-block CRC translation.
+- Ensure erase and write operations cannot reach the bootloader or vendor calibration sectors.
+- Review the experimental DVT3 flash layout before treating it as final.
+- Keep OTA disabled until packaging, metadata, slotting, rollback, and recovery are defined and tested.
+
+### 4. SoC bring-up boundary
+
+- Complete reset entry, vector relocation, clock tree, cache/FPU setup, and core initialization using the Pebble startup path.
+- Confirm `SystemCoreClock`, SysTick frequency, PendSV/SVC priorities, and FreeRTOS tick behavior.
+- Confirm which T5AI core boots PebbleOS and keep unused cores quiescent.
+- Validate MPU regions, privilege transitions, syscall wrappers, MSPLIM/PSPLIM, and fault handlers.
+- Implement watchdog and low-power entry through existing Pebble services.
+- Avoid pulling vendor scheduler/runtime initialization into Pebble startup.
+
+### 5. Remove legacy Getafix hardware assumptions
+
+Audit common Getafix code for peripherals that DVT3 does not have. Select generic Pebble implementations or explicitly disable unsupported capabilities instead of emulating DVT2 hardware.
+
+Known areas include PMIC, magnetometer, vibration/haptics, ambient-light assumptions, button topology, display transport, and charger detection. The generic provisional battery curve must be calibrated when hardware is available.
+
+### 6. GPIO, EXTI, and buttons
+
+Implement T5AI GPIO and interrupt support behind Pebble interfaces, including debounce, wake sources, and safe boot pin states.
+
+Board signals recorded from the reference design:
+
+- Power latch: P19
+- Amplifier enable: P28; keep disabled until audio is implemented
+- Back/select button candidates: P18 and P12; confirm mapping
+- Charge detect: P30
+
+Verify all pins from the schematic/BSP before hardware testing.
+
+### 7. I2C and RTC
+
+- Implement native I2C with timeouts, bus recovery, and Pebble locking semantics.
+- Bring up I2C0 on SCL P20 / SDA P21, subject to schematic verification.
+- Port the PCF85063 RTC at address `0x51` through Pebble's RTC/time service.
+- Test oscillator status, alarm/interrupt behavior, coherent reads, and time retention later on hardware.
+
+### 8. Display
+
+- Implement the QSPI0 transport and CO5300 panel initialization.
+- Recorded panel parameters: 466x466, probable visible offset 6, reset P29; verify against the exact module BSP.
+- Preserve Pebble's 260x260 ARGB2222 rendering contract and convert/scale/position into the panel's RGB565/native format at the display boundary.
+- Define framebuffer ownership, dirty-region updates, DMA/cache rules, rotation, brightness, sleep/wake, and teardown.
+- Do not expose the vendor framebuffer or UI framework to Pebble applications.
+
+### 9. Touch
+
+- Implement the CST9217/CST92xx controller using native GPIO/I2C and Pebble input abstractions.
+- Recorded reset pin: P42; confirm interrupt pin and bus address.
+- Handle coordinate mapping, rotation, edge behavior, wake, and gestures needed to substitute for missing Pebble buttons.
+- Keep classic Pebble button behavior stable for applications.
+
+### 10. Accelerometer
+
+- Port QMI8658 through Pebble's accelerometer service.
+- Expected I2C address: `0x6b`; verify on the module.
+- Initial target settings: 4 g range and 125 Hz, then match Pebble subscription/rate semantics.
+- Implement interrupt routing, FIFO handling, timestamps, power modes, and calibration.
+
+### 11. Battery measurement and charging state
+
+- Implement the T5AI ADC path for the board voltage divider.
+- Recorded input: P13 / ADC channel 15; verify pinmux and attenuation.
+- Preserve the reference strategy of multiple samples where justified; the current reference uses a 16-sample peak-style reading.
+- Derive voltage and state-of-charge calibration from measurements once a device is available.
+- Implement charge detection from P30 and report it through Pebble's battery service.
+
+### 12. Bluetooth/NimBLE
+
+- Keep Pebble's NimBLE host and Bluetooth services.
+- Implement only the T5AI-specific controller/HCI transport and required clock/IRQ/shared-memory boundary.
+- Ensure the vendor Bluetooth stack and Pebble NimBLE never own the controller simultaneously.
+- Verify pairing, bonding persistence, reconnect, MTU, notifications, and low-power behavior when hardware arrives.
+
+### 13. Audio and optional hardware
+
+- Keep amplifier P28 disabled until the I2S/codec/speaker path is implemented safely.
+- Implement audio only through Pebble's audio interfaces.
+- Explicitly disable any unsupported peripheral rather than retaining a legacy DVT2 driver.
+
+### 14. Image packaging and boot flow
+
+- Determine the exact image header, load/XIP address, CRC/ECC protected-block format, signing requirements, and bootloader expectations.
+- Add a reproducible packaging command to `pbl`/Waf rather than a manual binary patching step.
+- Define recovery before enabling OTA or destructive flash tests.
+- Produce a map-file check that rejects overlap with protected areas.
+
+### 15. Validation possible without hardware
+
+- Reach a clean native compile and link with no unresolved placeholder drivers.
+- Inspect the ELF/map for vector placement, stack/heap, MPU sections, flash/RAM overflow, and accidental vendor runtime linkage.
+- Add host tests for board selection, memory/layout calculations, protected-block translation, display conversion, touch mapping, and battery conversion where practical.
+- Run DVT2 configure/build after shared-code changes.
+- Keep warnings introduced by DVT3 at zero or document unavoidable toolchain warnings.
+
+### 16. Hardware validation when a device arrives
+
+Proceed conservatively: inspect power rails and current limit first, preserve the factory image, identify recovery/boot pins, prove SRAM execution/debug access if possible, then test UART, clocks, flash reads, GPIO, I2C/RTC, display, touch, sensors, Bluetooth, sleep, watchdog, charging, and finally flash writes/packaging.
+
+## Validation commands
+
+```sh
+cd /home/baz/coredevices/pebbleos
+. .venv/bin/activate
+
+python pbl configure --board getafix@dvt3
+python pbl build
+
+python -B -m unittest tools.tests.test_getafix_boards -v
+python -B -m unittest discover -s tools/tests -p 'test_tuya*.py' -v
+
+/tmp/pebble-tuya-venv/bin/ruff check \
+  tools/waf/boards.py \
+  tools/waf/kconfig.py \
+  tools/tests/test_getafix_boards.py
+
+git diff --check
+git status --short --branch
+```
+
+For a DVT2 regression build:
+
+```sh
+python pbl configure --board getafix@dvt2
+python pbl build
+python pbl configure --board getafix@dvt3
+```
+
+Restore DVT3 configuration afterward so the working tree remains ready for this port.
+
+## Reference material
+
+Use the exact pinned Waveshare/Tuya BSP sources already downloaded or recorded by the port work. Prefer schematics, register headers, startup code, linker scripts, and component datasheets over copied application logic. Temporary reference checkouts may be under `/tmp`; recreate them from the documented pinned revisions if they have disappeared.
+
+Before copying code, check its license and keep attribution where required. Translate vendor initialization into small T5AI hardware primitives called from Pebble-owned drivers.

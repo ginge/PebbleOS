@@ -3,7 +3,9 @@
 
 #pragma once
 
-#if defined(CONFIG_QEMU)
+#if defined(CONFIG_SOC_T5AI)
+# include "board_t5ai.h"
+#elif defined(CONFIG_QEMU)
 # include "board_qemu.h"
 #elif defined(CONFIG_SOC_NRF52)
 # include "board_nrf5.h"

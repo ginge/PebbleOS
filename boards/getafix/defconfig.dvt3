@@ -1,4 +1,12 @@
-# getafix dvt3 experimental board revision configuration
-# DVT2 baseline only: see docs/boards/getafix_dvt3.md before using.
+# Getafix DVT3: Waveshare T5-E1 Touch AMOLED 1.75
 
-CONFIG_VIBE_AW86225=y
+CONFIG_SOC_T5AI=y
+CONFIG_PLATFORM_GABBRO=y
+CONFIG_SCREEN_COLOR_DEPTH_BITS_8=y
+CONFIG_DISPLAY=y
+CONFIG_UART=y
+CONFIG_TOUCH=y
+CONFIG_RTC=y
+CONFIG_ACCEL_SENSITIVITY=y
+CONFIG_APP_SCALING=y
+CONFIG_ORIENTATION_MANAGER=y

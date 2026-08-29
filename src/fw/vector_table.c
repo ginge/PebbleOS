@@ -25,6 +25,9 @@ ALIAS("Default_Handler") void HardFault_Handler(void);
 ALIAS("Default_Handler") void MemManage_Handler(void);
 ALIAS("Default_Handler") void BusFault_Handler(void);
 ALIAS("Default_Handler") void UsageFault_Handler(void);
+#if defined(CONFIG_SOC_T5AI)
+ALIAS("Default_Handler") void SecureFault_Handler(void);
+#endif
 ALIAS("Default_Handler") void SVC_Handler(void);
 ALIAS("Default_Handler") void DebugMon_Handler(void);
 ALIAS("Default_Handler") void PendSV_Handler(void);
@@ -32,7 +35,9 @@ ALIAS("Default_Handler") void SysTick_Handler(void);
 
 // External Interrupts
 #define IRQ_DEF(idx, irq) ALIAS("Default_Handler") void irq##_IRQHandler(void);
-#if defined(CONFIG_SOC_NRF52)
+#if defined(CONFIG_SOC_T5AI)
+# include "irq_t5ai.def"
+#elif defined(CONFIG_SOC_NRF52)
 # include "irq_nrf52.def"
 #elif defined(CONFIG_SOC_SF32LB52)
 # include "irq_sf32lb52.def"
@@ -52,7 +57,9 @@ ALIAS("Default_Handler") void SysTick_Handler(void);
   irq##_IRQHandler();\
   profiler_node_stop(&g_profiler_node_##irq##_IRQ, DWT->CYCCNT); \
 }
-#if defined(CONFIG_SOC_NRF52)
+#if defined(CONFIG_SOC_T5AI)
+# include "irq_t5ai.def"
+#elif defined(CONFIG_SOC_NRF52)
 # include "irq_nrf52.def"
 #elif defined(CONFIG_SOC_SF32LB52)
 # include "irq_sf32lb52.def"
@@ -73,7 +80,11 @@ EXTERNALLY_VISIBLE SECTION(".isr_vector") const void * const vector_table[] = {
   MemManage_Handler,
   BusFault_Handler,
   UsageFault_Handler,
+#if defined(CONFIG_SOC_T5AI)
+  SecureFault_Handler,
+#else
   (void *)0x4E65576F, // NeWo, marks image as New World for bootloader
+#endif
   0,
   0,
   0,
@@ -89,7 +100,9 @@ EXTERNALLY_VISIBLE SECTION(".isr_vector") const void * const vector_table[] = {
 #else
 #define IRQ_DEF(idx, irq) [idx + 16] = irq##_IRQHandler,
 #endif
-#if defined(CONFIG_SOC_NRF52)
+#if defined(CONFIG_SOC_T5AI)
+# include "irq_t5ai.def"
+#elif defined(CONFIG_SOC_NRF52)
 # include "irq_nrf52.def"
 #elif defined(CONFIG_SOC_SF32LB52)
 # include "irq_sf32lb52.def"

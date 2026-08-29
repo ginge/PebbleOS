@@ -30,9 +30,9 @@ if bld.env.CONFIG_SOC_SF32LB52:
         'FREERTOS_LAST_MPU_REGION=11',
     ]
 
-# QEMU CM33 does not have vendor-reserved MPU regions, so Pebble's
-# static regions occupy 0..3 and FreeRTOS task regions occupy 4..7.
-if bld.env.CONFIG_QEMU and bld.env.CONFIG_CORTEX_M33:
+# T5AI and QEMU CM33 reserve 0..3 for Pebble's global map; task regions use 4..7.
+if ((bld.env.CONFIG_QEMU and bld.env.CONFIG_CORTEX_M33) or
+        bld.env.CONFIG_SOC_T5AI):
     freertos_defines += [
         'FREERTOS_FIRST_MPU_REGION=4',
         'FREERTOS_LAST_MPU_REGION=7',

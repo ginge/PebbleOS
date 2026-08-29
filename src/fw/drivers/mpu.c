@@ -19,6 +19,8 @@ extern const uint32_t __SRAM_size__[];
 #define SRAM_BASE (0x20000000UL)
 #elif defined(CONFIG_SOC_SF32LB52)
 #define SRAM_BASE (0x20000000UL)
+#elif defined(CONFIG_SOC_T5AI)
+#define SRAM_BASE (CONFIG_SRAM_BASE)
 #endif
 #endif
 #define SRAM_END (SRAM_BASE + (uint32_t)__SRAM_size__)
@@ -34,8 +36,8 @@ void mpu_set_task_configurable_regions(MemoryRegion_t *memory_regions,
   uint32_t base_reg, attr_reg;
 
   // Setup the configurable MPU regions
-  for (region_num=portFIRST_CONFIGURABLE_REGION, region_idx=0; region_num <= portLAST_CONFIGURABLE_REGION;
-            region_num++, region_idx++) {
+  for (region_num = portFIRST_CONFIGURABLE_REGION, region_idx = 0;
+       region_num <= portLAST_CONFIGURABLE_REGION; region_num++, region_idx++) {
     const MpuRegion *mpu_region = region_ptrs[region_idx];
     MpuRegion unused_region = {};
 
@@ -43,7 +45,7 @@ void mpu_set_task_configurable_regions(MemoryRegion_t *memory_regions,
     if (mpu_region == NULL) {
       mpu_region = &unused_region;
       base_reg = 0;
-      attr_reg = 0; // Has a 0 in the enable bit, so this region won't be enabled.
+      attr_reg = 0;  // Has a 0 in the enable bit, so this region won't be enabled.
     } else {
       // Make sure that the region numbers passed in jive with the configurable region numbers.
       PBL_ASSERTN(mpu_region->region_num == region_num);
@@ -63,13 +65,12 @@ void mpu_set_task_configurable_regions(MemoryRegion_t *memory_regions,
     uintptr_t base_address = base_reg & ~(MPU_RBAR_VALID_Msk | MPU_RBAR_REGION_Msk);
 #endif
 
-    memory_regions[region_idx] = (MemoryRegion_t) {
-      .pvBaseAddress = (void *)base_address,
-      .ulLengthInBytes = mpu_region->size,
-      .ulParameters = attr_reg,
+    memory_regions[region_idx] = (MemoryRegion_t){
+        .pvBaseAddress = (void *)base_address,
+        .ulLengthInBytes = mpu_region->size,
+        .ulParameters = attr_reg,
     };
   }
-
 }
 
 bool mpu_memory_is_cachable(const void *addr) {
@@ -87,6 +88,5 @@ void mpu_init_region_from_region(MpuRegion *copy, const MpuRegion *from, bool al
   // Toggle user RW based on which task is about to run.
   PBL_ASSERTN(from->permissions == MpuPermissions_PrivRW);
   *copy = *from;
-  copy->permissions = allow_user_access ? MpuPermissions_PrivRW_UserRW
-                                        : MpuPermissions_PrivRW;
+  copy->permissions = allow_user_access ? MpuPermissions_PrivRW_UserRW : MpuPermissions_PrivRW;
 }

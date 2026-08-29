@@ -4,6 +4,4 @@ config BOARD_GETAFIX_DVT3
     bool
     default y
     help
-      DVT2-derived reference for the Waveshare T5-E1 port.
-      Waf builds are blocked; use tools/build_tuya_hardware.py for
-      peripheral bring-up until the PebbleOS kernel is ported.
+      Waveshare T5-E1 Touch AMOLED 1.75 using PebbleOS FreeRTOS.

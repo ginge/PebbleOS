@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: Apache-2.0
+
+if SOC_T5AI
+
+choice BT_FW
+    default BT_FW_NIMBLE
+endchoice
+
+config FLASH_BASE
+    default 0x02120000
+config FLASH_SIZE
+    default 0x00380000
+config FLASH_OFFSET
+    default 0
+config FW_FLASH_SIZE
+    default 0x001f0000
+config SRAM_BASE
+    default 0x28010000
+config SRAM_SIZE
+    default 0x00056000
+
+endif

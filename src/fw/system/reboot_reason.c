@@ -17,6 +17,10 @@ extern void RTC_WriteBackupRegister(uint32_t reg_id, uint32_t value);
 extern uint32_t RTC_ReadBackupRegister(uint32_t reg_id);
 #endif
 
+#ifdef CONFIG_SOC_T5AI
+#include <pbl/soc/t5ai/retained.h>
+#endif
+
 #include <inttypes.h>
 
 #include "FreeRTOS.h"
@@ -41,6 +45,19 @@ void reboot_reason_set(RebootReason *reason) {
   retained_write(REBOOT_REASON_STUCK_TASK_PC, raw[1]);
   retained_write(REBOOT_REASON_STUCK_TASK_LR, raw[2]);
   retained_write(REBOOT_REASON_STUCK_TASK_CALLBACK, raw[3]);
+#elif defined(CONFIG_SOC_T5AI)
+  uint32_t *raw = (uint32_t *)reason;
+  if (t5ai_retained_read(REBOOT_REASON_REGISTER_1)) {
+    if (!mcu_state_is_isr() && __get_BASEPRI() == 0 &&
+        xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {
+      PBL_LOG_WRN("Reboot reason is already set");
+    }
+    return;
+  }
+  t5ai_retained_write(REBOOT_REASON_REGISTER_1, raw[0]);
+  t5ai_retained_write(REBOOT_REASON_STUCK_TASK_PC, raw[1]);
+  t5ai_retained_write(REBOOT_REASON_STUCK_TASK_LR, raw[2]);
+  t5ai_retained_write(REBOOT_REASON_STUCK_TASK_CALLBACK, raw[3]);
 #elif defined(CONFIG_SOC_SF32LB52)
   uint32_t *raw = (uint32_t*)reason;
 
@@ -84,6 +101,9 @@ void reboot_reason_set_restarted_safely(void) {
 #ifdef CONFIG_SOC_NRF52
   uint32_t* raw = (uint32_t *)&reason;
   retained_write(REBOOT_REASON_REGISTER_1, *raw);
+#elif defined(CONFIG_SOC_T5AI)
+  uint32_t *raw = (uint32_t *)&reason;
+  t5ai_retained_write(REBOOT_REASON_REGISTER_1, *raw);
 #elif defined(CONFIG_SOC_SF32LB52)
   uint32_t* raw = (uint32_t *)&reason;
   HAL_Set_backup(REBOOT_REASON_REGISTER_1, *raw);
@@ -100,6 +120,12 @@ void reboot_reason_get(RebootReason *reason) {
   raw[1] = retained_read(REBOOT_REASON_STUCK_TASK_PC);
   raw[2] = retained_read(REBOOT_REASON_STUCK_TASK_LR);
   raw[3] = retained_read(REBOOT_REASON_STUCK_TASK_CALLBACK);
+#elif defined(CONFIG_SOC_T5AI)
+  uint32_t *raw = (uint32_t *)reason;
+  raw[0] = t5ai_retained_read(REBOOT_REASON_REGISTER_1);
+  raw[1] = t5ai_retained_read(REBOOT_REASON_STUCK_TASK_PC);
+  raw[2] = t5ai_retained_read(REBOOT_REASON_STUCK_TASK_LR);
+  raw[3] = t5ai_retained_read(REBOOT_REASON_STUCK_TASK_CALLBACK);
 #elif defined(CONFIG_SOC_SF32LB52)
   uint32_t *raw = (uint32_t *)reason;
   raw[0] = HAL_Get_backup(REBOOT_REASON_REGISTER_1);
@@ -121,6 +147,11 @@ void reboot_reason_clear(void) {
   retained_write(REBOOT_REASON_STUCK_TASK_PC, 0);
   retained_write(REBOOT_REASON_STUCK_TASK_LR, 0);
   retained_write(REBOOT_REASON_STUCK_TASK_CALLBACK, 0);
+#elif defined(CONFIG_SOC_T5AI)
+  t5ai_retained_write(REBOOT_REASON_REGISTER_1, 0);
+  t5ai_retained_write(REBOOT_REASON_STUCK_TASK_PC, 0);
+  t5ai_retained_write(REBOOT_REASON_STUCK_TASK_LR, 0);
+  t5ai_retained_write(REBOOT_REASON_STUCK_TASK_CALLBACK, 0);
 #elif defined(CONFIG_SOC_SF32LB52)
   HAL_Set_backup(REBOOT_REASON_REGISTER_1, 0);
   HAL_Set_backup(REBOOT_REASON_STUCK_TASK_PC, 0);
@@ -137,6 +168,8 @@ void reboot_reason_clear(void) {
 uint32_t reboot_get_slot_of_last_launched_app(void) {
 #ifdef CONFIG_SOC_NRF52
   return retained_read(SLOT_OF_LAST_LAUNCHED_APP);
+#elif defined(CONFIG_SOC_T5AI)
+  return t5ai_retained_read(SLOT_OF_LAST_LAUNCHED_APP);
 #elif defined(CONFIG_SOC_SF32LB52)
   return HAL_Get_backup(SLOT_OF_LAST_LAUNCHED_APP);
 #elif defined(CONFIG_QEMU)
@@ -147,10 +180,11 @@ uint32_t reboot_get_slot_of_last_launched_app(void) {
 void reboot_set_slot_of_last_launched_app(uint32_t app_slot) {
 #ifdef CONFIG_SOC_NRF52
   retained_write(SLOT_OF_LAST_LAUNCHED_APP, app_slot);
+#elif defined(CONFIG_SOC_T5AI)
+  t5ai_retained_write(SLOT_OF_LAST_LAUNCHED_APP, app_slot);
 #elif defined(CONFIG_SOC_SF32LB52)
   HAL_Set_backup(SLOT_OF_LAST_LAUNCHED_APP, app_slot);
 #elif defined(CONFIG_QEMU)
   RTC_WriteBackupRegister(SLOT_OF_LAST_LAUNCHED_APP, app_slot);
 #endif
 }
-

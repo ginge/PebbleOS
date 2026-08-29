@@ -160,9 +160,10 @@ def configure(conf):
         # Verify the toolchain we're using is allowed. This is to prevent us from
         # accidentally building and releasing firmwares that are built in ways we
         # haven't tested.
-        if not (
-            ("13", "0") <= conf.env.CC_VERSION <= ("14", "2", "1")
-        ) and not conf.options.relax_toolchain_restrictions:
+        if (
+            not (("13", "0") <= conf.env.CC_VERSION <= ("14", "2", "1"))
+            and not conf.options.relax_toolchain_restrictions
+        ):
             TOOLCHAIN_ERROR_MSG = """=== INVALID TOOLCHAIN ===
 Either upgrade your toolchain using the process listed here:
     https://pebbletechnology.atlassian.net/wiki/display/DEV/Firmware+Toolchain
@@ -234,7 +235,7 @@ Or re-configure with the --relax_toolchain_restrictions option. """
     if conf.env.CONFIG_SOC_NRF52:
         args += ["-mcpu=cortex-m4"]
         cpu_fpu = "fpv4-sp-d16"
-    elif conf.env.CONFIG_SOC_SF32LB52:
+    elif conf.env.CONFIG_SOC_SF32LB52 or conf.env.CONFIG_SOC_T5AI:
         args += ["-mcpu=star-mc1"]
         cpu_fpu = "fpv5-sp-d16"
     elif conf.env.CONFIG_QEMU and conf.env.CONFIG_CORTEX_M4:

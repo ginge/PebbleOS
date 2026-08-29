@@ -1,4 +1,8 @@
-if bld.env.CONFIG_BOARD_ASTERIX:
+if bld.env.CONFIG_BOARD_GETAFIX_DVT3:
+    bld.objects(name='board',
+                source=['boards/board_t5ai.c', 'displays/display_getafix.c'],
+                use=['fw_includes', 'freertos', 'drivers'])
+elif bld.env.CONFIG_BOARD_ASTERIX:
     bld.objects(
         name='board',
         source=[

@@ -66,6 +66,16 @@ def load_kconfig(ctx, config_path):
     string values.
     """
     config = {}
+    autoconf_literals = {}
+    autoconf_path = os.path.join(os.path.dirname(config_path), "autoconf.h")
+    if os.path.exists(autoconf_path):
+        with open(autoconf_path) as autoconf:
+            for line in autoconf:
+                match = re.match(
+                    r"^#define (CONFIG_\w+) (0[xX][0-9a-fA-F]+)$", line.strip()
+                )
+                if match:
+                    autoconf_literals[match.group(1)] = match.group(2)
     with open(config_path) as f:
         for line in f:
             line = line.strip()
@@ -79,6 +89,8 @@ def load_kconfig(ctx, config_path):
                     val = val == "y"
                 elif val.startswith('"') and val.endswith('"'):
                     val = val[1:-1]
+                elif key in autoconf_literals:
+                    val = HexInt(autoconf_literals[key])
                 elif val.startswith(("0x", "0X")):
                     val = HexInt(val)
                 else:
@@ -139,9 +151,14 @@ def configure(conf):
     kconf.warn_assign_override = True
     kconf.warn_assign_redun = True
     kconf.warn_assign_undef = True
-    kconf.load_config(defconfig)
-    if board.revision and os.path.exists(revision_defconfig):
-        kconf.load_config(revision_defconfig, replace=False)
+    if board.isolated_defconfig:
+        if not os.path.exists(revision_defconfig):
+            conf.fatal(f"Isolated revision defconfig not found: {revision_defconfig}")
+        kconf.load_config(revision_defconfig)
+    else:
+        kconf.load_config(defconfig)
+        if board.revision and os.path.exists(revision_defconfig):
+            kconf.load_config(revision_defconfig, replace=False)
 
     prj_conf = os.path.join(srcdir, "src", "fw", "prj.conf")
     if os.path.exists(prj_conf):
