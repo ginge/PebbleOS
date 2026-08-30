@@ -93,6 +93,14 @@ geometry, and the experimental partition boundaries on hardware.
 
 Audit common Getafix code for peripherals that DVT3 does not have. Select generic Pebble implementations or explicitly disable unsupported capabilities instead of emulating DVT2 hardware.
 
+DVT3's isolated defconfig explicitly cancels the legacy SiFli peripheral
+selections, including PMIC, haptics, ALS, microphone, magnetometer, legacy
+touch/accelerometer, OTP-flash, PWM, and the AW9364E backlight controller. The
+corresponding Pebble service APIs remain present because the shell and app ABI
+consume them independently of hardware availability; their no-hardware
+behavior must be handled at the service boundary rather than by omitting ABI
+providers.
+
 Known areas include PMIC, magnetometer, vibration/haptics, ambient-light assumptions, button topology, display transport, and charger detection. The generic provisional battery curve must be calibrated when hardware is available.
 
 ### 6. GPIO, EXTI, and buttons — implemented, hardware validation pending

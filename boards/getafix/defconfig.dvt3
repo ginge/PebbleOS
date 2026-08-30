@@ -1,5 +1,32 @@
 # Getafix DVT3: Waveshare T5-E1 Touch AMOLED 1.75
 
+# DVT3 shares the Getafix product identity but none of DVT/DVT2's SiFli
+# peripheral set. Explicitly cancel inherited hardware selections.
+# CONFIG_SOC_SF32LB52 is not set
+# CONFIG_HAL_SIFLI is not set
+# CONFIG_HAL_SIFLI_SF32LB52 is not set
+# CONFIG_PBLBOOT is not set
+# CONFIG_BACKLIGHT_AW9364E is not set
+# CONFIG_VIBE is not set
+# CONFIG_PMIC is not set
+# CONFIG_PMIC_NPM1300 is not set
+# CONFIG_AMBIENT_LIGHT is not set
+# CONFIG_AMBIENT_LIGHT_W1160 is not set
+# CONFIG_ALS_SCREEN_COMPENSATION is not set
+# CONFIG_MIC is not set
+# CONFIG_TEMPERATURE is not set
+# CONFIG_FLASH_GD25Q256E is not set
+# CONFIG_OTP is not set
+# CONFIG_OTP_FLASH is not set
+# CONFIG_BATTERY_PMIC is not set
+# CONFIG_TOUCH_CST816 is not set
+# CONFIG_ACCEL_LIS2DW12 is not set
+# CONFIG_MAG is not set
+# CONFIG_MAG_MMC5603NJ is not set
+# CONFIG_PWM is not set
+# CONFIG_DYNAMIC_BACKLIGHT is not set
+# CONFIG_MODDABLE_XS is not set
+
 CONFIG_SOC_T5AI=y
 CONFIG_PLATFORM_GABBRO=y
 CONFIG_SCREEN_COLOR_DEPTH_BITS_8=y
