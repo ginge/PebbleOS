@@ -2,9 +2,7 @@
 
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/mcu/cache.h>
-
-#include "FreeRTOS.h"
-#include "semphr.h"
+#include <pbl/os/mutex.h>
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -36,7 +34,7 @@ typedef struct {
   void *context;
 } T5AICPMailboxRoute;
 
-static SemaphoreHandle_t s_mutex;
+static PebbleMutex *s_mutex;
 static T5AICPMailboxRoute s_routes[T5AI_MBOX_MAX_ROUTES];
 
 static uint64_t prv_ticks(void) {
@@ -58,18 +56,19 @@ static bool prv_timed_out(uint64_t start) {
 status_t t5ai_cp_mailbox_lock(void) {
   if (s_mutex == NULL) {
     /* Flash initializes the mailbox before concurrent clients are started. */
-    s_mutex = xSemaphoreCreateMutex();
+    s_mutex = mutex_create();
   }
-  SemaphoreHandle_t mutex = s_mutex;
+  PebbleMutex *mutex = s_mutex;
   if (mutex == NULL) {
     return E_OUT_OF_MEMORY;
   }
-  return xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE ? S_SUCCESS : E_BUSY;
+  mutex_lock(mutex);
+  return S_SUCCESS;
 }
 
 void t5ai_cp_mailbox_unlock(void) {
   if (s_mutex != NULL) {
-    (void)xSemaphoreGive(s_mutex);
+    mutex_unlock(s_mutex);
   }
 }
 

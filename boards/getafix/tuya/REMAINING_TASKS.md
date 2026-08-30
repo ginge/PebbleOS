@@ -190,6 +190,8 @@ Verify all pins from the schematic/BSP before hardware testing.
   mailbox dispatcher; enabling it earlier would race the flash/SARADC clients.
 - The physical CP mailbox now has a single native owner and transaction mutex;
   flash and SARADC no longer access or drain its FIFO registers directly.
+- The transaction lock uses Pebble's lightweight mutex abstraction and does not
+  depend on FreeRTOS's deliberately disabled queue-mutex feature.
 - Logical-channel routing now prevents channel `0x11` flash/SARADC waits from
   consuming frames belonging to registered services such as MIPC `0x17`.
 - The vendor-compatible MIPC ABI is now explicit and host-tested: fixed 32-bit
@@ -243,9 +245,9 @@ Verify all pins from the schematic/BSP before hardware testing.
 
 Current host baseline: 29 `test_tuya*.py` tests and 3 Getafix board tests pass.
 The current DVT3 build reaches the final link, where unresolved platform
-integration symbols (including mutex support and disabled legacy services)
-still prevent objcopy and final artifact generation. Flash and mailbox protocol
-symbols are resolved, and there is no internal-RAM overflow.
+integration symbols for disabled legacy services still prevent objcopy and
+final artifact generation. Flash and mailbox symbols are resolved, and there
+is no internal-RAM overflow.
 
 ### 16. Hardware validation when a device arrives
 
