@@ -28,6 +28,35 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertLess(relocate_vectors, enable_irq)
         self.assertIn("(3u << 20u) | (3u << 22u)", initialization)
 
+    def test_t5ai_does_not_inherit_bootloader_scheduler_state(self):
+        initialization = (ROOT / "soc/t5ai/init.c").read_text()
+        disable_irq = initialization.index("__disable_irq()")
+        stop_systick = initialization.index("SysTick->CTRL = 0u")
+        clear_pending = initialization.index("SCB_ICSR_PENDSTCLR_Msk")
+        align_stack = initialization.index("SCB_CCR_STKALIGN_Msk")
+        enable_irq = initialization.index("__enable_irq()")
+        self.assertLess(disable_irq, stop_systick)
+        self.assertLess(stop_systick, clear_pending)
+        self.assertLess(clear_pending, align_stack)
+        self.assertLess(align_stack, enable_irq)
+        self.assertIn("SysTick->LOAD = 0u", initialization)
+        self.assertIn("SysTick->VAL = 0u", initialization)
+        self.assertIn("SCB_ICSR_PENDSVCLR_Msk", initialization)
+
+    def test_t5ai_core_clock_is_an_explicit_systick_contract(self):
+        kconfig = (ROOT / "soc/Kconfig").read_text()
+        initialization = (ROOT / "soc/t5ai/init.c").read_text()
+        port = (ROOT / "soc/t5ai/freertos.c").read_text()
+        self.assertIn("config T5AI_CORE_CLOCK_HZ", kconfig)
+        self.assertIn("default 120000000", kconfig)
+        self.assertIn(
+            "SystemCoreClock = CONFIG_T5AI_CORE_CLOCK_HZ", initialization
+        )
+        self.assertIn(
+            "CONFIG_T5AI_CORE_CLOCK_HZ % RTC_TICKS_HZ == 0u", port
+        )
+        self.assertIn("T5AI_SYSTICK_RELOAD <= SysTick_LOAD_RELOAD_Msk", port)
+
     def test_t5ai_scales_raw_aon_ticks_at_the_rtc_boundary(self):
         interface = (ROOT / "include/pbl/drivers/rtc.h").read_text()
         implementation = (ROOT / "src/fw/drivers/rtc/t5ai.c").read_text()

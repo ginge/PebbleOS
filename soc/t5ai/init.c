@@ -2,7 +2,7 @@
 #include <stdint.h>
 #include <cmsis_core.h>
 
-uint32_t SystemCoreClock = 120000000u;
+uint32_t SystemCoreClock = CONFIG_T5AI_CORE_CLOCK_HZ;
 
 extern uint8_t __ISR_VECTOR_TABLE__[];
 
@@ -16,6 +16,18 @@ void SystemInit(void) {
    * CP11 here. The FreeRTOS port repeats this when it enables lazy FP context
    * preservation, but that is too late for pre-scheduler C code. */
   SCB->CPACR |= (3u << 20u) | (3u << 22u);
+
+  /* Do not inherit scheduler state from the boot stages. soc_early_init()
+   * enables interrupts before FreeRTOS starts, so an enabled or pending
+   * SysTick/PendSV here would vector into handlers that are not ready yet. */
+  SysTick->CTRL = 0u;
+  SysTick->LOAD = 0u;
+  SysTick->VAL = 0u;
+  SCB->ICSR = SCB_ICSR_PENDSTCLR_Msk | SCB_ICSR_PENDSVCLR_Msk;
+
+  /* Pebble and the ARM EABI require 8-byte stack alignment at exception
+   * entry. Make this explicit rather than depending on the bootloader's CCR. */
+  SCB->CCR |= SCB_CCR_STKALIGN_Msk;
 
   SCB->VTOR = (uintptr_t)__ISR_VECTOR_TABLE__;
   __DSB();

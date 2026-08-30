@@ -90,11 +90,21 @@ geometry, and the experimental partition boundaries on hardware.
   cache and clock-tree state remain boot-stage assumptions pending hardware
   validation.
 - Confirm `SystemCoreClock`, SysTick frequency, PendSV/SVC priorities, and FreeRTOS tick behavior.
+- Reset initialization now masks IRQs, stops and clears inherited SysTick
+  state, clears pending SysTick/PendSV exceptions, and enforces eight-byte
+  exception-stack alignment before relocating VTOR. This prevents a boot-stage
+  scheduler interrupt from reaching Pebble before FreeRTOS installs its 1 kHz
+  tick and lowest-priority handlers; validate exception entry on hardware.
 - The raw 32 kHz AON oscillator is now kept private to the T5AI RTC driver and
   scaled to Pebble's 1 kHz `rtc_get_ticks()` contract. This prevents FreeRTOS
   from programming a pathological 32 kHz SysTick while retaining raw-counter
   precision for wall-clock seconds and milliseconds. Confirm oscillator
   accuracy and the resulting 1 kHz scheduler cadence on hardware.
+- The pinned BK7258 120 MHz AP boot setting is now an explicit
+  `T5AI_CORE_CLOCK_HZ` contract instead of an unexplained constant.
+  Compile-time checks require it to divide exactly into the scheduler rate and
+  produce a valid 24-bit SysTick reload. Pebble still does not reprogram or
+  measure that boot-owned clock; confirm it against a hardware timebase.
 - Confirm which T5AI core boots PebbleOS and keep unused cores quiescent.
 - Validate MPU regions, privilege transitions, syscall wrappers, MSPLIM/PSPLIM, and fault handlers.
 - Implement watchdog and low-power entry through existing Pebble services.
@@ -299,7 +309,7 @@ Verify all pins from the schematic/BSP before hardware testing.
   `bounds` warning; no DVT3-port warning appeared in that compatibility build.
 - Keep warnings introduced by DVT3 at zero or document unavoidable toolchain warnings.
 
-Current host baseline: 34 `test_tuya*.py` tests and 3 Getafix board tests pass.
+Current host baseline: 36 `test_tuya*.py` tests and 3 Getafix board tests pass.
 The DVT3 native firmware now compiles and links without unresolved platform
 symbols or internal-RAM overflow. Host-generated ELF, map, raw binary, Intel
 HEX, and protected-block binary artifacts are available for inspection; they

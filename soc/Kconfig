@@ -21,6 +21,15 @@ config SOC_QEMU
 
 endchoice
 
+config T5AI_CORE_CLOCK_HZ
+    int "T5AI application CPU clock"
+    depends on SOC_T5AI
+    default 120000000
+    help
+      Application-core clock established by the BK7258 boot stages. Pebble
+      does not currently reprogram the clock tree, so changing this value also
+      requires a validated boot configuration and matching peripheral timing.
+
 config SOC
     string
     default "NRF52" if SOC_NRF52

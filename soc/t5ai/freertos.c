@@ -10,6 +10,14 @@
 #include <inttypes.h>
 #include <stdio.h>
 
+#define T5AI_SYSTICK_RELOAD \
+  (CONFIG_T5AI_CORE_CLOCK_HZ / RTC_TICKS_HZ - 1u)
+
+_Static_assert(CONFIG_T5AI_CORE_CLOCK_HZ % RTC_TICKS_HZ == 0u,
+               "T5AI core clock must produce an exact FreeRTOS tick");
+_Static_assert(T5AI_SYSTICK_RELOAD <= SysTick_LOAD_RELOAD_Msk,
+               "T5AI FreeRTOS tick does not fit the SysTick reload register");
+
 static RtcTicks s_wfi_ticks;
 static RtcTicks s_last_stats_ticks;
 
