@@ -4,8 +4,16 @@ import unittest
 from pathlib import Path
 
 from tools.t5ai_image import (
+    PEBBLE_EXPERIMENTAL_SLOT_SIZE,
+    PRIMARY_AP_APP_LOGICAL_OFFSET,
+    PRIMARY_AP_APP_LOGICAL_SIZE,
+    PRIMARY_AP_APP_PHYSICAL_OFFSET,
+    PRIMARY_AP_APP_PHYSICAL_SIZE,
+    PRIMARY_AP_APP_XIP_BASE,
     crc16,
+    encode_pebble_application,
     encode_protected_blocks,
+    validate_pinned_ap_layout,
     verify_protected_blocks,
 )
 
@@ -57,6 +65,21 @@ class T5AIImagePackagingTest(unittest.TestCase):
     def test_rejects_truncated_protected_image(self):
         with self.assertRaisesRegex(ValueError, "multiple of 34"):
             verify_protected_blocks(b"\xff" * 33)
+
+    def test_pinned_factory_ap_partition_geometry(self):
+        validate_pinned_ap_layout()
+        self.assertEqual(PRIMARY_AP_APP_PHYSICAL_OFFSET, 0x132000)
+        self.assertEqual(PRIMARY_AP_APP_LOGICAL_OFFSET, 0x120000)
+        self.assertEqual(PRIMARY_AP_APP_XIP_BASE, 0x02120000)
+        self.assertEqual(PRIMARY_AP_APP_PHYSICAL_SIZE, 0x3B8000)
+        self.assertEqual(PRIMARY_AP_APP_LOGICAL_SIZE, 0x380000)
+
+    def test_pebble_payload_is_bounded_below_factory_ap_capacity(self):
+        self.assertLess(PEBBLE_EXPERIMENTAL_SLOT_SIZE, PRIMARY_AP_APP_LOGICAL_SIZE)
+        with self.assertRaisesRegex(ValueError, "exceeds the experimental T5AI slot"):
+            encode_pebble_application(
+                b"\xff" * (PEBBLE_EXPERIMENTAL_SLOT_SIZE + 1)
+            )
 
 
 if __name__ == "__main__":

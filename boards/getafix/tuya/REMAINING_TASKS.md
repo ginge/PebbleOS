@@ -41,7 +41,7 @@ to install the experimental payload.
   NimBLE-to-controller IPC protocol all have native implementations or explicit
   safe disabled states. The Bluetooth controller IPC remains deliberately
   gated until its CP startup and shared-memory behavior are proven on hardware.
-- Thirty-seven Tuya host tests and three Getafix board-selection tests pass.
+- Thirty-nine Tuya host tests and three Getafix board-selection tests pass.
 - Both `getafix@dvt3` and the DVT2 compatibility target configure and build.
   DVT2 retains only its pre-existing stored Golf app unused-variable warning.
 
@@ -63,17 +63,24 @@ implementation.
 
 The broad host-side port is complete. Sections 2 through 13 primarily record
 implemented behavior and the corresponding on-target validation still needed.
-The immediately actionable host work is the audit in section 1 and the
-boot-image/recovery investigation in section 14. Do not enable destructive
+The remaining immediately actionable host work is the boot-image/recovery
+investigation in section 14. Do not enable destructive
 flash testing, OTA, resource-bank writes, or the Bluetooth controller path
 merely to advance the checklist.
 
-### 1. Audit the working tree
+### 1. Audit the working tree — complete; repeat before material changes
 
-- Review every uncommitted change on `tuya` before editing.
-- Check for incomplete experiments, accidental generated files, and changes that affect other boards.
-- Preserve DVT2 behavior and shared Pebble abstractions.
-- Do not commit unless explicitly requested.
+- The tracked tree was audited after the host port reached its clean-link
+  baseline. No untracked source, tracked build output, editor backup, rejected
+  patch, empty tracked file, or exact duplicate was present.
+- The standalone `boards/getafix/tuya` application and kernel patch stack are
+  intentional reference assets: build/check tools, host tests, and the board
+  documentation still exercise them. They are not linked into native PebbleOS
+  and must not be removed merely because the native path now builds.
+- Generated Waf build/lock/cache state, Python/Ruff caches, and generated Python
+  package metadata were removed. The project `.venv` was retained.
+- Recheck the working tree before material changes, preserve DVT2 behavior and
+  shared Pebble abstractions, and do not commit unless explicitly requested.
 
 ### 2. Native UART and debug console — implemented, hardware validation pending
 
@@ -296,16 +303,31 @@ Verify all pins from the schematic/BSP before hardware testing.
 - Implement audio only through Pebble's audio interfaces.
 - Explicitly disable any unsupported peripheral rather than retaining a legacy DVT2 driver.
 
-### 14. Image packaging and boot flow
+### 14. Image packaging and boot flow — pinned host format audited; recovery pending
 
-- Determine the exact image header, load/XIP address, CRC/ECC protected-block format, signing requirements, and bootloader expectations.
+- The pinned `tuya_app` table places 68 KiB primary bootloader, 68 KiB Tuya
+  BL2, and 1088 KiB CP application partitions before the AP. The resulting AP
+  physical offset is `0x132000`; 34:32 translation maps it to logical offset
+  `0x120000` and XIP address `0x02120000`. Its 3808 KiB physical allocation is
+  exactly `0x380000` logical bytes. Host tests enforce these relationships.
+- The official outputs are not interchangeable with Pebble's artifact: QIO is
+  a complete physical-flash image, UA concatenates Tuya BL2 + CP + AP, and UG
+  adds a 64-byte compressed-OTA header. `pebbleos.t5ai-crc.bin` is deliberately
+  an AP-only protected payload with no QIO/UA/UG header and cannot boot or
+  update a factory device by itself.
 - The pinned BK7258 packager's protected-block transform is implemented and
   host-tested: 32 logical bytes, `0xff` tail padding, then a big-endian Beken
   CRC-16 (polynomial `0x8005`, initial value `0xffffffff`). T5AI builds now
-  reproducibly emit `pebbleos.t5ai-crc.bin` in addition to the raw binary.
-- Do not flash that protected payload yet. The factory bootloader's accepted AP
-  partition address/header, CP/AP bundle composition, signing policy, and
-  recovery path are still unverified for the experimental Pebble layout.
+  reproducibly emit `pebbleos.t5ai-crc.bin` in addition to the raw binary. The
+  packager now rejects a raw image larger than the `0x1f0000` experimental slot
+  and verifies that the slot remains inside the pinned factory AP partition.
+- The pinned SDK selects its normal bootloader and its packaging path contains
+  no signing step for this configuration. That does not prove the factory
+  device's OTP/fuse policy or authorize replacing its AP payload.
+- Do not flash the protected payload yet. The factory bootloader's installed
+  version, AP/CP compatibility requirements, signing/fuse policy, programming
+  transport, boot-selection behavior, and recovery path remain unverified on
+  the actual device.
 - Define recovery before enabling OTA or destructive flash tests.
 - A link assertion and mandatory pre-objcopy map check now require FLASH to be
   exactly experimental slot 0 (`0x02120000..0x02310000`) and reject any NOR
@@ -333,7 +355,7 @@ Verify all pins from the schematic/BSP before hardware testing.
   `bounds` warning; no DVT3-port warning appeared in that compatibility build.
 - Keep warnings introduced by DVT3 at zero or document unavoidable toolchain warnings.
 
-Current host baseline: 37 `test_tuya*.py` tests and 3 Getafix board tests pass.
+Current host baseline: 39 `test_tuya*.py` tests and 3 Getafix board tests pass.
 The DVT3 native firmware now compiles and links without unresolved platform
 symbols or internal-RAM overflow. Host-generated ELF, map, raw binary, Intel
 HEX, and protected-block binary artifacts are available for inspection; they

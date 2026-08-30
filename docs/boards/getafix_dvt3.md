@@ -23,17 +23,27 @@ BK7258 AP interrupt table and a minimal CMSIS device definition derived from
 the pinned BSP. The vendor RTOS bridge remains reference work and is not linked
 into the native target.
 
-The native build currently compiles Pebble FreeRTOS and proceeds through more
-than 1,100 firmware build actions. It stops at missing T5AI-specific drivers,
-starting with debug UART and flash. Display, touch, GPIO/I2C, RTC, ADC/charging,
-IMU, Bluetooth HCI, watchdog, flash erase/program and Tuya image packaging must
-be implemented without vendor-RTOS ownership before the ELF is meaningful.
+The native build configures, compiles, links, and emits checked ELF, map, raw,
+Intel HEX, and protected-block artifacts. Native UART, flash, display, touch,
+GPIO/I2C, RTC, ADC/charging, IMU, watchdog, and the gated NimBLE controller IPC
+path are implemented without vendor-RTOS ownership. They remain unvalidated on
+hardware, and the protected artifact is not a complete or flash-ready image.
 
-The experimental storage subdivision stays inside the stock AP virtual
-partition and excludes RF, network and Tuya data sectors. It is explicitly
-non-release: firmware update/recovery semantics and CRC-address translation
-are unresolved. Battery percentage uses Pebble's conservative generic curve
-only as a compile-time placeholder; physical cell measurements are required.
+The pinned table places the AP partition at physical flash offset `0x132000`.
+BK7258's 34:32 protected-block mapping exposes this at logical XIP address
+`0x02120000`; 3808 KiB of physical AP allocation provides `0x380000` logical
+bytes. Pebble deliberately links into only the first `0x1f0000` logical bytes.
+This smaller bound is an experimental subdivision, not a factory or OTA slot.
+It excludes RF, network, and Tuya data sectors but has no proven update or
+recovery semantics. Physical battery measurements are still required.
+
+The official SDK's QIO output is a complete physical-flash image. UA combines
+Tuya BL2, CP, and AP logical images, while UG adds a 64-byte compressed-OTA
+header. Pebble emits only an AP payload transformed into 32-byte data plus
+2-byte CRC blocks. It contains no QIO/UA/UG header and must not be presented to
+the factory programming or OTA tools. The pinned configuration uses the normal
+bootloader and no signing stage is present in its packaging path, but the
+device's installed bootloader and OTP/fuse policy cannot be inferred from that.
 
 ## Implemented hardware path
 
