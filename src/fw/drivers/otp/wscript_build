@@ -8,6 +8,9 @@ if bld.env.CONFIG_OTP_FLASH:
     sources.append('otp_flash.c')
     use.append('driver_flash')
 
+if not sources:
+    sources.append('otp_none.c')
+
 bld.objects(
     name='driver_otp',
     source=sources,

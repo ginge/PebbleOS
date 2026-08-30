@@ -234,6 +234,9 @@ Verify all pins from the schematic/BSP before hardware testing.
   Their console commands report the unavailable hardware instead of presenting
   zero as a sensor measurement; an unavailable temperature read returns
   `INT32_MIN`.
+- OTP storage remains unmapped on DVT3. Its explicit unprovisioned driver
+  reports every slot unlocked, returns no identity data, and rejects writes;
+  the manufacturing layer consequently uses its existing dummy identity.
 - Keep amplifier P28 disabled until the I2S/codec/speaker path is implemented safely.
 - Implement audio only through Pebble's audio interfaces.
 - Explicitly disable any unsupported peripheral rather than retaining a legacy DVT2 driver.
@@ -267,8 +270,7 @@ The current DVT3 build reaches the final link, where unresolved platform
 integration symbols for disabled legacy services still prevent objcopy and
 final artifact generation. Flash, mailbox, display/backlight, ambient-light,
 temperature, and vibration symbols are resolved. The remaining symbols cover
-OTP identity, disabled voice UI, and magnetometer rotation. There is no
-internal-RAM overflow.
+disabled voice UI and magnetometer rotation. There is no internal-RAM overflow.
 
 ### 16. Hardware validation when a device arrives
 

@@ -240,7 +240,10 @@ bld.objects(
     ],
 )
 
-if bld.env.CONFIG_OTP:
+# Manufacturing identity is a firmware interface even when storage has not
+# been mapped. QEMU supplies its own OTP stub; physical boards select real OTP
+# or the explicit unprovisioned driver.
+if bld.env.CONFIG_OTP or not bld.env.CONFIG_QEMU:
     bld.recurse('otp')
 
 if bld.env.CONFIG_PMIC:
