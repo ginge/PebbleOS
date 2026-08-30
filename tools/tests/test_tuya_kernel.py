@@ -17,6 +17,30 @@ spec.loader.exec_module(checker)
 
 
 class TuyaKernelCheckTest(unittest.TestCase):
+    def test_t5ai_fpu_is_enabled_during_reset_initialization(self):
+        initialization = (ROOT / "soc/t5ai/init.c").read_text()
+        disable_irq = initialization.index("__disable_irq()")
+        enable_fpu = initialization.index("SCB->CPACR |=")
+        relocate_vectors = initialization.index("SCB->VTOR =")
+        enable_irq = initialization.index("__enable_irq()")
+        self.assertLess(disable_irq, enable_fpu)
+        self.assertLess(enable_fpu, relocate_vectors)
+        self.assertLess(relocate_vectors, enable_irq)
+        self.assertIn("(3u << 20u) | (3u << 22u)", initialization)
+
+    def test_t5ai_scales_raw_aon_ticks_at_the_rtc_boundary(self):
+        interface = (ROOT / "include/pbl/drivers/rtc.h").read_text()
+        implementation = (ROOT / "src/fw/drivers/rtc/t5ai.c").read_text()
+        t5ai_interface = interface.split("#elif defined(CONFIG_SOC_T5AI)", 1)[1]
+        t5ai_interface = t5ai_interface.split("#else", 1)[0]
+        self.assertIn("#define RTC_TICKS_HZ (1000u)", t5ai_interface)
+        self.assertIn("#define T5AI_AON_RTC_HZ 32000u", implementation)
+        self.assertIn(
+            "return prv_raw_ticks() / (T5AI_AON_RTC_HZ / RTC_TICKS_HZ);",
+            implementation,
+        )
+        self.assertIn("elapsed / T5AI_AON_RTC_HZ", implementation)
+
     def test_only_expected_config_is_rewritten(self):
         config = "#define configENABLE_MPU                   0\n#define OTHER 7\n"
         for enabled in (0, 1):

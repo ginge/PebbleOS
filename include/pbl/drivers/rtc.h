@@ -17,8 +17,8 @@ typedef uint64_t RtcTicks;
 // SF32lb52 lptim using RC10K.
 #define RTC_TICKS_HZ (1000u)
 #elif defined(CONFIG_SOC_T5AI)
-// BK7258 always-on RTC runs from the nominal 32 kHz ROSC.
-#define RTC_TICKS_HZ (32000u)
+// Expose millisecond ticks; the driver scales the BK7258's 32 kHz AON counter.
+#define RTC_TICKS_HZ (1000u)
 #else
 #define RTC_TICKS_HZ (1024u)
 #endif

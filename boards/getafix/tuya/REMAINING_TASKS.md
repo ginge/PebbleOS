@@ -84,7 +84,17 @@ geometry, and the experimental partition boundaries on hardware.
 ### 4. SoC bring-up boundary
 
 - Complete reset entry, vector relocation, clock tree, cache/FPU setup, and core initialization using the Pebble startup path.
+- Reset-time initialization now enables full CP10/CP11 access using the pinned
+  BK7258 CMSIS sequence before any pre-scheduler C can execute compiler-emitted
+  FP instructions. FreeRTOS retains ownership of lazy FP context preservation;
+  cache and clock-tree state remain boot-stage assumptions pending hardware
+  validation.
 - Confirm `SystemCoreClock`, SysTick frequency, PendSV/SVC priorities, and FreeRTOS tick behavior.
+- The raw 32 kHz AON oscillator is now kept private to the T5AI RTC driver and
+  scaled to Pebble's 1 kHz `rtc_get_ticks()` contract. This prevents FreeRTOS
+  from programming a pathological 32 kHz SysTick while retaining raw-counter
+  precision for wall-clock seconds and milliseconds. Confirm oscillator
+  accuracy and the resulting 1 kHz scheduler cadence on hardware.
 - Confirm which T5AI core boots PebbleOS and keep unused cores quiescent.
 - Validate MPU regions, privilege transitions, syscall wrappers, MSPLIM/PSPLIM, and fault handlers.
 - Implement watchdog and low-power entry through existing Pebble services.
@@ -289,7 +299,7 @@ Verify all pins from the schematic/BSP before hardware testing.
   `bounds` warning; no DVT3-port warning appeared in that compatibility build.
 - Keep warnings introduced by DVT3 at zero or document unavoidable toolchain warnings.
 
-Current host baseline: 32 `test_tuya*.py` tests and 3 Getafix board tests pass.
+Current host baseline: 34 `test_tuya*.py` tests and 3 Getafix board tests pass.
 The DVT3 native firmware now compiles and links without unresolved platform
 symbols or internal-RAM overflow. Host-generated ELF, map, raw binary, Intel
 HEX, and protected-block binary artifacts are available for inspection; they

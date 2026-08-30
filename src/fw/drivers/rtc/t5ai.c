@@ -13,6 +13,10 @@
 #define T5AI_AON_RTC_BASE 0x44000200u
 #define T5AI_AON_RTC_COUNT_LOW (*(volatile uint32_t *)(T5AI_AON_RTC_BASE + 0x0cu))
 #define T5AI_AON_RTC_COUNT_HIGH (*(volatile uint32_t *)(T5AI_AON_RTC_BASE + 0x28u))
+#define T5AI_AON_RTC_HZ 32000u
+
+_Static_assert(T5AI_AON_RTC_HZ % RTC_TICKS_HZ == 0u,
+               "AON RTC must divide exactly into Pebble ticks");
 
 #define PCF85063_REG_CONTROL1 0x00u
 #define PCF85063_REG_SECONDS 0x04u
@@ -180,9 +184,9 @@ void rtc_set_time(time_t time) {
 void rtc_get_time_ms(time_t *out_seconds, uint16_t *out_ms) {
   const RtcTicks elapsed = prv_raw_ticks() - prv_base_ticks();
   *out_seconds = (time_t)t5ai_retained_read(CURRENT_TIME_REGISTER) +
-                 (time_t)(elapsed / RTC_TICKS_HZ);
-  *out_ms = (uint16_t)(((elapsed % RTC_TICKS_HZ) * 1000u) /
-                       RTC_TICKS_HZ);
+                 (time_t)(elapsed / T5AI_AON_RTC_HZ);
+  *out_ms = (uint16_t)(((elapsed % T5AI_AON_RTC_HZ) * 1000u) /
+                       T5AI_AON_RTC_HZ);
 }
 
 time_t rtc_get_time(void) {
@@ -193,7 +197,7 @@ time_t rtc_get_time(void) {
 }
 
 RtcTicks rtc_get_ticks(void) {
-  return prv_raw_ticks();
+  return prv_raw_ticks() / (T5AI_AON_RTC_HZ / RTC_TICKS_HZ);
 }
 
 void rtc_set_time_tm(struct tm *time_tm) {
@@ -226,16 +230,16 @@ bool rtc_sanitize_time_t(time_t *time) {
 }
 
 void rtc_alarm_init(void) {
-  s_alarm_start = prv_raw_ticks();
+  s_alarm_start = rtc_get_ticks();
 }
 
 void rtc_alarm_set(RtcTicks num_ticks) {
   (void)num_ticks;
-  s_alarm_start = prv_raw_ticks();
+  s_alarm_start = rtc_get_ticks();
 }
 
 RtcTicks rtc_alarm_get_elapsed_ticks(void) {
-  return prv_raw_ticks() - s_alarm_start;
+  return rtc_get_ticks() - s_alarm_start;
 }
 
 bool rtc_alarm_is_initialized(void) {
