@@ -179,7 +179,8 @@ def configure(conf):
     else:
         conf.env.JS_ENGINE = 'none'
 
-    if not board.runners and not conf.env.CONFIG_QEMU:
+    if (not board.runners and not conf.env.CONFIG_QEMU and
+            not board.allow_no_runner):
         conf.fatal('Board {} does not define any supported runners'.format(
                    board.target))
 

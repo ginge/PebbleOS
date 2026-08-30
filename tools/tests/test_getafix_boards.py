@@ -52,6 +52,21 @@ class GetafixBoardsTest(unittest.TestCase):
                 self.assertEqual(board.revision, revision)
                 self.assertEqual(board.normalized, f"getafix_{revision}")
                 self.assertEqual(board.isolated_defconfig, revision == "dvt3")
+                expected_runners = [] if revision == "dvt3" else ["sftool"]
+                self.assertEqual(board.runners, expected_runners)
+                self.assertEqual(board.allow_no_runner, revision == "dvt3")
+
+    def test_dvt3_device_programming_is_fail_closed(self):
+        dvt3 = parse_board(str(ROOT), "getafix@dvt3")
+        self.assertEqual(dvt3.runners, [])
+
+        cli = (ROOT / "pbl").read_text()
+        self.assertIn("if env.CONFIG_SOC_T5AI:", cli)
+        self.assertIn("no validated image container or recovery", cli)
+        self.assertIn('_reject_unvalidated_t5ai_operation(env, "flash")', cli)
+        self.assertIn(
+            '_reject_unvalidated_t5ai_operation(env, "recovery imaging")', cli
+        )
 
     def test_dvt3_has_native_t5ai_identity(self):
         dvt3 = load_config("dvt3", "normal")

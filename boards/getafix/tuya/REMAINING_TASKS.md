@@ -41,7 +41,7 @@ to install the experimental payload.
   NimBLE-to-controller IPC protocol all have native implementations or explicit
   safe disabled states. The Bluetooth controller IPC remains deliberately
   gated until its CP startup and shared-memory behavior are proven on hardware.
-- Thirty-nine Tuya host tests and three Getafix board-selection tests pass.
+- Thirty-nine Tuya host tests and four Getafix board-selection tests pass.
 - Both `getafix@dvt3` and the DVT2 compatibility target configure and build.
   DVT2 retains only its pre-existing stored Golf app unused-variable warning.
 
@@ -328,6 +328,12 @@ Verify all pins from the schematic/BSP before hardware testing.
   version, AP/CP compatibility requirements, signing/fuse policy, programming
   transport, boot-selection behavior, and recovery path remain unverified on
   the actual device.
+- DVT3 now has an explicit empty runner override, while DVT/DVT2 retain
+  `sftool`. Both the board manifest and the CLI therefore fail closed for
+  `pbl flash`, including an attempted explicit runner override. The same CLI
+  gate rejects T5AI reset/run/erase/debug-server runner operations and direct
+  resource/recovery imaging. Re-enable a runner only together with a reviewed
+  image container and recovery procedure.
 - Define recovery before enabling OTA or destructive flash tests.
 - A link assertion and mandatory pre-objcopy map check now require FLASH to be
   exactly experimental slot 0 (`0x02120000..0x02310000`) and reject any NOR
@@ -355,7 +361,7 @@ Verify all pins from the schematic/BSP before hardware testing.
   `bounds` warning; no DVT3-port warning appeared in that compatibility build.
 - Keep warnings introduced by DVT3 at zero or document unavoidable toolchain warnings.
 
-Current host baseline: 39 `test_tuya*.py` tests and 3 Getafix board tests pass.
+Current host baseline: 39 `test_tuya*.py` tests and 4 Getafix board tests pass.
 The DVT3 native firmware now compiles and links without unresolved platform
 symbols or internal-RAM overflow. Host-generated ELF, map, raw binary, Intel
 HEX, and protected-block binary artifacts are available for inspection; they

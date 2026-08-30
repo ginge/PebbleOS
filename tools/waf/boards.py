@@ -10,13 +10,20 @@ NO_REVISION = "_"
 
 class BoardSpec:
     def __init__(
-        self, target, name, revision=None, runners=None, isolated_defconfig=False
+        self,
+        target,
+        name,
+        revision=None,
+        runners=None,
+        isolated_defconfig=False,
+        allow_no_runner=False,
     ):
         self.target = target
         self.name = name
         self.revision = revision
         self.runners = runners or []
         self.isolated_defconfig = isolated_defconfig
+        self.allow_no_runner = allow_no_runner
 
     @property
     def normalized(self):
@@ -95,12 +102,37 @@ def load_revisions(board_dir, board):
     return revisions
 
 
-def load_runners(board_dir, board):
+def load_runners(board_dir, board, revision=None):
     manifest, data = _load_manifest(board_dir, board)
     if manifest is None:
         return []
 
-    return _validate_string_list(manifest, data, "runners")
+    runners = _validate_string_list(manifest, data, "runners")
+    overrides = data.get("runner_overrides", {})
+    if not isinstance(overrides, dict):
+        raise TypeError(
+            f"Invalid revision manifest {manifest}: expected runner_overrides mapping"
+        )
+
+    revisions = data.get("revisions", [])
+    for override_revision, override_runners in overrides.items():
+        if override_revision not in revisions:
+            raise ValueError(
+                f"Invalid runner override revision '{override_revision}' in {manifest}"
+            )
+        if not isinstance(override_runners, list) or any(
+            not isinstance(runner, str) or not runner
+            for runner in override_runners
+        ):
+            raise ValueError(
+                f"Invalid runner override for '{override_revision}' in {manifest}"
+            )
+        if len(override_runners) != len(set(override_runners)):
+            raise ValueError(
+                f"Duplicate runner override for '{override_revision}' in {manifest}"
+            )
+
+    return overrides.get(revision, runners)
 
 
 def available_boards(srcdir):
@@ -161,6 +193,13 @@ def parse_board(srcdir, target):
         item not in revisions for item in isolated
     ):
         raise ValueError(f"Invalid isolated_defconfig_revisions in {manifest}")
+    runners = load_runners(board_dir, board, revision)
+    runner_overrides = data.get("runner_overrides", {})
     return BoardSpec(
-        target, board, revision, load_runners(board_dir, board), revision in isolated
+        target,
+        board,
+        revision,
+        runners,
+        revision in isolated,
+        revision in runner_overrides and not runners,
     )

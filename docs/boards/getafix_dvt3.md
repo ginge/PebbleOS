@@ -45,6 +45,11 @@ the factory programming or OTA tools. The pinned configuration uses the normal
 bootloader and no signing stage is present in its packaging path, but the
 device's installed bootloader and OTP/fuse policy cannot be inferred from that.
 
+DVT3 deliberately advertises no programming runner. The `pbl` CLI additionally
+rejects all T5AI runner operations plus resource and recovery imaging, including
+an explicit runner override. This guard must remain until a reviewed image
+container, factory-image backup procedure, and tested recovery path exist.
+
 ## Implemented hardware path
 
 `boards/getafix/tuya/` is a standalone application for the official TuyaOpen
