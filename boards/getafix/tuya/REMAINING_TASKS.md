@@ -177,10 +177,17 @@ Verify all pins from the schematic/BSP before hardware testing.
 - Validate voltage against a meter across the usable battery range and refine
   calibration/state-of-charge curves if production units differ.
 
-### 12. Bluetooth/NimBLE
+### 12. Bluetooth/NimBLE — NimBLE transport implemented, controller IPC pending
 
 - Keep Pebble's NimBLE host and Bluetooth services.
-- Implement only the T5AI-specific controller/HCI transport and required clock/IRQ/shared-memory boundary.
+- The T5AI NimBLE transport now validates and copies borrowed CP event/ACL
+  buffers into NimBLE-owned storage, serializes outbound ACL mbufs, rejects ISO,
+  and exposes a narrow controller-only IPC contract. DVT3 intentionally remains
+  on the Bluetooth stub until that contract is backed by the native shared
+  mailbox dispatcher; enabling it earlier would race the flash/SARADC clients.
+- Implement the shared mailbox dispatcher and the two-stage Tuya MIPC/HCI
+  request/response protocol behind `t5ai_hci_ipc_*`, including cache ownership,
+  IRQ delivery, timeouts, and CP startup/clock requirements.
 - Ensure the vendor Bluetooth stack and Pebble NimBLE never own the controller simultaneously.
 - Verify pairing, bonding persistence, reconnect, MTU, notifications, and low-power behavior when hardware arrives.
 

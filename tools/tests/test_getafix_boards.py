@@ -66,6 +66,8 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertEqual(dvt3["ACCEL_LIS2DW12"], "n")
         self.assertEqual(dvt3["BATTERY_T5AI"], "y")
         self.assertEqual(dvt3["BATTERY_PMIC"], "n")
+        self.assertEqual(dvt3["BT_FW_STUB"], "y")
+        self.assertEqual(dvt3["BT_FW_NIMBLE"], "n")
 
     def test_original_dvt_keeps_its_haptics(self):
         config = load_config("dvt", "normal")

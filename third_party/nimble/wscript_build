@@ -104,6 +104,17 @@ elif bld.env.CONFIG_SOC_SF32LB52:
             'NIMBLE_HCI_SF32LB52_TRACE_LOG',
         ])
 
+elif bld.env.CONFIG_SOC_T5AI:
+    nimble_sources += [
+        'transport/hci_t5ai.c',
+    ]
+
+    # T5AI is an external-controller, host-only NimBLE target and currently
+    # shares the same generated host transport sizing as SF32LB52.
+    nimble_includes = [
+        'port/include/sf32lb52',
+    ] + nimble_includes
+
 
 bld.objects(
     source=nimble_sources,
