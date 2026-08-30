@@ -117,7 +117,8 @@ static status_t prv_mailbox_send(T5AIIPCMessage *message, bool acknowledge) {
 
 static status_t prv_mailbox_receive(T5AIIPCMessage *message) {
   T5AICPMailboxFrame frame;
-  status_t status = t5ai_cp_mailbox_receive(&frame);
+  status_t status =
+      t5ai_cp_mailbox_receive(T5AI_IPC_LOGICAL_CHANNEL, &frame);
   if (FAILED(status) || frame.length != sizeof(*message)) {
     return E_ERROR;
   }

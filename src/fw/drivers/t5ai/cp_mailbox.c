@@ -1,12 +1,14 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <pbl/soc/t5ai/cp_mailbox.h>
+#include <pbl/mcu/cache.h>
 
 #include "FreeRTOS.h"
 #include "semphr.h"
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
 
 #define T5AI_MBOX_BASE 0x41000000u
 #define T5AI_MBOX_CH1_CTRL (*(volatile uint32_t *)(T5AI_MBOX_BASE + 0x80u))
@@ -26,8 +28,16 @@
 #define T5AI_AON_RTC_HIGH (*(volatile uint32_t *)0x44000228u)
 #define T5AI_AON_RTC_HZ 32000u
 #define T5AI_MBOX_TIMEOUT_TICKS (2u * T5AI_AON_RTC_HZ)
+#define T5AI_MBOX_MAX_ROUTES 4u
+
+typedef struct {
+  uint8_t logical_channel;
+  T5AICPMailboxReceiveCallback callback;
+  void *context;
+} T5AICPMailboxRoute;
 
 static SemaphoreHandle_t s_mutex;
+static T5AICPMailboxRoute s_routes[T5AI_MBOX_MAX_ROUTES];
 
 static uint64_t prv_ticks(void) {
   uint32_t high_before;
@@ -79,11 +89,8 @@ status_t t5ai_cp_mailbox_send(const void *data, size_t length) {
   return S_SUCCESS;
 }
 
-status_t t5ai_cp_mailbox_receive(T5AICPMailboxFrame *frame) {
-  if (frame == NULL) {
-    return E_INVALID_ARGUMENT;
-  }
-  const uint64_t start = prv_ticks();
+static status_t prv_receive_physical(T5AICPMailboxFrame *frame,
+                                     uint64_t start) {
   while ((T5AI_MBOX_CH1_CTRL & T5AI_MBOX_FIFO_NOT_EMPTY) == 0) {
     if (prv_timed_out(start)) {
       return E_AGAIN;
@@ -93,6 +100,86 @@ status_t t5ai_cp_mailbox_receive(T5AICPMailboxFrame *frame) {
   frame->address = T5AI_MBOX_CH1_RX_DATA0;
   frame->length = T5AI_MBOX_CH1_RX_DATA1;
   return frame->address != 0 && frame->length != 0 ? S_SUCCESS : E_ERROR;
+}
+
+static status_t prv_frame_channel(const T5AICPMailboxFrame *frame,
+                                  uint8_t *logical_channel) {
+  if (frame->address == 0 || frame->length < sizeof(uint32_t)) {
+    return E_ERROR;
+  }
+  uint32_t header;
+  dcache_invalidate((void *)frame->address, sizeof(header));
+  memcpy(&header, (const void *)frame->address, sizeof(header));
+  *logical_channel = (uint8_t)(header >> 24);
+  return S_SUCCESS;
+}
+
+status_t t5ai_cp_mailbox_register(uint8_t logical_channel,
+                                  T5AICPMailboxReceiveCallback callback,
+                                  void *context) {
+  if (callback == NULL) {
+    return E_INVALID_ARGUMENT;
+  }
+  for (size_t i = 0; i < T5AI_MBOX_MAX_ROUTES; ++i) {
+    if (s_routes[i].callback != NULL &&
+        s_routes[i].logical_channel == logical_channel) {
+      return E_INVALID_OPERATION;
+    }
+  }
+  for (size_t i = 0; i < T5AI_MBOX_MAX_ROUTES; ++i) {
+    if (s_routes[i].callback == NULL) {
+      s_routes[i] = (T5AICPMailboxRoute){
+          .logical_channel = logical_channel,
+          .callback = callback,
+          .context = context,
+      };
+      return S_SUCCESS;
+    }
+  }
+  return E_OUT_OF_RESOURCES;
+}
+
+void t5ai_cp_mailbox_unregister(uint8_t logical_channel) {
+  for (size_t i = 0; i < T5AI_MBOX_MAX_ROUTES; ++i) {
+    if (s_routes[i].callback != NULL &&
+        s_routes[i].logical_channel == logical_channel) {
+      memset(&s_routes[i], 0, sizeof(s_routes[i]));
+      return;
+    }
+  }
+}
+
+status_t t5ai_cp_mailbox_receive(uint8_t logical_channel,
+                                 T5AICPMailboxFrame *frame) {
+  if (frame == NULL) {
+    return E_INVALID_ARGUMENT;
+  }
+  const uint64_t start = prv_ticks();
+  for (;;) {
+    status_t status = prv_receive_physical(frame, start);
+    uint8_t received_channel;
+    if (FAILED(status)) {
+      return status;
+    }
+    if (FAILED(prv_frame_channel(frame, &received_channel))) {
+      return E_ERROR;
+    }
+    if (received_channel == logical_channel) {
+      return S_SUCCESS;
+    }
+    bool dispatched = false;
+    for (size_t i = 0; i < T5AI_MBOX_MAX_ROUTES; ++i) {
+      if (s_routes[i].callback != NULL &&
+          s_routes[i].logical_channel == received_channel) {
+        s_routes[i].callback(received_channel, frame, s_routes[i].context);
+        dispatched = true;
+        break;
+      }
+    }
+    if (!dispatched) {
+      return E_DOES_NOT_EXIST;
+    }
+  }
 }
 
 void t5ai_cp_mailbox_discard_pending(void) {

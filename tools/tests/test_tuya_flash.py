@@ -24,8 +24,8 @@ void t5ai_cp_mailbox_unlock(void) {}
 status_t t5ai_cp_mailbox_send(const void *data, size_t length) {
   (void)data; (void)length; return S_SUCCESS;
 }
-status_t t5ai_cp_mailbox_receive(T5AICPMailboxFrame *frame) {
-  (void)frame; return E_AGAIN;
+status_t t5ai_cp_mailbox_receive(uint8_t channel, T5AICPMailboxFrame *frame) {
+  (void)channel; (void)frame; return E_AGAIN;
 }
 void t5ai_cp_mailbox_discard_pending(void) {}
 

@@ -187,7 +187,9 @@ Verify all pins from the schematic/BSP before hardware testing.
   mailbox dispatcher; enabling it earlier would race the flash/SARADC clients.
 - The physical CP mailbox now has a single native owner and transaction mutex;
   flash and SARADC no longer access or drain its FIFO registers directly.
-- Implement logical-channel dispatch and the two-stage Tuya MIPC/HCI
+- Logical-channel routing now prevents channel `0x11` flash/SARADC waits from
+  consuming frames belonging to registered services such as MIPC `0x17`.
+- Implement the two-stage Tuya MIPC/HCI
   request/response protocol behind `t5ai_hci_ipc_*`, including cache ownership,
   IRQ delivery, timeouts, and CP startup/clock requirements.
 - Ensure the vendor Bluetooth stack and Pebble NimBLE never own the controller simultaneously.
