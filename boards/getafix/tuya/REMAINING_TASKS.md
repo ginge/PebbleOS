@@ -41,7 +41,7 @@ to install the experimental payload.
   NimBLE-to-controller IPC protocol all have native implementations or explicit
   safe disabled states. The Bluetooth controller IPC remains deliberately
   gated until its CP startup and shared-memory behavior are proven on hardware.
-- Thirty-nine Tuya host tests and four Getafix board-selection tests pass.
+- Thirty-nine Tuya host tests and seven Getafix board-selection tests pass.
 - Both `getafix@dvt3` and the DVT2 compatibility target configure and build.
   DVT2 retains only its pre-existing stored Golf app unused-variable warning.
 
@@ -345,6 +345,19 @@ Verify all pins from the schematic/BSP before hardware testing.
   external-flash domain from its firmware image. This closes raw UART console
   erase/write paths that would otherwise bypass the host runner and OTA gates;
   DVT2 retains both legacy handlers, and non-flash diagnostics remain present.
+- The unrestricted legacy serial/Pulse command prompt is disabled for T5AI as
+  well. It exposed raw flash erase/fill/stress, arbitrary boot-bit mutation,
+  PRF reboot, and factory-reset commands. UART logging and the non-prompt Pulse
+  transports remain compiled; DVT/DVT2 retain their existing prompt behavior.
+- DVT3 excludes the Pulse BulkIO raw-memory domain too. That legacy diagnostic
+  accepted arbitrary-address reads, writes, and zeroing with no range or
+  privilege policy, allowing corruption of kernel control state. Framebuffer,
+  coredump, and PFS domains remain available; DVT/DVT2 retain raw-memory access.
+- Persistent flash logging is disabled on DVT3 because its debug database is
+  only an experimental subdivision of the unverified factory AP allocation.
+  Serial/UART logging remains active, log-dump requests report no saved logs,
+  and the unavailable backend drains rather than wedging the asynchronous log
+  queue. DVT/DVT2 retain their existing circular flash logger.
 - Define recovery before enabling OTA or destructive flash tests.
 - A link assertion and mandatory pre-objcopy map check now require FLASH to be
   exactly experimental slot 0 (`0x02120000..0x02310000`) and reject any NOR
@@ -372,7 +385,7 @@ Verify all pins from the schematic/BSP before hardware testing.
   `bounds` warning; no DVT3-port warning appeared in that compatibility build.
 - Keep warnings introduced by DVT3 at zero or document unavoidable toolchain warnings.
 
-Current host baseline: 39 `test_tuya*.py` tests and 6 Getafix board tests pass.
+Current host baseline: 39 `test_tuya*.py` tests and 7 Getafix board tests pass.
 The DVT3 native firmware now compiles and links without unresolved platform
 symbols or internal-RAM overflow. Host-generated ELF, map, raw binary, Intel
 HEX, and protected-block binary artifacts are available for inspection; they

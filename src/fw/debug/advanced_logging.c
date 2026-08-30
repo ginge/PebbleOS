@@ -43,6 +43,10 @@ static void write_message(void) {
   uint32_t flash_addr = flash_logging_log_start(msg_length);
   mutex_lock(s_buffer_mutex);
   if (flash_addr == FLASH_LOG_INVALID_ADDR) {
+    // A platform may deliberately have no persistent logging region. Drop the
+    // complete record so the async queue cannot fill and deadlock producers.
+    shared_circular_buffer_consume(&s_buffer, &s_buffer_client,
+                                   msg_length + sizeof(uint8_t));
     return;
   }
 
@@ -185,4 +189,3 @@ char pbl_log_get_level_char(const uint8_t log_level) {
     return '?';
   }
 }
-

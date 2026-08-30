@@ -92,6 +92,7 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertIn("if bld.env.CONFIG_SOC_T5AI:", console_build)
         self.assertIn("'pulse_flash_imaging.c'", console_build)
         self.assertIn("'pulse_bulkio_external_flash.c'", console_build)
+        self.assertIn("'pulse_bulkio_memory.c'", console_build)
 
         protocol_registry = (
             ROOT / "src/fw/console/pulse_protocol_registry.def"
@@ -102,12 +103,35 @@ class GetafixBoardsTest(unittest.TestCase):
         for registry, handler in (
             (protocol_registry, "pulse_flash_imaging_handler"),
             (bulkio_registry, "pulse_bulkio_domain_external_flash"),
+            (bulkio_registry, "pulse_bulkio_domain_memory"),
         ):
             guard = registry.index("#if !defined(CONFIG_SOC_T5AI)")
             registration = registry.index(handler)
             end = registry.index("#endif", guard)
             self.assertLess(guard, registration)
             self.assertLess(registration, end)
+
+        prompt_registration = protocol_registry.index(
+            "REGISTER_PROTOCOL(PULSE_PROTOCOL_PROMPT"
+        )
+        prompt_guard = protocol_registry.rfind(
+            "#ifdef CONFIG_PROMPT", 0, prompt_registration
+        )
+        prompt_end = protocol_registry.index("#endif", prompt_registration)
+        self.assertGreaterEqual(prompt_guard, 0)
+        self.assertLess(prompt_registration, prompt_end)
+
+    def test_dvt3_persistent_flash_logging_is_not_linked(self):
+        debug_build = (ROOT / "src/fw/debug/wscript_build").read_text()
+        self.assertIn("if bld.env.CONFIG_SOC_T5AI:", debug_build)
+        self.assertIn("excl = ['flash_logging.c']", debug_build)
+        self.assertIn("flash_logging_unavailable.c", debug_build)
+
+        unavailable = (
+            ROOT / "src/fw/debug/flash_logging_unavailable.c"
+        ).read_text()
+        self.assertIn("return FLASH_LOG_INVALID_ADDR;", unavailable)
+        self.assertIn("completed_cb(false);", unavailable)
 
     def test_dvt3_has_native_t5ai_identity(self):
         dvt3 = load_config("dvt3", "normal")
@@ -125,6 +149,7 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertEqual(dvt3["BT_FW_STUB"], "y")
         self.assertEqual(dvt3["BT_FW_NIMBLE"], "n")
         self.assertEqual(dvt3["T5AI_CP_HCI_VALIDATED"], "n")
+        self.assertEqual(dvt3["PROMPT"], "n")
         self.assertEqual(dvt3["SPEAKER"], "n")
         self.assertEqual(dvt3["MIC"], "n")
         self.assertEqual(dvt3["VIBE"], "n")
@@ -140,6 +165,7 @@ class GetafixBoardsTest(unittest.TestCase):
 
     def test_original_dvt_keeps_its_haptics(self):
         config = load_config("dvt", "normal")
+        self.assertEqual(config["PROMPT"], "y")
         self.assertEqual(config["VIBE_AW8623X"], "y")
         self.assertEqual(config["VIBE_AW86225"], "n")
 

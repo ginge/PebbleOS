@@ -1,9 +1,16 @@
 # SPDX-FileCopyrightText: 2026 Core Devices LLC
 # SPDX-License-Identifier: Apache-2.0
 
+excl = ['flash_logging_unavailable.c']
+if bld.env.CONFIG_SOC_T5AI:
+    # The DVT3 debug partition is only an experimental subdivision of the
+    # factory AP allocation. Keep serial logging, but do not erase/write that
+    # region until the device partition table and recovery flow are proven.
+    excl = ['flash_logging.c']
+
 bld.objects(
     name='debug',
-    source=bld.path.ant_glob('*.c'),
+    source=bld.path.ant_glob('*.c', excl=excl),
     use=['fw_includes'],
 )
 

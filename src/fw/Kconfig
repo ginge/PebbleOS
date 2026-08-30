@@ -90,8 +90,11 @@ config UI_DEBUG
 config PROMPT
     bool "Serial console prompt"
     default y
+    depends on !SOC_T5AI
     help
-      Build the serial console. Disable to save space.
+      Build the interactive serial console command prompt. T5AI keeps UART
+      logging and Pulse transports, but disables this unrestricted legacy
+      command surface until a safe bring-up command policy is defined.
 
 config MALLOC_INSTRUMENTATION
     bool "Malloc instrumentation"
