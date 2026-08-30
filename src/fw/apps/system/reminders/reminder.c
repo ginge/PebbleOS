@@ -24,6 +24,8 @@
 
 #include <pbl/logging/logging.h>
 
+#ifdef CONFIG_MIC
+
 typedef enum ReminderAppUIState {
   ReminderAppUIState_Start,
   ReminderAppUIState_WaitForDictationEvent,
@@ -299,3 +301,11 @@ const PebbleProcessMd* reminder_app_get_info(void) {
 
   return is_visible_in_launcher ? (const PebbleProcessMd *)&s_reminder_app_info : NULL;
 }
+
+#else
+
+const PebbleProcessMd* reminder_app_get_info(void) {
+  return NULL;
+}
+
+#endif

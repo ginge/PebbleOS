@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import unittest
+from pathlib import Path
 
 from tools.t5ai_image import (
     crc16,
@@ -8,8 +9,16 @@ from tools.t5ai_image import (
     verify_protected_blocks,
 )
 
+ROOT = Path(__file__).resolve().parents[2]
+
 
 class T5AIImagePackagingTest(unittest.TestCase):
+    def test_system_resource_pack_ceiling(self):
+        wscript = (ROOT / "wscript").read_text()
+        t5ai_branch = wscript.split("elif ctx.env.CONFIG_SOC_T5AI:", 1)[1]
+        t5ai_branch = t5ai_branch.split("elif ctx.env.CONFIG_SOC_SF32LB52:", 1)[0]
+        self.assertIn("max_size = 1024 * 1024", t5ai_branch)
+
     def test_vendor_crc_vectors(self):
         self.assertEqual(crc16(bytes(32)), 0x8029)
         self.assertEqual(crc16(bytes(range(32))), 0x259D)

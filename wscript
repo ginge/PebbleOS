@@ -658,6 +658,10 @@ def size_resources(ctx):
 
     if ctx.env.CONFIG_SOC_NRF52:
         max_size = 1024 * 1024
+    elif ctx.env.CONFIG_SOC_T5AI:
+        # Host-side pack ceiling only. The DVT3 flash resource banks remain
+        # deliberately unmapped until the factory partition table is verified.
+        max_size = 1024 * 1024
     elif ctx.env.CONFIG_SOC_SF32LB52:
         max_size = 2048 * 1024
     elif ctx.env.CONFIG_QEMU:

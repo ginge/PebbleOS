@@ -240,6 +240,9 @@ Verify all pins from the schematic/BSP before hardware testing.
 - Orientation changes no longer call the MMC5603NJ-specific rotation hook when
   `CONFIG_MAG` is disabled. Display, buttons, accelerometer, and touch still
   rotate normally without manufacturing a placeholder magnetometer.
+- The watch-side voice reminder creator is omitted from the launcher when
+  `CONFIG_MIC` is disabled, and its dictation workflow is not compiled. This
+  does not disable receipt or display of timeline reminders.
 - Keep amplifier P28 disabled until the I2S/codec/speaker path is implemented safely.
 - Implement audio only through Pebble's audio interfaces.
 - Explicitly disable any unsupported peripheral rather than retaining a legacy DVT2 driver.
@@ -263,17 +266,22 @@ Verify all pins from the schematic/BSP before hardware testing.
 ### 15. Validation possible without hardware
 
 - Reach a clean native compile and link with no unresolved placeholder drivers.
+- T5AI host packaging now enforces a 1 MiB logical system-resource pack ceiling;
+  the current 1,026,537-byte pack fits narrowly. On-device resource banks remain
+  deliberately zero-length until the factory partition table identifies safe
+  storage. Define redundant banks and guarded write access only after that
+  evidence exists; the pack is not currently installable on target.
 - Inspect the ELF/map for vector placement, stack/heap, MPU sections, flash/RAM overflow, and accidental vendor runtime linkage.
 - Add host tests for board selection, memory/layout calculations, protected-block translation, display conversion, touch mapping, and battery conversion where practical.
 - Run DVT2 configure/build after shared-code changes.
 - Keep warnings introduced by DVT3 at zero or document unavoidable toolchain warnings.
 
-Current host baseline: 29 `test_tuya*.py` tests and 3 Getafix board tests pass.
-The current DVT3 build reaches the final link, where unresolved platform
-integration symbols for disabled legacy services still prevent objcopy and
-final artifact generation. Flash, mailbox, display/backlight, ambient-light,
-temperature, and vibration symbols are resolved. The remaining symbols cover
-disabled voice UI. There is no internal-RAM overflow.
+Current host baseline: 30 `test_tuya*.py` tests and 3 Getafix board tests pass.
+The DVT3 native firmware now compiles and links without unresolved platform
+symbols or internal-RAM overflow. Host-generated ELF, map, raw binary, Intel
+HEX, and protected-block binary artifacts are available for inspection; they
+remain experimental and must not be flashed before the boot flow and recovery
+requirements in section 14 are established.
 
 ### 16. Hardware validation when a device arrives
 
