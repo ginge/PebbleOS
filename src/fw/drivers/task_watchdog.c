@@ -257,7 +257,8 @@ void task_watchdog_init(void) {
   // Setup another unused interrupt vector to handle our low priority interrupts. When we need to do higher
   // level functions (like PBL_LOG), we trigger this lower-priority interrupt to fire. Since it runs at
   // configMAX_SYSCALL_INTERRUPT_PRIORITY or lower, it can at least call FreeRTOS ISR functions.
-  NVIC_SetPriority(WATCHDOG_FREERTOS_IRQn, configMAX_SYSCALL_INTERRUPT_PRIORITY);
+  NVIC_SetPriority(WATCHDOG_FREERTOS_IRQn,
+                   configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY);
   NVIC_EnableIRQ(WATCHDOG_FREERTOS_IRQn);
 
   // create the app throttling timer

@@ -322,7 +322,8 @@ void rtc_init(void) {
   prv_restore_rtc_time_state();
   s_did_init_rtc = true;
 
-  NVIC_SetPriority(BOARD_RTC_IRQN, configKERNEL_INTERRUPT_PRIORITY);
+  NVIC_SetPriority(BOARD_RTC_IRQN,
+                   configLIBRARY_KERNEL_INTERRUPT_PRIORITY);
   NVIC_EnableIRQ(BOARD_RTC_IRQN);
 
 #if TEST_RTC_FREQ

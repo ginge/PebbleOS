@@ -57,6 +57,27 @@ class TuyaKernelCheckTest(unittest.TestCase):
         )
         self.assertIn("T5AI_SYSTICK_RELOAD <= SysTick_LOAD_RELOAD_Msk", port)
 
+    def test_cmsis_priorities_do_not_use_raw_freertos_bytes(self):
+        config = (ROOT / "third_party/freertos/FreeRTOSConfig.h").read_text()
+        fault = (ROOT / "src/fw/kernel/fault_handling.c").read_text()
+        watchdog = (ROOT / "src/fw/drivers/task_watchdog.c").read_text()
+        self.assertIn(
+            "configMAX_SYSCALL_INTERRUPT_PRIORITY >> (8U - __NVIC_PRIO_BITS)",
+            config,
+        )
+        self.assertIn("configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY", fault)
+        self.assertIn("configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY", watchdog)
+        self.assertNotIn(
+            "NVIC_SetPriority(MemoryManagement_IRQn, "
+            "configMAX_SYSCALL_INTERRUPT_PRIORITY)",
+            fault,
+        )
+        self.assertNotIn(
+            "NVIC_SetPriority(WATCHDOG_FREERTOS_IRQn, "
+            "configMAX_SYSCALL_INTERRUPT_PRIORITY)",
+            watchdog,
+        )
+
     def test_t5ai_scales_raw_aon_ticks_at_the_rtc_boundary(self):
         interface = (ROOT / "include/pbl/drivers/rtc.h").read_text()
         implementation = (ROOT / "src/fw/drivers/rtc/t5ai.c").read_text()

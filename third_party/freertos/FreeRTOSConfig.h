@@ -155,17 +155,17 @@ to exclude the API function. */
 #define INCLUDE_uxTaskGetStackHighWaterMark    1
 #define INCLUDE_xTaskGetIdleTaskHandle         1
 
-/* This is the raw value as per the Cortex-M3 NVIC.  Values can be 255
-(lowest) to 0 (1?) (highest). */
+/* Raw, left-aligned values written to BASEPRI and the system-handler priority
+ * bytes by the FreeRTOS port. */
 #define configKERNEL_INTERRUPT_PRIORITY      255
-#define configMAX_SYSCALL_INTERRUPT_PRIORITY 191 /* equivalent to 0xb0, or priority 11. */
+#define configMAX_SYSCALL_INTERRUPT_PRIORITY 191
 
-
-/* This is the value being used as per the ST library which permits 16
-priority values, 0 to 15.  This must correspond to the
-configKERNEL_INTERRUPT_PRIORITY setting.  Here 15 corresponds to the lowest
-NVIC value of 255. */
-#define configLIBRARY_KERNEL_INTERRUPT_PRIORITY 15
+/* Logical values for CMSIS NVIC_SetPriority(), derived for each target's
+ * implemented priority width. Do not pass the raw constants above to CMSIS. */
+#define configLIBRARY_KERNEL_INTERRUPT_PRIORITY \
+  (configKERNEL_INTERRUPT_PRIORITY >> (8U - __NVIC_PRIO_BITS))
+#define configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY \
+  (configMAX_SYSCALL_INTERRUPT_PRIORITY >> (8U - __NVIC_PRIO_BITS))
 
 
 #ifdef CONFIG_SOC_SF32LB52

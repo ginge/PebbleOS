@@ -95,6 +95,11 @@ geometry, and the experimental partition boundaries on hardware.
   exception-stack alignment before relocating VTOR. This prevents a boot-stage
   scheduler interrupt from reaching Pebble before FreeRTOS installs its 1 kHz
   tick and lowest-priority handlers; validate exception entry on hardware.
+- CMSIS interrupt setup now uses logical priorities derived from
+  `__NVIC_PRIO_BITS`, rather than passing FreeRTOS's raw left-aligned BASEPRI
+  byte as though it were a CMSIS priority. On T5AI the syscall-safe boundary
+  is therefore logical priority 5 of 7, with UART at 5 and GPIO/I2C at 6;
+  validate nesting and FromISR calls under load on hardware.
 - The raw 32 kHz AON oscillator is now kept private to the T5AI RTC driver and
   scaled to Pebble's 1 kHz `rtc_get_ticks()` contract. This prevents FreeRTOS
   from programming a pathological 32 kHz SysTick while retaining raw-counter
@@ -309,7 +314,7 @@ Verify all pins from the schematic/BSP before hardware testing.
   `bounds` warning; no DVT3-port warning appeared in that compatibility build.
 - Keep warnings introduced by DVT3 at zero or document unavoidable toolchain warnings.
 
-Current host baseline: 36 `test_tuya*.py` tests and 3 Getafix board tests pass.
+Current host baseline: 37 `test_tuya*.py` tests and 3 Getafix board tests pass.
 The DVT3 native firmware now compiles and links without unresolved platform
 symbols or internal-RAM overflow. Host-generated ELF, map, raw binary, Intel
 HEX, and protected-block binary artifacts are available for inspection; they
