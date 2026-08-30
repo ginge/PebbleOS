@@ -199,13 +199,17 @@ Verify all pins from the schematic/BSP before hardware testing.
   polling. Separate shared objects preserve an in-flight host request when a
   controller event is interleaved. Keep the board stub selected until the CP
   firmware/clock startup assumptions and this protocol are validated on target.
-  request/response protocol behind `t5ai_hci_ipc_*`, including cache ownership,
-  IRQ delivery, timeouts, and CP startup/clock requirements.
+- Validate cache ownership, polling latency, timeouts, and CP startup/clock
+  requirements on target; replace polling with IRQ delivery once proven.
 - Ensure the vendor Bluetooth stack and Pebble NimBLE never own the controller simultaneously.
 - Verify pairing, bonding persistence, reconnect, MTU, notifications, and low-power behavior when hardware arrives.
 
-### 13. Audio and optional hardware
+### 13. Audio and optional hardware — safely disabled
 
+- Native early board initialization asserts the active-high P19 power latch and
+  drives active-low amplifier enable P28 inactive before other services start.
+- Speaker, microphone, vibration, ambient light, pressure, temperature,
+  magnetometer, and PMIC paths remain disabled for DVT3.
 - Keep amplifier P28 disabled until the I2S/codec/speaker path is implemented safely.
 - Implement audio only through Pebble's audio interfaces.
 - Explicitly disable any unsupported peripheral rather than retaining a legacy DVT2 driver.

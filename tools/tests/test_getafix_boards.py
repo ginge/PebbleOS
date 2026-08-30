@@ -68,6 +68,18 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertEqual(dvt3["BATTERY_PMIC"], "n")
         self.assertEqual(dvt3["BT_FW_STUB"], "y")
         self.assertEqual(dvt3["BT_FW_NIMBLE"], "n")
+        self.assertEqual(dvt3["SPEAKER"], "n")
+        self.assertEqual(dvt3["MIC"], "n")
+        self.assertEqual(dvt3["VIBE"], "n")
+        self.assertEqual(dvt3["AMBIENT_LIGHT"], "n")
+        self.assertEqual(dvt3["PRESSURE"], "n")
+        self.assertEqual(dvt3["TEMPERATURE"], "n")
+
+        board_source = (ROOT / "src/fw/board/boards/board_t5ai.c").read_text()
+        self.assertIn(".pin = 19u", board_source)
+        self.assertIn("gpio_output_set(&s_power_latch, true)", board_source)
+        self.assertIn(".pin = 28u", board_source)
+        self.assertIn("gpio_output_set(&s_amplifier_enable, false)", board_source)
 
     def test_original_dvt_keeps_its_haptics(self):
         config = load_config("dvt", "normal")

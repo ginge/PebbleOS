@@ -3,6 +3,19 @@
 #include <cmsis_core.h>
 #include <pbl/drivers/watchdog.h>
 #include <pbl/drivers/i2c.h>
+#include <pbl/drivers/gpio.h>
+
+static const OutputConfig s_power_latch = {
+    .pin = 19u,
+    .active_high = true,
+};
+
+/* The module amplifier enable is active-low. It remains deasserted until a
+ * native Pebble audio path owns the codec, clocks, and sample transport. */
+static const OutputConfig s_amplifier_enable = {
+    .pin = 28u,
+    .active_high = false,
+};
 
 static UARTDeviceState s_dbg_uart_state;
 static UARTDevice s_dbg_uart_device = {
@@ -68,6 +81,10 @@ const BoardConfigButton BOARD_CONFIG_BUTTON = {
 const BoardConfigPower BOARD_CONFIG_POWER = {.low_power_threshold = 5};
 const BoardConfigActuator BOARD_CONFIG_VIBE = {.ctl = {.pin = UINT8_MAX}};
 void board_early_init(void) {
+  gpio_output_init(&s_power_latch, GPIO_OType_PP);
+  gpio_output_set(&s_power_latch, true);
+  gpio_output_init(&s_amplifier_enable, GPIO_OType_PP);
+  gpio_output_set(&s_amplifier_enable, false);
   watchdog_init();
   watchdog_start();
 }
