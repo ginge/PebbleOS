@@ -10,6 +10,56 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class TuyaFlashTest(unittest.TestCase):
     @unittest.skipUnless(shutil.which("cc"), "host C compiler required")
+    def test_mipc_wire_format(self):
+        source = r'''
+#include <assert.h>
+#include <stdint.h>
+#include <string.h>
+#include <pbl/soc/t5ai/mipc.h>
+
+int main(void) {
+  static const uint8_t vector[] = "123456789";
+  assert(t5ai_mipc_crc8(vector, sizeof(vector) - 1, 0xff) == 0xab);
+  assert(t5ai_mipc_header(1, T5AI_MIPC_TYPE_COMMAND) == 0x09);
+  assert(t5ai_mipc_header(0, T5AI_MIPC_TYPE_ACK) == 0x10);
+  assert(t5ai_mipc_frame_header(0x09, 2, 1, 0x34, 0x17) == 0x17341209);
+
+  T5AIMIPCData data = {
+    .result = 0x11223344,
+    .handle = 0x55667788,
+    .data = 0x12345678,
+    .size = 20,
+    .flags = 1,
+  };
+  T5AIMIPCFrame frame = {
+    .header = t5ai_mipc_frame_header(0x09, 0, 0, 1,
+                                      T5AI_MIPC_LOGICAL_CHANNEL),
+    .object = 0x20001000,
+    .result = t5ai_mipc_data_crc(&data),
+  };
+  assert(t5ai_mipc_frame_valid(&frame, &data));
+  frame.result ^= 1;
+  assert(!t5ai_mipc_frame_valid(&frame, &data));
+  return 0;
+}
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            test_source = directory / "test.c"
+            test_source.write_text(source)
+            binary = directory / "test"
+            subprocess.run(
+                [
+                    "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                    "-I", str(ROOT / "include"),
+                    str(ROOT / "src/fw/drivers/t5ai/mipc.c"),
+                    str(test_source), "-o", str(binary),
+                ],
+                check=True,
+            )
+            subprocess.run([str(binary)], check=True)
+
+    @unittest.skipUnless(shutil.which("cc"), "host C compiler required")
     def test_mailbox_protocol_encoding_and_crc(self):
         source = r'''
 #include <assert.h>

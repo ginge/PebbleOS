@@ -189,7 +189,11 @@ Verify all pins from the schematic/BSP before hardware testing.
   flash and SARADC no longer access or drain its FIFO registers directly.
 - Logical-channel routing now prevents channel `0x11` flash/SARADC waits from
   consuming frames belonging to registered services such as MIPC `0x17`.
-- Implement the two-stage Tuya MIPC/HCI
+- The vendor-compatible MIPC ABI is now explicit and host-tested: fixed 32-bit
+  shared pointers, list/config/handle/data sizes, channel `0x17` framing,
+  command/ACK type bits, and the BSP's CRC-8 polynomial/coverage (including
+  its deliberate exclusion of the receiver-mutated flags word).
+- Implement the two-stage Tuya MIPC/HCI state machine
   request/response protocol behind `t5ai_hci_ipc_*`, including cache ownership,
   IRQ delivery, timeouts, and CP startup/clock requirements.
 - Ensure the vendor Bluetooth stack and Pebble NimBLE never own the controller simultaneously.
