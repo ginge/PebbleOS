@@ -237,6 +237,9 @@ Verify all pins from the schematic/BSP before hardware testing.
 - OTP storage remains unmapped on DVT3. Its explicit unprovisioned driver
   reports every slot unlocked, returns no identity data, and rejects writes;
   the manufacturing layer consequently uses its existing dummy identity.
+- Orientation changes no longer call the MMC5603NJ-specific rotation hook when
+  `CONFIG_MAG` is disabled. Display, buttons, accelerometer, and touch still
+  rotate normally without manufacturing a placeholder magnetometer.
 - Keep amplifier P28 disabled until the I2S/codec/speaker path is implemented safely.
 - Implement audio only through Pebble's audio interfaces.
 - Explicitly disable any unsupported peripheral rather than retaining a legacy DVT2 driver.
@@ -270,7 +273,7 @@ The current DVT3 build reaches the final link, where unresolved platform
 integration symbols for disabled legacy services still prevent objcopy and
 final artifact generation. Flash, mailbox, display/backlight, ambient-light,
 temperature, and vibration symbols are resolved. The remaining symbols cover
-disabled voice UI and magnetometer rotation. There is no internal-RAM overflow.
+disabled voice UI. There is no internal-RAM overflow.
 
 ### 16. Hardware validation when a device arrives
 
