@@ -133,6 +133,40 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertIn("return FLASH_LOG_INVALID_ADDR;", unavailable)
         self.assertIn("completed_cb(false);", unavailable)
 
+    def test_dvt3_factory_reset_does_not_request_prf(self):
+        factory_reset = (
+            ROOT / "src/fw/kernel/util/factory_reset.c"
+        ).read_text()
+        non_pfs_wipe = factory_reset.index("shared_prf_storage_wipe_all();")
+        non_pfs_guard = factory_reset.rfind(
+            "#ifndef CONFIG_SOC_T5AI", 0, non_pfs_wipe
+        )
+        non_pfs_end = factory_reset.index("#endif", non_pfs_wipe)
+        self.assertGreaterEqual(non_pfs_guard, 0)
+        self.assertLess(non_pfs_wipe, non_pfs_end)
+
+        reset_start = factory_reset.index("void factory_reset(bool should_shutdown)")
+        format_call = factory_reset.index("pfs_format(", reset_start)
+        prf_bit = factory_reset.index("boot_bit_set(BOOT_BIT_FORCE_PRF)", reset_start)
+        prf_guard = factory_reset.rfind(
+            "#ifndef CONFIG_SOC_T5AI", reset_start, prf_bit
+        )
+        prf_end = factory_reset.index("#endif // !CONFIG_SOC_T5AI", prf_bit)
+        self.assertGreaterEqual(prf_guard, reset_start)
+        self.assertLess(prf_bit, prf_end)
+        self.assertLess(prf_end, format_call)
+
+        consumer_mode = factory_reset.index("void command_enter_consumer_mode")
+        consumer_bit = factory_reset.index(
+            "boot_bit_set(BOOT_BIT_FORCE_PRF)", consumer_mode
+        )
+        consumer_guard = factory_reset.rfind(
+            "#ifndef CONFIG_SOC_T5AI", consumer_mode, consumer_bit
+        )
+        consumer_end = factory_reset.index("#endif", consumer_bit)
+        self.assertGreaterEqual(consumer_guard, consumer_mode)
+        self.assertLess(consumer_bit, consumer_end)
+
     def test_dvt3_has_native_t5ai_identity(self):
         dvt3 = load_config("dvt3", "normal")
         self.assertEqual(dvt3["BOARD_GETAFIX_DVT3"], "y")

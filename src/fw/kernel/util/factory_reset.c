@@ -41,7 +41,9 @@ static void prv_factory_reset_non_pfs_data() {
   worker_manager_disable();
   event_service_clear_process_subscriptions(PebbleTask_App);
 
+#ifndef CONFIG_SOC_T5AI
   shared_prf_storage_wipe_all();
+#endif
 
   services_set_runlevel(RunLevel_BareMinimum);
   app_idle_timeout_stop();
@@ -74,6 +76,7 @@ void factory_reset(bool should_shutdown) {
   prv_factory_reset_non_pfs_data();
 
 #if !defined(CONFIG_RECOVERY_FW)
+#ifndef CONFIG_SOC_T5AI
   // Commit to booting PRF before the filesystem wipe: it can take minutes,
   // and a reset in that window (watchdog, crash, power loss) must land in
   // PRF instead of rebooting a half-wiped normal firmware.
@@ -84,6 +87,7 @@ void factory_reset(bool should_shutdown) {
   firmware_storage_invalidate_firmware_slot(0);
   firmware_storage_invalidate_firmware_slot(1);
 #endif
+#endif // !CONFIG_SOC_T5AI
 
   // pfs_format() holds the PFS mutex across the erase, blocking concurrent
   // writes from the App task that would otherwise survive into a freshly-erased region.
@@ -122,7 +126,9 @@ void factory_reset_fast(void *unused) {
 //! Used by the mfg flow to kick us out the MFG firmware and into the conumer PRF that's stored
 //! on the external flash.
 void command_enter_consumer_mode(void) {
+#ifndef CONFIG_SOC_T5AI
   boot_bit_set(BOOT_BIT_FORCE_PRF);
+#endif
   factory_reset(true /* should_shutdown */);
 }
 
