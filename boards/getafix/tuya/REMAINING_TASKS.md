@@ -334,6 +334,13 @@ Verify all pins from the schematic/BSP before hardware testing.
   gate rejects T5AI reset/run/erase/debug-server runner operations and direct
   resource/recovery imaging. Re-enable a runner only together with a reviewed
   image container and recovery procedure.
+- The firmware-side boundary also fails closed on T5AI. Firmware-update start
+  requests are cancelled before entering the update runlevel, and Put Bytes
+  rejects firmware, recovery, and system-resource objects while retaining
+  watch-app, app-resource, and file transfers. A stale PRF-update boot bit is
+  cleared without copying flash. Configuration rejects the PRF variant and the
+  bundle command rejects legacy Pebble bundles because neither represents a
+  validated T5AI install or recovery format.
 - Define recovery before enabling OTA or destructive flash tests.
 - A link assertion and mandatory pre-objcopy map check now require FLASH to be
   exactly experimental slot 0 (`0x02120000..0x02310000`) and reject any NOR
@@ -361,7 +368,7 @@ Verify all pins from the schematic/BSP before hardware testing.
   `bounds` warning; no DVT3-port warning appeared in that compatibility build.
 - Keep warnings introduced by DVT3 at zero or document unavoidable toolchain warnings.
 
-Current host baseline: 39 `test_tuya*.py` tests and 4 Getafix board tests pass.
+Current host baseline: 39 `test_tuya*.py` tests and 5 Getafix board tests pass.
 The DVT3 native firmware now compiles and links without unresolved platform
 symbols or internal-RAM overflow. Host-generated ELF, map, raw binary, Intel
 HEX, and protected-block binary artifacts are available for inspection; they

@@ -68,6 +68,25 @@ class GetafixBoardsTest(unittest.TestCase):
             '_reject_unvalidated_t5ai_operation(env, "recovery imaging")', cli
         )
 
+    def test_dvt3_internal_update_paths_are_fail_closed(self):
+        build_script = (ROOT / "wscript").read_text()
+        self.assertIn("T5AI recovery firmware is disabled", build_script)
+        self.assertIn("T5AI bundles are disabled", build_script)
+
+        firmware_update = (
+            ROOT / "src/fw/services/firmware_update/service.c"
+        ).read_text()
+        self.assertIn("#ifdef CONFIG_SOC_T5AI", firmware_update)
+        self.assertIn("return FirmwareUpdateCancelled;", firmware_update)
+
+        put_bytes = (ROOT / "src/fw/services/put_bytes/put_bytes.c").read_text()
+        t5ai_gate = put_bytes.index("Firmware object type %u is unavailable on T5AI")
+        for object_name in ("ObjectFirmware", "ObjectRecovery", "ObjectSysResources"):
+            self.assertIn(object_name, put_bytes[t5ai_gate - 250 : t5ai_gate])
+
+        prf_update = (ROOT / "src/fw/services/prf_update/service.c").read_text()
+        self.assertIn("Ignoring unsupported T5AI recovery firmware update", prf_update)
+
     def test_dvt3_has_native_t5ai_identity(self):
         dvt3 = load_config("dvt3", "normal")
         self.assertEqual(dvt3["BOARD_GETAFIX_DVT3"], "y")

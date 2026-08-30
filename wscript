@@ -212,6 +212,9 @@ def configure(conf):
     conf.env.BOARD_NORMALIZED = board.normalized
 
     conf.env.VARIANT = conf.options.variant
+    if conf.env.CONFIG_SOC_T5AI and conf.env.VARIANT == 'prf':
+        conf.fatal('T5AI recovery firmware is disabled: no validated recovery image '
+                   'container, slot, or boot flow exists')
     if conf.env.VARIANT == 'prf':
         conf.env.JS_ENGINE = 'none'
 
@@ -783,6 +786,10 @@ class BundleCommand(BuildContext):
 
 def bundle(ctx):
     """bundles a firmware"""
+
+    if ctx.env.CONFIG_SOC_T5AI:
+        ctx.fatal('T5AI bundles are disabled: Pebble bundle metadata does not describe '
+                  'the validated AP image container or a recovery/install flow')
 
     if ctx.env.VARIANT == 'prf':
         _make_bundle(ctx, ctx.get_pebbleos_node().path_from(ctx.path), fw_type='recovery')

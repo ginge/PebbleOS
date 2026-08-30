@@ -109,6 +109,7 @@ static bool prv_legacy_handle_progress(PebblePutBytesEvent *event) {
   return true;
 }
 
+#ifndef CONFIG_SOC_T5AI
 static bool prv_legacy_completion_status_init(PebbleSystemMessageEvent *event) {
   if (event->type != PebbleSystemMessageFirmwareUpdateStartLegacy) {
     return false;
@@ -126,6 +127,7 @@ static bool prv_legacy_completion_status_init(PebbleSystemMessageEvent *event) {
 
   return true;
 }
+#endif
 
 // End Legacy completion handlers
 
@@ -142,6 +144,7 @@ void firmware_update_init(void) {
   PBL_ASSERTN(s_firmware_update_semaphore != NULL);
 }
 
+#ifndef CONFIG_SOC_T5AI
 static void prv_initialize_completion_status(PebbleSystemMessageEvent *event) {
   if (prv_legacy_completion_status_init(event)) {
     return;
@@ -154,6 +157,7 @@ static void prv_initialize_completion_status(PebbleSystemMessageEvent *event) {
     .total_size = event->total_transfer_size
   };
 }
+#endif
 
 // Initialization for a firmware update could involve an erase of 8 flash
 // sectors. Worst case timing for an erase is ~5s, so let's set our timeout to
@@ -161,6 +165,14 @@ static void prv_initialize_completion_status(PebbleSystemMessageEvent *event) {
 #define FIRMWARE_TIMEOUT_MS (1000 * 40)
 
 static FirmwareUpdateStatus prv_firmware_update_start(PebbleSystemMessageEvent *event) {
+#ifdef CONFIG_SOC_T5AI
+  // The T5AI port has no validated OTA container, install slot, rollback, or
+  // recovery flow. Keep the protocol endpoint present for compatibility, but
+  // reject the update before entering the update runlevel or accepting bytes.
+  (void)event;
+  PBL_LOG_WRN("Firmware update is unavailable on T5AI");
+  return FirmwareUpdateCancelled;
+#else
   if (battery_monitor_critical_lockout()) {
     return FirmwareUpdateCancelled;  // Disable firmware updates on low power
   }
@@ -190,6 +202,7 @@ static FirmwareUpdateStatus prv_firmware_update_start(PebbleSystemMessageEvent *
 
   xSemaphoreGive(s_firmware_update_semaphore);
   return result;
+#endif
 }
 
 static void prv_handle_firmware_update_start_msg(PebbleSystemMessageEvent *event) {

@@ -10,8 +10,9 @@
 
 PBL_LOG_MODULE_DEFINE(service_prf_update, CONFIG_SERVICE_PRF_UPDATE_LOG_LEVEL);
 
-// Don't allow PRF updating when we're in PRF
-#ifndef CONFIG_RECOVERY_FW
+// Don't allow PRF updating when we're in PRF. T5AI has no validated PRF slot
+// or install flow, so do not compile the flash-copy implementation there.
+#if !defined(CONFIG_RECOVERY_FW) && !defined(CONFIG_SOC_T5AI)
 static void prv_do_update(void) {
   PBL_LOG_INFO("Updating PRF!");
   flash_prf_set_protection(false);
@@ -74,7 +75,13 @@ void check_prf_update(void) {
 
   boot_bit_clear(BOOT_BIT_NEW_PRF_AVAILABLE);
 
+#ifdef CONFIG_SOC_T5AI
+  // A stale boot bit must never turn into an experimental flash copy on T5AI.
+  // Clear it once so every boot does not retry an unsupported update.
+  PBL_LOG_WRN("Ignoring unsupported T5AI recovery firmware update request");
+#else
 #ifndef CONFIG_RECOVERY_FW
   prv_do_update();
+#endif
 #endif
 }
