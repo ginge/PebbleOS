@@ -3,6 +3,14 @@
 
 menu "Bluetooth"
 
+config T5AI_CP_HCI_VALIDATED
+    bool "Enable validated T5AI CP HCI transport"
+    depends on SOC_T5AI
+    help
+      Allow the live NimBLE backend to use the T5AI communications processor.
+      Keep this disabled until CP firmware startup, clocks, mailbox ownership,
+      cache coherency, and recovery have been validated on the target board.
+
 choice BT_FW
     prompt "Bluetooth backend"
     default BT_FW_STUB
@@ -13,6 +21,7 @@ choice BT_FW
 
 config BT_FW_NIMBLE
     bool "NimBLE"
+    depends on !SOC_T5AI || T5AI_CP_HCI_VALIDATED
     select HAL_SIFLI_IPC_QUEUE if SOC_SF32LB52
     select HAL_SIFLI_LCPU if SOC_SF32LB52
 

@@ -24,8 +24,11 @@ The current output is not ready to flash. No physical device is available yet, s
   the Pebble flash backend, the native AP-to-CP mailbox flash transport, and
   native GPIO, EXTI, buttons, I2C0, and external PCF85063 wall-clock support
   are implemented.
-- The 260x260 compositor framebuffer has a bounded 128 KiB PSRAM region; native
-  PSRAM controller initialization is still required before it can be used safely.
+- The 260x260 compositor framebuffer has a bounded 128 KiB PSRAM region. The
+  pinned AP BSP leaves controller initialization to the boot stages (its AP
+  `bk_psram_init()` is compiled out), so Pebble validates that boot handoff with
+  complementary address-pattern passes over only the dedicated NOLOAD
+  framebuffer before the compositor uses it; hardware validation is pending.
 - The native build compiles all sources and reaches the final link without a RAM overflow.
 - The vendor bridge remains reference code and is not linked into production PebbleOS.
 - The current unresolved symbols are in display/backlight, GPIO/buttons, I2C-backed
@@ -216,6 +219,9 @@ Verify all pins from the schematic/BSP before hardware testing.
   polling. Separate shared objects preserve an in-flight host request when a
   controller event is interleaved. Keep the board stub selected until the CP
   firmware/clock startup assumptions and this protocol are validated on target.
+- Kconfig now enforces that boundary: `BT_FW_NIMBLE` is unavailable on T5AI
+  unless `T5AI_CP_HCI_VALIDATED` is deliberately enabled. DVT3 keeps that gate
+  off, so the SoC default cannot accidentally replace the controller stub.
 - Validate cache ownership, polling latency, timeouts, and CP startup/clock
   requirements on target; replace polling with IRQ delivery once proven.
 - Ensure the vendor Bluetooth stack and Pebble NimBLE never own the controller simultaneously.
@@ -277,10 +283,13 @@ Verify all pins from the schematic/BSP before hardware testing.
   reference-runtime object paths. MPU behavior still requires on-target fault
   and privilege-transition validation.
 - Add host tests for board selection, memory/layout calculations, protected-block translation, display conversion, touch mapping, and battery conversion where practical.
-- Run DVT2 configure/build after shared-code changes.
+- Getafix DVT2 configure/build passes after the shared driver/service changes,
+  preserving its real haptics, ALS, temperature, OTP, microphone/voice, and
+  magnetometer paths. Its stored Golf app still emits the pre-existing unused
+  `bounds` warning; no DVT3-port warning appeared in that compatibility build.
 - Keep warnings introduced by DVT3 at zero or document unavoidable toolchain warnings.
 
-Current host baseline: 31 `test_tuya*.py` tests and 3 Getafix board tests pass.
+Current host baseline: 32 `test_tuya*.py` tests and 3 Getafix board tests pass.
 The DVT3 native firmware now compiles and links without unresolved platform
 symbols or internal-RAM overflow. Host-generated ELF, map, raw binary, Intel
 HEX, and protected-block binary artifacts are available for inspection; they

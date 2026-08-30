@@ -26,6 +26,15 @@ class TuyaMemoryLayoutTest(unittest.TestCase):
         compositor = (ROOT / "src/fw/services/compositor/compositor.c").read_text()
         self.assertIn('section(".t5ai_framebuffer")', compositor)
 
+    def test_framebuffer_psram_handoff_is_validated_before_use(self):
+        compositor = (ROOT / "src/fw/services/compositor/compositor.c").read_text()
+        validation = compositor.index("prv_validate_t5ai_framebuffer_ram()")
+        initialization = compositor.index("framebuffer_init(&s_framebuffer")
+        self.assertLess(validation, initialization)
+        self.assertIn("PBL_ASSERTN(prv_validate_t5ai_framebuffer_ram())", compositor)
+        self.assertIn("seed ^ (uint32_t)i", compositor)
+        self.assertIn("~(seed ^ (uint32_t)i)", compositor)
+
 
 if __name__ == "__main__":
     unittest.main()
