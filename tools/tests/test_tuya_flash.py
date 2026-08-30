@@ -19,6 +19,15 @@ class TuyaFlashTest(unittest.TestCase):
 
 void dcache_flush(const void *address, size_t size) { (void)address; (void)size; }
 void dcache_invalidate(void *address, size_t size) { (void)address; (void)size; }
+status_t t5ai_cp_mailbox_lock(void) { return S_SUCCESS; }
+void t5ai_cp_mailbox_unlock(void) {}
+status_t t5ai_cp_mailbox_send(const void *data, size_t length) {
+  (void)data; (void)length; return S_SUCCESS;
+}
+status_t t5ai_cp_mailbox_receive(T5AICPMailboxFrame *frame) {
+  (void)frame; return E_AGAIN;
+}
+void t5ai_cp_mailbox_discard_pending(void) {}
 
 int main(void) {
   static const uint8_t vector[] = "123456789";

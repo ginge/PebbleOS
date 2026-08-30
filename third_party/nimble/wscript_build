@@ -114,6 +114,7 @@ elif bld.env.CONFIG_SOC_T5AI:
     nimble_includes = [
         'port/include/sf32lb52',
     ] + nimble_includes
+    nimble_use.append('driver_t5ai_mailbox')
 
 
 bld.objects(

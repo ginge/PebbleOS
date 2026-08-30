@@ -52,6 +52,14 @@ elif bld.env.CONFIG_BOARD_GETAFIX:
         'driver_rc10k',
         'driver_task_watchdog',
     ])
+
+if bld.env.CONFIG_SOC_T5AI:
+    bld.objects(
+        name='driver_t5ai_mailbox',
+        source=['t5ai/cp_mailbox.c'],
+        use=['freertos', 'fw_includes', 'pbl_includes'],
+    )
+    bld.env.DRIVERS.append('driver_t5ai_mailbox')
 ## ----------
 
 if bld.env.CONFIG_SPEAKER:

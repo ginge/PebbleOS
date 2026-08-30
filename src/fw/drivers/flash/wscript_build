@@ -26,6 +26,7 @@ elif bld.env.CONFIG_FLASH_GD25Q256E:
     use.append('driver_qspi')
 elif bld.env.CONFIG_FLASH_T5AI:
     sources.extend(['t5ai.c', 't5ai_flash_ipc.c'])
+    use.append('driver_t5ai_mailbox')
 bld.objects(
     name='driver_flash',
     source=sources,

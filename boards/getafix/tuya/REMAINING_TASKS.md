@@ -185,7 +185,9 @@ Verify all pins from the schematic/BSP before hardware testing.
   and exposes a narrow controller-only IPC contract. DVT3 intentionally remains
   on the Bluetooth stub until that contract is backed by the native shared
   mailbox dispatcher; enabling it earlier would race the flash/SARADC clients.
-- Implement the shared mailbox dispatcher and the two-stage Tuya MIPC/HCI
+- The physical CP mailbox now has a single native owner and transaction mutex;
+  flash and SARADC no longer access or drain its FIFO registers directly.
+- Implement logical-channel dispatch and the two-stage Tuya MIPC/HCI
   request/response protocol behind `t5ai_hci_ipc_*`, including cache ownership,
   IRQ delivery, timeouts, and CP startup/clock requirements.
 - Ensure the vendor Bluetooth stack and Pebble NimBLE never own the controller simultaneously.

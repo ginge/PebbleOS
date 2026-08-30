@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <pbl/mcu/cache.h>
+#include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/flash_ipc.h>
 #include <pbl/soc/t5ai/saradc_ipc.h>
 
@@ -10,21 +11,6 @@
 #include <string.h>
 
 #include "system/status_codes.h"
-
-/* BK7258 AP mailbox channel 1 registers from the pinned T5AI BSP. */
-#define T5AI_MBOX_BASE 0x41000000u
-#define T5AI_MBOX_CH1_CTRL (*(volatile uint32_t *)(T5AI_MBOX_BASE + 0x80u))
-#define T5AI_MBOX_CH1_TX_DATA0 (*(volatile uint32_t *)(T5AI_MBOX_BASE + 0x88u))
-#define T5AI_MBOX_CH1_TX_DATA1 (*(volatile uint32_t *)(T5AI_MBOX_BASE + 0x8cu))
-#define T5AI_MBOX_CH1_TX_ID (*(volatile uint32_t *)(T5AI_MBOX_BASE + 0x90u))
-#define T5AI_MBOX_CH1_RX_ID (*(volatile uint32_t *)(T5AI_MBOX_BASE + 0x94u))
-#define T5AI_MBOX_CH1_RX_DATA0 (*(volatile uint32_t *)(T5AI_MBOX_BASE + 0x98u))
-#define T5AI_MBOX_CH1_RX_DATA1 (*(volatile uint32_t *)(T5AI_MBOX_BASE + 0x9cu))
-#define T5AI_MBOX_CH0_FIFO_STATUS (*(volatile uint32_t *)(T5AI_MBOX_BASE + 0x60u))
-
-#define T5AI_MBOX_FIFO_NOT_EMPTY (1u << 19)
-#define T5AI_MBOX_FIFO_FULL (1u << 0)
-#define T5AI_MBOX_CPU_CP 0u
 
 #define T5AI_IPC_LOGICAL_CHANNEL 0x11u
 #define T5AI_IPC_ACK_CONTROL 0x1u
@@ -41,11 +27,6 @@
 #define T5AI_FLASH_COMMAND_READ 3u
 #define T5AI_FLASH_COMMAND_READ_DONE 4u
 #define T5AI_FLASH_COMMAND_WRITE 5u
-
-#define T5AI_AON_RTC_LOW (*(volatile uint32_t *)0x4400020cu)
-#define T5AI_AON_RTC_HIGH (*(volatile uint32_t *)0x44000228u)
-#define T5AI_AON_RTC_HZ 32000u
-#define T5AI_IPC_TIMEOUT_TICKS (2u * T5AI_AON_RTC_HZ)
 
 typedef struct {
   uint32_t header;
@@ -67,22 +48,6 @@ static T5AIFlashCommand s_flash_command __attribute__((aligned(32)));
 static uint8_t s_tag;
 static uint8_t s_sequence;
 static bool s_connected;
-
-static uint64_t prv_ticks(void) {
-  uint32_t high_before;
-  uint32_t low;
-  uint32_t high_after;
-  do {
-    high_before = T5AI_AON_RTC_HIGH;
-    low = T5AI_AON_RTC_LOW;
-    high_after = T5AI_AON_RTC_HIGH;
-  } while (high_before != high_after);
-  return ((uint64_t)high_after << 32) | low;
-}
-
-static bool prv_timed_out(uint64_t start) {
-  return prv_ticks() - start >= T5AI_IPC_TIMEOUT_TICKS;
-}
 
 static uint8_t prv_crc8(const void *data, size_t length) {
   const uint8_t *bytes = data;
@@ -140,13 +105,6 @@ static uint32_t prv_ipc_data_word(uint8_t user_command, size_t length,
 }
 
 static status_t prv_mailbox_send(T5AIIPCMessage *message, bool acknowledge) {
-  const uint64_t start = prv_ticks();
-  while ((T5AI_MBOX_CH0_FIFO_STATUS & T5AI_MBOX_FIFO_FULL) != 0) {
-    if (prv_timed_out(start)) {
-      return E_BUSY;
-    }
-  }
-
   if (!acknowledge) {
     s_sequence++;
     message->header = (message->header & 0xffu) |
@@ -154,28 +112,17 @@ static status_t prv_mailbox_send(T5AIIPCMessage *message, bool acknowledge) {
                       ((uint32_t)T5AI_IPC_LOGICAL_CHANNEL << 24);
   }
   dcache_flush(message, sizeof(*message));
-  T5AI_MBOX_CH1_TX_DATA0 = (uint32_t)(uintptr_t)message;
-  T5AI_MBOX_CH1_TX_DATA1 = sizeof(*message);
-  T5AI_MBOX_CH1_TX_ID = T5AI_MBOX_CPU_CP;
-  return S_SUCCESS;
+  return t5ai_cp_mailbox_send(message, sizeof(*message));
 }
 
 static status_t prv_mailbox_receive(T5AIIPCMessage *message) {
-  const uint64_t start = prv_ticks();
-  while ((T5AI_MBOX_CH1_CTRL & T5AI_MBOX_FIFO_NOT_EMPTY) == 0) {
-    if (prv_timed_out(start)) {
-      return E_AGAIN;
-    }
-  }
-
-  (void)T5AI_MBOX_CH1_RX_ID;
-  const uintptr_t address = T5AI_MBOX_CH1_RX_DATA0;
-  const uint32_t length = T5AI_MBOX_CH1_RX_DATA1;
-  if (address == 0 || length != sizeof(*message)) {
+  T5AICPMailboxFrame frame;
+  status_t status = t5ai_cp_mailbox_receive(&frame);
+  if (FAILED(status) || frame.length != sizeof(*message)) {
     return E_ERROR;
   }
-  dcache_invalidate((void *)address, sizeof(*message));
-  memcpy(message, (const void *)address, sizeof(*message));
+  dcache_invalidate((void *)frame.address, sizeof(*message));
+  memcpy(message, (const void *)frame.address, sizeof(*message));
   return S_SUCCESS;
 }
 
@@ -298,14 +245,14 @@ static status_t prv_connect(uint8_t client_port, uint8_t server_port) {
 }
 
 status_t t5ai_flash_ipc_init(void) {
-  while ((T5AI_MBOX_CH1_CTRL & T5AI_MBOX_FIFO_NOT_EMPTY) != 0) {
-    (void)T5AI_MBOX_CH1_RX_ID;
-    (void)T5AI_MBOX_CH1_RX_DATA0;
-    (void)T5AI_MBOX_CH1_RX_DATA1;
+  status_t status = t5ai_cp_mailbox_lock();
+  if (FAILED(status)) {
+    return status;
   }
-
-  status_t status = prv_connect(T5AI_FLASH_CLIENT_PORT, T5AI_FLASH_SERVER_PORT);
+  t5ai_cp_mailbox_discard_pending();
+  status = prv_connect(T5AI_FLASH_CLIENT_PORT, T5AI_FLASH_SERVER_PORT);
   s_connected = PASSED(status);
+  t5ai_cp_mailbox_unlock();
   return s_connected ? S_SUCCESS : E_ERROR;
 }
 
@@ -330,23 +277,31 @@ status_t t5ai_flash_ipc_read(uint32_t offset, void *buffer, size_t length) {
   if (buffer == NULL || length == 0 || length > 0xffffu) {
     return E_INVALID_ARGUMENT;
   }
+  status_t status = t5ai_cp_mailbox_lock();
+  if (FAILED(status)) {
+    return status;
+  }
   s_flash_command = (T5AIFlashCommand){
       .part_and_address = offset << 8,
       .length_and_status = (uint32_t)length,
   };
-  status_t status = prv_flash_transaction(T5AI_FLASH_COMMAND_READ);
+  status = prv_flash_transaction(T5AI_FLASH_COMMAND_READ);
   if (FAILED(status) || s_flash_command.buffer == 0) {
-    return E_ERROR;
+    status = E_ERROR;
+    goto out;
   }
   const void *source = (const void *)(uintptr_t)s_flash_command.buffer;
   dcache_invalidate((void *)source, length);
   if (prv_crc32(source, length) != s_flash_command.crc) {
-    return E_ERROR;
+    status = E_ERROR;
+    goto out;
   }
   memcpy(buffer, source, length);
 
   memset(&s_flash_command, 0, sizeof(s_flash_command));
   status = prv_flash_transaction(T5AI_FLASH_COMMAND_READ_DONE);
+out:
+  t5ai_cp_mailbox_unlock();
   return status;
 }
 
@@ -355,6 +310,10 @@ status_t t5ai_flash_ipc_write(uint32_t offset, const void *buffer,
   if (buffer == NULL || length == 0 || length > 0xffffu) {
     return E_INVALID_ARGUMENT;
   }
+  status_t status = t5ai_cp_mailbox_lock();
+  if (FAILED(status)) {
+    return status;
+  }
   s_flash_command = (T5AIFlashCommand){
       .part_and_address = offset << 8,
       .buffer = (uint32_t)(uintptr_t)buffer,
@@ -362,15 +321,23 @@ status_t t5ai_flash_ipc_write(uint32_t offset, const void *buffer,
       .crc = prv_crc32(buffer, length),
   };
   dcache_flush(buffer, length);
-  return prv_flash_transaction(T5AI_FLASH_COMMAND_WRITE);
+  status = prv_flash_transaction(T5AI_FLASH_COMMAND_WRITE);
+  t5ai_cp_mailbox_unlock();
+  return status;
 }
 
 status_t t5ai_flash_ipc_erase_4k(uint32_t offset) {
   if ((offset & 0xfffu) != 0) {
     return E_INVALID_ARGUMENT;
   }
+  status_t status = t5ai_cp_mailbox_lock();
+  if (FAILED(status)) {
+    return status;
+  }
   s_flash_command = (T5AIFlashCommand){.part_and_address = offset << 8};
-  return prv_flash_transaction(T5AI_FLASH_COMMAND_ERASE_SECTOR);
+  status = prv_flash_transaction(T5AI_FLASH_COMMAND_ERASE_SECTOR);
+  t5ai_cp_mailbox_unlock();
+  return status;
 }
 
 typedef struct {
@@ -452,11 +419,8 @@ static status_t prv_saradc_cleanup(uint8_t channel, status_t status) {
   return status;
 }
 
-status_t t5ai_saradc_read_peak(uint8_t channel, uint8_t samples,
-                               uint16_t *peak) {
-  if (peak == NULL || channel > 15u || samples == 0u || samples > 32u) {
-    return E_INVALID_ARGUMENT;
-  }
+static status_t prv_saradc_read_peak_locked(uint8_t channel, uint8_t samples,
+                                            uint16_t *peak) {
   if (!s_saradc_connected) {
     status_t status = prv_connect(T5AI_SARADC_CLIENT_PORT,
                                   T5AI_SARADC_SERVER_PORT);
@@ -522,4 +486,18 @@ status_t t5ai_saradc_read_peak(uint8_t channel, uint8_t samples,
     status = E_ERROR;
   }
   return prv_saradc_cleanup(channel, status);
+}
+
+status_t t5ai_saradc_read_peak(uint8_t channel, uint8_t samples,
+                               uint16_t *peak) {
+  if (peak == NULL || channel > 15u || samples == 0u || samples > 32u) {
+    return E_INVALID_ARGUMENT;
+  }
+  status_t status = t5ai_cp_mailbox_lock();
+  if (FAILED(status)) {
+    return status;
+  }
+  status = prv_saradc_read_peak_locked(channel, samples, peak);
+  t5ai_cp_mailbox_unlock();
+  return status;
 }
