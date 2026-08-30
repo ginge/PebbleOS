@@ -7,13 +7,11 @@
 #include <pbl/drivers/button.h>
 #include <pbl/drivers/exti.h>
 #include "kernel/events.h"
+#include "pbl/services/new_timer/new_timer.h"
 #include "system/bootbits.h"
 #include "system/passert.h"
 #include "system/reset.h"
 #include "util/bitset.h"
-
-#include "FreeRTOS.h"
-#include "timers.h"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -23,7 +21,7 @@
 #define RESET_BUTTONS ((1u << BUTTON_ID_SELECT) | (1u << BUTTON_ID_BACK))
 #define RESET_THRESHOLD_SAMPLES (5000u / DEBOUNCE_PERIOD_MS)
 
-static TimerHandle_t s_debounce_timer;
+static TimerID s_debounce_timer = TIMER_INVALID_ID;
 static uint32_t s_sample_counts[NUM_BUTTONS];
 static uint32_t s_debounced_state;
 static uint32_t s_hard_reset_samples;
@@ -32,7 +30,8 @@ static bool prv_button_present(ButtonId id) {
   return BOARD_CONFIG_BUTTON.buttons[id].pin != UINT8_MAX;
 }
 
-static void prv_sample_buttons(TimerHandle_t timer) {
+static void prv_sample_buttons(void *context) {
+  (void)context;
   bool sampling_required = false;
 
   for (ButtonId id = BUTTON_ID_BACK; id < NUM_BUTTONS; ++id) {
@@ -82,26 +81,27 @@ static void prv_sample_buttons(TimerHandle_t timer) {
 #endif
 
   if (!sampling_required) {
-    PBL_ASSERTN(xTimerStop(timer, 0u) == pdPASS);
+    (void)new_timer_stop(s_debounce_timer);
   }
 }
 
+static void prv_restart_debounce_timer(void *context) {
+  (void)context;
+  PBL_ASSERTN(new_timer_start(s_debounce_timer, DEBOUNCE_PERIOD_MS,
+                              prv_sample_buttons, NULL,
+                              TIMER_START_FLAG_REPEATING));
+}
+
 static void prv_button_interrupt_handler(bool *should_context_switch) {
-  BaseType_t task_woken = pdFALSE;
-  const BaseType_t result = xTimerResetFromISR(s_debounce_timer, &task_woken);
-  PBL_ASSERTN(result == pdPASS);
-  if (task_woken != pdFALSE) {
-    *should_context_switch = true;
-  }
+  *should_context_switch |= new_timer_add_work_callback_from_isr(
+      prv_restart_debounce_timer, NULL);
 }
 
 void debounced_button_init(void) {
   button_init();
 
-  s_debounce_timer = xTimerCreate("button_debounce",
-                                  pdMS_TO_TICKS(DEBOUNCE_PERIOD_MS), pdTRUE,
-                                  NULL, prv_sample_buttons);
-  PBL_ASSERTN(s_debounce_timer != NULL);
+  s_debounce_timer = new_timer_create();
+  PBL_ASSERTN(s_debounce_timer != TIMER_INVALID_ID);
 
   for (ButtonId id = BUTTON_ID_BACK; id < NUM_BUTTONS; ++id) {
     if (!prv_button_present(id)) {
@@ -118,7 +118,7 @@ void debounced_button_init(void) {
   }
 
   if (button_get_state_bits() != 0u) {
-    PBL_ASSERTN(xTimerStart(s_debounce_timer, 0u) == pdPASS);
+    prv_restart_debounce_timer(NULL);
   }
 }
 

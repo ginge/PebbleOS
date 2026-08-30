@@ -7,12 +7,10 @@
 #include <pbl/drivers/rtc.h>
 #include <pbl/os/tick.h>
 #include "kernel/util/sleep.h"
+#include "pbl/services/new_timer/new_timer.h"
 #include "pbl/services/system_task.h"
 #include "system/status_codes.h"
 #include <pbl/logging/logging.h>
-
-#include "FreeRTOS.h"
-#include "timers.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -42,7 +40,7 @@ static const QMI8658Rate s_rates[] = {
     {48000u, 0x0du}, {91000u, 0x0eu}, {333000u, 0x0fu},
 };
 
-static TimerHandle_t s_timer;
+static TimerID s_timer = TIMER_INVALID_ID;
 static uint32_t s_interval_us = 8000u;
 static uint32_t s_num_samples;
 static bool s_initialized;
@@ -113,8 +111,8 @@ static void prv_poll(void *context) {
   accel_cb_new_sample(&sample);
 }
 
-static void prv_timer_callback(TimerHandle_t timer) {
-  (void)timer;
+static void prv_timer_callback(void *context) {
+  (void)context;
   if (s_num_samples == 0u || s_poll_pending) {
     return;
   }
@@ -136,9 +134,8 @@ void accel_init(void) {
     PBL_LOG_ERR("QMI8658 initialization failed");
     return;
   }
-  s_timer = xTimerCreate("qmi8658", milliseconds_to_ticks(8u), pdTRUE, NULL,
-                         prv_timer_callback);
-  if (s_timer == NULL) {
+  s_timer = new_timer_create();
+  if (s_timer == TIMER_INVALID_ID) {
     PBL_LOG_ERR("Could not create QMI8658 poll timer");
     return;
   }
@@ -162,9 +159,10 @@ uint32_t accel_set_sampling_interval(uint32_t interval_us) {
     return s_interval_us;
   }
   s_interval_us = rate->interval_us;
-  if (s_timer != NULL) {
+  if (s_timer != TIMER_INVALID_ID && s_num_samples != 0u) {
     const uint32_t period_ms = (s_interval_us + 999u) / 1000u;
-    (void)xTimerChangePeriod(s_timer, milliseconds_to_ticks(period_ms), 0);
+    (void)new_timer_start(s_timer, period_ms, prv_timer_callback, NULL,
+                          TIMER_START_FLAG_REPEATING);
   }
   return s_interval_us;
 }
@@ -184,9 +182,11 @@ void accel_set_num_samples(uint32_t num_samples) {
     PBL_LOG_ERR("Could not %s QMI8658", num_samples ? "enable" : "disable");
   }
   if (num_samples) {
-    (void)xTimerStart(s_timer, 0);
+    const uint32_t period_ms = (s_interval_us + 999u) / 1000u;
+    (void)new_timer_start(s_timer, period_ms, prv_timer_callback, NULL,
+                          TIMER_START_FLAG_REPEATING);
   } else {
-    (void)xTimerStop(s_timer, 0);
+    (void)new_timer_stop(s_timer);
   }
 }
 

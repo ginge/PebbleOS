@@ -11,12 +11,10 @@
 #include <pbl/drivers/i2c.h>
 #include <pbl/os/tick.h>
 #include "kernel/util/sleep.h"
+#include "pbl/services/new_timer/new_timer.h"
 #include "pbl/services/system_task.h"
 #include "pbl/services/touch/touch.h"
 #include <pbl/logging/logging.h>
-
-#include "FreeRTOS.h"
-#include "timers.h"
 
 PBL_LOG_MODULE_DEFINE(driver_touch_cst92xx, CONFIG_DRIVER_TOUCH_LOG_LEVEL);
 
@@ -28,7 +26,7 @@ PBL_LOG_MODULE_DEFINE(driver_touch_cst92xx, CONFIG_DRIVER_TOUCH_LOG_LEVEL);
 #define CST92XX_NATIVE_SIZE 466u
 #define CST92XX_POLL_MS 20u
 
-static TimerHandle_t s_poll_timer;
+static TimerID s_poll_timer = TIMER_INVALID_ID;
 static bool s_enabled;
 static bool s_poll_pending;
 static bool s_finger_down;
@@ -107,8 +105,8 @@ static void prv_poll(void *context) {
   }
 }
 
-static void prv_timer_callback(TimerHandle_t timer) {
-  (void)timer;
+static void prv_timer_callback(void *context) {
+  (void)context;
   if (!s_enabled || s_poll_pending) {
     return;
   }
@@ -125,9 +123,8 @@ void touch_sensor_init(void) {
   if (!prv_read_report(report)) {
     PBL_LOG_ERR("CST92xx not detected at 0x5a");
   }
-  s_poll_timer = xTimerCreate("cst92xx", milliseconds_to_ticks(CST92XX_POLL_MS),
-                              pdTRUE, NULL, prv_timer_callback);
-  if (s_poll_timer == NULL) {
+  s_poll_timer = new_timer_create();
+  if (s_poll_timer == TIMER_INVALID_ID) {
     PBL_LOG_ERR("Could not create CST92xx poll timer");
   }
   s_enabled = true;
@@ -142,12 +139,14 @@ void touch_sensor_set_enabled(bool enabled) {
   s_poll_pending = false;
   if (enabled) {
     prv_reset(true);
-    if (s_poll_timer != NULL) {
-      (void)xTimerStart(s_poll_timer, 0);
+    if (s_poll_timer != TIMER_INVALID_ID) {
+      (void)new_timer_start(s_poll_timer, CST92XX_POLL_MS,
+                            prv_timer_callback, NULL,
+                            TIMER_START_FLAG_REPEATING);
     }
   } else {
-    if (s_poll_timer != NULL) {
-      (void)xTimerStop(s_poll_timer, 0);
+    if (s_poll_timer != TIMER_INVALID_ID) {
+      (void)new_timer_stop(s_poll_timer);
     }
     if (s_finger_down) {
       touch_handle_update(TouchState_FingerUp, s_last_x, s_last_y);

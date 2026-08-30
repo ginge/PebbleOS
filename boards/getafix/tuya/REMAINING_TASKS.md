@@ -160,6 +160,9 @@ Verify all pins from the schematic/BSP before hardware testing.
 - The QMI8658 is implemented on I2C0 at address `0x6b`, with WHO_AM_I `0x05`
   validation, 4 g scaling, Pebble sampling-rate negotiation, timestamps, axis
   rotation, direct peeks, and power-down while unsubscribed.
+- Button debounce, touch polling, and accelerometer polling use Pebble's native
+  high-priority timer service; DVT3 no longer depends on the deliberately
+  disabled FreeRTOS software-timer daemon.
 - No interrupt pin is identified in the module BSP, so the initial driver uses
   bounded system-task polling and delivers one sample at a time. Confirm the
   interrupt routing before adding FIFO batching, wake-on-motion, shake, or
@@ -240,9 +243,9 @@ Verify all pins from the schematic/BSP before hardware testing.
 
 Current host baseline: 29 `test_tuya*.py` tests and 3 Getafix board tests pass.
 The current DVT3 build reaches the final link, where unresolved platform
-integration symbols (including FreeRTOS timers and disabled legacy services)
-still prevent objcopy and final artifact generation. Flash and mailbox symbols
-are resolved, and there is no internal-RAM overflow.
+integration symbols (including mutex support and disabled legacy services)
+still prevent objcopy and final artifact generation. Flash and mailbox protocol
+symbols are resolved, and there is no internal-RAM overflow.
 
 ### 16. Hardware validation when a device arrives
 
