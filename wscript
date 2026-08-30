@@ -39,6 +39,7 @@ import tools.waf.check_t5ai_image_map
 import tools.waf.ldscript
 import tools.waf.objcopy
 import tools.waf.pblboot
+import tools.waf.t5ai_image
 import tools.waf.pebble_sdk_gcc as pebble_sdk_gcc
 import tools.runners as pebble_runners
 from tools.waf.pebble_sdk_locator import activate_sdk
@@ -436,6 +437,11 @@ def _link_firmware(bld, sources):
         bld(rule=tools.waf.objcopy.objcopy_hex, source=image_inputs, target=hex_node)
         bin_node = elf_node.change_ext('.bin')
         bld(rule=tools.waf.objcopy.objcopy_bin, source=image_inputs, target=bin_node)
+
+    if bld.env.CONFIG_SOC_T5AI:
+        protected_bin_node = elf_node.change_ext('.t5ai-crc.bin')
+        bld(rule=tools.waf.t5ai_image.wafrule,
+            source=bin_node, target=protected_bin_node)
 
     # Create the log_strings .elf and check the format specifier rules
     if bld.env.CONFIG_LOG_HASHED:

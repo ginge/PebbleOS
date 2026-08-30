@@ -217,7 +217,13 @@ Verify all pins from the schematic/BSP before hardware testing.
 ### 14. Image packaging and boot flow
 
 - Determine the exact image header, load/XIP address, CRC/ECC protected-block format, signing requirements, and bootloader expectations.
-- Add a reproducible packaging command to `pbl`/Waf rather than a manual binary patching step.
+- The pinned BK7258 packager's protected-block transform is implemented and
+  host-tested: 32 logical bytes, `0xff` tail padding, then a big-endian Beken
+  CRC-16 (polynomial `0x8005`, initial value `0xffffffff`). T5AI builds now
+  reproducibly emit `pebbleos.t5ai-crc.bin` in addition to the raw binary.
+- Do not flash that protected payload yet. The factory bootloader's accepted AP
+  partition address/header, CP/AP bundle composition, signing policy, and
+  recovery path are still unverified for the experimental Pebble layout.
 - Define recovery before enabling OTA or destructive flash tests.
 - A link assertion and mandatory pre-objcopy map check now require FLASH to be
   exactly experimental slot 0 (`0x02120000..0x02310000`) and reject any NOR
@@ -232,9 +238,11 @@ Verify all pins from the schematic/BSP before hardware testing.
 - Run DVT2 configure/build after shared-code changes.
 - Keep warnings introduced by DVT3 at zero or document unavoidable toolchain warnings.
 
-Current host baseline: 23 `test_tuya*.py` tests and 3 Getafix board tests pass.
-The full DVT3 build reaches the final link with no unresolved flash or mailbox
-symbols and no internal-RAM overflow.
+Current host baseline: 29 `test_tuya*.py` tests and 3 Getafix board tests pass.
+The current DVT3 build reaches the final link, where unresolved platform
+integration symbols (including FreeRTOS timers and disabled legacy services)
+still prevent objcopy and final artifact generation. Flash and mailbox symbols
+are resolved, and there is no internal-RAM overflow.
 
 ### 16. Hardware validation when a device arrives
 
