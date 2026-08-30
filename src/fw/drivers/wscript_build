@@ -74,8 +74,10 @@ bld.recurse('vibe')
 # The ambient directory selects a real sensor or the explicit absent driver.
 bld.recurse('ambient')
 
-if bld.env.CONFIG_TEMPERATURE:
-    bld.recurse('temperature')
+# Temperature initialization and reads are unconditional firmware interfaces.
+# The temperature directory selects real hardware, a configured test stub, or
+# the explicit absent driver.
+bld.recurse('temperature')
 
 if bld.env.CONFIG_BATTERY:
     bld.recurse('battery')

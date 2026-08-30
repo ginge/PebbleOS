@@ -9,6 +9,9 @@ if bld.env.CONFIG_TEMPERATURE_SF32LB:
 elif bld.env.CONFIG_TEMPERATURE_STUB:
     sources.append('stubs.c')
 
+if not sources:
+    sources.append('temperature_none.c')
+
 bld.objects(
     name='driver_temperature',
     source=sources,

@@ -1,10 +1,13 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <pbl/drivers/ambient_light.h>
 
+#include "console/prompt.h"
+
 static uint32_t s_dark_threshold;
 
 void ambient_light_init(void) {}
 uint32_t ambient_light_get_light_level(void) { return 0u; }
+void command_als_read(void) { prompt_send_response("Ambient light unavailable"); }
 void ambient_light_prime(void) {}
 void ambient_light_release(void) {}
 void ambient_light_suspend(void) {}
