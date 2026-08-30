@@ -219,7 +219,10 @@ Verify all pins from the schematic/BSP before hardware testing.
 - Determine the exact image header, load/XIP address, CRC/ECC protected-block format, signing requirements, and bootloader expectations.
 - Add a reproducible packaging command to `pbl`/Waf rather than a manual binary patching step.
 - Define recovery before enabling OTA or destructive flash tests.
-- Produce a map-file check that rejects overlap with protected areas.
+- A link assertion and mandatory pre-objcopy map check now require FLASH to be
+  exactly experimental slot 0 (`0x02120000..0x02310000`) and reject any NOR
+  VMA/load address outside it. A successful check stamps
+  `build/pebbleos.image-layout.ok`; `.bin`/`.hex` generation depends on it.
 
 ### 15. Validation possible without hardware
 
@@ -229,7 +232,7 @@ Verify all pins from the schematic/BSP before hardware testing.
 - Run DVT2 configure/build after shared-code changes.
 - Keep warnings introduced by DVT3 at zero or document unavoidable toolchain warnings.
 
-Current host baseline: 18 `test_tuya*.py` tests and 3 Getafix board tests pass.
+Current host baseline: 23 `test_tuya*.py` tests and 3 Getafix board tests pass.
 The full DVT3 build reaches the final link with no unresolved flash or mailbox
 symbols and no internal-RAM overflow.
 

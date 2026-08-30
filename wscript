@@ -35,6 +35,7 @@ import tools.waf.generate_log_strings_json
 import tools.waf.generate_timezone_data
 import tools.waf.gitinfo
 import tools.waf.boards
+import tools.waf.check_t5ai_image_map
 import tools.waf.ldscript
 import tools.waf.objcopy
 import tools.waf.pblboot
@@ -411,23 +412,30 @@ def _link_firmware(bld, sources):
 
     x.env.append_value('LINKFLAGS', fw_linkflags)
 
+    image_inputs = [elf_node]
+    if bld.env.CONFIG_SOC_T5AI:
+        layout_stamp = bld.path.get_bld().make_node('pebbleos.image-layout.ok')
+        bld(rule=tools.waf.check_t5ai_image_map.wafrule,
+            source=elf_node, target=layout_stamp)
+        image_inputs.append(layout_stamp)
+
     if bld.env.CONFIG_PBLBOOT:
         git_revision = tools.waf.gitinfo.get_git_revision(bld)
         bld.env.PBLBOOT_PRIORITY = str(tools.waf.pblboot.boot_priority(
             git_revision['TAG'], int(git_revision['TIMESTAMP'])))
         nohdr_hex_node = elf_node.change_ext('.nohdr.hex')
-        bld(rule=tools.waf.objcopy.objcopy_hex, source=elf_node, target=nohdr_hex_node)
+        bld(rule=tools.waf.objcopy.objcopy_hex, source=image_inputs, target=nohdr_hex_node)
         hex_node = elf_node.change_ext('.hex')
         bld(rule=tools.waf.pblboot.insert_header_hex, source=nohdr_hex_node, target=hex_node)
         nohdr_bin_node = elf_node.change_ext('.nohdr.bin')
-        bld(rule=tools.waf.objcopy.objcopy_bin, source=elf_node, target=nohdr_bin_node)
+        bld(rule=tools.waf.objcopy.objcopy_bin, source=image_inputs, target=nohdr_bin_node)
         bin_node = elf_node.change_ext('.bin')
         bld(rule=tools.waf.pblboot.insert_header_bin, source=nohdr_bin_node, target=bin_node)
     else:
         hex_node = elf_node.change_ext('.hex')
-        bld(rule=tools.waf.objcopy.objcopy_hex, source=elf_node, target=hex_node)
+        bld(rule=tools.waf.objcopy.objcopy_hex, source=image_inputs, target=hex_node)
         bin_node = elf_node.change_ext('.bin')
-        bld(rule=tools.waf.objcopy.objcopy_bin, source=elf_node, target=bin_node)
+        bld(rule=tools.waf.objcopy.objcopy_bin, source=image_inputs, target=bin_node)
 
     # Create the log_strings .elf and check the format specifier rules
     if bld.env.CONFIG_LOG_HASHED:
