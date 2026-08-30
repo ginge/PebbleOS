@@ -17,6 +17,12 @@ elif bld.env.CONFIG_VIBE_DRV2604:
         'pbl_includes',
     ])
 
+# Vibration is exposed through the service/app ABI even when a board has no
+# actuator. Keep that boundary explicit instead of inheriting another board's
+# hardware selection or leaving the ABI unresolved.
+if not sources:
+    sources.append('vibe_none.c')
+
 bld.objects(
     name='driver_vibe',
     source=sources,

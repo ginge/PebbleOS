@@ -65,6 +65,11 @@ if bld.env.CONFIG_SOC_T5AI:
 if bld.env.CONFIG_SPEAKER:
     bld.recurse('speaker')
 
+# The vibration service is part of the app ABI even on boards without an
+# actuator. The vibe directory selects a real driver or the explicit absent
+# driver.
+bld.recurse('vibe')
+
 # The light service is part of the app ABI even on boards without an ALS.
 # The ambient directory selects a real sensor or the explicit absent driver.
 bld.recurse('ambient')

@@ -227,6 +227,9 @@ Verify all pins from the schematic/BSP before hardware testing.
   drives active-low amplifier enable P28 inactive before other services start.
 - Speaker, microphone, vibration, ambient light, pressure, temperature,
   magnetometer, and PMIC paths remain disabled for DVT3.
+- DVT3 now uses an explicit absent vibration driver: the service/app ABI remains
+  available, motor commands have no physical effect, calibration returns
+  `E_INVALID_OPERATION`, and the console reports `Vibration unavailable`.
 - Keep amplifier P28 disabled until the I2S/codec/speaker path is implemented safely.
 - Implement audio only through Pebble's audio interfaces.
 - Explicitly disable any unsupported peripheral rather than retaining a legacy DVT2 driver.
@@ -258,8 +261,10 @@ Verify all pins from the schematic/BSP before hardware testing.
 Current host baseline: 29 `test_tuya*.py` tests and 3 Getafix board tests pass.
 The current DVT3 build reaches the final link, where unresolved platform
 integration symbols for disabled legacy services still prevent objcopy and
-final artifact generation. Flash and mailbox symbols are resolved, and there
-is no internal-RAM overflow.
+final artifact generation. Flash, mailbox, display/backlight, ambient-light
+service, and vibration symbols are resolved. The remaining symbols cover the
+temperature and ALS console commands, OTP identity, disabled voice UI, and
+magnetometer rotation. There is no internal-RAM overflow.
 
 ### 16. Hardware validation when a device arrives
 
