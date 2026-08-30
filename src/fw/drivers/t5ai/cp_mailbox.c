@@ -182,6 +182,34 @@ status_t t5ai_cp_mailbox_receive(uint8_t logical_channel,
   }
 }
 
+status_t t5ai_cp_mailbox_try_receive(uint8_t logical_channel,
+                                     T5AICPMailboxFrame *frame) {
+  if (frame == NULL) {
+    return E_INVALID_ARGUMENT;
+  }
+  if ((T5AI_MBOX_CH1_CTRL & T5AI_MBOX_FIFO_NOT_EMPTY) == 0) {
+    return E_AGAIN;
+  }
+  (void)T5AI_MBOX_CH1_RX_ID;
+  frame->address = T5AI_MBOX_CH1_RX_DATA0;
+  frame->length = T5AI_MBOX_CH1_RX_DATA1;
+  uint8_t received_channel;
+  if (FAILED(prv_frame_channel(frame, &received_channel))) {
+    return E_ERROR;
+  }
+  if (received_channel == logical_channel) {
+    return S_SUCCESS;
+  }
+  for (size_t i = 0; i < T5AI_MBOX_MAX_ROUTES; ++i) {
+    if (s_routes[i].callback != NULL &&
+        s_routes[i].logical_channel == received_channel) {
+      s_routes[i].callback(received_channel, frame, s_routes[i].context);
+      return E_AGAIN;
+    }
+  }
+  return E_DOES_NOT_EXIST;
+}
+
 void t5ai_cp_mailbox_discard_pending(void) {
   while ((T5AI_MBOX_CH1_CTRL & T5AI_MBOX_FIFO_NOT_EMPTY) != 0) {
     (void)T5AI_MBOX_CH1_RX_ID;

@@ -21,3 +21,4 @@ int t5ai_hci_ipc_start(const T5AIHCICallbacks *callbacks);
 int t5ai_hci_ipc_stop(void);
 int t5ai_hci_ipc_send_command(const uint8_t *data, size_t length);
 int t5ai_hci_ipc_send_acl(const uint8_t *data, size_t length);
+void t5ai_hci_ipc_poll(void);

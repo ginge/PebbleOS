@@ -25,4 +25,6 @@ status_t t5ai_cp_mailbox_register(uint8_t logical_channel,
 void t5ai_cp_mailbox_unregister(uint8_t logical_channel);
 status_t t5ai_cp_mailbox_receive(uint8_t logical_channel,
                                  T5AICPMailboxFrame *frame);
+status_t t5ai_cp_mailbox_try_receive(uint8_t logical_channel,
+                                     T5AICPMailboxFrame *frame);
 void t5ai_cp_mailbox_discard_pending(void);

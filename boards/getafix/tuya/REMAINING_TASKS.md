@@ -193,7 +193,12 @@ Verify all pins from the schematic/BSP before hardware testing.
   shared pointers, list/config/handle/data sizes, channel `0x17` framing,
   command/ACK type bits, and the BSP's CRC-8 polynomial/coverage (including
   its deliberate exclusion of the receiver-mutated flags word).
-- Implement the two-stage Tuya MIPC/HCI state machine
+- The two-stage Tuya MIPC/HCI state machine is implemented: physical delivery
+  ACKs, MIPC object ACKs, application replies, command/ACL requests, callback
+  registration, controller init/deinit, and controller-originated event/ACL
+  polling. Separate shared objects preserve an in-flight host request when a
+  controller event is interleaved. Keep the board stub selected until the CP
+  firmware/clock startup assumptions and this protocol are validated on target.
   request/response protocol behind `t5ai_hci_ipc_*`, including cache ownership,
   IRQ delivery, timeouts, and CP startup/clock requirements.
 - Ensure the vendor Bluetooth stack and Pebble NimBLE never own the controller simultaneously.

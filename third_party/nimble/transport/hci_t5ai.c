@@ -3,6 +3,11 @@
 #include <pbl/logging/logging.h>
 #include <pbl/soc/t5ai/hci_ipc.h>
 
+#include <kernel/pebble_tasks.h>
+
+#include "FreeRTOS.h"
+#include "task.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -23,6 +28,15 @@
 static bool s_started;
 static bool s_failed;
 static uint8_t s_acl_tx[T5AI_HCI_MAX_ACL_SIZE];
+static TaskHandle_t s_hci_task;
+
+static void prv_hci_task(void *unused) {
+  (void)unused;
+  for (;;) {
+    t5ai_hci_ipc_poll();
+    vTaskDelay(pdMS_TO_TICKS(5));
+  }
+}
 
 static bool prv_event_valid(const uint8_t *data, size_t length) {
   return data != NULL && length >= T5AI_HCI_EVENT_HEADER_SIZE &&
@@ -92,6 +106,18 @@ void ble_transport_ll_reinit(void) {
 
 void ble_transport_ll_init(void) {
   ble_transport_ll_reinit();
+  if (s_hci_task == NULL) {
+    TaskParameters_t parameters = {
+        .pvTaskCode = prv_hci_task,
+        .pcName = "T5AIHCI",
+        .usStackDepth = 1024 / sizeof(StackType_t),
+        .uxPriority = (tskIDLE_PRIORITY + 3) | portPRIVILEGE_BIT,
+    };
+    pebble_task_create(PebbleTask_BTHCI, &parameters, &s_hci_task);
+    if (s_hci_task == NULL) {
+      s_failed = true;
+    }
+  }
 }
 
 void ble_transport_ll_deinit(void) {
