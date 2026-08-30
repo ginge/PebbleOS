@@ -1,8 +1,11 @@
-# Getafix DVT3 native port: remaining tasks
+# Getafix DVT3 native port: hardware validation and remaining tasks
 
 This is the continuation handoff for the native PebbleOS port to the Waveshare T5-E1 Touch AMOLED 1.75 board. Continue on branch `tuya`.
 
-The current output is not ready to flash. No physical device is available yet, so continue source, build, and host-side validation first.
+The native target now configures, compiles, links, and packages on the host, but
+the output is not ready to flash. No physical device is available yet. Preserve
+the factory image and establish the boot/recovery procedure before attempting
+to install the experimental payload.
 
 ## Port direction
 
@@ -29,13 +32,18 @@ The current output is not ready to flash. No physical device is available yet, s
   `bk_psram_init()` is compiled out), so Pebble validates that boot handoff with
   complementary address-pattern passes over only the dedicated NOLOAD
   framebuffer before the compositor uses it; hardware validation is pending.
-- The native build compiles all sources and reaches the final link without a RAM overflow.
+- The native build compiles and links without unresolved platform symbols or a
+  RAM overflow, and emits ELF, map, raw binary, Intel HEX, protected-block
+  binary, and image-layout validation artifacts.
 - The vendor bridge remains reference code and is not linked into production PebbleOS.
-- The current unresolved symbols are in display/backlight, GPIO/buttons, I2C-backed
-  sensors, battery/ADC, Bluetooth controller transport, manufacturing OTP,
-  and legacy services for hardware DVT3 does not contain.
-- Eighteen Tuya host tests and three Getafix board-selection tests pass.
-- The latest mailbox/flash build log is `/tmp/dvt3-mailbox-build.log` if it still exists.
+- Display/backlight, GPIO/buttons, I2C/RTC, touch, accelerometer, battery/ADC,
+  absent-hardware service behavior, manufacturing OTP fallback, and the
+  NimBLE-to-controller IPC protocol all have native implementations or explicit
+  safe disabled states. The Bluetooth controller IPC remains deliberately
+  gated until its CP startup and shared-memory behavior are proven on hardware.
+- Thirty-seven Tuya host tests and three Getafix board-selection tests pass.
+- Both `getafix@dvt3` and the DVT2 compatibility target configure and build.
+  DVT2 retains only its pre-existing stored Golf app unused-variable warning.
 
 ## Resume commands
 
@@ -46,9 +54,19 @@ python pbl configure --board getafix@dvt3
 python pbl build
 ```
 
-Fix the first real compiler or linker error, rebuild, and repeat. Do not hide failures with placeholder symbols unless the hardware capability is deliberately disabled in Kconfig.
+Keep the clean build green while addressing the remaining host-auditable work.
+Do not hide regressions with placeholder symbols; represent missing hardware
+through an explicit disabled configuration or an honest service-boundary
+implementation.
 
 ## Remaining work, in recommended order
+
+The broad host-side port is complete. Sections 2 through 13 primarily record
+implemented behavior and the corresponding on-target validation still needed.
+The immediately actionable host work is the audit in section 1 and the
+boot-image/recovery investigation in section 14. Do not enable destructive
+flash testing, OTA, resource-bank writes, or the Bluetooth controller path
+merely to advance the checklist.
 
 ### 1. Audit the working tree
 
@@ -294,9 +312,10 @@ Verify all pins from the schematic/BSP before hardware testing.
   VMA/load address outside it. A successful check stamps
   `build/pebbleos.image-layout.ok`; `.bin`/`.hex` generation depends on it.
 
-### 15. Validation possible without hardware
+### 15. Host validation — current baseline complete
 
-- Reach a clean native compile and link with no unresolved placeholder drivers.
+- Maintain the clean native compile and link with no unresolved placeholder
+  drivers as further changes are made.
 - T5AI host packaging now enforces a 1 MiB logical system-resource pack ceiling;
   the current 1,026,537-byte pack fits narrowly. On-device resource banks remain
   deliberately zero-length until the factory partition table identifies safe
