@@ -37,6 +37,12 @@ config BACKLIGHT_QEMU
       Emulated backlight controller that writes to the QEMU
       pebble-display MMIO registers.
 
+config BACKLIGHT_T5AI
+    bool "T5AI CO5300"
+    default y if SOC_T5AI
+    help
+      Brightness control through the CO5300 AMOLED display controller.
+
 config BACKLIGHT_QEMU_COLOR
     bool "QEMU Color"
     depends on BACKLIGHT_QEMU

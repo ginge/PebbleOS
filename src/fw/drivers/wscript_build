@@ -65,8 +65,9 @@ if bld.env.CONFIG_SOC_T5AI:
 if bld.env.CONFIG_SPEAKER:
     bld.recurse('speaker')
 
-if bld.env.CONFIG_AMBIENT_LIGHT:
-    bld.recurse('ambient')
+# The light service is part of the app ABI even on boards without an ALS.
+# The ambient directory selects a real sensor or the explicit absent driver.
+bld.recurse('ambient')
 
 if bld.env.CONFIG_TEMPERATURE:
     bld.recurse('temperature')

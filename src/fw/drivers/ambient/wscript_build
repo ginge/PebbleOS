@@ -9,7 +9,10 @@ if bld.env.CONFIG_AMBIENT_LIGHT_OPT3001:
 elif bld.env.CONFIG_AMBIENT_LIGHT_W1160:
     sources.append('ambient_light_w1160.c')
 
-if sources:
+if not sources:
+    sources.append('ambient_light_none.c')
+
+if bld.env.CONFIG_AMBIENT_LIGHT:
     sources.append('ambient_light_common.c')
 
 bld.objects(

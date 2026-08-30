@@ -2,6 +2,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <pbl/drivers/display/display.h>
+#include <pbl/drivers/display/t5ai.h>
 
 #include "board/board.h"
 #include <pbl/drivers/gpio.h>
@@ -46,6 +47,8 @@ static bool s_initialized;
 static bool s_enabled;
 static bool s_updating;
 static bool s_rotated;
+static uint8_t s_brightness;
+static bool s_brightness_dirty;
 static uint8_t s_panel_row[PANEL_WIDTH * 2u] __attribute__((aligned(4)));
 
 static volatile uint32_t *prv_qspi(uint32_t offset) {
@@ -94,6 +97,19 @@ static bool prv_command(uint8_t command, const uint8_t *data, size_t length,
 
 static bool prv_register(uint8_t command, const uint8_t *data, size_t length) {
   return prv_command(command, data, length, false);
+}
+
+static void prv_apply_brightness(void) {
+  if (s_initialized && !s_updating && s_brightness_dirty &&
+      prv_register(0x51u, &s_brightness, 1u)) {
+    s_brightness_dirty = false;
+  }
+}
+
+void display_co5300_set_brightness(uint8_t level) {
+  s_brightness = level;
+  s_brightness_dirty = true;
+  prv_apply_brightness();
 }
 
 static bool prv_set_window(uint16_t x0, uint16_t y0, uint16_t x1,
@@ -184,7 +200,7 @@ static bool prv_panel_init(void) {
   } init[] = {
       {0xfe, 0x20}, {0x19, 0x10}, {0x1c, 0xa0}, {0xfe, 0x00},
       {0xc4, 0x80}, {0x3a, 0x55}, {0x35, 0x00}, {0x53, 0x20},
-      {0x51, 0xff}, {0x63, 0xff},
+      {0x63, 0xff},
   };
   for (unsigned i = 0; i < sizeof(init) / sizeof(init[0]); ++i) {
     if (!prv_register(init[i].command, &init[i].value, 1)) {
@@ -195,13 +211,15 @@ static bool prv_panel_init(void) {
     return false;
   }
   delay_us(200000);
-  return prv_register(0x29u, NULL, 0);
+  return prv_register(0x51u, &s_brightness, 1u) &&
+         prv_register(0x29u, NULL, 0);
 }
 
 void display_init(void) {
   prv_qspi_init();
   s_initialized = prv_panel_init();
   s_enabled = s_initialized;
+  s_brightness_dirty = false;
   if (!s_initialized) {
     PBL_LOG_ERR("CO5300 initialization failed");
   }
@@ -245,6 +263,7 @@ void display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
     }
   }
   s_updating = false;
+  prv_apply_brightness();
   uccb();
 }
 

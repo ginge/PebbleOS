@@ -148,6 +148,10 @@ Verify all pins from the schematic/BSP before hardware testing.
   DMA, transfer timeout recovery, optimized dirty-region batching, brightness
   policy, deeper sleep/wake, and teardown after hardware validation.
 - Do not expose the vendor framebuffer or UI framework to Pebble applications.
+- Pebble brightness control maps 0..100 onto the CO5300 `0x51` register;
+  requests before initialization or during an update are cached for the next
+  safe transport boundary. With no ALS fitted, the ambient-light driver
+  explicitly reports unavailable/unknown rather than emulating a sensor.
 
 ### 9. Touch — initial native path implemented, hardware validation pending
 

@@ -12,6 +12,8 @@ elif bld.env.CONFIG_BACKLIGHT_PWM:
     sources.append('pwm.c')
 elif bld.env.CONFIG_BACKLIGHT_QEMU:
     sources.append('qemu.c')
+elif bld.env.CONFIG_BACKLIGHT_T5AI:
+    sources.append('t5ai.c')
 
 bld.objects(
     name='driver_backlight',
