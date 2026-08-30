@@ -166,13 +166,16 @@ Verify all pins from the schematic/BSP before hardware testing.
   double-tap handling.
 - Validate physical axis orientation and calibration on hardware.
 
-### 11. Battery measurement and charging state
+### 11. Battery measurement and charging state — initial native path implemented
 
-- Implement the T5AI ADC path for the board voltage divider.
-- Recorded input: P13 / ADC channel 15; verify pinmux and attenuation.
-- Preserve the reference strategy of multiple samples where justified; the current reference uses a 16-sample peak-style reading.
-- Derive voltage and state-of-charge calibration from measurements once a device is available.
-- Implement charge detection from P30 and report it through Pebble's battery service.
+- The CP-owned T5AI SARADC is accessed through its native mailbox service.
+  P13/channel 15 uses the reference 16-sample peak strategy and the module's
+  measured two-point SAR calibration plus the schematic 2 MOhm/510 kOhm divider.
+- Active-low P30 feeds Pebble's charging and cable-present state. The module has
+  no separate standby/full signal, so a completed charge cannot currently be
+  distinguished from unplugged state.
+- Validate voltage against a meter across the usable battery range and refine
+  calibration/state-of-charge curves if production units differ.
 
 ### 12. Bluetooth/NimBLE
 

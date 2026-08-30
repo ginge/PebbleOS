@@ -20,4 +20,10 @@ config BATTERY_QEMU
     help
       Stub battery driver for QEMU (fixed values).
 
+config BATTERY_T5AI
+    bool "T5AI ADC/GPIO battery"
+    depends on SOC_T5AI
+    help
+      Battery divider ADC and active-low charge status for T5AI boards.
+
 endif # BATTERY
