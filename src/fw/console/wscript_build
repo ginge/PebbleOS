@@ -4,6 +4,10 @@
 excl = []
 if not bld.env.CONFIG_PROMPT:
     excl += ['prompt.c', 'prompt_commands.c']
+if bld.env.CONFIG_SOC_T5AI:
+    # DVT3 has no validated programming/recovery flow. Do not link console
+    # protocols that can erase or write raw flash behind the host-side guards.
+    excl += ['pulse_flash_imaging.c', 'pulse_bulkio_external_flash.c']
 
 bld.objects(
     name='console',

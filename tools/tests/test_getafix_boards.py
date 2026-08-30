@@ -87,6 +87,28 @@ class GetafixBoardsTest(unittest.TestCase):
         prf_update = (ROOT / "src/fw/services/prf_update/service.c").read_text()
         self.assertIn("Ignoring unsupported T5AI recovery firmware update", prf_update)
 
+    def test_dvt3_raw_flash_console_paths_are_not_linked(self):
+        console_build = (ROOT / "src/fw/console/wscript_build").read_text()
+        self.assertIn("if bld.env.CONFIG_SOC_T5AI:", console_build)
+        self.assertIn("'pulse_flash_imaging.c'", console_build)
+        self.assertIn("'pulse_bulkio_external_flash.c'", console_build)
+
+        protocol_registry = (
+            ROOT / "src/fw/console/pulse_protocol_registry.def"
+        ).read_text()
+        bulkio_registry = (
+            ROOT / "src/fw/console/pulse_bulkio_handler.def"
+        ).read_text()
+        for registry, handler in (
+            (protocol_registry, "pulse_flash_imaging_handler"),
+            (bulkio_registry, "pulse_bulkio_domain_external_flash"),
+        ):
+            guard = registry.index("#if !defined(CONFIG_SOC_T5AI)")
+            registration = registry.index(handler)
+            end = registry.index("#endif", guard)
+            self.assertLess(guard, registration)
+            self.assertLess(registration, end)
+
     def test_dvt3_has_native_t5ai_identity(self):
         dvt3 = load_config("dvt3", "normal")
         self.assertEqual(dvt3["BOARD_GETAFIX_DVT3"], "y")

@@ -341,6 +341,10 @@ Verify all pins from the schematic/BSP before hardware testing.
   cleared without copying flash. Configuration rejects the PRF variant and the
   bundle command rejects legacy Pebble bundles because neither represents a
   validated T5AI install or recovery format.
+- DVT3 also excludes the legacy Pulse flash-imaging protocol and the BulkIO
+  external-flash domain from its firmware image. This closes raw UART console
+  erase/write paths that would otherwise bypass the host runner and OTA gates;
+  DVT2 retains both legacy handlers, and non-flash diagnostics remain present.
 - Define recovery before enabling OTA or destructive flash tests.
 - A link assertion and mandatory pre-objcopy map check now require FLASH to be
   exactly experimental slot 0 (`0x02120000..0x02310000`) and reject any NOR
@@ -368,7 +372,7 @@ Verify all pins from the schematic/BSP before hardware testing.
   `bounds` warning; no DVT3-port warning appeared in that compatibility build.
 - Keep warnings introduced by DVT3 at zero or document unavoidable toolchain warnings.
 
-Current host baseline: 39 `test_tuya*.py` tests and 5 Getafix board tests pass.
+Current host baseline: 39 `test_tuya*.py` tests and 6 Getafix board tests pass.
 The DVT3 native firmware now compiles and links without unresolved platform
 symbols or internal-RAM overflow. Host-generated ELF, map, raw binary, Intel
 HEX, and protected-block binary artifacts are available for inspection; they
