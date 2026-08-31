@@ -385,6 +385,11 @@ static void prv_pulse_done_command(void) {
 #ifdef CONFIG_PULSE_EVERYWHERE
 
 void pulse2_prompt_packet_handler(void *packet, size_t length) {
+  if (packet == NULL || length >= PROMPT_BUFFER_SIZE_BYTES) {
+    PBL_LOG_ERR("Ignoring malformed PULSE prompt command");
+    return;
+  }
+
   if (prompt_command_is_executing()) {
     PBL_LOG_DBG("Ignoring prompt command as another command is "
             "currently executing");
@@ -401,6 +406,12 @@ void pulse2_prompt_packet_handler(void *packet, size_t length) {
 #else
 
 void pulse_prompt_handler(void *packet, size_t length) {
+  if (packet == NULL || length < sizeof(PromptCommand) ||
+      length - sizeof(PromptCommand) >= PROMPT_BUFFER_SIZE_BYTES) {
+    PBL_LOG_ERR("Ignoring malformed PULSE prompt command");
+    return;
+  }
+
   PromptCommand *command = packet;
   // Check for duplicate command and ignore it
   if (s_latest_cookie == command->cookie) {

@@ -296,6 +296,42 @@ class GetafixBoardsTest(unittest.TestCase):
             pulse_pp.count("s_transport.session_generation++"), 2
         )
 
+    def test_pulse_prompt_commands_are_bounded(self):
+        prompt = (ROOT / "src/fw/console/prompt.c").read_text()
+
+        reliable = prompt.index("void pulse2_prompt_packet_handler")
+        legacy = prompt.index("void pulse_prompt_handler", reliable)
+        reliable_check = prompt.index(
+            "packet == NULL || length >= PROMPT_BUFFER_SIZE_BYTES",
+            reliable,
+            legacy,
+        )
+        reliable_copy = prompt.index(
+            "memcpy(s_dbgserial_prompt_context.buffer", reliable_check, legacy
+        )
+        self.assertLess(reliable_check, reliable_copy)
+
+        legacy_check = prompt.index(
+            "packet == NULL || length < sizeof(PromptCommand)", legacy
+        )
+        legacy_bound = prompt.index(
+            "length - sizeof(PromptCommand) >= PROMPT_BUFFER_SIZE_BYTES",
+            legacy_check,
+        )
+        cookie_read = prompt.index("command->cookie", legacy_bound)
+        command_length = prompt.index(
+            "size_t command_length = length - sizeof(PromptCommand)",
+            cookie_read,
+        )
+        legacy_copy = prompt.index(
+            "strncpy(s_dbgserial_prompt_context.buffer",
+            command_length,
+        )
+        self.assertLess(legacy_check, legacy_bound)
+        self.assertLess(legacy_bound, cookie_read)
+        self.assertLess(cookie_read, command_length)
+        self.assertLess(command_length, legacy_copy)
+
     def test_framebuffer_bulkio_is_bounded(self):
         framebuffer = (
             ROOT / "src/fw/console/pulse_bulkio_framebuffer.c"

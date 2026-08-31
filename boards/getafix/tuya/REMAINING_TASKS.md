@@ -41,7 +41,7 @@ to install the experimental payload.
   NimBLE-to-controller IPC protocol all have native implementations or explicit
   safe disabled states. The Bluetooth controller IPC remains deliberately
   gated until its CP startup and shared-memory behavior are proven on hardware.
-- Thirty-nine Tuya host tests and twenty Getafix board-selection tests pass.
+- Thirty-nine Tuya host tests and twenty-one Getafix board-selection tests pass.
 - Both `getafix@dvt3` and the DVT2 compatibility target configure and build.
   DVT2 retains only its pre-existing stored Golf app unused-variable warning.
 
@@ -419,6 +419,10 @@ Verify all pins from the schematic/BSP before hardware testing.
   connection generation after temporarily releasing the Bluetooth lock to
   obtain a transmit buffer. A close/reopen cannot leave it operating on a stale
   session, and a failed session open returns before assigning capabilities.
+- Both reliable and legacy Pulse prompt handlers now validate null, truncated,
+  and oversized commands before reading their fields, changing execution
+  state, or copying into the fixed command buffer. DVT3 still excludes the
+  prompt entirely; the shared fix preserves and hardens DVT2 diagnostics.
 - Framebuffer BulkIO reads and writes now use overflow-safe bounds checks
   against the exact framebuffer allocation, and stat rejects undersized output
   buffers. Malformed offsets can no longer turn this retained diagnostic into
@@ -454,7 +458,7 @@ Verify all pins from the schematic/BSP before hardware testing.
   `bounds` warning; no DVT3-port warning appeared in that compatibility build.
 - Keep warnings introduced by DVT3 at zero or document unavoidable toolchain warnings.
 
-Current host baseline: 39 `test_tuya*.py` tests and 20 Getafix board tests pass.
+Current host baseline: 39 `test_tuya*.py` tests and 21 Getafix board tests pass.
 The DVT3 native firmware now compiles and links without unresolved platform
 symbols or internal-RAM overflow. Host-generated ELF, map, raw binary, Intel
 HEX, and protected-block binary artifacts are available for inspection; they
