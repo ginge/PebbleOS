@@ -172,6 +172,9 @@ static void prv_respond_malformed_command(void *cmd, size_t length,
                                      const char *message) {
   const size_t max_response_size = pulse_reliable_max_send_size();
   uint8_t *resp = pulse_reliable_send_begin(PULSE2_BULKIO_PROTOCOL);
+  if (resp == NULL) {
+    return;
+  }
   resp[0] = BULKIO_RESP_MALFORMED_CMD;
 
   size_t message_len = strlen(message) + 1;
@@ -191,6 +194,9 @@ static void prv_respond_internal_error(Command *cmd, size_t length,
   const size_t max_response_size = pulse_reliable_max_send_size();
   InternalErrorResponse *resp = pulse_reliable_send_begin(
       PULSE2_BULKIO_PROTOCOL);
+  if (resp == NULL) {
+    return;
+  }
   resp->opcode = BULKIO_RESP_INTERNAL_ERROR;
   resp->status_code = status_code;
 
@@ -265,6 +271,10 @@ static void prv_domain_read_cb(void *data) {
   size_t read_len = MIN(pulse_fd->transfer_state.bytes_left, max_read_len);
 
   ReadResponse *resp = pulse_reliable_send_begin(PULSE2_BULKIO_PROTOCOL);
+  if (resp == NULL) {
+    pulse_fd->read_active = false;
+    return;
+  }
   resp->opcode = BULKIO_RESP_DOMAIN_READ;
   resp->offset = pulse_fd->transfer_state.offset;
 
@@ -331,6 +341,11 @@ static void prv_handle_open(Command *cmd, size_t length) {
   }
 
   OpenResponse *resp = pulse_reliable_send_begin(PULSE2_BULKIO_PROTOCOL);
+  if (resp == NULL) {
+    state->impl->close_proc(state->domain_state);
+    prv_free_fd(fd);
+    return;
+  }
   resp->opcode = BULKIO_RESP_DOMAIN_OPEN;
   resp->fd = fd;
   pulse_reliable_send(resp, sizeof(*resp));
@@ -352,6 +367,9 @@ static void prv_handle_close(Command *cmd, size_t length) {
   }
 
   CloseResponse *resp = pulse_reliable_send_begin(PULSE2_BULKIO_PROTOCOL);
+  if (resp == NULL) {
+    return;
+  }
   resp->opcode = BULKIO_RESP_DOMAIN_CLOSE;
   resp->fd = cmd->close.fd;
   pulse_reliable_send(resp, sizeof(*resp));
@@ -406,6 +424,9 @@ static void prv_handle_write(Command *cmd, size_t length) {
   }
 
   WriteResponse *resp = pulse_reliable_send_begin(PULSE2_BULKIO_PROTOCOL);
+  if (resp == NULL) {
+    return;
+  }
   *resp = (WriteResponse) {
     .opcode = BULKIO_RESP_DOMAIN_WRITE,
     .fd = cmd->write.fd,
@@ -448,6 +469,9 @@ static void prv_handle_crc(Command *cmd, size_t length) {
   }
 
   CRCResponse *resp = pulse_reliable_send_begin(PULSE2_BULKIO_PROTOCOL);
+  if (resp == NULL) {
+    return;
+  }
   *resp = (CRCResponse) {
     .opcode = BULKIO_RESP_DOMAIN_CRC,
     .fd = cmd->crc.fd,
@@ -466,6 +490,9 @@ static void prv_handle_stat(Command *cmd, size_t length) {
   }
 
   StatResponse *resp = pulse_reliable_send_begin(PULSE2_BULKIO_PROTOCOL);
+  if (resp == NULL) {
+    return;
+  }
   *resp = (StatResponse) {
     .opcode = BULKIO_RESP_DOMAIN_STAT,
     .fd = cmd->stat.fd
@@ -506,6 +533,9 @@ static void prv_handle_erase(Command *cmd, size_t length) {
 void pulse_bulkio_erase_message_send(PulseBulkIODomainType domain_type, status_t status,
                                      uint8_t cookie) {
     EraseResponse *resp = pulse_reliable_send_begin(PULSE2_BULKIO_PROTOCOL);
+    if (resp == NULL) {
+      return;
+    }
     resp->opcode = BULKIO_RESP_DOMAIN_ERASE;
     resp->domain = domain_type;
     resp->status = status;

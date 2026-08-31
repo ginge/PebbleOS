@@ -312,11 +312,12 @@ void pulse_reliable_send_cancel(void *buf) {
 }
 
 void pulse_reliable_send(void *buf, const size_t length) {
+  prv_assert_reliable_buffer(buf);
   if (!s_layer_up) {
     PBL_LOG_DBG("Transport went down before send");
+    xSemaphoreGive(s_tx_lock);
     return;
   }
-  prv_assert_reliable_buffer(buf);
 
   s_tx_buffer->length = length;
   uint8_t sequence_number = s_send_variable;

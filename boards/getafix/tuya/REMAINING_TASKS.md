@@ -41,7 +41,7 @@ to install the experimental payload.
   NimBLE-to-controller IPC protocol all have native implementations or explicit
   safe disabled states. The Bluetooth controller IPC remains deliberately
   gated until its CP startup and shared-memory behavior are proven on hardware.
-- Thirty-nine Tuya host tests and seventeen Getafix board-selection tests pass.
+- Thirty-nine Tuya host tests and eighteen Getafix board-selection tests pass.
 - Both `getafix@dvt3` and the DVT2 compatibility target configure and build.
   DVT2 retains only its pre-existing stored Golf app unused-variable warning.
 
@@ -406,6 +406,11 @@ Verify all pins from the schematic/BSP before hardware testing.
   transport MRU, and allocation-size overflow before copying or queueing work.
   Empty commands retain their protocol error response without invoking
   `memcpy` on a null source.
+- Every BulkIO response now handles an unavailable reliable transmit buffer
+  during link teardown. Interrupted opens close and release their domain, and
+  interrupted reads clear active state. If teardown occurs after acquiring the
+  shared transmit buffer, the reliable sender releases its lock before dropping
+  the packet so the next link cannot deadlock.
 - Framebuffer BulkIO reads and writes now use overflow-safe bounds checks
   against the exact framebuffer allocation, and stat rejects undersized output
   buffers. Malformed offsets can no longer turn this retained diagnostic into
@@ -441,7 +446,7 @@ Verify all pins from the schematic/BSP before hardware testing.
   `bounds` warning; no DVT3-port warning appeared in that compatibility build.
 - Keep warnings introduced by DVT3 at zero or document unavoidable toolchain warnings.
 
-Current host baseline: 39 `test_tuya*.py` tests and 17 Getafix board tests pass.
+Current host baseline: 39 `test_tuya*.py` tests and 18 Getafix board tests pass.
 The DVT3 native firmware now compiles and links without unresolved platform
 symbols or internal-RAM overflow. Host-generated ELF, map, raw binary, Intel
 HEX, and protected-block binary artifacts are available for inspection; they

@@ -221,6 +221,25 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertIn("if (length != 0)", bulkio)
         self.assertIn("memcpy(data->packet, packet, length)", bulkio)
 
+    def test_bulkio_handles_reliable_link_teardown(self):
+        bulkio = (ROOT / "src/fw/console/pulse_bulkio.c").read_text()
+        self.assertEqual(
+            bulkio.count("if (resp == NULL)"),
+            bulkio.count("pulse_reliable_send_begin("),
+        )
+        self.assertIn("pulse_fd->read_active = false", bulkio)
+        self.assertIn("state->impl->close_proc(state->domain_state)", bulkio)
+
+        reliable = (ROOT / "src/fw/console/reliable_transport.c").read_text()
+        send = reliable.index("void pulse_reliable_send(")
+        assert_buffer = reliable.index("prv_assert_reliable_buffer(buf)", send)
+        layer_down = reliable.index("if (!s_layer_up)", assert_buffer)
+        release = reliable.index("xSemaphoreGive(s_tx_lock)", layer_down)
+        send_packet = reliable.index("prv_send_info_packet(", release)
+        self.assertLess(assert_buffer, layer_down)
+        self.assertLess(layer_down, release)
+        self.assertLess(release, send_packet)
+
     def test_framebuffer_bulkio_is_bounded(self):
         framebuffer = (
             ROOT / "src/fw/console/pulse_bulkio_framebuffer.c"
