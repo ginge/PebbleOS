@@ -341,7 +341,14 @@ typedef struct __attribute__((__packed__)) PromptResponseContents {
 } PromptResponseContents;
 
 static void pulse_send_message(const int message_type, const char *response) {
-  size_t response_length = 0;
+#ifdef CONFIG_PULSE_EVERYWHERE
+  const size_t max_response_size = pulse_reliable_max_send_size();
+#else
+  const size_t max_response_size = PULSE_MAX_SEND_SIZE;
+#endif
+  const size_t max_message_size = max_response_size - sizeof(PromptResponseContents);
+  const size_t response_length = response ? strnlen(response, max_message_size) : 0;
+
 #ifdef CONFIG_PULSE_EVERYWHERE
   PromptResponseContents *contents = pulse_reliable_send_begin(
       PULSE2_RELIABLE_PROMPT_PROTOCOL);
@@ -355,10 +362,6 @@ static void pulse_send_message(const int message_type, const char *response) {
       PULSE_PROTOCOL_PROMPT);
 #endif
 
-  if (response) {
-    response_length = strlen(response);
-  }
-
   size_t total_size = sizeof(PromptResponseContents) + response_length;
   contents->message_type = message_type;
 
@@ -368,7 +371,7 @@ static void pulse_send_message(const int message_type, const char *response) {
   contents->time_ms = (uint64_t) time_s * 1000 + time_ms;
 
   if (response_length > 0) {
-    strncpy(contents->message, response, response_length);
+    memcpy(contents->message, response, response_length);
   }
 #ifdef CONFIG_PULSE_EVERYWHERE
   pulse_reliable_send(contents, total_size);

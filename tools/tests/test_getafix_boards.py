@@ -332,6 +332,30 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertLess(cookie_read, command_length)
         self.assertLess(command_length, legacy_copy)
 
+    def test_pulse_prompt_responses_fit_transport_buffer(self):
+        prompt = (ROOT / "src/fw/console/prompt.c").read_text()
+        send = prompt.rindex("static void pulse_send_message")
+        done = prompt.index("static void prv_pulse_done_command", send)
+        reliable_limit = prompt.index(
+            "pulse_reliable_max_send_size()", send, done
+        )
+        legacy_limit = prompt.index("PULSE_MAX_SEND_SIZE", reliable_limit, done)
+        message_limit = prompt.index(
+            "max_response_size - sizeof(PromptResponseContents)",
+            legacy_limit,
+            done,
+        )
+        bounded_length = prompt.index(
+            "strnlen(response, max_message_size)", message_limit, done
+        )
+        begin = prompt.index("pulse_reliable_send_begin", bounded_length, done)
+        copy = prompt.index("memcpy(contents->message", begin, done)
+        self.assertLess(reliable_limit, legacy_limit)
+        self.assertLess(legacy_limit, message_limit)
+        self.assertLess(message_limit, bounded_length)
+        self.assertLess(bounded_length, begin)
+        self.assertLess(begin, copy)
+
     def test_framebuffer_bulkio_is_bounded(self):
         framebuffer = (
             ROOT / "src/fw/console/pulse_bulkio_framebuffer.c"
