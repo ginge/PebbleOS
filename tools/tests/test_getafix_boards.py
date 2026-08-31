@@ -234,6 +234,70 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertLess(upper_bound, payload_subtract)
         self.assertLess(payload_subtract, dispatch)
 
+    def test_pulse_control_replies_handle_link_teardown(self):
+        control = (
+            ROOT / "src/fw/console/pulse_control_message_protocol.c"
+        ).read_text()
+        handler = control.index(
+            "void pulse_control_message_protocol_on_packet"
+        )
+        port_closed = control.index(
+            "void pulse_control_message_protocol_send_port_closed_message",
+            handler,
+        )
+        self.assertIn(
+            "raw_packet == NULL || packet_length < sizeof(PCMPPacket)",
+            control[handler:port_closed],
+        )
+        self.assertEqual(
+            control.count("if (reply == NULL)"),
+            control.count("PCMPPacket *reply = this->send_begin_fn"),
+        )
+        message_begin = control.index(
+            "PCMPPacket *message = this->send_begin_fn", port_closed
+        )
+        message_check = control.index(
+            "if (message == NULL)", message_begin
+        )
+        message_write = control.index(
+            "message->code = PCMPCode_PortClosed", message_check
+        )
+        self.assertLess(message_begin, message_check)
+        self.assertLess(message_check, message_write)
+
+    def test_ppp_control_frames_are_bounded_and_reject_length_is_set(self):
+        control = (ROOT / "src/fw/console/control_protocol.c").read_text()
+        reject = control.index("static void prv_send_code_reject")
+        reject_length = control.index(
+            "packet->length = hton16(LCP_HEADER_LEN + body_len)", reject
+        )
+        reject_copy = control.index("memcpy(packet->data", reject_length)
+        self.assertLess(reject_length, reject_copy)
+
+        handler = control.index(
+            "void ppp_control_protocol_handle_incoming_packet"
+        )
+        null_check = control.index(
+            "raw_packet == NULL || length < sizeof(LCPPacket)", handler
+        )
+        packet_cast = control.index(
+            "struct LCPPacket *packet = raw_packet", null_check
+        )
+        declaration = control.index(
+            "const uint16_t declared_length = ntoh16(packet->length)",
+            packet_cast,
+        )
+        lower_bound = control.index(
+            "declared_length < sizeof(*packet)", declaration
+        )
+        upper_bound = control.index("declared_length > length", lower_bound)
+        dispatch = control.index("switch (packet->code)", upper_bound)
+        self.assertLess(null_check, packet_cast)
+        self.assertLess(packet_cast, declaration)
+        self.assertLess(declaration, lower_bound)
+        self.assertLess(lower_bound, upper_bound)
+        self.assertLess(upper_bound, dispatch)
+
     def test_bulkio_responses_use_reliable_payload_limit(self):
         bulkio = (ROOT / "src/fw/console/pulse_bulkio.c").read_text()
         self.assertEqual(bulkio.count("pulse_reliable_max_send_size()"), 4)

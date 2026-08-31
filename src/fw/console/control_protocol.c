@@ -141,6 +141,7 @@ static void prv_send_code_reject(PPPControlProtocol *this,
   packet->identifier = this->state->next_code_reject_id++;
   size_t body_len = MIN(ntoh16(bad_packet->length),
                         pulse_link_max_send_size() - LCP_HEADER_LEN);
+  packet->length = hton16(LCP_HEADER_LEN + body_len);
   memcpy(packet->data, bad_packet, body_len);
   pulse_link_send(packet, LCP_HEADER_LEN + body_len);
 }
@@ -455,10 +456,14 @@ void ppp_control_protocol_handle_incoming_packet(
     goto done;
   }
 
+  if (raw_packet == NULL || length < sizeof(LCPPacket)) {
+    // Invalid packet; silently discard
+    goto done;
+  }
+
   struct LCPPacket *packet = raw_packet;
-  if (length < sizeof(*packet) ||
-      ntoh16(packet->length) < sizeof(*packet) ||
-      length < ntoh16(packet->length)) {
+  const uint16_t declared_length = ntoh16(packet->length);
+  if (declared_length < sizeof(*packet) || declared_length > length) {
     // Invalid packet; silently discard
     goto done;
   }
