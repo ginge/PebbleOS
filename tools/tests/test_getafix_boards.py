@@ -240,6 +240,28 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertLess(layer_down, release)
         self.assertLess(release, send_packet)
 
+    def test_pulse_pp_rejects_truncated_packets_and_link_teardown(self):
+        pulse_pp = (ROOT / "src/fw/console/pulse_pp.c").read_text()
+        send_cb = pulse_pp.index("static void prv_pulse_pp_send_cb")
+        receive = pulse_pp.index(
+            "void pulse_pp_transport_handle_received_data", send_cb
+        )
+        null_check = pulse_pp.index("if (resp)", send_cb, receive)
+        copy = pulse_pp.index("memcpy(resp", send_cb, receive)
+        free = pulse_pp.index("kernel_free(data)", send_cb, receive)
+        self.assertLess(null_check, copy)
+        self.assertLess(copy, free)
+
+        header_check = pulse_pp.index(
+            "data == NULL || length < sizeof(PulsePPPacket)", receive
+        )
+        opcode_read = pulse_pp.index("switch (packet->opcode)", receive)
+        payload_length = pulse_pp.index(
+            "length - sizeof(PulsePPPacket)", opcode_read
+        )
+        self.assertLess(header_check, opcode_read)
+        self.assertLess(opcode_read, payload_length)
+
     def test_framebuffer_bulkio_is_bounded(self):
         framebuffer = (
             ROOT / "src/fw/console/pulse_bulkio_framebuffer.c"

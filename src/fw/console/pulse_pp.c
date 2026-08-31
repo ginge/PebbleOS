@@ -195,8 +195,10 @@ unlock:
 static void prv_pulse_pp_send_cb(void *data) {
   PulsePPCallbackPacket *cb_data = data;
   uint8_t *resp = pulse_reliable_send_begin(PULSE2_PEBBLE_PROTOCOL);
-  memcpy(resp, &cb_data->packet, cb_data->packet_length);
-  pulse_reliable_send(resp, cb_data->packet_length);
+  if (resp) {
+    memcpy(resp, &cb_data->packet, cb_data->packet_length);
+    pulse_reliable_send(resp, cb_data->packet_length);
+  }
   kernel_free(data);
 }
 
@@ -222,6 +224,11 @@ void pulse_pp_transport_closed_handler(void) {
 }
 
 void pulse_pp_transport_handle_received_data(void *data, size_t length) {
+  if (data == NULL || length < sizeof(PulsePPPacket)) {
+    PBL_LOG_ERR("Received malformed PULSE Pebble Protocol packet");
+    return;
+  }
+
   PulsePPPacket *packet = data;
 
   switch (packet->opcode) {
