@@ -41,7 +41,7 @@ to install the experimental payload.
   NimBLE-to-controller IPC protocol all have native implementations or explicit
   safe disabled states. The Bluetooth controller IPC remains deliberately
   gated until its CP startup and shared-memory behavior are proven on hardware.
-- Thirty-nine Tuya host tests and nineteen Getafix board-selection tests pass.
+- Thirty-nine Tuya host tests and twenty Getafix board-selection tests pass.
 - Both `getafix@dvt3` and the DVT2 compatibility target configure and build.
   DVT2 retains only its pre-existing stored Golf app unused-variable warning.
 
@@ -415,6 +415,10 @@ Verify all pins from the schematic/BSP before hardware testing.
   reading their opcode or subtracting the header length. Deferred control
   replies also tolerate reliable-link teardown and always release their queued
   allocation instead of copying through a null transmit buffer.
+- Pebble Protocol streaming now revalidates both the session pointer and a
+  connection generation after temporarily releasing the Bluetooth lock to
+  obtain a transmit buffer. A close/reopen cannot leave it operating on a stale
+  session, and a failed session open returns before assigning capabilities.
 - Framebuffer BulkIO reads and writes now use overflow-safe bounds checks
   against the exact framebuffer allocation, and stat rejects undersized output
   buffers. Malformed offsets can no longer turn this retained diagnostic into
@@ -450,7 +454,7 @@ Verify all pins from the schematic/BSP before hardware testing.
   `bounds` warning; no DVT3-port warning appeared in that compatibility build.
 - Keep warnings introduced by DVT3 at zero or document unavoidable toolchain warnings.
 
-Current host baseline: 39 `test_tuya*.py` tests and 19 Getafix board tests pass.
+Current host baseline: 39 `test_tuya*.py` tests and 20 Getafix board tests pass.
 The DVT3 native firmware now compiles and links without unresolved platform
 symbols or internal-RAM overflow. Host-generated ELF, map, raw binary, Intel
 HEX, and protected-block binary artifacts are available for inspection; they

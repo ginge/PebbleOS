@@ -40,6 +40,7 @@ typedef struct PACKED PulsePPCallbackPacket {
 
 typedef struct {
   CommSession *session;
+  uint32_t session_generation;
 } PULSETransport;
 
 //! The CommSession that the PULSE transport is managing.
@@ -48,6 +49,7 @@ static PULSETransport s_transport;
 
 static void prv_send_next(Transport *transport) {
   CommSession *session = s_transport.session;
+  const uint32_t session_generation = s_transport.session_generation;
   PBL_ASSERTN(session);
 
   size_t bytes_remaining = comm_session_send_queue_get_length(session);
@@ -59,6 +61,12 @@ static void prv_send_next(Transport *transport) {
     bt_lock();
 
     if (resp) {
+      if (s_transport.session != session ||
+          s_transport.session_generation != session_generation) {
+        pulse_reliable_send_cancel(resp);
+        break;
+      }
+
       resp->opcode = PULSE_PP_OPCODE_DATA;
 
       const size_t bytes_to_copy = MIN(bytes_remaining, mss);
@@ -135,16 +143,15 @@ void pulse_transport_set_connected(bool is_connected) {
     .is_current_task_schedule_task = prv_is_current_task_schedule_task,
   };
 
-  bool send_event = true;
-
   if (is_connected) {
     s_transport.session = comm_session_open((Transport *) &s_transport,
                                             &s_pulse_transport_implementation,
                                             TransportDestinationHybrid);
     if (!s_transport.session) {
       PBL_LOG_ERR("CommSession couldn't be opened");
-      send_event = false;
+      return;
     }
+    s_transport.session_generation++;
 
     // Give it the appropriate capabilities
     const CommSessionCapability capabilities = CommSessionRunState |
@@ -157,20 +164,19 @@ void pulse_transport_set_connected(bool is_connected) {
   } else {
     comm_session_close(s_transport.session, CommSessionCloseReason_UnderlyingDisconnection);
     s_transport.session = NULL;
+    s_transport.session_generation++;
   }
 
-  if (send_event) {
-    PebbleEvent e = {
-      .type = PEBBLE_BT_CONNECTION_EVENT,
-      .bluetooth = {
-        .connection = {
-          .state = (s_transport.session) ? PebbleBluetoothConnectionEventStateConnected
-          : PebbleBluetoothConnectionEventStateDisconnected
-        }
+  PebbleEvent e = {
+    .type = PEBBLE_BT_CONNECTION_EVENT,
+    .bluetooth = {
+      .connection = {
+        .state = (s_transport.session) ? PebbleBluetoothConnectionEventStateConnected
+        : PebbleBluetoothConnectionEventStateDisconnected
       }
-    };
-    event_put(&e);
-  }
+    }
+  };
+  event_put(&e);
 }
 
 static void prv_pulse_pp_transport_set_connected(bool connected) {

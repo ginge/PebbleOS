@@ -262,6 +262,40 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertLess(header_check, opcode_read)
         self.assertLess(opcode_read, payload_length)
 
+    def test_pulse_pp_revalidates_session_after_unlock(self):
+        pulse_pp = (ROOT / "src/fw/console/pulse_pp.c").read_text()
+        send_next = pulse_pp.index("static void prv_send_next")
+        reset = pulse_pp.index("static void prv_reset", send_next)
+        unlock = pulse_pp.index("bt_unlock()", send_next, reset)
+        begin = pulse_pp.index("pulse_reliable_send_begin", unlock, reset)
+        relock = pulse_pp.index("bt_lock()", begin, reset)
+        generation_check = pulse_pp.index(
+            "s_transport.session_generation != session_generation",
+            relock,
+            reset,
+        )
+        cancel = pulse_pp.index(
+            "pulse_reliable_send_cancel(resp)", generation_check, reset
+        )
+        queue_copy = pulse_pp.index(
+            "comm_session_send_queue_copy", cancel, reset
+        )
+        self.assertLess(unlock, begin)
+        self.assertLess(begin, relock)
+        self.assertLess(relock, generation_check)
+        self.assertLess(generation_check, cancel)
+        self.assertLess(cancel, queue_copy)
+
+        open_failed = pulse_pp.index('PBL_LOG_ERR("CommSession couldn\'t be opened")')
+        failed_return = pulse_pp.index("return;", open_failed)
+        capabilities = pulse_pp.index(
+            "comm_session_set_capabilities", failed_return
+        )
+        self.assertLess(failed_return, capabilities)
+        self.assertGreaterEqual(
+            pulse_pp.count("s_transport.session_generation++"), 2
+        )
+
     def test_framebuffer_bulkio_is_bounded(self):
         framebuffer = (
             ROOT / "src/fw/console/pulse_bulkio_framebuffer.c"
