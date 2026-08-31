@@ -35,8 +35,8 @@ static status_t prv_write_allowed(FlashAddress address, size_t length) {
   }
 
   const FlashAddress end = address + length - 1;
-  if (address < FLASH_REGION_FIRMWARE_SLOT_0_BEGIN ||
-      end >= FLASH_REGION_SHARED_PRF_STORAGE_END) {
+  if (address < FLASH_REGION_FILESYSTEM_BEGIN ||
+      end >= FLASH_REGION_FILESYSTEM_END) {
     return E_INVALID_OPERATION;
   }
   if (s_protected && address <= s_protected_end && end >= s_protected_start) {

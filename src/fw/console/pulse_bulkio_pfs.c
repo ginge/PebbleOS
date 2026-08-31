@@ -28,12 +28,16 @@ typedef struct PACKED PFSOpenOptions {
 
 #if !defined(CONFIG_RECOVERY_FW)
 static int prv_open_file(void *packet_data, size_t length) {
-  PFSOpenOptions *options = packet_data;
+  if (packet_data == NULL || length <= sizeof(PFSOpenOptions)) {
+    return E_INVALID_ARGUMENT;
+  }
 
-  size_t filename_length = MIN(FILE_MAX_NAME_LEN, length - sizeof(*options));
+  const PFSOpenOptions *options = packet_data;
+  const size_t filename_length =
+      MIN(FILE_MAX_NAME_LEN, length - sizeof(*options));
 
-  char filename[filename_length+1];
-  strncpy(filename, options->filename, filename_length);
+  char filename[FILE_MAX_NAME_LEN + 1];
+  memcpy(filename, options->filename, filename_length);
   filename[filename_length] = '\0';
 
   int fd = pfs_open(filename, options->op_flags, options->filetype, options->start_size);
@@ -57,6 +61,10 @@ static int pfs_domain_write(uint8_t *buf, uint32_t address, uint32_t length, voi
 }
 
 static int pfs_domain_stat(uint8_t *resp, size_t resp_max_len, void *context) {
+  if (resp == NULL || resp_max_len < sizeof(PFSStatResp)) {
+    return E_RANGE;
+  }
+
   int fd = prv_fd_from_context(context);
 
   PFSStatResp *stat_resp = (PFSStatResp*)resp;
@@ -69,11 +77,14 @@ static int pfs_domain_stat(uint8_t *resp, size_t resp_max_len, void *context) {
 }
 
 static status_t pfs_domain_erase(uint8_t *packet_data, size_t length, uint8_t cookie) {
-  char filename[FILE_MAX_NAME_LEN + 1];
-  strncpy(filename, (char*)packet_data, FILE_MAX_NAME_LEN);
+  if (packet_data == NULL || length == 0) {
+    return E_INVALID_ARGUMENT;
+  }
 
-  length = MIN(FILE_MAX_NAME_LEN, length);
-  filename[length] = '\0';
+  const size_t filename_length = MIN(FILE_MAX_NAME_LEN, length);
+  char filename[FILE_MAX_NAME_LEN + 1];
+  memcpy(filename, packet_data, filename_length);
+  filename[filename_length] = '\0';
 
   return pfs_remove(filename);
 }

@@ -121,6 +121,21 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertGreaterEqual(prompt_guard, 0)
         self.assertLess(prompt_registration, prompt_end)
 
+    def test_pfs_bulkio_validates_packet_bounds(self):
+        pfs_bulkio = (ROOT / "src/fw/console/pulse_bulkio_pfs.c").read_text()
+        self.assertIn(
+            "packet_data == NULL || length <= sizeof(PFSOpenOptions)",
+            pfs_bulkio,
+        )
+        self.assertIn(
+            "resp == NULL || resp_max_len < sizeof(PFSStatResp)", pfs_bulkio
+        )
+        self.assertIn("packet_data == NULL || length == 0", pfs_bulkio)
+        self.assertNotIn(
+            "strncpy(filename, (char*)packet_data, FILE_MAX_NAME_LEN)",
+            pfs_bulkio,
+        )
+
     def test_dvt3_persistent_flash_logging_is_not_linked(self):
         debug_build = (ROOT / "src/fw/debug/wscript_build").read_text()
         self.assertIn("if bld.env.CONFIG_SOC_T5AI:", debug_build)
