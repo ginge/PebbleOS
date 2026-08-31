@@ -197,6 +197,43 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertLess(upper_bound, sequence_advance)
         self.assertLess(sequence_advance, payload_subtract)
 
+    def test_best_effort_transport_validates_header_and_declared_length(self):
+        best_effort = (
+            ROOT / "src/fw/console/best_effort_transport.c"
+        ).read_text()
+        handler = best_effort.index(
+            "void pulse2_best_effort_transport_on_packet"
+        )
+        header_check = best_effort.index(
+            "raw_packet == NULL || length < sizeof(BestEffortPacket)",
+            handler,
+        )
+        packet_cast = best_effort.index(
+            "BestEffortPacket *packet = raw_packet", header_check
+        )
+        declaration = best_effort.index(
+            "const uint16_t declared_length = ntoh16(packet->length)",
+            packet_cast,
+        )
+        lower_bound = best_effort.index(
+            "declared_length < sizeof(BestEffortPacket)", declaration
+        )
+        upper_bound = best_effort.index(
+            "declared_length > length", lower_bound
+        )
+        payload_subtract = best_effort.index(
+            "declared_length - sizeof(BestEffortPacket)", upper_bound
+        )
+        dispatch = best_effort.index(
+            "switch (ntoh16(packet->protocol))", payload_subtract
+        )
+        self.assertLess(header_check, packet_cast)
+        self.assertLess(packet_cast, declaration)
+        self.assertLess(declaration, lower_bound)
+        self.assertLess(lower_bound, upper_bound)
+        self.assertLess(upper_bound, payload_subtract)
+        self.assertLess(payload_subtract, dispatch)
+
     def test_bulkio_responses_use_reliable_payload_limit(self):
         bulkio = (ROOT / "src/fw/console/pulse_bulkio.c").read_text()
         self.assertEqual(bulkio.count("pulse_reliable_max_send_size()"), 4)

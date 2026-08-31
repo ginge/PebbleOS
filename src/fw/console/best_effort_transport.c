@@ -79,12 +79,18 @@ void pulse2_best_effort_transport_on_packet(void *raw_packet, size_t length) {
     return;
   }
 
-  BestEffortPacket *packet = raw_packet;
-  if (length < ntoh16(packet->length)) {
-    // Packet truncated; discard
+  if (raw_packet == NULL || length < sizeof(BestEffortPacket)) {
+    PBL_LOG_DBG("Received malformed best-effort packet");
     return;
   }
-  size_t info_length = ntoh16(packet->length) - sizeof(BestEffortPacket);
+
+  BestEffortPacket *packet = raw_packet;
+  const uint16_t declared_length = ntoh16(packet->length);
+  if (declared_length < sizeof(BestEffortPacket) || declared_length > length) {
+    PBL_LOG_DBG("Received invalid best-effort packet length");
+    return;
+  }
+  size_t info_length = declared_length - sizeof(BestEffortPacket);
   // This variable is read in the macro-expansion below, but linters
   // have a hard time figuring that out.
   (void)info_length;
