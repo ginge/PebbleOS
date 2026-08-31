@@ -148,10 +148,12 @@ typedef struct ReadTransferState {
 } ReadTransferState;
 
 typedef struct PulseTransferFD {
-  // impl == NULL means that the FD is free
+  // An FD is reusable when impl == NULL and no read callback remains queued.
   PulseBulkIODomainHandler *impl;
   void *domain_state;
   ReadTransferState transfer_state;
+  bool read_active;
+  bool read_callback_pending;
 } PulseTransferFD;
 
 typedef struct BulkIOPacketCallbackData {
@@ -160,6 +162,10 @@ typedef struct BulkIOPacketCallbackData {
 } BulkIOPacketCallbackData;
 
 static PulseTransferFD s_transfer_fds[MAX_PULSE_FDS];
+
+static bool prv_u32_range_valid(uint32_t address, uint32_t length) {
+  return length > 0 && address <= UINT32_MAX - (length - 1);
+}
 
 static void prv_respond_malformed_command(void *cmd, size_t length,
                                      const char *message) {
@@ -195,7 +201,8 @@ static void prv_respond_internal_error(Command *cmd, size_t length,
 
 static int prv_get_fresh_fd(PulseBulkIODomainHandler *domain_handler, PulseTransferFD **fd) {
   for (int i=0; i < MAX_PULSE_FDS; ++i) {
-    if (s_transfer_fds[i].impl == NULL) {
+    if (s_transfer_fds[i].impl == NULL &&
+        !s_transfer_fds[i].read_callback_pending) {
       s_transfer_fds[i] = (PulseTransferFD) {
         .impl = domain_handler,
         .domain_state = NULL,
@@ -209,7 +216,11 @@ static int prv_get_fresh_fd(PulseBulkIODomainHandler *domain_handler, PulseTrans
 }
 
 static void prv_free_fd(int fd) {
-  s_transfer_fds[fd].impl = NULL;
+  const bool read_callback_pending =
+      s_transfer_fds[fd].read_callback_pending;
+  s_transfer_fds[fd] = (PulseTransferFD) {
+    .read_callback_pending = read_callback_pending,
+  };
 }
 
 PulseTransferFD* prv_get_fd(Command *cmd, size_t length) {
@@ -236,7 +247,15 @@ static PulseBulkIODomainHandler* prv_get_domain_handler(uint8_t domain_id) {
 
 static void prv_domain_read_cb(void *data) {
   unsigned int fd_num = (uintptr_t)data;
+  if (fd_num >= MAX_PULSE_FDS) {
+    return;
+  }
+
   PulseTransferFD *pulse_fd = &s_transfer_fds[fd_num];
+  pulse_fd->read_callback_pending = false;
+  if (pulse_fd->impl == NULL || !pulse_fd->read_active) {
+    return;
+  }
 
   const size_t max_read_len = (PULSE_MAX_SEND_SIZE - sizeof(ReadResponse));
   size_t read_len = MIN(pulse_fd->transfer_state.bytes_left, max_read_len);
@@ -254,9 +273,13 @@ static void prv_domain_read_cb(void *data) {
     pulse_reliable_send(resp, read_len + sizeof(ReadResponse));
 
     if (pulse_fd->transfer_state.bytes_left > 0) {
+      pulse_fd->read_callback_pending = true;
       system_task_add_callback(prv_domain_read_cb, (void*)(uintptr_t)fd_num);
+    } else {
+      pulse_fd->read_active = false;
     }
   } else {
+    pulse_fd->read_active = false;
     pulse_reliable_send_cancel(resp);
 
     Command cmd = {
@@ -267,7 +290,8 @@ static void prv_domain_read_cb(void *data) {
     };
 
     prv_respond_internal_error(&cmd, sizeof(cmd),
-                               ret > 0 ? E_RANGE : ret);
+                               ret > 0 ? E_RANGE :
+                               (ret < 0 ? ret : E_INTERNAL));
   }
 }
 
@@ -316,6 +340,7 @@ static void prv_handle_close(Command *cmd, size_t length) {
   }
 
   status_t status = pulse_fd->impl->close_proc(pulse_fd->domain_state);
+  prv_free_fd(cmd->close.fd);
 
   if (FAILED(status)) {
     prv_respond_internal_error(cmd, length, status);
@@ -327,11 +352,10 @@ static void prv_handle_close(Command *cmd, size_t length) {
   resp->fd = cmd->close.fd;
   pulse_reliable_send(resp, sizeof(*resp));
 
-  prv_free_fd(cmd->close.fd);
 }
 
 static void prv_handle_read(Command *cmd, size_t length) {
-  if (cmd->read.length == 0) {
+  if (!prv_u32_range_valid(cmd->read.address, cmd->read.length)) {
     prv_respond_internal_error(cmd, length, E_INVALID_ARGUMENT);
     return;
   }
@@ -341,9 +365,15 @@ static void prv_handle_read(Command *cmd, size_t length) {
     // prv_get_fd has already sent an error response
     return;
   }
+  if (pulse_fd->read_active) {
+    prv_respond_internal_error(cmd, length, E_BUSY);
+    return;
+  }
 
   pulse_fd->transfer_state.offset = cmd->read.address;
   pulse_fd->transfer_state.bytes_left = cmd->read.length;
+  pulse_fd->read_active = true;
+  pulse_fd->read_callback_pending = true;
 
   system_task_add_callback(prv_domain_read_cb, (void*)(uintptr_t)cmd->fd);
 }
@@ -356,11 +386,18 @@ static void prv_handle_write(Command *cmd, size_t length) {
   }
 
   size_t payload_length = length - sizeof(cmd->opcode) - sizeof(cmd->write);
+  if (payload_length > UINT32_MAX ||
+      !prv_u32_range_valid(cmd->write.address, (uint32_t)payload_length)) {
+    prv_respond_internal_error(cmd, length, E_INVALID_ARGUMENT);
+    return;
+  }
+
   int ret = pulse_fd->impl->write_proc(cmd->write.data, cmd->write.address, payload_length,
                                        pulse_fd->domain_state);
 
-  if (FAILED(ret)) {
-    prv_respond_internal_error(cmd, length, ret);
+  if (ret <= 0 || (size_t)ret > payload_length) {
+    prv_respond_internal_error(cmd, length, ret > 0 ? E_RANGE :
+                               (ret < 0 ? ret : E_INTERNAL));
     return;
   }
 
@@ -369,12 +406,17 @@ static void prv_handle_write(Command *cmd, size_t length) {
     .opcode = BULKIO_RESP_DOMAIN_WRITE,
     .fd = cmd->write.fd,
     .address = cmd->write.address,
-    .length = payload_length
+    .length = ret
   };
   pulse_reliable_send(resp, sizeof(*resp));
 }
 
 static void prv_handle_crc(Command *cmd, size_t length) {
+  if (!prv_u32_range_valid(cmd->crc.address, cmd->crc.length)) {
+    prv_respond_internal_error(cmd, length, E_INVALID_ARGUMENT);
+    return;
+  }
+
   PulseTransferFD *pulse_fd = prv_get_fd(cmd, length);
   if (!pulse_fd) {
     // prv_get_fd has already sent an error response
@@ -426,11 +468,11 @@ static void prv_handle_stat(Command *cmd, size_t length) {
   };
   size_t data_max_len = PULSE_MAX_SEND_SIZE - sizeof(StatResponse);
   int ret = pulse_fd->impl->stat_proc(resp->data, data_max_len, pulse_fd->domain_state);
-  if (ret >= 0) {
+  if (ret >= 0 && (size_t)ret <= data_max_len) {
     pulse_reliable_send(resp, ret + sizeof(*resp));
   } else {
     pulse_reliable_send_cancel(resp);
-    prv_respond_internal_error(cmd, length, ret);
+    prv_respond_internal_error(cmd, length, ret > 0 ? E_RANGE : ret);
   }
 }
 

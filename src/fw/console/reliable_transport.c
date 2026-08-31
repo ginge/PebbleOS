@@ -181,9 +181,11 @@ void pulse2_reliable_transport_on_command_packet(
       return;
     }
     if (packet->i.sequence_number == s_receive_variable) {
-      s_receive_variable = (s_receive_variable + 1) % MODULUS;
-      if (ntoh16(packet->i.length) <= length) {
-        size_t info_length = ntoh16(packet->i.length) - sizeof(ReliablePacket);
+      const uint16_t declared_length = ntoh16(packet->i.length);
+      if (declared_length >= sizeof(ReliablePacket) &&
+          declared_length <= length) {
+        s_receive_variable = (s_receive_variable + 1) % MODULUS;
+        size_t info_length = declared_length - sizeof(ReliablePacket);
         // This variable is read in the macro-expansion below, but linters
         // have a hard time figuring that out.
         (void)info_length;
@@ -214,9 +216,9 @@ void pulse2_reliable_transport_on_command_packet(
           }
         }
       } else {
-        PBL_LOG_DBG("Received truncated or corrupt info packet "
-                "field (expeced %" PRIu16 ", got %" PRIu16 " data bytes). "
-                "Discarding.", ntoh16(packet->i.length), (uint16_t)length);
+        PBL_LOG_DBG("Received invalid info packet length "
+                "field (declared %" PRIu16 ", got %" PRIu16 " bytes). "
+                "Discarding.", declared_length, (uint16_t)length);
         return;
       }
     }

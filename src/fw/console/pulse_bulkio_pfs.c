@@ -11,6 +11,7 @@
 #include "pbl/util/attributes.h"
 #include "pbl/util/math.h"
 
+#include <limits.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -49,14 +50,28 @@ static int prv_fd_from_context(void *context) {
 }
 
 static int pfs_domain_read(uint8_t *buf, uint32_t address, uint32_t length, void *context) {
+  if (address > INT_MAX) {
+    return E_RANGE;
+  }
+
   int fd = prv_fd_from_context(context);
-  pfs_seek(fd, address, FSeekSet);
+  int status = pfs_seek(fd, (int)address, FSeekSet);
+  if (FAILED(status)) {
+    return status;
+  }
   return pfs_read(fd, buf, length);
 }
 
 static int pfs_domain_write(uint8_t *buf, uint32_t address, uint32_t length, void *context) {
+  if (address > INT_MAX) {
+    return E_RANGE;
+  }
+
   int fd = prv_fd_from_context(context);
-  pfs_seek(fd, address, FSeekSet);
+  int status = pfs_seek(fd, (int)address, FSeekSet);
+  if (FAILED(status)) {
+    return status;
+  }
   return pfs_write(fd, buf, length);
 }
 

@@ -41,7 +41,7 @@ to install the experimental payload.
   NimBLE-to-controller IPC protocol all have native implementations or explicit
   safe disabled states. The Bluetooth controller IPC remains deliberately
   gated until its CP startup and shared-memory behavior are proven on hardware.
-- Thirty-nine Tuya host tests and fourteen Getafix board-selection tests pass.
+- Thirty-nine Tuya host tests and fifteen Getafix board-selection tests pass.
 - Both `getafix@dvt3` and the DVT2 compatibility target configure and build.
   DVT2 retains only its pre-existing stored Golf app unused-variable warning.
 
@@ -385,6 +385,19 @@ Verify all pins from the schematic/BSP before hardware testing.
   lookup checks its index before forming an array pointer, and streaming read
   and CRC callbacks cannot return oversized or zero-length progress that would
   underflow counters, loop forever, or checksum uninitialized stack bytes.
+- BulkIO read, write, and CRC requests now reject wrapped 32-bit ranges. Write
+  and stat callbacks cannot claim more data than their supplied buffers, and
+  write acknowledgements report actual progress. The PFS domain propagates
+  failed seeks instead of reading or writing at a stale prior file position.
+- BulkIO descriptors with queued streaming-read callbacks are no longer reused
+  until that work drains, callbacks safely abandon descriptors closed by the
+  host or link loss, and overlapping reads are rejected. Close failures still
+  release descriptors as required by the domain contract rather than leaking
+  one of the three protocol slots.
+- The shared reliable Pulse transport now requires an information packet's
+  declared length to include its complete header and fit in the received frame
+  before subtracting or dispatching it. Malformed frames cannot underflow into
+  huge protocol payloads or advance the receive sequence before validation.
 - Framebuffer BulkIO reads and writes now use overflow-safe bounds checks
   against the exact framebuffer allocation, and stat rejects undersized output
   buffers. Malformed offsets can no longer turn this retained diagnostic into
@@ -420,7 +433,7 @@ Verify all pins from the schematic/BSP before hardware testing.
   `bounds` warning; no DVT3-port warning appeared in that compatibility build.
 - Keep warnings introduced by DVT3 at zero or document unavoidable toolchain warnings.
 
-Current host baseline: 39 `test_tuya*.py` tests and 14 Getafix board tests pass.
+Current host baseline: 39 `test_tuya*.py` tests and 15 Getafix board tests pass.
 The DVT3 native firmware now compiles and links without unresolved platform
 symbols or internal-RAM overflow. Host-generated ELF, map, raw binary, Intel
 HEX, and protected-block binary artifacts are available for inspection; they

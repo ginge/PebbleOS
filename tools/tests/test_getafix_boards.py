@@ -135,6 +135,12 @@ class GetafixBoardsTest(unittest.TestCase):
             "strncpy(filename, (char*)packet_data, FILE_MAX_NAME_LEN)",
             pfs_bulkio,
         )
+        self.assertEqual(pfs_bulkio.count("if (address > INT_MAX)"), 2)
+        self.assertEqual(
+            pfs_bulkio.count("status = pfs_seek(fd, (int)address, FSeekSet)"),
+            2,
+        )
+        self.assertEqual(pfs_bulkio.count("if (FAILED(status))"), 2)
 
     def test_bulkio_dispatcher_validates_frames_and_callback_lengths(self):
         bulkio = (ROOT / "src/fw/console/pulse_bulkio.c").read_text()
@@ -147,10 +153,49 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertIn("(size_t)ret <= read_len", bulkio)
         self.assertIn("(uint32_t)ret > read_len", bulkio)
         self.assertIn("crc32(crc, buffer, ret)", bulkio)
+        self.assertEqual(
+            bulkio.count("!prv_u32_range_valid(cmd->"), 3
+        )
+        self.assertIn("(size_t)ret > payload_length", bulkio)
+        self.assertIn(".length = ret", bulkio)
+        self.assertIn("(size_t)ret <= data_max_len", bulkio)
+        self.assertIn("!s_transfer_fds[i].read_callback_pending", bulkio)
+        self.assertIn("pulse_fd->read_callback_pending = false", bulkio)
+        self.assertIn("pulse_fd->impl == NULL || !pulse_fd->read_active", bulkio)
+        self.assertIn("if (pulse_fd->read_active)", bulkio)
+        self.assertIn("prv_respond_internal_error(cmd, length, E_BUSY)", bulkio)
+
+        close_call = bulkio.index(
+            "pulse_fd->impl->close_proc(pulse_fd->domain_state)"
+        )
+        close_free = bulkio.index("prv_free_fd(cmd->close.fd)", close_call)
+        close_failure = bulkio.index("if (FAILED(status))", close_call)
+        self.assertLess(close_free, close_failure)
 
         fd_check = bulkio.index("if (fd >= 0 && fd < MAX_PULSE_FDS")
         fd_index = bulkio.index("&s_transfer_fds[fd]", fd_check)
         self.assertLess(fd_check, fd_index)
+
+    def test_reliable_transport_validates_declared_length_before_dispatch(self):
+        reliable = (ROOT / "src/fw/console/reliable_transport.c").read_text()
+        declaration = reliable.index(
+            "const uint16_t declared_length = ntoh16(packet->i.length)"
+        )
+        lower_bound = reliable.index(
+            "declared_length >= sizeof(ReliablePacket)", declaration
+        )
+        upper_bound = reliable.index("declared_length <= length", lower_bound)
+        sequence_advance = reliable.index(
+            "s_receive_variable = (s_receive_variable + 1) % MODULUS",
+            upper_bound,
+        )
+        payload_subtract = reliable.index(
+            "declared_length - sizeof(ReliablePacket)", sequence_advance
+        )
+        self.assertLess(declaration, lower_bound)
+        self.assertLess(lower_bound, upper_bound)
+        self.assertLess(upper_bound, sequence_advance)
+        self.assertLess(sequence_advance, payload_subtract)
 
     def test_framebuffer_bulkio_is_bounded(self):
         framebuffer = (
