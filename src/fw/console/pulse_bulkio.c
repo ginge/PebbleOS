@@ -4,6 +4,7 @@
 #include "console/pulse_bulkio_domain_handler.h"
 #include "console/pulse_protocol_impl.h"
 #include "console/pulse2_transport_impl.h"
+#include "console/pulse_internal.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -169,6 +170,7 @@ static bool prv_u32_range_valid(uint32_t address, uint32_t length) {
 
 static void prv_respond_malformed_command(void *cmd, size_t length,
                                      const char *message) {
+  const size_t max_response_size = pulse_reliable_max_send_size();
   uint8_t *resp = pulse_reliable_send_begin(PULSE2_BULKIO_PROTOCOL);
   resp[0] = BULKIO_RESP_MALFORMED_CMD;
 
@@ -176,7 +178,7 @@ static void prv_respond_malformed_command(void *cmd, size_t length,
   memcpy(resp + 1, message, message_len);
 
   size_t response_len =  sizeof(*resp) + message_len;
-  size_t command_len = MIN(length, PULSE_MAX_SEND_SIZE - response_len);
+  size_t command_len = MIN(length, max_response_size - response_len);
 
   memcpy(resp + response_len, cmd, command_len);
   response_len += command_len;
@@ -186,13 +188,14 @@ static void prv_respond_malformed_command(void *cmd, size_t length,
 
 static void prv_respond_internal_error(Command *cmd, size_t length,
                                           status_t status_code) {
+  const size_t max_response_size = pulse_reliable_max_send_size();
   InternalErrorResponse *resp = pulse_reliable_send_begin(
       PULSE2_BULKIO_PROTOCOL);
   resp->opcode = BULKIO_RESP_INTERNAL_ERROR;
   resp->status_code = status_code;
 
   size_t response_len = sizeof(*resp);
-  size_t command_len = MIN(length, PULSE_MAX_SEND_SIZE - response_len);
+  size_t command_len = MIN(length, max_response_size - response_len);
   response_len += command_len;
 
   memcpy(resp->bad_command, cmd, command_len);
@@ -257,7 +260,8 @@ static void prv_domain_read_cb(void *data) {
     return;
   }
 
-  const size_t max_read_len = (PULSE_MAX_SEND_SIZE - sizeof(ReadResponse));
+  const size_t max_read_len =
+      pulse_reliable_max_send_size() - sizeof(ReadResponse);
   size_t read_len = MIN(pulse_fd->transfer_state.bytes_left, max_read_len);
 
   ReadResponse *resp = pulse_reliable_send_begin(PULSE2_BULKIO_PROTOCOL);
@@ -466,7 +470,7 @@ static void prv_handle_stat(Command *cmd, size_t length) {
     .opcode = BULKIO_RESP_DOMAIN_STAT,
     .fd = cmd->stat.fd
   };
-  size_t data_max_len = PULSE_MAX_SEND_SIZE - sizeof(StatResponse);
+  size_t data_max_len = pulse_reliable_max_send_size() - sizeof(StatResponse);
   int ret = pulse_fd->impl->stat_proc(resp->data, data_max_len, pulse_fd->domain_state);
   if (ret >= 0 && (size_t)ret <= data_max_len) {
     pulse_reliable_send(resp, ret + sizeof(*resp));
@@ -582,9 +586,17 @@ static void prv_handle_packet(void *data) {
 }
 
 void pulse2_bulkio_packet_handler(void *packet, size_t length) {
-  BulkIOPacketCallbackData *data = kernel_malloc_check(length + sizeof(length));
+  if ((packet == NULL && length != 0) || length > PULSE_MAX_RECEIVE_UNIT ||
+      length > SIZE_MAX - sizeof(BulkIOPacketCallbackData)) {
+    return;
+  }
+
+  BulkIOPacketCallbackData *data =
+      kernel_malloc_check(sizeof(*data) + length);
   data->length = length;
-  memcpy(&data->packet, packet, length);
+  if (length != 0) {
+    memcpy(data->packet, packet, length);
+  }
   system_task_add_callback(prv_handle_packet, data);
 }
 

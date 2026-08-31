@@ -197,6 +197,30 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertLess(upper_bound, sequence_advance)
         self.assertLess(sequence_advance, payload_subtract)
 
+    def test_bulkio_responses_use_reliable_payload_limit(self):
+        bulkio = (ROOT / "src/fw/console/pulse_bulkio.c").read_text()
+        self.assertEqual(bulkio.count("pulse_reliable_max_send_size()"), 4)
+        self.assertNotIn(
+            "PULSE_MAX_SEND_SIZE - sizeof(ReadResponse)", bulkio
+        )
+        self.assertNotIn(
+            "PULSE_MAX_SEND_SIZE - sizeof(StatResponse)", bulkio
+        )
+        self.assertNotIn(
+            "PULSE_MAX_SEND_SIZE - response_len", bulkio
+        )
+
+    def test_bulkio_packet_handoff_is_bounded(self):
+        bulkio = (ROOT / "src/fw/console/pulse_bulkio.c").read_text()
+        self.assertIn("packet == NULL && length != 0", bulkio)
+        self.assertIn("length > PULSE_MAX_RECEIVE_UNIT", bulkio)
+        self.assertIn(
+            "length > SIZE_MAX - sizeof(BulkIOPacketCallbackData)", bulkio
+        )
+        self.assertIn("kernel_malloc_check(sizeof(*data) + length)", bulkio)
+        self.assertIn("if (length != 0)", bulkio)
+        self.assertIn("memcpy(data->packet, packet, length)", bulkio)
+
     def test_framebuffer_bulkio_is_bounded(self):
         framebuffer = (
             ROOT / "src/fw/console/pulse_bulkio_framebuffer.c"
