@@ -13,6 +13,7 @@
 #include "system/status_codes.h"
 #include "pbl/util/attributes.h"
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -25,8 +26,17 @@ typedef struct PACKED FramebufferStatResp {
   uint32_t length;
 } FramebufferStatResp;
 
+static bool prv_framebuffer_range_valid(uint32_t address, uint32_t length) {
+  return length > 0 && length <= FRAMEBUFFER_SIZE_BYTES &&
+         address <= FRAMEBUFFER_SIZE_BYTES - length;
+}
+
 static int framebuffer_domain_read(uint8_t *buf, uint32_t address, uint32_t length,
                                         void *context) {
+  if (buf == NULL || !prv_framebuffer_range_valid(address, length)) {
+    return E_RANGE;
+  }
+
   uint8_t *fb_offset = (uint8_t*)compositor_get_framebuffer()->buffer + address;
   memcpy(buf, fb_offset, length);
   return length;
@@ -34,12 +44,20 @@ static int framebuffer_domain_read(uint8_t *buf, uint32_t address, uint32_t leng
 
 static int framebuffer_domain_write(uint8_t *buf, uint32_t address, uint32_t length,
                                          void *context) {
+  if (buf == NULL || !prv_framebuffer_range_valid(address, length)) {
+    return E_RANGE;
+  }
+
   uint8_t *fb_offset = (uint8_t*)compositor_get_framebuffer()->buffer + address;
   memcpy(fb_offset, buf, length);
   return length;
 }
 
 static int framebuffer_domain_stat(uint8_t *resp, size_t resp_max_len, void *context) {
+  if (resp == NULL || resp_max_len < sizeof(FramebufferStatResp)) {
+    return E_RANGE;
+  }
+
   FramebufferStatResp *stat_resp = (FramebufferStatResp*) resp;
   *stat_resp = (FramebufferStatResp) {
     .flags = 0,

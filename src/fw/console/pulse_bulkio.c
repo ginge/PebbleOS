@@ -6,6 +6,7 @@
 #include "console/pulse2_transport_impl.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "kernel/pbl_malloc.h"
@@ -213,8 +214,8 @@ static void prv_free_fd(int fd) {
 
 PulseTransferFD* prv_get_fd(Command *cmd, size_t length) {
   int fd = cmd->fd;
-  PulseTransferFD *pulse_fd = &s_transfer_fds[fd];
-  if (fd >= 0 && fd < MAX_PULSE_FDS && pulse_fd && pulse_fd->impl) {
+  if (fd >= 0 && fd < MAX_PULSE_FDS && s_transfer_fds[fd].impl) {
+    PulseTransferFD *pulse_fd = &s_transfer_fds[fd];
     return pulse_fd;
   } else {
     // Invalid, closed or out of range FD
@@ -245,7 +246,7 @@ static void prv_domain_read_cb(void *data) {
   resp->offset = pulse_fd->transfer_state.offset;
 
   int ret = pulse_fd->impl->read_proc(resp->data, resp->offset, read_len, pulse_fd->domain_state);
-  if (ret > 0) {
+  if (ret > 0 && (size_t)ret <= read_len) {
     read_len = ret;
     pulse_fd->transfer_state.bytes_left -= read_len;
     pulse_fd->transfer_state.offset += read_len;
@@ -265,7 +266,8 @@ static void prv_domain_read_cb(void *data) {
       }
     };
 
-    prv_respond_internal_error(&cmd, sizeof(cmd), ret);
+    prv_respond_internal_error(&cmd, sizeof(cmd),
+                               ret > 0 ? E_RANGE : ret);
   }
 }
 
@@ -389,13 +391,14 @@ static void prv_handle_crc(Command *cmd, size_t length) {
     int ret = pulse_fd->impl->read_proc(buffer, cmd->crc.address+bytes_read, read_len,
                                         pulse_fd->domain_state);
 
-    if (FAILED(ret)) {
-      prv_respond_internal_error(cmd, length, E_INTERNAL);
+    if (ret <= 0 || (uint32_t)ret > read_len) {
+      prv_respond_internal_error(cmd, length,
+                                 ret > 0 ? E_RANGE : E_INTERNAL);
       return;
     }
 
     bytes_read += ret;
-    crc = crc32(crc, buffer, read_len);
+    crc = crc32(crc, buffer, ret);
   }
 
   CRCResponse *resp = pulse_reliable_send_begin(PULSE2_BULKIO_PROTOCOL);
@@ -469,6 +472,40 @@ static void prv_handle_packet(void *data) {
   Command *cmd = (Command*)&callback_data->packet;
   size_t length = callback_data->length;
   if (length) {
+    size_t minimum_length;
+    switch (cmd->opcode) {
+      case BULKIO_CMD_DOMAIN_OPEN:
+        minimum_length = offsetof(Command, open.data);
+        break;
+      case BULKIO_CMD_DOMAIN_CLOSE:
+        minimum_length = sizeof(cmd->opcode) + sizeof(cmd->close);
+        break;
+      case BULKIO_CMD_DOMAIN_READ:
+        minimum_length = sizeof(cmd->opcode) + sizeof(cmd->read);
+        break;
+      case BULKIO_CMD_DOMAIN_WRITE:
+        minimum_length = offsetof(Command, write.data);
+        break;
+      case BULKIO_CMD_DOMAIN_CRC:
+        minimum_length = sizeof(cmd->opcode) + sizeof(cmd->crc);
+        break;
+      case BULKIO_CMD_DOMAIN_STAT:
+        minimum_length = sizeof(cmd->opcode) + sizeof(cmd->stat);
+        break;
+      case BULKIO_CMD_DOMAIN_ERASE:
+        minimum_length = offsetof(Command, erase.data);
+        break;
+      default:
+        minimum_length = sizeof(cmd->opcode);
+        break;
+    }
+
+    if (length < minimum_length) {
+      prv_respond_malformed_command(cmd, length, "Truncated command");
+      kernel_free(data);
+      return;
+    }
+
     switch (cmd->opcode) {
       case BULKIO_CMD_DOMAIN_OPEN:
         prv_handle_open(cmd, length);

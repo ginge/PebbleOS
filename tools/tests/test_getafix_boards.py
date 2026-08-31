@@ -136,6 +136,58 @@ class GetafixBoardsTest(unittest.TestCase):
             pfs_bulkio,
         )
 
+    def test_bulkio_dispatcher_validates_frames_and_callback_lengths(self):
+        bulkio = (ROOT / "src/fw/console/pulse_bulkio.c").read_text()
+        for command in ("open.data", "write.data", "erase.data"):
+            self.assertIn(f"offsetof(Command, {command})", bulkio)
+        for command in ("close", "read", "crc", "stat"):
+            self.assertIn(f"sizeof(cmd->{command})", bulkio)
+        self.assertIn("length < minimum_length", bulkio)
+        self.assertIn('"Truncated command"', bulkio)
+        self.assertIn("(size_t)ret <= read_len", bulkio)
+        self.assertIn("(uint32_t)ret > read_len", bulkio)
+        self.assertIn("crc32(crc, buffer, ret)", bulkio)
+
+        fd_check = bulkio.index("if (fd >= 0 && fd < MAX_PULSE_FDS")
+        fd_index = bulkio.index("&s_transfer_fds[fd]", fd_check)
+        self.assertLess(fd_check, fd_index)
+
+    def test_framebuffer_bulkio_is_bounded(self):
+        framebuffer = (
+            ROOT / "src/fw/console/pulse_bulkio_framebuffer.c"
+        ).read_text()
+        self.assertIn("length > 0 && length <= FRAMEBUFFER_SIZE_BYTES", framebuffer)
+        self.assertIn(
+            "address <= FRAMEBUFFER_SIZE_BYTES - length", framebuffer
+        )
+        self.assertEqual(
+            framebuffer.count("!prv_framebuffer_range_valid(address, length)"),
+            2,
+        )
+        self.assertIn(
+            "resp == NULL || resp_max_len < sizeof(FramebufferStatResp)",
+            framebuffer,
+        )
+
+    def test_coredump_bulkio_is_bounded(self):
+        coredump = (
+            ROOT / "src/fw/console/pulse_bulkio_coredump.c"
+        ).read_text()
+        self.assertIn("length != sizeof(*index)", coredump)
+        self.assertIn("memcpy(index, packet_data, sizeof(*index))", coredump)
+        self.assertIn("*index < CORE_DUMP_MAX_IMAGES", coredump)
+        self.assertIn("length > 0 && length <= data_size", coredump)
+        self.assertIn("address <= data_size - length", coredump)
+        self.assertIn(
+            "resp == NULL || resp_max_len < sizeof(CoredumpStatResp)",
+            coredump,
+        )
+        self.assertEqual(
+            coredump.count("prv_get_coredump_index(packet_data, length, &index)"),
+            2,
+        )
+        self.assertNotIn("*(uint32_t*)packet_data", coredump)
+
     def test_dvt3_persistent_flash_logging_is_not_linked(self):
         debug_build = (ROOT / "src/fw/debug/wscript_build").read_text()
         self.assertIn("if bld.env.CONFIG_SOC_T5AI:", debug_build)

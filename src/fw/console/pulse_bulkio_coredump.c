@@ -4,13 +4,16 @@
 #include "pulse_bulkio_domain_handler.h"
 
 #include "console/pulse_protocol_impl.h"
+#include "flash_region/flash_region.h"
 #include <pbl/drivers/flash.h>
 #include "kernel/core_dump.h"
 #include "kernel/core_dump_private.h"
 #include "system/status_codes.h"
 #include "pbl/util/attributes.h"
 
+#include <stdbool.h>
 #include <stdint.h>
+#include <string.h>
 
 typedef struct PACKED CoredumpStatResp {
   uint8_t flags;
@@ -18,12 +21,27 @@ typedef struct PACKED CoredumpStatResp {
   uint32_t size;
 } CoredumpStatResp;
 
-static uint32_t prv_get_coredump_index(void *packet_data) {
-  return *(uint32_t*)packet_data;
+static status_t prv_get_coredump_index(const void *packet_data, size_t length,
+                                       uint32_t *index) {
+  if (packet_data == NULL || index == NULL || length != sizeof(*index)) {
+    return E_INVALID_ARGUMENT;
+  }
+
+  memcpy(index, packet_data, sizeof(*index));
+  return *index < CORE_DUMP_MAX_IMAGES ? S_SUCCESS : E_INVALID_ARGUMENT;
+}
+
+static bool prv_coredump_range_valid(uint32_t address, uint32_t length) {
+  const uint32_t data_size = CORE_DUMP_MAX_SIZE - sizeof(CoreDumpFlashRegionHeader);
+  return length > 0 && length <= data_size && address <= data_size - length;
 }
 
 static int coredump_domain_read(uint8_t *buf, uint32_t address, uint32_t length,
                                      void *context) {
+  if (buf == NULL || !prv_coredump_range_valid(address, length)) {
+    return E_RANGE;
+  }
+
   uint32_t index = (uintptr_t)context;
   uint32_t core_base_addr = core_dump_get_slot_address(index) + sizeof(CoreDumpFlashRegionHeader);
   flash_read_bytes(buf, core_base_addr + address, length);
@@ -36,6 +54,10 @@ static int coredump_domain_write(uint8_t *buf, uint32_t address, uint32_t length
 }
 
 static int coredump_domain_stat(uint8_t *resp, size_t resp_max_len, void *context) {
+  if (resp == NULL || resp_max_len < sizeof(CoredumpStatResp)) {
+    return E_RANGE;
+  }
+
   uint32_t index = (uintptr_t)context;
   uint32_t addr = core_dump_get_slot_address(index);
 
@@ -59,14 +81,29 @@ static int coredump_domain_stat(uint8_t *resp, size_t resp_max_len, void *contex
 }
 
 static status_t coredump_domain_erase(uint8_t *packet_data, size_t length, uint8_t cookie) {
-  uint32_t index = prv_get_coredump_index(packet_data);
+  uint32_t index;
+  status_t status = prv_get_coredump_index(packet_data, length, &index);
+  if (FAILED(status)) {
+    return status;
+  }
+
   uint32_t addr = core_dump_get_slot_address(index);
   core_dump_mark_read(addr);
   return S_SUCCESS;
 }
 
 static status_t coredump_domain_open(uint8_t *packet_data, size_t length, void **resp) {
-  *resp = (void*)(uintptr_t)prv_get_coredump_index(packet_data);
+  if (resp == NULL) {
+    return E_INVALID_ARGUMENT;
+  }
+
+  uint32_t index;
+  status_t status = prv_get_coredump_index(packet_data, length, &index);
+  if (FAILED(status)) {
+    return status;
+  }
+
+  *resp = (void*)(uintptr_t)index;
   return S_SUCCESS;
 }
 
