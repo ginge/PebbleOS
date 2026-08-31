@@ -167,6 +167,62 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertGreaterEqual(consumer_guard, consumer_mode)
         self.assertLess(consumer_bit, consumer_end)
 
+    def test_dvt3_shared_prf_storage_is_read_only(self):
+        shared_prf = (
+            ROOT / "src/fw/services/shared_prf_storage/shared_prf_storage.c"
+        ).read_text()
+        write_helper = shared_prf.index("static void prv_flash_write(")
+        t5ai_guard = shared_prf.index("#ifdef CONFIG_SOC_T5AI", write_helper)
+        real_write = shared_prf.index("flash_write_bytes(", t5ai_guard)
+        guard_else = shared_prf.index("#else", t5ai_guard)
+        guard_end = shared_prf.index("#endif", guard_else)
+        self.assertLess(t5ai_guard, guard_else)
+        self.assertLess(guard_else, real_write)
+        self.assertLess(real_write, guard_end)
+        self.assertEqual(shared_prf.count("flash_write_bytes("), 1)
+
+        erase_helper = shared_prf.index("static void prv_flash_erase_region(")
+        erase_guard = shared_prf.index("#ifndef CONFIG_SOC_T5AI", erase_helper)
+        real_erase = shared_prf.index(
+            "flash_region_erase_optimal_range_no_watchdog(", erase_guard
+        )
+        erase_end = shared_prf.index("#endif", real_erase)
+        self.assertLess(erase_guard, real_erase)
+        self.assertLess(real_erase, erase_end)
+        self.assertEqual(
+            shared_prf.count("flash_region_erase_optimal_range_no_watchdog("), 1
+        )
+
+    def test_dvt3_persistent_coredumps_are_disabled(self):
+        core_dump = (ROOT / "src/fw/kernel/core_dump.c").read_text()
+
+        reset = core_dump.index("NORETURN core_dump_reset(bool is_forced)")
+        reset_guard = core_dump.index("#ifdef CONFIG_SOC_T5AI", reset)
+        unavailable = core_dump.index(
+            'prv_debug_str("Persistent core dumps unavailable on T5AI")',
+            reset_guard,
+        )
+        immediate_reset = core_dump.index("prv_reset();", unavailable)
+        reset_else = core_dump.index("#else", immediate_reset)
+        self.assertLess(reset_guard, unavailable)
+        self.assertLess(immediate_reset, reset_else)
+
+        reserve = core_dump.index("bool core_dump_reserve_ble_slot(")
+        reserve_guard = core_dump.index("#ifdef CONFIG_SOC_T5AI", reserve)
+        reserve_failure = core_dump.index("return false;", reserve_guard)
+        reserve_else = core_dump.index("#else", reserve_failure)
+        self.assertLess(reserve_guard, reserve_failure)
+        self.assertLess(reserve_failure, reserve_else)
+
+        mark_read = core_dump.index("void core_dump_mark_read(")
+        mark_guard = core_dump.index("#ifdef CONFIG_SOC_T5AI", mark_read)
+        mark_else = core_dump.index("#else", mark_guard)
+        mark_write = core_dump.index("flash_write_bytes(", mark_else)
+        mark_end = core_dump.index("#endif", mark_write)
+        self.assertLess(mark_guard, mark_else)
+        self.assertLess(mark_else, mark_write)
+        self.assertLess(mark_write, mark_end)
+
     def test_dvt3_has_native_t5ai_identity(self):
         dvt3 = load_config("dvt3", "normal")
         self.assertEqual(dvt3["BOARD_GETAFIX_DVT3"], "y")

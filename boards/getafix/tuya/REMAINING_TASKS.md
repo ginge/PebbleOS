@@ -41,7 +41,7 @@ to install the experimental payload.
   NimBLE-to-controller IPC protocol all have native implementations or explicit
   safe disabled states. The Bluetooth controller IPC remains deliberately
   gated until its CP startup and shared-memory behavior are proven on hardware.
-- Thirty-nine Tuya host tests and seven Getafix board-selection tests pass.
+- Thirty-nine Tuya host tests and ten Getafix board-selection tests pass.
 - Both `getafix@dvt3` and the DVT2 compatibility target configure and build.
   DVT2 retains only its pre-existing stored Golf app unused-variable warning.
 
@@ -362,6 +362,16 @@ Verify all pins from the schematic/BSP before hardware testing.
   but does not invalidate the experimental shared-PRF partition or set the
   unsupported force-PRF boot bit. The manufacturing consumer-mode helper is
   subject to the same gate. DVT/DVT2 retain their established PRF reset flow.
+- Shared PRF storage is read-only on DVT3. Boot scanning can inspect the
+  experimental region, but initialization, corruption recovery, compaction,
+  pairing/key setters, first-use state, and wipe requests cannot program or
+  erase it. Persistence can be enabled only after the partition and recovery
+  contract are validated; DVT/DVT2 retain normal shared-PRF persistence.
+- Persistent coredumps are disabled on DVT3 because their experimental flash
+  partition and recovery behavior are unvalidated. Software dump requests log
+  the limitation and reset immediately, BLE dump-slot reservation fails, and
+  the internal write/erase wrappers plus mark-read path cannot mutate flash.
+  DVT/DVT2 retain their existing persistent fault diagnostics.
 - Define recovery before enabling OTA or destructive flash tests.
 - A link assertion and mandatory pre-objcopy map check now require FLASH to be
   exactly experimental slot 0 (`0x02120000..0x02310000`) and reject any NOR
@@ -389,7 +399,7 @@ Verify all pins from the schematic/BSP before hardware testing.
   `bounds` warning; no DVT3-port warning appeared in that compatibility build.
 - Keep warnings introduced by DVT3 at zero or document unavoidable toolchain warnings.
 
-Current host baseline: 39 `test_tuya*.py` tests and 8 Getafix board tests pass.
+Current host baseline: 39 `test_tuya*.py` tests and 10 Getafix board tests pass.
 The DVT3 native firmware now compiles and links without unresolved platform
 symbols or internal-RAM overflow. Host-generated ELF, map, raw binary, Intel
 HEX, and protected-block binary artifacts are available for inspection; they

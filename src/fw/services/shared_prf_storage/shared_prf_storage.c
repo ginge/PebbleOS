@@ -52,6 +52,28 @@ static PebbleMutex *s_sprf_mutex;
 // Helper functions
 //
 
+static void prv_flash_write(const void *data, uint32_t address, size_t length) {
+#ifdef CONFIG_SOC_T5AI
+  // DVT3 has no validated shared-PRF partition or recovery image. Reads are
+  // harmless and useful for bring-up, but persistence must remain fail-closed.
+  (void)data;
+  (void)address;
+  (void)length;
+#else
+  flash_write_bytes(data, address, length);
+#endif
+}
+
+static void prv_flash_erase_region(void) {
+#ifndef CONFIG_SOC_T5AI
+  flash_region_erase_optimal_range_no_watchdog(
+      FLASH_REGION_SHARED_PRF_STORAGE_BEGIN,
+      FLASH_REGION_SHARED_PRF_STORAGE_BEGIN,
+      FLASH_REGION_SHARED_PRF_STORAGE_END,
+      FLASH_REGION_SHARED_PRF_STORAGE_END);
+#endif
+}
+
 static void prv_lock(void) {
   mutex_lock(s_sprf_mutex);
 }
@@ -132,15 +154,12 @@ static void prv_write_to_current_page(SharedPRFData *data, bool write_metadata) 
       data->magic = SprfMagic_ValidEntry;
       data->version = SPRF_CUR_VERSION;
     }
-    flash_write_bytes((uint8_t *)data, prv_current_page_flash_addr(), sizeof(*data));
+    prv_flash_write(data, prv_current_page_flash_addr(), sizeof(*data));
   }
 }
 
 static void prv_erase_region_and_save(SharedPRFData *data) {
-  flash_region_erase_optimal_range_no_watchdog(FLASH_REGION_SHARED_PRF_STORAGE_BEGIN,
-                                               FLASH_REGION_SHARED_PRF_STORAGE_BEGIN,
-                                               FLASH_REGION_SHARED_PRF_STORAGE_END,
-                                               FLASH_REGION_SHARED_PRF_STORAGE_END);
+  prv_flash_erase_region();
   s_valid_page_idx = 0;
   prv_write_to_current_page(data, false);
 }
@@ -156,7 +175,7 @@ static void prv_invalidate_current_page(void) {
 
   // Invalidate current page
   SprfMagic new_magic = SprfMagic_InvalidatedEntry;
-  flash_write_bytes((uint8_t *)&new_magic, prv_current_page_flash_addr(), sizeof(SprfMagic));
+  prv_flash_write(&new_magic, prv_current_page_flash_addr(), sizeof(new_magic));
   s_valid_page_idx++;
 
   // Sanity check to make sure that the page we are moving to is actually empty.
@@ -234,7 +253,7 @@ static void prv_persist_field(uint8_t *field, size_t offset, size_t field_size, 
   // not 0xFFFFFFFF instead of comparing all bytes.
 
   *(uint32_t *)field = new_crc;
-  flash_write_bytes(field, prv_current_page_flash_addr() + offset, field_size);
+  prv_flash_write(field, prv_current_page_flash_addr() + offset, field_size);
 
 cleanup:
   prv_dealloc_struct(data);
