@@ -6,8 +6,9 @@ The peripheral backend and a Tuya SDK bring-up application are implemented.
 The native target now configures independently as `SOC_T5AI` and compiles
 PebbleOS's bundled FreeRTOS 8.2.1 CM33 port for STAR-MC1. Hardware bring-up was
 performed on 2026-09-10. The vendor diagnostic validates the AMOLED and button
-inputs, but the native AP image is not yet bootable: the vendor CP reaches its
-CPU1-start path while Pebble's first reset-handler marker is never observed.
+inputs. Native CPU1 reset entry and its CP power-up handshake are now proven;
+the native image currently reaches debug-UART initialization but its first
+transmit produces no observable byte.
 
 DVT3 uses an isolated revision defconfig and does not inherit DVT2's SiFli
 SoC, PMIC, sensors or drivers. `pbl configure --board getafix@dvt3` configures
@@ -28,7 +29,7 @@ The native build configures, compiles, links, and emits checked ELF, map, raw,
 Intel HEX, and protected-block artifacts. Native UART, flash, display, touch,
 GPIO/I2C, RTC, ADC/charging, IMU, watchdog, and the gated NimBLE controller IPC
 path are implemented without vendor-RTOS ownership. They remain unvalidated on
-hardware because native CPU1 reset entry is blocked, and the protected artifact
+hardware while native UART bring-up is incomplete, and the protected artifact
 is not a complete or generally flash-ready image.
 
 ## Current hardware status
@@ -47,6 +48,68 @@ not executing. Those black-screen results must not be treated as evidence
 against the CO5300 driver. The next milestone is a minimal CPU1 image that
 proves reset entry under the pinned vendor CP, including its partition,
 security/TrustZone, vector, and core-release requirements.
+
+The repository includes a dependency-free CPU1 reset-entry probe under
+`tools/t5ai_boot_probe/`. `tools/build_t5ai_boot_probe.py` links it directly at
+the AP XIP base and produces a protected-block payload. It repeatedly emits
+the native CP power-up and heartbeat control messages before attempting the
+`PBL-CPU1-RESET` marker on the UART state inherited from TuyaBoot. This tests
+the handoff independently of Pebble startup, libc, interrupts, and FreeRTOS;
+only a fixed 36-byte shared-RAM window is used. It remains an AP-only
+experimental payload, not a complete factory or update image.
+
+The first hardware run of that probe produced no marker. The CP instead logged
+repeated `IPC retry to start core1, retry_cnt:4` messages. The known-good AP was
+restored and normal diagnostic logs resumed. Because the retry may represent a
+missing AP-to-CP power-up handshake after CPU1 release, absence of the inherited
+UART marker alone does not yet prove that the reset vector was rejected. The
+next investigation must identify the minimum CPU1 release/IPC acknowledgement
+sequence before another flash experiment.
+
+The revised probe sent the native channel `0x10` power-up message before UART.
+On hardware, the CP retry loop stopped, proving CPU1 release/reset entry and
+the acknowledgement format even though inherited UART remained unavailable.
+Native reset startup now sends this message after memory and system setup but
+before cache initialization and `main()`; the misleading inherited-UART marker
+has been removed.
+
+The resulting native image was tested and also stopped the CP retry loop.
+Progressively moving the acknowledgement later proved both cache-enable calls,
+entry to `main()`, heap and mbuf setup, delay initialization, and
+`dbgserial_init()` all return. The acknowledgement now remains directly after
+`dbgserial_init()`, the latest hardware-proven safe point. No native console
+bytes followed, making UART transmit/configuration the next blocker rather than
+reset entry or those early initializers. The known-good diagnostic AP was
+restored after the tests.
+
+Comparison with the pinned TuyaOpen-T5AI implementation found and corrected a
+missing UART0 clock enable/26 MHz XTAL selection and an incorrect soft-reset bit
+(bit 0 is reset; bit 1 is clock-gate bypass). Hardware remained silent. A
+T5AI-only marker issued immediately after `dbgserial_init()` also emitted no
+byte, which narrows the failure to the first UART write/flush path rather than
+the following Pulse initialization. The next test must observe `fifo_status`
+through a non-UART milestone or use a bounded write to determine whether the
+CPU is waiting forever for `fifo_wr_ready`. Recovery was restored and verified.
+
+A subsequent bounded test forced each byte into the FIFO after at most 1024
+status polls and also bounded the transmit-empty wait. No electrical output was
+observed, so an infinite FIFO-ready wait is not the sole failure. The temporary
+forced-write code and marker were removed. Further work should inspect the live
+UART clock/power-domain and GPIO-routing registers through a non-UART channel.
+
+The application-CPU BSP further showed that UART0 clock enable is a CP0 power-
+management vote, not only a CPU1 system-register write. Pebble now sends the
+matching channel `0x12` clock command (UART0 module 2, enable state 1) before
+local UART setup. The mailbox accepted it, but a 10 ms settle delay still did
+not produce UART output. The next iteration must consume and validate CP0's PM
+response and account for PM-service readiness; the temporary marker was removed.
+
+With the vendor runtime still owning Bluetooth, hardware testing also proved
+HCI command/event traffic, legacy connectable advertising, a peripheral-role
+connection, bidirectional ATT ACL traffic, and disconnect delivery. Those
+results establish the controller's expected baseline only. Native PebbleOS
+keeps `T5AI_CP_HCI_VALIDATED` disabled until its own CP mailbox path reproduces
+that traffic with Pebble's NimBLE host as the sole controller owner.
 
 The pinned table places the AP partition at physical flash offset `0x132000`.
 BK7258's 34:32 protected-block mapping exposes this at logical XIP address

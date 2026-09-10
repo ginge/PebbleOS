@@ -45,15 +45,25 @@ class TuyaKernelCheckTest(unittest.TestCase):
 
     def test_t5ai_announces_ap_startup_to_the_communication_processor(self):
         initialization = (ROOT / "soc/t5ai/init.c").read_text()
+        startup = (ROOT / "src/fw/startup/startup_cortex_m.c").read_text()
         mailbox = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
         port = (ROOT / "soc/t5ai/freertos.c").read_text()
+        marker = startup.index("uart0[7] = 'A'")
+        initialize_soc = startup.index("SystemInit()")
+        enable_cache = startup.index("icache_enable()")
         announce = initialization.index("t5ai_cp_mailbox_announce_power_up()")
-        enable_irq = initialization.index("__enable_irq()", announce)
+        enable_irq = initialization.index("__enable_irq()")
+        self.assertLess(marker, initialize_soc)
+        self.assertLess(initialize_soc, enable_cache)
         self.assertLess(announce, enable_irq)
         self.assertIn("T5AI_CP_CONTROL_CHANNEL 0x10u", mailbox)
         self.assertIn("T5AI_CP_POWER_UP_COMMAND 1u", mailbox)
         self.assertIn("T5AI_CP_HEARTBEAT_COMMAND 2u", mailbox)
         self.assertIn("((uint32_t)s_control_sequence << 16)", mailbox)
+        self.assertIn("message->parameter1 == 0u", mailbox)
+        self.assertNotIn(
+            "message->header >> 16u) == s_control_sequence", mailbox
+        )
         self.assertIn("void vApplicationTickHook(void)", port)
         self.assertIn("t5ai_cp_mailbox_heartbeat();", port)
         self.assertIn(
@@ -90,7 +100,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
 
     def test_t5ai_enables_global_interrupts_at_first_task_entry(self):
         main = (ROOT / "src/fw/main.c").read_text()
-        task_entry = main.index("static void main_task(void *parameter) {")
+        task_entry = main.index("static void main_task(")
         enable_irq = main.index("__enable_irq()", task_entry)
         initialize = main.index("prv_main_task_init();", task_entry)
         self.assertLess(task_entry, enable_irq)

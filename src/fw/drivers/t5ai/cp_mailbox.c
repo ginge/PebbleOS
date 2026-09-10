@@ -31,12 +31,17 @@
 #define T5AI_CP_POWER_UP_COMMAND 1u
 #define T5AI_CP_HEARTBEAT_COMMAND 2u
 #define T5AI_CP_HEARTBEAT_TICKS T5AI_AON_RTC_HZ
+#define T5AI_CP_PM_CHANNEL 0x12u
+#define T5AI_CP_PM_CLOCK_COMMAND 2u
+#define T5AI_CP_PM_UART0_CLOCK 2u
+#define T5AI_CP_PM_CLOCK_ENABLE 1u
+#define T5AI_CP_PM_SETTLE_TICKS (T5AI_AON_RTC_HZ / 100u)
 
 typedef struct {
   uint32_t header;
-  uint32_t buffer;
-  uint32_t length;
-  uint32_t reserved;
+  uint32_t parameter1;
+  uint32_t parameter2;
+  uint32_t parameter3;
 } T5AICPControlMessage;
 
 typedef struct {
@@ -48,6 +53,7 @@ typedef struct {
 static PebbleMutex *s_mutex;
 static T5AICPMailboxRoute s_routes[T5AI_MBOX_MAX_ROUTES];
 static T5AICPControlMessage s_control_message __attribute__((aligned(32)));
+static T5AICPControlMessage s_pm_message __attribute__((aligned(32)));
 static uint32_t s_heartbeat_parameter __attribute__((aligned(32)));
 static uint8_t s_control_sequence;
 static uint64_t s_last_heartbeat;
@@ -66,6 +72,21 @@ static uint64_t prv_ticks(void) {
 
 static bool prv_timed_out(uint64_t start) {
   return prv_ticks() - start >= T5AI_MBOX_TIMEOUT_TICKS;
+}
+
+static bool prv_dispatch(uint8_t logical_channel, const T5AICPMailboxFrame *frame) {
+  for (size_t i = 0; i < T5AI_MBOX_MAX_ROUTES; ++i) {
+    if (s_routes[i].callback != NULL && s_routes[i].logical_channel == logical_channel) {
+      s_routes[i].callback(logical_channel, frame, s_routes[i].context);
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool prv_is_pm_clock_response(const T5AICPControlMessage *message) {
+  return (message->header >> 24u) == T5AI_CP_PM_CHANNEL &&
+         (uint8_t)message->header == T5AI_CP_PM_CLOCK_COMMAND && message->parameter1 == 0u;
 }
 
 status_t t5ai_cp_mailbox_lock(void) {
@@ -103,8 +124,7 @@ status_t t5ai_cp_mailbox_send(const void *data, size_t length) {
   return S_SUCCESS;
 }
 
-static status_t prv_receive_physical(T5AICPMailboxFrame *frame,
-                                     uint64_t start) {
+static status_t prv_receive_physical(T5AICPMailboxFrame *frame, uint64_t start) {
   while ((T5AI_MBOX_CH1_CTRL & T5AI_MBOX_FIFO_NOT_EMPTY) == 0) {
     if (prv_timed_out(start)) {
       return E_AGAIN;
@@ -116,8 +136,7 @@ static status_t prv_receive_physical(T5AICPMailboxFrame *frame,
   return frame->address != 0 && frame->length != 0 ? S_SUCCESS : E_ERROR;
 }
 
-static status_t prv_frame_channel(const T5AICPMailboxFrame *frame,
-                                  uint8_t *logical_channel) {
+static status_t prv_frame_channel(const T5AICPMailboxFrame *frame, uint8_t *logical_channel) {
   if (frame->address == 0 || frame->length < sizeof(uint32_t)) {
     return E_ERROR;
   }
@@ -128,15 +147,13 @@ static status_t prv_frame_channel(const T5AICPMailboxFrame *frame,
   return S_SUCCESS;
 }
 
-status_t t5ai_cp_mailbox_register(uint8_t logical_channel,
-                                  T5AICPMailboxReceiveCallback callback,
+status_t t5ai_cp_mailbox_register(uint8_t logical_channel, T5AICPMailboxReceiveCallback callback,
                                   void *context) {
   if (callback == NULL) {
     return E_INVALID_ARGUMENT;
   }
   for (size_t i = 0; i < T5AI_MBOX_MAX_ROUTES; ++i) {
-    if (s_routes[i].callback != NULL &&
-        s_routes[i].logical_channel == logical_channel) {
+    if (s_routes[i].callback != NULL && s_routes[i].logical_channel == logical_channel) {
       return E_INVALID_OPERATION;
     }
   }
@@ -155,16 +172,14 @@ status_t t5ai_cp_mailbox_register(uint8_t logical_channel,
 
 void t5ai_cp_mailbox_unregister(uint8_t logical_channel) {
   for (size_t i = 0; i < T5AI_MBOX_MAX_ROUTES; ++i) {
-    if (s_routes[i].callback != NULL &&
-        s_routes[i].logical_channel == logical_channel) {
+    if (s_routes[i].callback != NULL && s_routes[i].logical_channel == logical_channel) {
       memset(&s_routes[i], 0, sizeof(s_routes[i]));
       return;
     }
   }
 }
 
-status_t t5ai_cp_mailbox_receive(uint8_t logical_channel,
-                                 T5AICPMailboxFrame *frame) {
+status_t t5ai_cp_mailbox_receive(uint8_t logical_channel, T5AICPMailboxFrame *frame) {
   if (frame == NULL) {
     return E_INVALID_ARGUMENT;
   }
@@ -181,47 +196,35 @@ status_t t5ai_cp_mailbox_receive(uint8_t logical_channel,
     if (received_channel == logical_channel) {
       return S_SUCCESS;
     }
-    bool dispatched = false;
-    for (size_t i = 0; i < T5AI_MBOX_MAX_ROUTES; ++i) {
-      if (s_routes[i].callback != NULL &&
-          s_routes[i].logical_channel == received_channel) {
-        s_routes[i].callback(received_channel, frame, s_routes[i].context);
-        dispatched = true;
-        break;
-      }
-    }
-    if (!dispatched) {
-      return E_DOES_NOT_EXIST;
+    if (prv_dispatch(received_channel, frame)) {
+      continue;
     }
   }
 }
 
-status_t t5ai_cp_mailbox_try_receive(uint8_t logical_channel,
-                                     T5AICPMailboxFrame *frame) {
+status_t t5ai_cp_mailbox_try_receive(uint8_t logical_channel, T5AICPMailboxFrame *frame) {
   if (frame == NULL) {
     return E_INVALID_ARGUMENT;
   }
   if ((T5AI_MBOX_CH1_CTRL & T5AI_MBOX_FIFO_NOT_EMPTY) == 0) {
     return E_AGAIN;
   }
-  (void)T5AI_MBOX_CH1_RX_ID;
-  frame->address = T5AI_MBOX_CH1_RX_DATA0;
-  frame->length = T5AI_MBOX_CH1_RX_DATA1;
-  uint8_t received_channel;
-  if (FAILED(prv_frame_channel(frame, &received_channel))) {
-    return E_ERROR;
-  }
-  if (received_channel == logical_channel) {
-    return S_SUCCESS;
-  }
-  for (size_t i = 0; i < T5AI_MBOX_MAX_ROUTES; ++i) {
-    if (s_routes[i].callback != NULL &&
-        s_routes[i].logical_channel == received_channel) {
-      s_routes[i].callback(received_channel, frame, s_routes[i].context);
+  for (;;) {
+    (void)T5AI_MBOX_CH1_RX_ID;
+    frame->address = T5AI_MBOX_CH1_RX_DATA0;
+    frame->length = T5AI_MBOX_CH1_RX_DATA1;
+    uint8_t received_channel;
+    if (FAILED(prv_frame_channel(frame, &received_channel))) {
+      return E_ERROR;
+    }
+    if (received_channel == logical_channel) {
+      return S_SUCCESS;
+    }
+    prv_dispatch(received_channel, frame);
+    if ((T5AI_MBOX_CH1_CTRL & T5AI_MBOX_FIFO_NOT_EMPTY) == 0) {
       return E_AGAIN;
     }
   }
-  return E_DOES_NOT_EXIST;
 }
 
 void t5ai_cp_mailbox_discard_pending(void) {
@@ -232,15 +235,13 @@ void t5ai_cp_mailbox_discard_pending(void) {
   }
 }
 
-static void prv_send_control(uint8_t command, const void *buffer,
-                             size_t length) {
+static void prv_send_control(uint8_t command, const void *buffer, size_t length) {
   ++s_control_sequence;
-  s_control_message.header = command |
-                             ((uint32_t)s_control_sequence << 16) |
-                             (T5AI_CP_CONTROL_CHANNEL << 24);
-  s_control_message.buffer = (uint32_t)(uintptr_t)buffer;
-  s_control_message.length = (uint32_t)length;
-  s_control_message.reserved = 0u;
+  s_control_message.header =
+      command | ((uint32_t)s_control_sequence << 16) | (T5AI_CP_CONTROL_CHANNEL << 24);
+  s_control_message.parameter1 = (uint32_t)(uintptr_t)buffer;
+  s_control_message.parameter2 = (uint32_t)length;
+  s_control_message.parameter3 = 0u;
   if (buffer != NULL && length != 0u) {
     dcache_flush((void *)buffer, length);
   }
@@ -262,4 +263,41 @@ void t5ai_cp_mailbox_heartbeat(void) {
   s_heartbeat_parameter = 0u;
   prv_send_control(T5AI_CP_HEARTBEAT_COMMAND, &s_heartbeat_parameter,
                    sizeof(s_heartbeat_parameter));
+}
+
+status_t t5ai_cp_mailbox_enable_uart0_clock(void) {
+  ++s_control_sequence;
+  s_pm_message.header =
+      T5AI_CP_PM_CLOCK_COMMAND | ((uint32_t)s_control_sequence << 16) | (T5AI_CP_PM_CHANNEL << 24);
+  s_pm_message.parameter1 = T5AI_CP_PM_UART0_CLOCK;
+  s_pm_message.parameter2 = T5AI_CP_PM_CLOCK_ENABLE;
+  s_pm_message.parameter3 = 0u;
+  dcache_flush(&s_pm_message, sizeof(s_pm_message));
+
+  status_t status = t5ai_cp_mailbox_send(&s_pm_message, sizeof(s_pm_message));
+  if (FAILED(status)) {
+    return status;
+  }
+
+  T5AICPMailboxFrame response_frame;
+  const uint64_t start = prv_ticks();
+  while (1) {
+    status = t5ai_cp_mailbox_try_receive(T5AI_CP_PM_CHANNEL, &response_frame);
+    if (status == S_SUCCESS) {
+      break;
+    }
+    if (status != E_AGAIN) {
+      return status;
+    }
+    if (prv_ticks() - start >= T5AI_CP_PM_SETTLE_TICKS) {
+      return E_AGAIN;
+    }
+  }
+  if (response_frame.length < sizeof(T5AICPControlMessage)) {
+    return E_ERROR;
+  }
+  T5AICPControlMessage response;
+  dcache_invalidate((void *)response_frame.address, sizeof(response));
+  memcpy(&response, (const void *)response_frame.address, sizeof(response));
+  return prv_is_pm_clock_response(&response) ? S_SUCCESS : E_ERROR;
 }
