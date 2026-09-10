@@ -28,11 +28,14 @@ static T5AIUartRegisters *prv_regs(UARTDevice *dev) {
 
 static void prv_configure_pins(UARTDevice *dev) {
   volatile uint32_t *gpio = (volatile uint32_t *)0x44000400u;
-  const uint32_t input_enable = 1u << 2;
-  const uint32_t pull_up = (1u << 4) | (1u << 5);
-  const uint32_t second_function = 1u << 6;
-  gpio[dev->tx_pin] = (gpio[dev->tx_pin] & ~0x3fffu) | pull_up | second_function;
-  gpio[dev->rx_pin] = (gpio[dev->rx_pin] & ~0x3fffu) | input_enable | pull_up | second_function;
+  volatile uint32_t *const function_select = (volatile uint32_t *)0x440100c0u;
+  const uint32_t peripheral_mode = (1u << 3) | (1u << 6);
+
+  /* UART0 is function index zero for GPIO10/11. Disable the ordinary GPIO
+   * drivers and pulls before handing both pins to the peripheral. */
+  function_select[1] &= ~((0xfu << 8) | (0xfu << 12));
+  gpio[dev->tx_pin] = (gpio[dev->tx_pin] & ~0x3fffu) | peripheral_mode;
+  gpio[dev->rx_pin] = (gpio[dev->rx_pin] & ~0x3fffu) | peripheral_mode;
 }
 
 static void prv_init(UARTDevice *dev, bool tx, bool rx) {

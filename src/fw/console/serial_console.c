@@ -26,7 +26,7 @@ static void logging_handle_character(char c, bool* should_context_switch) {
 #endif
   // Remember, you're in an interrupt here!
 
-  if (c == 0x3) { // CTRL-C
+  if (c == 0x3) {  // CTRL-C
     if (!s_prompt_enabled) {
       PBL_LOG_DBG("Ignoring prompt request, not yet ready!");
       return;
@@ -69,8 +69,9 @@ void serial_console_enable_prompt(void) {
 
 void serial_console_write_log_message(const char* msg) {
   while (*msg) {
-    dbgserial_putchar(*(msg++));
+    dbgserial_putchar_lazy(*(msg++));
   }
+  dbgserial_flush();
 }
 
 void serial_console_set_state(SerialConsoleState new_state) {
@@ -104,7 +105,7 @@ void serial_console_set_state(SerialConsoleState new_state) {
       dbgserial_set_rx_dma_enabled(true);
       break;
     default:
-      WTF; // Don't know this state
+      WTF;  // Don't know this state
   }
 
   portEXIT_CRITICAL();

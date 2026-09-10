@@ -9,6 +9,7 @@
 #include <pbl/drivers/gpio.h>
 #include "kernel/util/delay.h"
 #include <pbl/logging/logging.h>
+#include <pbl/soc/t5ai/cp_mailbox.h>
 #include "system/passert.h"
 
 #include <stddef.h>
@@ -21,6 +22,7 @@ PBL_LOG_MODULE_DEFINE(driver_display_co5300, CONFIG_DRIVER_DISPLAY_LOG_LEVEL);
 #define PANEL_HEIGHT 466u
 #define PANEL_X_OFFSET 6u
 #define PANEL_RESET_PIN 29u
+#define QSPI_FIFO_SIZE 256u
 
 #define QSPI_BASE 0x46040000u
 #define QSPI_GLB_CTRL 0x08u
@@ -46,7 +48,8 @@ PBL_LOG_MODULE_DEFINE(driver_display_co5300, CONFIG_DRIVER_DISPLAY_LOG_LEVEL);
 
 #define SYSTEM_CLK_MODE2 (*(volatile uint32_t *)0x44010024u)
 #define SYSTEM_DEVICE_CLK_ENABLE (*(volatile uint32_t *)0x44010030u)
-#define SYSTEM_POWER_SLEEP_WAKEUP (*(volatile uint32_t *)0x44010040u)
+#define SYSTEM_DEVICE_MEM_CTRL1 (*(volatile uint32_t *)0x44010038u)
+#define SYSTEM_DEVICE_MEM_CTRL2 (*(volatile uint32_t *)0x4401003cu)
 #define SYSTEM_GPIO_FUNCTION_BASE ((volatile uint32_t *)0x440100c0u)
 #define GPIO_BASE ((volatile uint32_t *)0x44000400u)
 
@@ -62,6 +65,12 @@ static volatile uint32_t *prv_qspi(uint32_t offset) {
   return (volatile uint32_t *)(QSPI_BASE + offset);
 }
 
+static void prv_power_up(void) {
+  SYSTEM_DEVICE_MEM_CTRL1 &= ~(1u << 6);
+  SYSTEM_DEVICE_MEM_CTRL2 &= ~(1u << 6);
+  SYSTEM_DEVICE_CLK_ENABLE |= 1u << 20;
+}
+
 static bool prv_wait_command(void) {
   for (unsigned i = 0; i < 10000u; ++i) {
     const uint32_t status = *prv_qspi(QSPI_STATUS);
@@ -72,40 +81,42 @@ static bool prv_wait_command(void) {
     }
     delay_us(1);
   }
-  PBL_LOG_ERR("QSPI0 command timeout status=0x%08lx",
-              (unsigned long)*prv_qspi(QSPI_STATUS));
+  PBL_LOG_ERR("QSPI0 command timeout status=0x%08lx", (unsigned long)*prv_qspi(QSPI_STATUS));
   char trace[96];
-  dbgserial_putstr_fmt(trace, sizeof(trace),
-      "QSPI timeout st=%08lx cfg=%08lx c1=%08lx c2=%08lx",
-      (unsigned long)*prv_qspi(QSPI_STATUS),
-      (unsigned long)*prv_qspi(QSPI_CONFIG),
-      (unsigned long)*prv_qspi(QSPI_CMD_C_CFG1),
-      (unsigned long)*prv_qspi(QSPI_CMD_C_CFG2));
+  dbgserial_putstr_fmt(trace, sizeof(trace), "QSPI timeout st=%08lx cfg=%08lx c1=%08lx c2=%08lx",
+                       (unsigned long)*prv_qspi(QSPI_STATUS), (unsigned long)*prv_qspi(QSPI_CONFIG),
+                       (unsigned long)*prv_qspi(QSPI_CMD_C_CFG1),
+                       (unsigned long)*prv_qspi(QSPI_CMD_C_CFG2));
   return false;
 }
 
-static bool prv_command(uint8_t command, const uint8_t *data, size_t length,
-                        bool quad_data) {
+static bool prv_command(uint8_t command, const uint8_t *data, size_t length, bool quad_data) {
   PBL_ASSERTN(length <= sizeof(s_panel_row));
+  prv_power_up();
   // CO5300 framing uses 02h for registers and 32h for quad pixel data,
   // followed by 00h, register, 00h.
   *prv_qspi(QSPI_CMD_C_L) = 0;
-  *prv_qspi(QSPI_CMD_C_H) = (quad_data ? 0x32u : 0x02u) |
-      ((uint32_t)command << 16);
+  *prv_qspi(QSPI_CMD_C_H) = (quad_data ? 0x32u : 0x02u) | ((uint32_t)command << 16);
 
-  if (length != 0) {
+  if (length <= sizeof(uint32_t)) {
+    uint32_t word = 0;
+    if (length != 0u) {
+      memcpy(&word, data, length);
+    }
+    *prv_qspi(QSPI_CMD_C_L) = word;
+  } else {
     volatile uint32_t *fifo = prv_qspi(QSPI_FIFO_DATA);
     for (size_t offset = 0; offset < length; offset += sizeof(uint32_t)) {
       uint32_t word = 0;
       const size_t remaining = length - offset;
-      memcpy(&word, data + offset,
-             remaining < sizeof(word) ? remaining : sizeof(word));
+      memcpy(&word, data + offset, remaining < sizeof(word) ? remaining : sizeof(word));
       fifo[offset / sizeof(word)] = word;
     }
   }
-  *prv_qspi(QSPI_CMD_C_CFG1) = 0x300u;
-  *prv_qspi(QSPI_CMD_C_CFG2) = ((uint32_t)length << 2) |
-      (quad_data ? QSPI_DATA_LINE_4 : 0u);
+  *prv_qspi(QSPI_CMD_C_CFG1) = length <= sizeof(uint32_t) ? 0x3u << ((length + 4u) * 2u) : 0x300u;
+  *prv_qspi(QSPI_CMD_C_CFG2) = length <= sizeof(uint32_t)
+                                   ? 0u
+                                   : ((uint32_t)length << 2) | (quad_data ? QSPI_DATA_LINE_4 : 0u);
   *prv_qspi(QSPI_CMD_C_CFG2) |= QSPI_CMD_START;
   const bool result = prv_wait_command();
   *prv_qspi(QSPI_CMD_C_CFG1) = 0;
@@ -130,16 +141,20 @@ void display_co5300_set_brightness(uint8_t level) {
   prv_apply_brightness();
 }
 
-static bool prv_set_window(uint16_t x0, uint16_t y0, uint16_t x1,
-                           uint16_t y1) {
+static bool prv_set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
   const uint8_t columns[] = {
-      (uint8_t)(x0 >> 8), (uint8_t)x0, (uint8_t)(x1 >> 8), (uint8_t)x1,
+      (uint8_t)(x0 >> 8),
+      (uint8_t)x0,
+      (uint8_t)(x1 >> 8),
+      (uint8_t)x1,
   };
   const uint8_t rows[] = {
-      (uint8_t)(y0 >> 8), (uint8_t)y0, (uint8_t)(y1 >> 8), (uint8_t)y1,
+      (uint8_t)(y0 >> 8),
+      (uint8_t)y0,
+      (uint8_t)(y1 >> 8),
+      (uint8_t)y1,
   };
-  return prv_register(0x2au, columns, sizeof(columns)) &&
-         prv_register(0x2bu, rows, sizeof(rows));
+  return prv_register(0x2au, columns, sizeof(columns)) && prv_register(0x2bu, rows, sizeof(rows));
 }
 
 static uint16_t prv_rgb565(uint8_t pixel) {
@@ -163,20 +178,28 @@ static void prv_convert_row(const uint8_t *source, bool reverse) {
   }
 }
 
+static bool prv_send_panel_row(void) {
+  for (size_t offset = 0; offset < sizeof(s_panel_row); offset += QSPI_FIFO_SIZE) {
+    const size_t remaining = sizeof(s_panel_row) - offset;
+    const size_t chunk_length = remaining < QSPI_FIFO_SIZE ? remaining : QSPI_FIFO_SIZE;
+    if (!prv_command(offset == 0u ? 0x2cu : 0x3cu, s_panel_row + offset, chunk_length, true)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 static bool prv_send_logical_row(uint16_t logical_y, const uint8_t *data) {
-  const uint16_t mapped_y = s_rotated ?
-      PBL_DISPLAY_HEIGHT - 1u - logical_y : logical_y;
-  const uint16_t y0 = (mapped_y * PANEL_HEIGHT + PBL_DISPLAY_HEIGHT - 1u) /
-                      PBL_DISPLAY_HEIGHT;
-  const uint16_t y1 = ((mapped_y + 1u) * PANEL_HEIGHT +
-                       PBL_DISPLAY_HEIGHT - 1u) / PBL_DISPLAY_HEIGHT - 1u;
+  const uint16_t mapped_y = s_rotated ? PBL_DISPLAY_HEIGHT - 1u - logical_y : logical_y;
+  const uint16_t y0 = (mapped_y * PANEL_HEIGHT + PBL_DISPLAY_HEIGHT - 1u) / PBL_DISPLAY_HEIGHT;
+  const uint16_t y1 =
+      ((mapped_y + 1u) * PANEL_HEIGHT + PBL_DISPLAY_HEIGHT - 1u) / PBL_DISPLAY_HEIGHT - 1u;
   prv_convert_row(data, s_rotated);
-  if (!prv_set_window(PANEL_X_OFFSET, y0,
-                      PANEL_X_OFFSET + PANEL_WIDTH - 1u, y1)) {
+  if (!prv_set_window(PANEL_X_OFFSET, y0, PANEL_X_OFFSET + PANEL_WIDTH - 1u, y1)) {
     return false;
   }
   for (uint16_t y = y0; y <= y1; ++y) {
-    if (!prv_command(0x2cu, s_panel_row, sizeof(s_panel_row), true)) {
+    if (!prv_send_panel_row()) {
       return false;
     }
   }
@@ -186,17 +209,16 @@ static bool prv_send_logical_row(uint16_t logical_y, const uint8_t *data) {
 static void prv_qspi_init(void) {
   // BK7258 gates QSPI with both the AHB-peripheral power domain and its
   // individual peripheral clock. A cleared power-down bit turns AHBP on.
-  SYSTEM_POWER_SLEEP_WAKEUP &= ~(1u << 5);
+  (void)t5ai_cp_mailbox_enable_qspi0();
+  prv_power_up();
   delay_us(10);
-  SYSTEM_DEVICE_CLK_ENABLE |= 1u << 20;
-  SYSTEM_CLK_MODE2 = (SYSTEM_CLK_MODE2 & ~((0x0fu << 6) | (1u << 10))) |
-                     (11u << 6) | (1u << 10); // 480 MHz / (11 + 1) = 40 MHz.
+  SYSTEM_CLK_MODE2 = (SYSTEM_CLK_MODE2 & ~((0x0fu << 6) | (1u << 10))) | (11u << 6) |
+                     (1u << 10);  // 480 MHz / (11 + 1) = 40 MHz.
 
   for (unsigned pin = 22; pin <= 27; ++pin) {
     // Match Tuya's T5AI adapter: secondary function, maximum drive on every
     // QSPI signal, pull-up on CS and IO0-IO3 (but not clock).
-    GPIO_BASE[pin] = (GPIO_BASE[pin] & ~0x3fffu) |
-                     (1u << 3) | (1u << 6) | (3u << 8);
+    GPIO_BASE[pin] = (GPIO_BASE[pin] & ~0x3fffu) | (1u << 3) | (1u << 6) | (3u << 8);
     if (pin != 22u) {
       GPIO_BASE[pin] |= (1u << 4) | (1u << 5);
     }
@@ -229,9 +251,8 @@ static bool prv_panel_init(void) {
     uint8_t command;
     uint8_t value;
   } init[] = {
-      {0xfe, 0x20}, {0x19, 0x10}, {0x1c, 0xa0}, {0xfe, 0x00},
-      {0xc4, 0x80}, {0x3a, 0x55}, {0x35, 0x00}, {0x53, 0x20},
-      {0x63, 0xff},
+      {0xfe, 0x20}, {0x19, 0x10}, {0x1c, 0xa0}, {0xfe, 0x00}, {0xc4, 0x80},
+      {0x3a, 0x55}, {0x35, 0x00}, {0x53, 0x20}, {0x63, 0xff},
   };
   for (unsigned i = 0; i < sizeof(init) / sizeof(init[0]); ++i) {
     if (!prv_register(init[i].command, &init[i].value, 1)) {
@@ -243,27 +264,23 @@ static bool prv_panel_init(void) {
   }
   delay_us(200000);
   const uint8_t diagnostic_brightness = 0xffu;
-  return prv_register(0x51u, &diagnostic_brightness, 1u) &&
-         prv_register(0x29u, NULL, 0) &&
-         prv_register(0x23u, NULL, 0); // TEMP: force all pixels on.
+  return prv_register(0x51u, &diagnostic_brightness, 1u) && prv_register(0x29u, NULL, 0) &&
+         prv_register(0x23u, NULL, 0);  // TEMP: force all pixels on.
 }
 
 void display_init(void) {
   prv_qspi_init();
   char trace[128];
-  dbgserial_putstr_fmt(trace, sizeof(trace),
+  dbgserial_putstr_fmt(
+      trace, sizeof(trace),
       "QSPI init glb=%08lx cfg=%08lx rst=%08lx clk=%08lx gate=%08lx pwr=%08lx",
-      (unsigned long)*prv_qspi(QSPI_GLB_CTRL),
-      (unsigned long)*prv_qspi(QSPI_CONFIG),
-      (unsigned long)*prv_qspi(QSPI_RST_CFG),
-      (unsigned long)SYSTEM_CLK_MODE2,
-      (unsigned long)SYSTEM_DEVICE_CLK_ENABLE,
-      (unsigned long)SYSTEM_POWER_SLEEP_WAKEUP);
+      (unsigned long)*prv_qspi(QSPI_GLB_CTRL), (unsigned long)*prv_qspi(QSPI_CONFIG),
+      (unsigned long)*prv_qspi(QSPI_RST_CFG), (unsigned long)SYSTEM_CLK_MODE2,
+      (unsigned long)SYSTEM_DEVICE_CLK_ENABLE, (unsigned long)SYSTEM_DEVICE_MEM_CTRL1);
   s_initialized = prv_panel_init();
-  dbgserial_putstr_fmt(trace, sizeof(trace),
-      "CO5300 init=%u st=%08lx pin29=%08lx",
-      (unsigned)s_initialized, (unsigned long)*prv_qspi(QSPI_STATUS),
-      (unsigned long)GPIO_BASE[PANEL_RESET_PIN]);
+  dbgserial_putstr_fmt(trace, sizeof(trace), "CO5300 init=%u st=%08lx pin29=%08lx",
+                       (unsigned)s_initialized, (unsigned long)*prv_qspi(QSPI_STATUS),
+                       (unsigned long)GPIO_BASE[PANEL_RESET_PIN]);
   s_enabled = s_initialized;
   s_brightness_dirty = false;
   if (!s_initialized) {
@@ -277,9 +294,8 @@ void display_clear(void) {
   }
   memset(s_panel_row, 0, sizeof(s_panel_row));
   for (uint16_t y = 0; y < PANEL_HEIGHT; ++y) {
-    if (!prv_set_window(PANEL_X_OFFSET, y,
-                        PANEL_X_OFFSET + PANEL_WIDTH - 1u, y) ||
-        !prv_command(0x2cu, s_panel_row, sizeof(s_panel_row), true)) {
+    if (!prv_set_window(PANEL_X_OFFSET, y, PANEL_X_OFFSET + PANEL_WIDTH - 1u, y) ||
+        !prv_send_panel_row()) {
       return;
     }
   }
@@ -303,8 +319,7 @@ void display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
   s_updating = true;
   DisplayRow row;
   while (s_initialized && nrcb(&row)) {
-    if (row.address >= PBL_DISPLAY_HEIGHT ||
-        !prv_send_logical_row(row.address, row.data)) {
+    if (row.address >= PBL_DISPLAY_HEIGHT || !prv_send_logical_row(row.address, row.data)) {
       break;
     }
   }

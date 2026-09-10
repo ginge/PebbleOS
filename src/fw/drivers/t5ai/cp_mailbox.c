@@ -35,7 +35,16 @@
 #define T5AI_CP_PM_CLOCK_COMMAND 2u
 #define T5AI_CP_PM_UART0_CLOCK 2u
 #define T5AI_CP_PM_CLOCK_ENABLE 1u
-#define T5AI_CP_PM_SETTLE_TICKS (T5AI_AON_RTC_HZ / 100u)
+#define T5AI_CP_PM_POWER_COMMAND 1u
+#define T5AI_CP_PM_QSPI0_CLOCK 20u
+#define T5AI_CP_PM_AHBP_QSPI_POWER 101u
+#define T5AI_CP_PM_POWER_ON 0u
+#define T5AI_CP_PM_SETTLE_TICKS (T5AI_AON_RTC_HZ / 10u)
+#define T5AI_CP_HEADER_ACK (1u << 12u)
+#define T5AI_CP_LOG_CHANNEL 0x1eu
+#define T5AI_CP_LOG_ASSERT_OUT_COMMAND 4u
+#define T5AI_CP_LOG_STATIC_TAG 0xffffu
+#define T5AI_CP_LOG_BUFFER_SIZE 160u
 
 typedef struct {
   uint32_t header;
@@ -54,6 +63,9 @@ static PebbleMutex *s_mutex;
 static T5AICPMailboxRoute s_routes[T5AI_MBOX_MAX_ROUTES];
 static T5AICPControlMessage s_control_message __attribute__((aligned(32)));
 static T5AICPControlMessage s_pm_message __attribute__((aligned(32)));
+static T5AICPControlMessage s_ack_message __attribute__((aligned(32)));
+static T5AICPControlMessage s_log_message __attribute__((aligned(32)));
+static uint8_t s_log_buffer[T5AI_CP_LOG_BUFFER_SIZE] __attribute__((aligned(32)));
 static uint32_t s_heartbeat_parameter __attribute__((aligned(32)));
 static uint8_t s_control_sequence;
 static uint64_t s_last_heartbeat;
@@ -84,9 +96,20 @@ static bool prv_dispatch(uint8_t logical_channel, const T5AICPMailboxFrame *fram
   return false;
 }
 
-static bool prv_is_pm_clock_response(const T5AICPControlMessage *message) {
-  return (message->header >> 24u) == T5AI_CP_PM_CHANNEL &&
-         (uint8_t)message->header == T5AI_CP_PM_CLOCK_COMMAND && message->parameter1 == 0u;
+static bool prv_is_pm_response(const T5AICPControlMessage *message, uint8_t command) {
+  return (message->header >> 24u) == T5AI_CP_PM_CHANNEL && (uint8_t)message->header == command &&
+         message->parameter1 == 0u;
+}
+
+static bool prv_is_transport_ack(const T5AICPControlMessage *message) {
+  return (message->header & T5AI_CP_HEADER_ACK) != 0u;
+}
+
+static status_t prv_acknowledge(const T5AICPControlMessage *message) {
+  s_ack_message = *message;
+  s_ack_message.header |= T5AI_CP_HEADER_ACK;
+  dcache_flush(&s_ack_message, sizeof(s_ack_message));
+  return t5ai_cp_mailbox_send(&s_ack_message, sizeof(s_ack_message));
 }
 
 status_t t5ai_cp_mailbox_lock(void) {
@@ -265,12 +288,11 @@ void t5ai_cp_mailbox_heartbeat(void) {
                    sizeof(s_heartbeat_parameter));
 }
 
-status_t t5ai_cp_mailbox_enable_uart0_clock(void) {
+static status_t prv_pm_request(uint8_t command, uint32_t parameter1, uint32_t parameter2) {
   ++s_control_sequence;
-  s_pm_message.header =
-      T5AI_CP_PM_CLOCK_COMMAND | ((uint32_t)s_control_sequence << 16) | (T5AI_CP_PM_CHANNEL << 24);
-  s_pm_message.parameter1 = T5AI_CP_PM_UART0_CLOCK;
-  s_pm_message.parameter2 = T5AI_CP_PM_CLOCK_ENABLE;
+  s_pm_message.header = command | ((uint32_t)s_control_sequence << 16) | (T5AI_CP_PM_CHANNEL << 24);
+  s_pm_message.parameter1 = parameter1;
+  s_pm_message.parameter2 = parameter2;
   s_pm_message.parameter3 = 0u;
   dcache_flush(&s_pm_message, sizeof(s_pm_message));
 
@@ -284,7 +306,20 @@ status_t t5ai_cp_mailbox_enable_uart0_clock(void) {
   while (1) {
     status = t5ai_cp_mailbox_try_receive(T5AI_CP_PM_CHANNEL, &response_frame);
     if (status == S_SUCCESS) {
-      break;
+      if (response_frame.length < sizeof(T5AICPControlMessage)) {
+        return E_ERROR;
+      }
+      T5AICPControlMessage response;
+      dcache_invalidate((void *)response_frame.address, sizeof(response));
+      memcpy(&response, (const void *)response_frame.address, sizeof(response));
+      if (prv_is_transport_ack(&response)) {
+        continue;
+      }
+      status = prv_acknowledge(&response);
+      if (FAILED(status)) {
+        return status;
+      }
+      return prv_is_pm_response(&response, command) ? S_SUCCESS : E_ERROR;
     }
     if (status != E_AGAIN) {
       return status;
@@ -293,11 +328,59 @@ status_t t5ai_cp_mailbox_enable_uart0_clock(void) {
       return E_AGAIN;
     }
   }
-  if (response_frame.length < sizeof(T5AICPControlMessage)) {
-    return E_ERROR;
+}
+
+status_t t5ai_cp_mailbox_enable_uart0_clock(void) {
+  return prv_pm_request(T5AI_CP_PM_CLOCK_COMMAND, T5AI_CP_PM_UART0_CLOCK, T5AI_CP_PM_CLOCK_ENABLE);
+}
+
+status_t t5ai_cp_mailbox_enable_qspi0(void) {
+  status_t status =
+      prv_pm_request(T5AI_CP_PM_POWER_COMMAND, T5AI_CP_PM_AHBP_QSPI_POWER, T5AI_CP_PM_POWER_ON);
+  return FAILED(status) ? status
+                        : prv_pm_request(T5AI_CP_PM_CLOCK_COMMAND, T5AI_CP_PM_QSPI0_CLOCK,
+                                         T5AI_CP_PM_CLOCK_ENABLE);
+}
+
+status_t t5ai_cp_mailbox_log(const void *data, size_t length) {
+  if (data == NULL || length == 0u) {
+    return E_INVALID_ARGUMENT;
   }
-  T5AICPControlMessage response;
-  dcache_invalidate((void *)response_frame.address, sizeof(response));
-  memcpy(&response, (const void *)response_frame.address, sizeof(response));
-  return prv_is_pm_clock_response(&response) ? S_SUCCESS : E_ERROR;
+
+  const uint8_t *cursor = data;
+  while (length != 0u) {
+    const size_t chunk_length =
+        length < sizeof(s_log_buffer) - 1u ? length : sizeof(s_log_buffer) - 1u;
+    s_log_buffer[0] = 1u;
+    memcpy(&s_log_buffer[1], cursor, chunk_length);
+
+    ++s_control_sequence;
+    s_log_message.header = T5AI_CP_LOG_ASSERT_OUT_COMMAND | ((uint32_t)s_control_sequence << 16) |
+                           (T5AI_CP_LOG_CHANNEL << 24);
+    s_log_message.parameter1 = (uint32_t)(uintptr_t)s_log_buffer;
+    s_log_message.parameter2 = (uint32_t)(chunk_length + 1u) | (T5AI_CP_LOG_STATIC_TAG << 16);
+    s_log_message.parameter3 = 0u;
+    dcache_flush(s_log_buffer, chunk_length + 1u);
+    dcache_flush(&s_log_message, sizeof(s_log_message));
+
+    status_t status = t5ai_cp_mailbox_send(&s_log_message, sizeof(s_log_message));
+    if (FAILED(status)) {
+      return status;
+    }
+
+    const uint64_t start = prv_ticks();
+    do {
+      dcache_invalidate(s_log_buffer, 1u);
+      if (s_log_buffer[0] == 0u) {
+        break;
+      }
+      if (prv_timed_out(start)) {
+        return E_AGAIN;
+      }
+    } while (true);
+
+    cursor += chunk_length;
+    length -= chunk_length;
+  }
+  return S_SUCCESS;
 }

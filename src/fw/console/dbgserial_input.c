@@ -7,7 +7,7 @@
 #include <pbl/drivers/uart.h>
 #include "pbl/util/attributes.h"
 
-#if !defined(CONFIG_RELEASE) || defined(CONFIG_MFG)
+#if (!defined(CONFIG_RELEASE) || defined(CONFIG_MFG)) && !defined(CONFIG_SOC_T5AI)
 
 static DbgSerialCharacterCallback s_character_callback;
 

@@ -40,5 +40,12 @@ void soc_early_init(void) {
    * system after four start retries. This is the vendor control-channel wire
    * format, not a dependency on its scheduler or IPC implementation. */
   t5ai_cp_mailbox_announce_power_up();
+
+  /* Do not immediately fill the shared FIFO with a second request. Give CP0
+   * time to consume the startup indication before requesting UART0 power. */
+  volatile uint32_t *const rtc_low = (volatile uint32_t *)0x4400020cu;
+  const uint32_t settle_start = *rtc_low;
+  while ((uint32_t)(*rtc_low - settle_start) < 3200u) {
+  }
   __enable_irq();
 }
