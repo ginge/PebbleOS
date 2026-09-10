@@ -24,15 +24,14 @@ PBL_LOG_MODULE_DEFINE(driver_accel_qmi8658, CONFIG_DRIVER_IMU_LOG_LEVEL);
 #define QMI8658_CTRL7 0x08u
 #define QMI8658_STATUS0 0x2eu
 #define QMI8658_AX_L 0x35u
-#define QMI8658_RESET 0x60u
 
 #define QMI8658_ID 0x05u
 #define QMI8658_CTRL1_INIT 0x60u
 #define QMI8658_ACCEL_RANGE_4G 0x10u
 #define QMI8658_ACCEL_ENABLE 0x01u
 #define QMI8658_ACCEL_DATA_READY 0x01u
-#define QMI8658_RESET_COMMAND 0xb0u
 #define QMI8658_COUNTS_PER_G 8192
+#define QMI8658_STARTUP_SETTLE_MS 100u
 
 typedef struct {
   uint32_t interval_us;
@@ -131,13 +130,6 @@ static void prv_timer_callback(void *context) {
 
 void accel_init(void) {
   uint8_t id = 0xffu;
-  /* The IMU can remain powered across an AP reset. Restore a known state;
-   * QMI8658 reset is command 0xb0 at register 0x60, not a CTRL1 write. */
-  if (!prv_write(QMI8658_RESET, QMI8658_RESET_COMMAND)) {
-    PBL_LOG_ERR("QMI8658 reset failed");
-    return;
-  }
-  psleep(20);
   if (!prv_read(QMI8658_WHO_AM_I, &id, 1) || id != QMI8658_ID) {
     PBL_LOG_ERR("QMI8658 not detected (id 0x%02x)", id);
     return;
@@ -221,7 +213,8 @@ int accel_peek(AccelDriverSample *data) {
     if (!prv_write(QMI8658_CTRL7, QMI8658_ACCEL_ENABLE)) {
       return E_ERROR;
     }
-    psleep((s_interval_us + 999u) / 1000u);
+    // The first conversions after power-up are saturated startup transients.
+    psleep(QMI8658_STARTUP_SETTLE_MS);
   }
   const bool result = prv_read_sample(data);
   if (temporary_enable) {
