@@ -5,7 +5,6 @@
 #include <pbl/drivers/display/t5ai.h>
 
 #include "board/board.h"
-#include "console/dbgserial.h"
 #include <pbl/drivers/gpio.h>
 #include "kernel/util/delay.h"
 #include <pbl/logging/logging.h>
@@ -82,11 +81,6 @@ static bool prv_wait_command(void) {
     delay_us(1);
   }
   PBL_LOG_ERR("QSPI0 command timeout status=0x%08lx", (unsigned long)*prv_qspi(QSPI_STATUS));
-  char trace[96];
-  dbgserial_putstr_fmt(trace, sizeof(trace), "QSPI timeout st=%08lx cfg=%08lx c1=%08lx c2=%08lx",
-                       (unsigned long)*prv_qspi(QSPI_STATUS), (unsigned long)*prv_qspi(QSPI_CONFIG),
-                       (unsigned long)*prv_qspi(QSPI_CMD_C_CFG1),
-                       (unsigned long)*prv_qspi(QSPI_CMD_C_CFG2));
   return false;
 }
 
@@ -263,24 +257,12 @@ static bool prv_panel_init(void) {
     return false;
   }
   delay_us(200000);
-  const uint8_t diagnostic_brightness = 0xffu;
-  return prv_register(0x51u, &diagnostic_brightness, 1u) && prv_register(0x29u, NULL, 0) &&
-         prv_register(0x23u, NULL, 0);  // TEMP: force all pixels on.
+  return prv_register(0x51u, &s_brightness, 1u) && prv_register(0x29u, NULL, 0);
 }
 
 void display_init(void) {
   prv_qspi_init();
-  char trace[128];
-  dbgserial_putstr_fmt(
-      trace, sizeof(trace),
-      "QSPI init glb=%08lx cfg=%08lx rst=%08lx clk=%08lx gate=%08lx pwr=%08lx",
-      (unsigned long)*prv_qspi(QSPI_GLB_CTRL), (unsigned long)*prv_qspi(QSPI_CONFIG),
-      (unsigned long)*prv_qspi(QSPI_RST_CFG), (unsigned long)SYSTEM_CLK_MODE2,
-      (unsigned long)SYSTEM_DEVICE_CLK_ENABLE, (unsigned long)SYSTEM_DEVICE_MEM_CTRL1);
   s_initialized = prv_panel_init();
-  dbgserial_putstr_fmt(trace, sizeof(trace), "CO5300 init=%u st=%08lx pin29=%08lx",
-                       (unsigned)s_initialized, (unsigned long)*prv_qspi(QSPI_STATUS),
-                       (unsigned long)GPIO_BASE[PANEL_RESET_PIN]);
   s_enabled = s_initialized;
   s_brightness_dirty = false;
   if (!s_initialized) {
