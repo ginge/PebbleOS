@@ -10,6 +10,7 @@ bootloader/update image.
 """
 
 import argparse
+import hashlib
 from pathlib import Path
 
 LOGICAL_BLOCK_SIZE = 32
@@ -37,6 +38,9 @@ PRIMARY_AP_APP_XIP_BASE = T5AI_XIP_BASE + PRIMARY_AP_APP_LOGICAL_OFFSET
 # Pebble intentionally links only the first part of the factory AP partition.
 # This is not a second factory/OTA partition and must not be packaged as one.
 PEBBLE_EXPERIMENTAL_SLOT_SIZE = 0x001F0000
+PEBBLE_EXPERIMENTAL_SLOT_PHYSICAL_SIZE = (
+    PEBBLE_EXPERIMENTAL_SLOT_SIZE * PHYSICAL_BLOCK_SIZE // LOGICAL_BLOCK_SIZE
+)
 
 
 def crc16(block: bytes) -> int:
@@ -103,6 +107,44 @@ def verify_protected_blocks(data: bytes) -> bytes:
             )
         output.extend(block)
     return bytes(output)
+
+
+def package_ap_qio(base_qio: bytes, protected_ap: bytes,
+                   expected_base_sha256: str) -> bytes:
+    """Overlay a checked Pebble AP payload onto trusted Tuya boot/CP bytes."""
+    validate_pinned_ap_layout()
+    actual_digest = hashlib.sha256(base_qio).hexdigest()
+    if actual_digest.lower() != expected_base_sha256.lower():
+        raise ValueError(
+            f"base QIO SHA-256 mismatch: {actual_digest} != {expected_base_sha256}"
+        )
+    if len(base_qio) < PRIMARY_AP_APP_PHYSICAL_OFFSET:
+        raise ValueError("base QIO does not contain the complete bootloader and CP prefix")
+    if not protected_ap or len(protected_ap) > PEBBLE_EXPERIMENTAL_SLOT_PHYSICAL_SIZE:
+        raise ValueError("protected AP payload is empty or exceeds the experimental slot")
+
+    logical = verify_protected_blocks(protected_ap)
+    initial_sp = int.from_bytes(logical[0:4], "little")
+    reset_vector = int.from_bytes(logical[4:8], "little")
+    if not 0x28010000 <= initial_sp <= 0x28066000 or initial_sp & 7:
+        raise ValueError(f"invalid T5AI initial stack pointer 0x{initial_sp:08x}")
+    if not (reset_vector & 1) or not (
+        PRIMARY_AP_APP_XIP_BASE
+        <= reset_vector & ~1
+        < PRIMARY_AP_APP_XIP_BASE + PEBBLE_EXPERIMENTAL_SLOT_SIZE
+    ):
+        raise ValueError(f"invalid T5AI reset vector 0x{reset_vector:08x}")
+
+    ap_end = PRIMARY_AP_APP_PHYSICAL_OFFSET + len(protected_ap)
+    if ap_end > len(base_qio):
+        raise ValueError("Pebble AP payload overlaps the required Tuya AP trailer")
+    # The factory AP file ends with boot metadata consumed by the pinned CP.
+    # Preserve it byte-for-byte and replace only the protected executable prefix.
+    output = (base_qio[:PRIMARY_AP_APP_PHYSICAL_OFFSET] + protected_ap
+              + base_qio[ap_end:])
+    if output[:PRIMARY_AP_APP_PHYSICAL_OFFSET] != base_qio[:PRIMARY_AP_APP_PHYSICAL_OFFSET]:
+        raise AssertionError("QIO packaging changed the bootloader/CP prefix")
+    return output
 
 
 def main() -> int:

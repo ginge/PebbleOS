@@ -5,6 +5,7 @@
 #include <pbl/drivers/display/t5ai.h>
 
 #include "board/board.h"
+#include "console/dbgserial.h"
 #include <pbl/drivers/gpio.h>
 #include "kernel/util/delay.h"
 #include <pbl/logging/logging.h>
@@ -23,11 +24,16 @@ PBL_LOG_MODULE_DEFINE(driver_display_co5300, CONFIG_DRIVER_DISPLAY_LOG_LEVEL);
 
 #define QSPI_BASE 0x46040000u
 #define QSPI_GLB_CTRL 0x08u
+#define QSPI_CMD_A_L 0x20u
+#define QSPI_CMD_A_H 0x24u
+#define QSPI_CMD_A_CFG1 0x28u
+#define QSPI_CMD_A_CFG2 0x2cu
 #define QSPI_CMD_C_L 0x40u
 #define QSPI_CMD_C_H 0x44u
 #define QSPI_CMD_C_CFG1 0x48u
 #define QSPI_CMD_C_CFG2 0x4cu
 #define QSPI_CONFIG 0x60u
+#define QSPI_RST_CFG 0x64u
 #define QSPI_STATUS_CLR 0x6cu
 #define QSPI_STATUS 0x70u
 #define QSPI_FIFO_DATA 0x100u
@@ -40,6 +46,7 @@ PBL_LOG_MODULE_DEFINE(driver_display_co5300, CONFIG_DRIVER_DISPLAY_LOG_LEVEL);
 
 #define SYSTEM_CLK_MODE2 (*(volatile uint32_t *)0x44010024u)
 #define SYSTEM_DEVICE_CLK_ENABLE (*(volatile uint32_t *)0x44010030u)
+#define SYSTEM_POWER_SLEEP_WAKEUP (*(volatile uint32_t *)0x44010040u)
 #define SYSTEM_GPIO_FUNCTION_BASE ((volatile uint32_t *)0x440100c0u)
 #define GPIO_BASE ((volatile uint32_t *)0x44000400u)
 
@@ -67,25 +74,36 @@ static bool prv_wait_command(void) {
   }
   PBL_LOG_ERR("QSPI0 command timeout status=0x%08lx",
               (unsigned long)*prv_qspi(QSPI_STATUS));
+  char trace[96];
+  dbgserial_putstr_fmt(trace, sizeof(trace),
+      "QSPI timeout st=%08lx cfg=%08lx c1=%08lx c2=%08lx",
+      (unsigned long)*prv_qspi(QSPI_STATUS),
+      (unsigned long)*prv_qspi(QSPI_CONFIG),
+      (unsigned long)*prv_qspi(QSPI_CMD_C_CFG1),
+      (unsigned long)*prv_qspi(QSPI_CMD_C_CFG2));
   return false;
 }
 
 static bool prv_command(uint8_t command, const uint8_t *data, size_t length,
                         bool quad_data) {
   PBL_ASSERTN(length <= sizeof(s_panel_row));
-  volatile uint32_t *fifo = prv_qspi(QSPI_FIFO_DATA);
-  for (size_t offset = 0; offset < length; offset += sizeof(uint32_t)) {
-    uint32_t word = 0;
-    const size_t remaining = length - offset;
-    memcpy(&word, data + offset,
-           remaining < sizeof(word) ? remaining : sizeof(word));
-    fifo[offset / sizeof(word)] = word;
-  }
-
-  // CO5300 QSPI framing is opcode 02h followed by 00h, register, 00h.
+  // CO5300 framing uses 02h for registers and 32h for quad pixel data,
+  // followed by 00h, register, 00h.
   *prv_qspi(QSPI_CMD_C_L) = 0;
-  *prv_qspi(QSPI_CMD_C_H) = 0x02u | ((uint32_t)command << 16);
-  *prv_qspi(QSPI_CMD_C_CFG1) = 0x300u; // Four one-line header bytes.
+  *prv_qspi(QSPI_CMD_C_H) = (quad_data ? 0x32u : 0x02u) |
+      ((uint32_t)command << 16);
+
+  if (length != 0) {
+    volatile uint32_t *fifo = prv_qspi(QSPI_FIFO_DATA);
+    for (size_t offset = 0; offset < length; offset += sizeof(uint32_t)) {
+      uint32_t word = 0;
+      const size_t remaining = length - offset;
+      memcpy(&word, data + offset,
+             remaining < sizeof(word) ? remaining : sizeof(word));
+      fifo[offset / sizeof(word)] = word;
+    }
+  }
+  *prv_qspi(QSPI_CMD_C_CFG1) = 0x300u;
   *prv_qspi(QSPI_CMD_C_CFG2) = ((uint32_t)length << 2) |
       (quad_data ? QSPI_DATA_LINE_4 : 0u);
   *prv_qspi(QSPI_CMD_C_CFG2) |= QSPI_CMD_START;
@@ -166,14 +184,22 @@ static bool prv_send_logical_row(uint16_t logical_y, const uint8_t *data) {
 }
 
 static void prv_qspi_init(void) {
+  // BK7258 gates QSPI with both the AHB-peripheral power domain and its
+  // individual peripheral clock. A cleared power-down bit turns AHBP on.
+  SYSTEM_POWER_SLEEP_WAKEUP &= ~(1u << 5);
+  delay_us(10);
   SYSTEM_DEVICE_CLK_ENABLE |= 1u << 20;
   SYSTEM_CLK_MODE2 = (SYSTEM_CLK_MODE2 & ~((0x0fu << 6) | (1u << 10))) |
-                     (5u << 6) | (1u << 10); // 480 MHz / (5 + 1) = 80 MHz.
+                     (11u << 6) | (1u << 10); // 480 MHz / (11 + 1) = 40 MHz.
 
   for (unsigned pin = 22; pin <= 27; ++pin) {
-    // Pull up the idle bus and select QSPI0 function 3 from the pinned BSP.
+    // Match Tuya's T5AI adapter: secondary function, maximum drive on every
+    // QSPI signal, pull-up on CS and IO0-IO3 (but not clock).
     GPIO_BASE[pin] = (GPIO_BASE[pin] & ~0x3fffu) |
-                     (1u << 4) | (1u << 5) | (1u << 6);
+                     (1u << 3) | (1u << 6) | (3u << 8);
+    if (pin != 22u) {
+      GPIO_BASE[pin] |= (1u << 4) | (1u << 5);
+    }
     volatile uint32_t *function = &SYSTEM_GPIO_FUNCTION_BASE[pin / 8u];
     const unsigned shift = (pin % 8u) * 4u;
     *function = (*function & ~(0x0fu << shift)) | (3u << shift);
@@ -182,6 +208,11 @@ static void prv_qspi_init(void) {
   *prv_qspi(QSPI_GLB_CTRL) = 1u;
   *prv_qspi(QSPI_GLB_CTRL) = 0;
   *prv_qspi(QSPI_CONFIG) = QSPI_ENABLE | QSPI_IO23_ENABLE;
+  *prv_qspi(QSPI_CMD_A_L) = 0;
+  *prv_qspi(QSPI_CMD_A_H) = 0;
+  *prv_qspi(QSPI_CMD_A_CFG1) = 0x3u;
+  *prv_qspi(QSPI_CMD_A_CFG2) = QSPI_DATA_LINE_4;
+  *prv_qspi(QSPI_RST_CFG) |= 1u << 1;
 }
 
 static bool prv_panel_init(void) {
@@ -211,13 +242,28 @@ static bool prv_panel_init(void) {
     return false;
   }
   delay_us(200000);
-  return prv_register(0x51u, &s_brightness, 1u) &&
-         prv_register(0x29u, NULL, 0);
+  const uint8_t diagnostic_brightness = 0xffu;
+  return prv_register(0x51u, &diagnostic_brightness, 1u) &&
+         prv_register(0x29u, NULL, 0) &&
+         prv_register(0x23u, NULL, 0); // TEMP: force all pixels on.
 }
 
 void display_init(void) {
   prv_qspi_init();
+  char trace[128];
+  dbgserial_putstr_fmt(trace, sizeof(trace),
+      "QSPI init glb=%08lx cfg=%08lx rst=%08lx clk=%08lx gate=%08lx pwr=%08lx",
+      (unsigned long)*prv_qspi(QSPI_GLB_CTRL),
+      (unsigned long)*prv_qspi(QSPI_CONFIG),
+      (unsigned long)*prv_qspi(QSPI_RST_CFG),
+      (unsigned long)SYSTEM_CLK_MODE2,
+      (unsigned long)SYSTEM_DEVICE_CLK_ENABLE,
+      (unsigned long)SYSTEM_POWER_SLEEP_WAKEUP);
   s_initialized = prv_panel_init();
+  dbgserial_putstr_fmt(trace, sizeof(trace),
+      "CO5300 init=%u st=%08lx pin29=%08lx",
+      (unsigned)s_initialized, (unsigned long)*prv_qspi(QSPI_STATUS),
+      (unsigned long)GPIO_BASE[PANEL_RESET_PIN]);
   s_enabled = s_initialized;
   s_brightness_dirty = false;
   if (!s_initialized) {

@@ -79,6 +79,7 @@
 #include "system/passert.h"
 #include "system/reset.h"
 
+
 #include "syscall/syscall_internal.h"
 
 #include "debug/debug.h"
@@ -98,9 +99,11 @@ void soc_early_init(void);
 /* here is as good as anywhere else ... */
 const int __attribute__((used)) uxTopUsedPriority = configMAX_PRIORITIES - 1;
 
+#ifndef CONFIG_SOC_T5AI
 static TimerID s_lowpower_timer = TIMER_INVALID_ID;
-#ifndef CONFIG_MFG
+#if !defined(CONFIG_MFG)
 static TimerID s_uptime_timer = TIMER_INVALID_ID;
+#endif
 #endif
 static void main_task(void *parameter);
 
@@ -216,6 +219,7 @@ static void init_drivers(void) {
 #endif
 
   accel_init();
+
 #ifdef CONFIG_MAG
   mag_init();
 #endif
@@ -240,7 +244,7 @@ static void clear_reset_loop_detection_bits(void) {
   boot_bit_clear(BOOT_BIT_RESET_LOOP_DETECT_THREE);
 }
 
-#ifndef CONFIG_MFG
+#if !defined(CONFIG_MFG) && !defined(CONFIG_SOC_T5AI)
 static void uptime_callback(void* data) {
   PBL_LOG_VERBOSE("Uptime reached 15 minutes, set stable bit.");
   new_timer_delete(s_uptime_timer);
@@ -248,9 +252,11 @@ static void uptime_callback(void* data) {
 }
 #endif
 
+#ifndef CONFIG_SOC_T5AI
 static void prv_low_power_debug_config_callback(void* data) {
   new_timer_delete(s_lowpower_timer);
 }
+#endif
 
 static NOINLINE void prv_main_task_init(void) {
   // The Snowy bootloader does not clear the watchdog flag itself. Clear the
@@ -295,6 +301,14 @@ static NOINLINE void prv_main_task_init(void) {
 
   init_drivers();
 
+#ifdef CONFIG_SOC_T5AI
+  /* The AMOLED controller is self-contained and can be initialized before
+   * filesystem-backed services. Doing so also replaces the bootloader's
+   * retained framebuffer as soon as native peripheral setup is complete. */
+  display_init();
+  backlight_set_brightness(BOARD_CONFIG.backlight_on_percent);
+#endif
+
   clock_init();
 
 #if defined(CONFIG_IS_BIGBOARD)
@@ -310,10 +324,12 @@ static NOINLINE void prv_main_task_init(void) {
 
   services_early_init();
 
+#ifndef CONFIG_SOC_T5AI
   debug_print_last_launched_app();
 
   // Do this early before things can screw ith it.
   check_prf_update();
+#endif
 
 #if defined(CONFIG_PBLBOOT) && defined(CONFIG_RECOVERY_FW) && !defined(CONFIG_MFG)
   // Invalidate slot0/1 when booting PRF, so we force main firmware re-install
@@ -335,7 +351,9 @@ static NOINLINE void prv_main_task_init(void) {
   // display FPGA shares the 32 kHz clock signal with bluetooth. If the FPGA is
   // not programmed when we attempt to initialize bluetooth, it prevents the
   // clock from reaching the bluetooth module and initialization fails.
+#ifndef CONFIG_SOC_T5AI
   display_init();
+#endif
 
   // Stop boot splash before initializing compositor
   boot_splash_stop();
@@ -343,21 +361,30 @@ static NOINLINE void prv_main_task_init(void) {
   compositor_init();
   kernel_ui_init();
 
+#ifndef CONFIG_SOC_T5AI
   bt_driver_init();
+#endif
 
+#ifndef CONFIG_SOC_T5AI
   services_init();
+#endif
 
   // The RTC needs be calibrated after the mfg registry service has been initialized so we can
   // load the measured frequency.
 #if defined(CONFIG_SOC_SF32LB52) && !defined(SF32LB52_USE_LXT)
   rc10k_init();
 #endif
+#ifndef CONFIG_SOC_T5AI
   rtc_calibrate_frequency(mfg_info_get_rtc_freq());
+#endif
 
   clear_reset_loop_detection_bits();
 
+#ifndef CONFIG_SOC_T5AI
   task_watchdog_mask_set(PebbleTask_KernelMain);
+#endif
 
+#ifndef CONFIG_SOC_T5AI
   // Leave the board with stop and sleep mode debugging enabled for at least 10
   // seconds to give OpenOCD time to start and still able to connect when it is
   // ready to flash in the new image via JTAG
@@ -371,15 +398,35 @@ static NOINLINE void prv_main_task_init(void) {
 #else
   boot_bit_set(BOOT_BIT_FW_STABLE);
 #endif
+#endif
 
   // Initialize button driver at the last moment to prevent "system on" button press from
   // entering the kernel event queue.
+#ifndef CONFIG_SOC_T5AI
   debounced_button_init();
+#endif
 
+#ifndef CONFIG_SOC_T5AI
   task_watchdog_resume();
+#endif
 }
 
 static void main_task(void *parameter) {
+#ifdef CONFIG_SOC_T5AI
+  /* The pinned CM33 handoff reaches the first task with PRIMASK set. FreeRTOS
+   * restores BASEPRI itself, but device and SysTick IRQs remain globally
+   * suppressed until the first privileged kernel task clears PRIMASK. */
+  __enable_irq();
+#endif
   prv_main_task_init();
+#ifdef CONFIG_SOC_T5AI
+  GBitmap framebuffer = compositor_get_framebuffer_as_bitmap();
+  memset(gbitmap_get_data(&framebuffer), 0xff,
+         gbitmap_get_bytes_per_row(&framebuffer) * framebuffer.bounds.size.h);
+  display_update_boot_frame(gbitmap_get_data(&framebuffer));
+  for (;;) {
+    vTaskDelay(pdMS_TO_TICKS(1000));
+  }
+#endif
   launcher_main_loop();
 }

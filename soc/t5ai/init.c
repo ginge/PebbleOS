@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <stdint.h>
 #include <cmsis_core.h>
+#include <pbl/soc/t5ai/cp_mailbox.h>
 
 uint32_t SystemCoreClock = CONFIG_T5AI_CORE_CLOCK_HZ;
 
@@ -35,5 +36,9 @@ void SystemInit(void) {
 }
 
 void soc_early_init(void) {
+  /* The pinned CP waits for this AP indication and otherwise resets the
+   * system after four start retries. This is the vendor control-channel wire
+   * format, not a dependency on its scheduler or IPC implementation. */
+  t5ai_cp_mailbox_announce_power_up();
   __enable_irq();
 }

@@ -28,3 +28,5 @@ status_t t5ai_cp_mailbox_receive(uint8_t logical_channel,
 status_t t5ai_cp_mailbox_try_receive(uint8_t logical_channel,
                                      T5AICPMailboxFrame *frame);
 void t5ai_cp_mailbox_discard_pending(void);
+void t5ai_cp_mailbox_announce_power_up(void);
+void t5ai_cp_mailbox_heartbeat(void);

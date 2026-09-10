@@ -32,6 +32,17 @@ extern void SystemInit(void);
 //! sections are initialized, then we call the firmware's main
 //! function
 NORETURN Reset_Handler(void) {
+#if defined(CONFIG_SOC_T5AI)
+  /* Bring-up marker using the UART state inherited from TuyaBoot. This runs
+   * before .data/.bss setup, so it proves the AP reset vector was entered. */
+  volatile uint32_t * const uart0 = (volatile uint32_t *)0x44820000u;
+  for (unsigned timeout = 0; timeout < 1000000u; ++timeout) {
+    if (uart0[6] & (1u << 20)) {
+      uart0[7] = 'A';
+      break;
+    }
+  }
+#endif
   // Copy data section from flash to RAM
   memcpy(__data_start, __data_load_start, __data_end - __data_start);
 

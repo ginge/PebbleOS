@@ -1,7 +1,9 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "console/prompt.h"
+#include "pbl/drivers/task_watchdog.h"
 #include "pbl/drivers/rtc.h"
 #include "pbl/services/analytics/analytics.h"
+#include <pbl/soc/t5ai/cp_mailbox.h>
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -37,6 +39,22 @@ void vPortSuppressTicksAndSleep(TickType_t expected_idle_ticks) {
   __ISB();
   s_wfi_ticks += rtc_get_ticks() - start;
 }
+
+void vApplicationTickHook(void) {
+  static TickType_t heartbeat_ticks;
+  static TickType_t watchdog_ticks;
+
+  if (++watchdog_ticks >= pdMS_TO_TICKS(TASK_WATCHDOG_FEED_PERIOD_MS)) {
+    watchdog_ticks = 0;
+    task_watchdog_feed();
+  }
+
+  if (++heartbeat_ticks >= RTC_TICKS_HZ) {
+    heartbeat_ticks = 0;
+    t5ai_cp_mailbox_heartbeat();
+  }
+}
+
 
 bool vPortEnableTimer(void) {
   return false;

@@ -1,10 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import unittest
+import hashlib
 from pathlib import Path
 
 from tools.t5ai_image import (
     PEBBLE_EXPERIMENTAL_SLOT_SIZE,
+    PEBBLE_EXPERIMENTAL_SLOT_PHYSICAL_SIZE,
     PRIMARY_AP_APP_LOGICAL_OFFSET,
     PRIMARY_AP_APP_LOGICAL_SIZE,
     PRIMARY_AP_APP_PHYSICAL_OFFSET,
@@ -13,6 +15,7 @@ from tools.t5ai_image import (
     crc16,
     encode_pebble_application,
     encode_protected_blocks,
+    package_ap_qio,
     validate_pinned_ap_layout,
     verify_protected_blocks,
 )
@@ -79,6 +82,51 @@ class T5AIImagePackagingTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "exceeds the experimental T5AI slot"):
             encode_pebble_application(
                 b"\xff" * (PEBBLE_EXPERIMENTAL_SLOT_SIZE + 1)
+            )
+
+    def test_qio_packaging_preserves_boot_prefix_and_ap_trailer(self):
+        prefix = bytes((index * 17) & 0xFF for index in range(
+            PRIMARY_AP_APP_PHYSICAL_OFFSET
+        ))
+        trailer = bytes((index * 29) & 0xFF for index in range(4096))
+        base = prefix + trailer
+        digest = hashlib.sha256(base).hexdigest()
+        vector = (
+            (0x28020000).to_bytes(4, "little")
+            + (PRIMARY_AP_APP_XIP_BASE + 0x101).to_bytes(4, "little")
+            + b"Pebble"
+        )
+        protected = encode_pebble_application(vector)
+        packaged = package_ap_qio(base, protected, digest)
+        self.assertEqual(packaged[:PRIMARY_AP_APP_PHYSICAL_OFFSET], prefix)
+        self.assertEqual(len(packaged), len(base))
+        decoded = verify_protected_blocks(packaged[
+            PRIMARY_AP_APP_PHYSICAL_OFFSET:
+            PRIMARY_AP_APP_PHYSICAL_OFFSET + len(protected)])
+        self.assertEqual(decoded[: len(vector)], vector)
+        self.assertEqual(packaged[PRIMARY_AP_APP_PHYSICAL_OFFSET + len(protected):],
+                         trailer[len(protected):])
+
+    def test_qio_packaging_rejects_wrong_base_and_bad_vectors(self):
+        base = b"\xaa" * (PRIMARY_AP_APP_PHYSICAL_OFFSET + 1)
+        digest = hashlib.sha256(base).hexdigest()
+        valid_vector = (
+            (0x28020000).to_bytes(4, "little")
+            + (PRIMARY_AP_APP_XIP_BASE + 0x101).to_bytes(4, "little")
+        )
+        with self.assertRaisesRegex(ValueError, "SHA-256 mismatch"):
+            package_ap_qio(base, encode_protected_blocks(valid_vector), "0" * 64)
+        with self.assertRaisesRegex(ValueError, "stack pointer"):
+            package_ap_qio(
+                base,
+                encode_protected_blocks(b"\0" * 4 + valid_vector[4:]),
+                digest,
+            )
+        with self.assertRaisesRegex(ValueError, "reset vector"):
+            package_ap_qio(
+                base,
+                encode_protected_blocks(valid_vector[:4] + b"\0" * 4),
+                digest,
             )
 
 

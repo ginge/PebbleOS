@@ -73,7 +73,11 @@ ALIAS("Default_Handler") void SysTick_Handler(void);
 
 
 EXTERNALLY_VISIBLE SECTION(".isr_vector") const void * const vector_table[] = {
+#if defined(CONFIG_SOC_T5AI)
+  (void *)0x28066000u,
+#else
   _estack,
+#endif
   Reset_Handler,
   NMI_Handler,
   HardFault_Handler,

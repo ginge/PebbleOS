@@ -4,9 +4,10 @@
 [T5-E1-Touch-AMOLED-1.75](https://www.waveshare.com/wiki/T5-E1-Touch-AMOLED-1.75).
 The peripheral backend and a Tuya SDK bring-up application are implemented.
 The native target now configures independently as `SOC_T5AI` and compiles
-PebbleOS's bundled FreeRTOS 8.2.1 CM33 port for STAR-MC1. It is not yet a
-bootable or hardware-tested watch image.
-No physical board has been tested or flashed as part of this work.
+PebbleOS's bundled FreeRTOS 8.2.1 CM33 port for STAR-MC1. Hardware bring-up was
+performed on 2026-09-10. The vendor diagnostic validates the AMOLED and button
+inputs, but the native AP image is not yet bootable: the vendor CP reaches its
+CPU1-start path while Pebble's first reset-handler marker is never observed.
 
 DVT3 uses an isolated revision defconfig and does not inherit DVT2's SiFli
 SoC, PMIC, sensors or drivers. `pbl configure --board getafix@dvt3` configures
@@ -27,7 +28,25 @@ The native build configures, compiles, links, and emits checked ELF, map, raw,
 Intel HEX, and protected-block artifacts. Native UART, flash, display, touch,
 GPIO/I2C, RTC, ADC/charging, IMU, watchdog, and the gated NimBLE controller IPC
 path are implemented without vendor-RTOS ownership. They remain unvalidated on
-hardware, and the protected artifact is not a complete or flash-ready image.
+hardware because native CPU1 reset entry is blocked, and the protected artifact
+is not a complete or generally flash-ready image.
+
+## Current hardware status
+
+The test device uses a CH342F dual serial bridge (`1a86:55d2`, serial
+`5C75025844`): `/dev/ttyACM0` is the programming port and `/dev/ttyACM1` is the
+460800-baud runtime port. Matching full-flash backups and a known-good vendor
+image are retained under `/home/baz/Documents/ChatGPT/pebble/`. Exact hashes,
+recovery commands, captured behavior, and failed hypotheses are recorded in
+`boards/getafix/tuya/REMAINING_TASKS.md`.
+
+The board was left running the known-good four-colour quadrant diagnostic;
+button presses draw black edge markers. Native images showed a black AMOLED,
+but early-entry instrumentation subsequently established that the native AP was
+not executing. Those black-screen results must not be treated as evidence
+against the CO5300 driver. The next milestone is a minimal CPU1 image that
+proves reset entry under the pinned vendor CP, including its partition,
+security/TrustZone, vector, and core-release requirements.
 
 The pinned table places the AP partition at physical flash offset `0x132000`.
 BK7258's 34:32 protected-block mapping exposes this at logical XIP address

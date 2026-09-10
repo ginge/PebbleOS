@@ -63,7 +63,7 @@ static uint8_t prv_encode_bcd(unsigned value) {
   return (uint8_t)(((value / 10u) << 4) | (value % 10u));
 }
 
-static bool prv_external_rtc_read(time_t *time) {
+static bool __attribute__((unused)) prv_external_rtc_read(time_t *time) {
   uint8_t control;
   uint8_t registers[7];
   i2c_use(I2C_PCF85063);
@@ -167,11 +167,10 @@ void rtc_calibrate_frequency(uint32_t frequency) {
 }
 
 void rtc_init_timers(void) {
-  s_external_rtc_ready = true;
-  time_t external_time;
-  if (prv_external_rtc_read(&external_time)) {
-    prv_set_retained_time(external_time);
-  }
+  /* Keep the optional PCF85063 out of the boot-critical path until the T5AI
+   * I2C block-read timeout/recovery path is available. The always-on counter
+   * and retained epoch provide the system clock in the meantime. */
+  s_external_rtc_ready = false;
 }
 
 void rtc_set_time(time_t time) {

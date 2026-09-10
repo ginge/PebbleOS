@@ -27,6 +27,17 @@
 #define T5AI_AON_RTC_HZ 32000u
 #define T5AI_MBOX_TIMEOUT_TICKS (2u * T5AI_AON_RTC_HZ)
 #define T5AI_MBOX_MAX_ROUTES 4u
+#define T5AI_CP_CONTROL_CHANNEL 0x10u
+#define T5AI_CP_POWER_UP_COMMAND 1u
+#define T5AI_CP_HEARTBEAT_COMMAND 2u
+#define T5AI_CP_HEARTBEAT_TICKS T5AI_AON_RTC_HZ
+
+typedef struct {
+  uint32_t header;
+  uint32_t buffer;
+  uint32_t length;
+  uint32_t reserved;
+} T5AICPControlMessage;
 
 typedef struct {
   uint8_t logical_channel;
@@ -36,6 +47,10 @@ typedef struct {
 
 static PebbleMutex *s_mutex;
 static T5AICPMailboxRoute s_routes[T5AI_MBOX_MAX_ROUTES];
+static T5AICPControlMessage s_control_message __attribute__((aligned(32)));
+static uint32_t s_heartbeat_parameter __attribute__((aligned(32)));
+static uint8_t s_control_sequence;
+static uint64_t s_last_heartbeat;
 
 static uint64_t prv_ticks(void) {
   uint32_t high_before;
@@ -215,4 +230,36 @@ void t5ai_cp_mailbox_discard_pending(void) {
     (void)T5AI_MBOX_CH1_RX_DATA0;
     (void)T5AI_MBOX_CH1_RX_DATA1;
   }
+}
+
+static void prv_send_control(uint8_t command, const void *buffer,
+                             size_t length) {
+  ++s_control_sequence;
+  s_control_message.header = command |
+                             ((uint32_t)s_control_sequence << 16) |
+                             (T5AI_CP_CONTROL_CHANNEL << 24);
+  s_control_message.buffer = (uint32_t)(uintptr_t)buffer;
+  s_control_message.length = (uint32_t)length;
+  s_control_message.reserved = 0u;
+  if (buffer != NULL && length != 0u) {
+    dcache_flush((void *)buffer, length);
+  }
+  dcache_flush(&s_control_message, sizeof(s_control_message));
+  (void)t5ai_cp_mailbox_send(&s_control_message, sizeof(s_control_message));
+}
+
+void t5ai_cp_mailbox_announce_power_up(void) {
+  prv_send_control(T5AI_CP_POWER_UP_COMMAND, NULL, 0u);
+  s_last_heartbeat = prv_ticks();
+}
+
+void t5ai_cp_mailbox_heartbeat(void) {
+  const uint64_t now = prv_ticks();
+  if (now - s_last_heartbeat < T5AI_CP_HEARTBEAT_TICKS) {
+    return;
+  }
+  s_last_heartbeat = now;
+  s_heartbeat_parameter = 0u;
+  prv_send_control(T5AI_CP_HEARTBEAT_COMMAND, &s_heartbeat_parameter,
+                   sizeof(s_heartbeat_parameter));
 }

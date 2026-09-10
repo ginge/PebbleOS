@@ -2,10 +2,100 @@
 
 This is the continuation handoff for the native PebbleOS port to the Waveshare T5-E1 Touch AMOLED 1.75 board. Continue on branch `tuya`.
 
-The native target now configures, compiles, links, and packages on the host, but
-the output is not ready to flash. No physical device is available yet. Preserve
-the factory image and establish the boot/recovery procedure before attempting
-to install the experimental payload.
+The native target configures, compiles, links, and packages on the host. A
+physical board was backed up and used for bring-up on 2026-09-10. The vendor
+diagnostic image boots and validates the display and buttons, but the native
+Pebble AP replacement does not enter its reset handler. The board has been
+restored to the known-good four-quadrant diagnostic image. Treat CPU1/AP boot
+handoff as the immediate blocker; do not spend more cycles changing the display
+driver until native reset entry is proved.
+
+## 2026-09-10 hardware-session handoff
+
+### Device and recovery state
+
+- Board: Waveshare T5-E1 Touch AMOLED 1.75 / Tuya T5AI (BK7258).
+- USB bridge: CH342F `1a86:55d2`, product `USB Dual_Serial`, serial
+  `5C75025844`. `/dev/ttyACM0` is the programming port and `/dev/ttyACM1` is
+  the 460800-baud runtime log port.
+- Two matching 8 MiB factory reads are stored at
+  `/home/baz/Documents/ChatGPT/pebble/factory-backups/` as
+  `t5e1-factory-5C75025844-read1.bin` and `read2.bin`. Both have SHA-256
+  `56c7d0170c47db35290397f74ab5709fd8e51e7dc45f76147bd3cb377f1a8cfd`.
+- The verified vendor diagnostic QIO is
+  `/home/baz/Documents/ChatGPT/pebble/build/getafix_dvt3_hw/known-good/getafix_dvt3_hw_QIO_1.0.0.bin`,
+  SHA-256 `edbea99920b61b87c1bf56f46cb975e38793e55532b5d75da3e9662db143bd4a`.
+  Its AP portion is saved as
+  `/home/baz/Documents/ChatGPT/pebble/build/native-pebbleos/known-good-bringup_AP.bin`.
+- Current on-device state: known-good diagnostic restored. Expected output is
+  four coloured quadrants; button presses draw black edge indicators. This
+  proves the panel, reset line, QSPI wiring, and relevant power rails work.
+- Flash used tyutool 3.2.9 at
+  `/home/baz/Documents/ChatGPT/pebble/.tools/tyutool-3.2.9/tyutool_cli`.
+
+```sh
+cd /home/baz/Documents/ChatGPT/pebble
+.tools/tyutool-3.2.9/tyutool_cli write -d t5ai -p /dev/ttyACM0 \
+  -s 0x132000 --end 0x205460 \
+  -f build/native-pebbleos/known-good-bringup_AP.bin --plain
+```
+
+The complete factory backup remains the ultimate recovery source. Do not erase
+or overwrite bootloader, TuyaBoot, CP, RF/calibration, or data partitions while
+investigating native AP startup.
+
+### Results and immediate blocker
+
+- The AP begins at physical flash `0x132000`, mapped by the 34:32 transform to
+  XIP `0x02120000`.
+- Readback of the first `0x440` bytes after a native flash matched the generated
+  image exactly, ruling out transport corruption and the selected offset.
+- `/dev/ttyACM1` shows Tuya boot and CP reaching `co-procresser startup` and
+  `start cp1`. A raw UART byte at the first instruction of Pebble's
+  `Reset_Handler` never appears; neither do later QSPI traces.
+- Matching the vendor initial stack-vector value `0x28066000` did not change
+  this. The vendor AP uses the same broad RAM window beginning at `0x28010000`.
+- Preserving the vendor AP tail after Pebble's protected executable instead of
+  padding the experimental slot also did not make reset entry observable. Keep
+  preserving it because it may contain boot metadata, but do not call it fixed.
+- The blocker is the CP-to-CPU1/AP release and image/security contract:
+  partition metadata, authentication, TrustZone/SPE state, vector expectations,
+  or another early CPU1 requirement. Build a minimal CPU1 image with an
+  unmistakable pre-runtime GPIO/UART marker before returning to full PebbleOS.
+
+### Display work already attempted
+
+The native CO5300 driver was compared with the exact local Tuya sources:
+
+- `.vendor/tuyaopen/src/peripherals/display/tdd_display/src/qspi/tdd_disp_qspi_co5300.c`
+- `.vendor/tuyaopen/src/peripherals/display/tdd_display/src/qspi/tdd_display_qspi.c`
+- `.vendor/tuyaopen/platform/T5AI/tuyaos/tuyaos_adapter/src/driver/tkl_qspi.c`
+
+Command framing, FIFO use for short register data, QSPI A/C fields, FIFO reset,
+AHBP power, clock gate, GPIO mux/pulls/drive, panel reset timings, the CO5300
+sequence, maximum brightness, all-pixels-on, and the pixel precommand were
+tested or aligned. The screen stayed black, but those tests are inconclusive
+because the reset-handler marker later proved the native image was not running.
+The tree contains temporary UART/QSPI and white-frame diagnostics; remove them
+after AP execution is established.
+
+### Native packaging used during the session
+
+```sh
+cd /home/baz/coredevices/pebbleos
+.venv/bin/python ./waf build
+.venv/bin/python tools/package_t5ai_qio.py \
+  --base-qio /home/baz/Documents/ChatGPT/pebble/build/getafix_dvt3_hw/known-good/getafix_dvt3_hw_QIO_1.0.0.bin \
+  --base-sha256 edbea99920b61b87c1bf56f46cb975e38793e55532b5d75da3e9662db143bd4a \
+  --protected-ap build/pebbleos.t5ai-crc.bin \
+  --output /home/baz/Documents/ChatGPT/pebble/build/native-pebbleos/getafix_dvt3_pebbleos_QIO.bin
+dd if=/home/baz/Documents/ChatGPT/pebble/build/native-pebbleos/getafix_dvt3_pebbleos_QIO.bin \
+  of=/home/baz/Documents/ChatGPT/pebble/build/native-pebbleos/getafix_dvt3_pebbleos_AP.bin \
+  bs=1 skip=1253376 status=none
+```
+
+Do not flash the native image again merely to inspect the screen. First add a
+stronger test of the CP release/CPU1 reset contract.
 
 ## Port direction
 
@@ -324,10 +414,12 @@ Verify all pins from the schematic/BSP before hardware testing.
 - The pinned SDK selects its normal bootloader and its packaging path contains
   no signing step for this configuration. That does not prove the factory
   device's OTP/fuse policy or authorize replacing its AP payload.
-- Do not flash the protected payload yet. The factory bootloader's installed
-  version, AP/CP compatibility requirements, signing/fuse policy, programming
-  transport, boot-selection behavior, and recovery path remain unverified on
-  the actual device.
+- The protected payload has been flashed experimentally and read back correctly,
+  but did not enter Pebble's reset handler. Do not repeat native flashes until
+  the AP/CP compatibility, security policy, and CPU1 release contract are
+  understood. Programming transport and recovery to the known-good diagnostic
+  AP are proven; complete factory restoration is backed up but has not needed
+  to be exercised.
 - DVT3 now has an explicit empty runner override, while DVT/DVT2 retain
   `sftool`. Both the board manifest and the CLI therefore fail closed for
   `pbl flash`, including an attempted explicit runner override. The same CLI
@@ -476,13 +568,16 @@ Verify all pins from the schematic/BSP before hardware testing.
 Current host baseline: 39 `test_tuya*.py` tests and 25 Getafix board tests pass.
 The DVT3 native firmware now compiles and links without unresolved platform
 symbols or internal-RAM overflow. Host-generated ELF, map, raw binary, Intel
-HEX, and protected-block binary artifacts are available for inspection; they
-remain experimental and must not be flashed before the boot flow and recovery
-requirements in section 14 are established.
+HEX, and protected-block binary artifacts are available for inspection. They
+remain experimental; section 14 records the failed reset-entry test and the
+condition for trying another image.
 
-### 16. Hardware validation when a device arrives
+### 16. Continued hardware validation
 
-Proceed conservatively: inspect power rails and current limit first, preserve the factory image, identify recovery/boot pins, prove SRAM execution/debug access if possible, then test UART, clocks, flash reads, GPIO, I2C/RTC, display, touch, sensors, Bluetooth, sleep, watchdog, charging, and finally flash writes/packaging.
+The factory image is preserved and AP-only recovery is proven. Next prove CPU1
+reset entry and SRAM execution, then validate native UART, clocks, GPIO,
+I2C/RTC, display, touch, sensors, Bluetooth, sleep, watchdog, charging, and
+finally writable storage/update behavior.
 
 ## Validation commands
 

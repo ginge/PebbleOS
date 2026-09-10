@@ -625,6 +625,20 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertIn(".pin = 28u", board_source)
         self.assertIn("gpio_output_set(&s_amplifier_enable, false)", board_source)
 
+        imu_source = (
+            ROOT / "src/fw/drivers/imu/qmi8658/qmi8658_t5ai.c"
+        ).read_text()
+        self.assertIn("#define QMI8658_RESET 0x60u", imu_source)
+        self.assertIn("#define QMI8658_RESET_COMMAND 0xb0u", imu_source)
+        reset = imu_source.index(
+            "prv_write(QMI8658_RESET, QMI8658_RESET_COMMAND)"
+        )
+        identity = imu_source.index("prv_read(QMI8658_WHO_AM_I", reset)
+        self.assertLess(reset, identity)
+        status = imu_source.index("prv_read(QMI8658_STATUS0")
+        sample = imu_source.index("prv_read(QMI8658_AX_L", status)
+        self.assertLess(status, sample)
+
     def test_original_dvt_keeps_its_haptics(self):
         config = load_config("dvt", "normal")
         self.assertEqual(config["PROMPT"], "y")
