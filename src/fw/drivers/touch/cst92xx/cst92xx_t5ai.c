@@ -63,8 +63,8 @@ static bool prv_read_report(uint8_t report[CST92XX_REPORT_LENGTH]) {
 }
 
 static int16_t prv_map_coordinate(uint16_t coordinate) {
-  return (int16_t)((CST92XX_NATIVE_SIZE - 1u - coordinate) *
-                   PBL_DISPLAY_WIDTH / CST92XX_NATIVE_SIZE);
+  return (int16_t)((CST92XX_NATIVE_SIZE - 1u - coordinate) * PBL_DISPLAY_WIDTH /
+                   CST92XX_NATIVE_SIZE);
 }
 
 static void prv_poll(void *context) {
@@ -82,12 +82,9 @@ static void prv_poll(void *context) {
 
   const uint8_t points = report[5] & 0x7fu;
   const uint8_t status = report[0] & 0x0fu;
-  if (report[6] == CST92XX_REPORT_ACK && points != 0u &&
-      status == CST92XX_TOUCH_STATUS) {
-    const uint16_t native_x = ((uint16_t)report[1] << 4) |
-                              (report[3] >> 4);
-    const uint16_t native_y = ((uint16_t)report[2] << 4) |
-                              (report[3] & 0x0fu);
+  if (report[6] == CST92XX_REPORT_ACK && points != 0u && status == CST92XX_TOUCH_STATUS) {
+    const uint16_t native_x = ((uint16_t)report[1] << 4) | (report[3] >> 4);
+    const uint16_t native_y = ((uint16_t)report[2] << 4) | (report[3] & 0x0fu);
     if (native_x < CST92XX_NATIVE_SIZE && native_y < CST92XX_NATIVE_SIZE) {
       s_last_x = prv_map_coordinate(native_x);
       s_last_y = prv_map_coordinate(native_y);
@@ -95,8 +92,7 @@ static void prv_poll(void *context) {
       s_finger_down = true;
       return;
     }
-    PBL_LOG_WRN("CST92xx coordinate out of range: %u,%u",
-                (unsigned)native_x, (unsigned)native_y);
+    PBL_LOG_WRN("CST92xx coordinate out of range: %u,%u", (unsigned)native_x, (unsigned)native_y);
   }
 
   if (s_finger_down) {
@@ -140,8 +136,7 @@ void touch_sensor_set_enabled(bool enabled) {
   if (enabled) {
     prv_reset(true);
     if (s_poll_timer != TIMER_INVALID_ID) {
-      (void)new_timer_start(s_poll_timer, CST92XX_POLL_MS,
-                            prv_timer_callback, NULL,
+      (void)new_timer_start(s_poll_timer, CST92XX_POLL_MS, prv_timer_callback, NULL,
                             TIMER_START_FLAG_REPEATING);
     }
   } else {
