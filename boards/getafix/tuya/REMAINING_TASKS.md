@@ -50,6 +50,17 @@ This is the continuation handoff for the native PebbleOS port to the Waveshare T
   the valid external-clock path and seeded Pebble time without rewriting the
   RTC. T5AI RTC startup now also rebases stale retained AON-counter state after
   a hardware-counter reset, preventing unsigned elapsed-time underflow.
+- Native controller IPC now registers and initializes the CP Bluetooth
+  controller, submits consecutive HCI commands, and receives their asynchronous
+  Command Complete events on the event callback. HCI Reset returned status zero;
+  Read Local Version returned opcode `0x1001`, status zero, HCI version `0x0b`,
+  and revision `0x0006`. The hardware-proven MIPC directions are `0x17` from AP
+  to CP and `0x47` from CP to AP. CP-originated frames are routed through the
+  shared mailbox owner, and callback replies use the vendor asynchronous echo
+  sequence. Normal SRAM works; the temporary PSRAM placement and all `PBLHCI`
+  probes were removed. Keep the NimBLE gate closed until native ACL traffic is
+  proven in both directions and the remaining vendor CRC diagnostics are
+  understood.
 - The native CO5300 display path is hardware-proven. GPIO bit-banging first
   established the reset sequence, command framing, panel wiring, and four-lane
   pixel order independently of the QSPI controller. Native QSPI then removed
@@ -538,7 +549,7 @@ Verify all pins from the schematic/BSP before hardware testing.
   validating voltage against a meter, unplug/charge transitions, retention, and
   the state-of-charge curve. Do not treat the no-battery reading as validation.
 
-### 12. Bluetooth/NimBLE — NimBLE transport implemented, controller IPC pending
+### 12. Bluetooth/NimBLE — command/event IPC proven, native ACL validation pending
 
 - Keep Pebble's NimBLE host and Bluetooth services.
 - The T5AI NimBLE transport now validates and copies borrowed CP event/ACL
@@ -553,20 +564,25 @@ Verify all pins from the schematic/BSP before hardware testing.
 - Logical-channel routing now prevents channel `0x11` flash/SARADC waits from
   consuming frames belonging to registered services such as MIPC `0x17`.
 - The vendor-compatible MIPC ABI is now explicit and host-tested: fixed 32-bit
-  shared pointers, list/config/handle/data sizes, channel `0x17` framing,
+  shared pointers, list/config/handle/data sizes, directional channel `0x17`
+  AP-to-CP and `0x47` CP-to-AP framing,
   command/ACK type bits, and the BSP's CRC-8 polynomial/coverage (including
   its deliberate exclusion of the receiver-mutated flags word).
 - The two-stage Tuya MIPC/HCI state machine is implemented: physical delivery
   ACKs, MIPC object ACKs, application replies, command/ACL requests, callback
   registration, controller init/deinit, and controller-originated event/ACL
   polling. Separate shared objects preserve an in-flight host request when a
-  controller event is interleaved. Keep the board stub selected until the CP
-  firmware/clock startup assumptions and this protocol are validated on target.
+  controller event is interleaved. Native hardware has now proven controller
+  registration/init, consecutive HCI commands, asynchronous event delivery, and
+  correct event-versus-ACL callback selection. HCI Reset and Read Local Version
+  both completed successfully using normal SRAM shared objects.
 - Kconfig now enforces that boundary: `BT_FW_NIMBLE` is unavailable on T5AI
   unless `T5AI_CP_HCI_VALIDATED` is deliberately enabled. DVT3 keeps that gate
   off, so the SoC default cannot accidentally replace the controller stub.
-- Validate cache ownership, polling latency, timeouts, and CP startup/clock
-  requirements on target; replace polling with IRQ delivery once proven.
+- Validate native controller-to-host and host-to-controller ACL traffic before
+  lifting the gate. Resolve the CP's non-fatal MIPC CRC diagnostic, then validate
+  cache ownership, polling latency, timeouts, and recovery; replace polling with
+  IRQ delivery once proven.
 - Ensure the vendor Bluetooth stack and Pebble NimBLE never own the controller simultaneously.
 - Verify pairing, bonding persistence, reconnect, MTU, notifications, and low-power behavior when hardware arrives.
 

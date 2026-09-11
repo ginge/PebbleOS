@@ -5,7 +5,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define T5AI_MIPC_LOGICAL_CHANNEL 0x17u
+#define T5AI_MIPC_TX_LOGICAL_CHANNEL 0x17u
+#define T5AI_MIPC_RX_LOGICAL_CHANNEL 0x47u
 #define T5AI_MIPC_CRC_INITIAL 0xffu
 
 enum {
@@ -56,16 +57,12 @@ typedef struct {
 uint8_t t5ai_mipc_crc8(const void *data, size_t length, uint8_t initial);
 uint8_t t5ai_mipc_data_crc(const T5AIMIPCData *data);
 uint8_t t5ai_mipc_header(uint8_t source, uint8_t type);
-uint32_t t5ai_mipc_frame_header(uint8_t command, uint8_t state,
-                                uint8_t control, uint8_t sequence,
+uint32_t t5ai_mipc_frame_header(uint8_t command, uint8_t state, uint8_t control, uint8_t sequence,
                                 uint8_t logical_channel);
-bool t5ai_mipc_frame_valid(const T5AIMIPCFrame *frame,
-                           const T5AIMIPCData *data);
+bool t5ai_mipc_frame_valid(const T5AIMIPCFrame *frame, const T5AIMIPCData *data);
 
 _Static_assert(sizeof(T5AIMIPCList) == 8u, "T5AI MIPC list ABI changed");
-_Static_assert(sizeof(T5AIMIPCChannelConfig) == 24u,
-               "T5AI MIPC channel ABI changed");
-_Static_assert(sizeof(T5AIMIPCHandle) == 20u,
-               "T5AI MIPC handle ABI changed");
+_Static_assert(sizeof(T5AIMIPCChannelConfig) == 24u, "T5AI MIPC channel ABI changed");
+_Static_assert(sizeof(T5AIMIPCHandle) == 20u, "T5AI MIPC handle ABI changed");
 _Static_assert(sizeof(T5AIMIPCData) == 32u, "T5AI MIPC data ABI changed");
 _Static_assert(sizeof(T5AIMIPCFrame) == 16u, "T5AI MIPC frame ABI changed");

@@ -5,4 +5,3 @@
         KEEP(*(.t5ai_framebuffer))
         __t5ai_framebuffer_end__ = .;
     } >T5AI_DISPLAY_RAM
-

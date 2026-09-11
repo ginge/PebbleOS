@@ -107,7 +107,6 @@ elif bld.env.CONFIG_SOC_SF32LB52:
 elif bld.env.CONFIG_SOC_T5AI:
     nimble_sources += [
         'transport/hci_t5ai.c',
-        'transport/t5ai_hci_ipc.c',
     ]
 
     # T5AI is an external-controller, host-only NimBLE target and currently

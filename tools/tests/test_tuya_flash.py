@@ -33,7 +33,7 @@ int main(void) {
   };
   T5AIMIPCFrame frame = {
     .header = t5ai_mipc_frame_header(0x09, 0, 0, 1,
-                                      T5AI_MIPC_LOGICAL_CHANNEL),
+                                      T5AI_MIPC_RX_LOGICAL_CHANNEL),
     .object = 0x20001000,
     .result = t5ai_mipc_data_crc(&data),
   };
