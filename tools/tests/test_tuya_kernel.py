@@ -95,6 +95,16 @@ class TuyaKernelCheckTest(unittest.TestCase):
             config,
         )
 
+    def test_t5ai_holds_psram_power_for_the_compositor_framebuffer(self):
+        initialization = (ROOT / "soc/t5ai/init.c").read_text()
+        hold_psram = initialization.index(
+            "T5AI_AP_PSRAM_USE_COUNT = T5AI_AP_PSRAM_PERMANENT_USE"
+        )
+        announce = initialization.index("t5ai_cp_mailbox_announce_power_up()")
+        self.assertLess(hold_psram, announce)
+        self.assertIn("T5AI_SHARED_POWER_STATE_BASE 0x2809f700u", initialization)
+        self.assertIn("T5AI_AP_PSRAM_PERMANENT_USE 100u", initialization)
+
     def test_t5ai_core_clock_is_an_explicit_systick_contract(self):
         kconfig = (ROOT / "soc/Kconfig").read_text()
         initialization = (ROOT / "soc/t5ai/init.c").read_text()

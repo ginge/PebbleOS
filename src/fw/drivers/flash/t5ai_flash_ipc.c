@@ -19,6 +19,7 @@
 #define T5AI_IPC_COMMAND_CONNECT 0u
 #define T5AI_IPC_COMMAND_SEND 2u
 #define T5AI_IPC_RESPONSE_FLAG 0x80u
+#define T5AI_IPC_ROUTE_UNREACHABLE 2u
 #define T5AI_FLASH_CLIENT_PORT 16u
 #define T5AI_FLASH_SERVER_PORT 1u
 #define T5AI_SARADC_CLIENT_PORT 17u
@@ -197,6 +198,17 @@ static void prv_saradc_notify_callback(uint8_t logical_channel, const T5AICPMail
   (void)prv_mailbox_send(ack, true);
 }
 
+static status_t prv_ipc_ack_status(const T5AIIPCMessage *ack) {
+  if ((ack->header & (0xfu << 8u)) != 0u) {
+    return E_ERROR;
+  }
+  const uint8_t route_status = (uint8_t)(ack->address >> 28u);
+  if (route_status == T5AI_IPC_ROUTE_UNREACHABLE) {
+    return E_AGAIN;
+  }
+  return route_status == 0u ? S_SUCCESS : E_ERROR;
+}
+
 static status_t prv_send_and_wait_for_ack(T5AIIPCMessage *message) {
   status_t status = prv_mailbox_send(message, false);
   if (FAILED(status)) {
@@ -211,7 +223,7 @@ static status_t prv_send_and_wait_for_ack(T5AIIPCMessage *message) {
     }
     if (((received.header >> 12) & T5AI_IPC_ACK_CONTROL) != 0) {
       if ((uint8_t)(received.header >> 16) == s_sequence) {
-        return (received.header & (0xfu << 8)) == 0 ? S_SUCCESS : E_ERROR;
+        return prv_ipc_ack_status(&received);
       }
       continue;
     }
@@ -249,6 +261,16 @@ static status_t prv_wait_for_ipc(uint8_t command, T5AIIPCMessage *received) {
   }
 }
 
+static status_t prv_wait_for_ipc_transaction(uint8_t command, uint8_t tag,
+                                             T5AIIPCMessage *received) {
+  for (;;) {
+    status_t status = prv_wait_for_ipc(command, received);
+    if (FAILED(status) || (uint8_t)(received->address >> 16u) == tag) {
+      return status;
+    }
+  }
+}
+
 static status_t prv_send_ipc_response(const T5AIIPCMessage *request, uint8_t client_port,
                                       uint8_t server_port) {
   s_tx_message = *request;
@@ -274,11 +296,12 @@ static status_t prv_ipc_send(uint8_t user_command, const void *data, size_t leng
   }
 
   T5AIIPCMessage response;
-  status = prv_wait_for_ipc(T5AI_IPC_COMMAND_SEND | T5AI_IPC_RESPONSE_FLAG, &response);
-  if (FAILED(status) || (uint8_t)(response.address >> 16) != s_tag) {
-    return E_ERROR;
+  status = prv_wait_for_ipc_transaction(T5AI_IPC_COMMAND_SEND | T5AI_IPC_RESPONSE_FLAG, s_tag,
+                                        &response);
+  if (FAILED(status)) {
+    return status;
   }
-  return (response.address >> 28) == 0 ? S_SUCCESS : E_ERROR;
+  return (response.address >> 24u) == 0u ? S_SUCCESS : E_ERROR;
 }
 
 static status_t prv_ipc_receive(uint8_t user_command, void *data, size_t length,
@@ -310,8 +333,14 @@ static status_t prv_connect(uint8_t client_port, uint8_t server_port) {
     return status;
   }
   T5AIIPCMessage response;
+  /* A timed-out CONNECT can still complete at the peer. The socket identity
+   * is the fixed port pair, so a successful late CONNECT response proves the
+   * same connection and must not be rejected solely for its earlier tag. */
   status = prv_wait_for_ipc(T5AI_IPC_COMMAND_CONNECT | T5AI_IPC_RESPONSE_FLAG, &response);
-  return PASSED(status) && (response.address >> 24) == 0 ? S_SUCCESS : E_ERROR;
+  if (FAILED(status)) {
+    return status;
+  }
+  return (response.address >> 24u) == 0u ? S_SUCCESS : E_ERROR;
 }
 
 status_t t5ai_flash_ipc_init(void) {
@@ -478,7 +507,13 @@ static status_t prv_saradc_command(uint8_t command) {
   }
   status = prv_ipc_receive(command, &s_saradc_command, sizeof(s_saradc_command),
                            T5AI_SARADC_CLIENT_PORT, T5AI_SARADC_SERVER_PORT);
-  return FAILED(status) || s_saradc_command.status != 0 ? E_ERROR : S_SUCCESS;
+  if (FAILED(status)) {
+    return status;
+  }
+  if (s_saradc_command.status != 0) {
+    return E_ERROR;
+  }
+  return S_SUCCESS;
 }
 
 static status_t prv_saradc_cleanup(uint8_t channel, status_t status) {

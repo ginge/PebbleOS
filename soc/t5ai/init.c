@@ -7,6 +7,10 @@ uint32_t SystemCoreClock = CONFIG_T5AI_CORE_CLOCK_HZ;
 
 extern uint8_t __ISR_VECTOR_TABLE__[];
 
+#define T5AI_SHARED_POWER_STATE_BASE 0x2809f700u
+#define T5AI_AP_PSRAM_USE_COUNT (*(volatile uint32_t *)T5AI_SHARED_POWER_STATE_BASE)
+#define T5AI_AP_PSRAM_PERMANENT_USE 100u
+
 /* The vendor boot stages clocks, flash mapping and the application CPU. */
 void SystemInit(void) {
   __disable_irq();
@@ -36,6 +40,12 @@ void SystemInit(void) {
 }
 
 void soc_early_init(void) {
+  /* The pinned vendor AP heap sets this shared counter to 100 while PSRAM is
+   * permanent system memory. Pebble replaces that AP image but still keeps
+   * its compositor framebuffer in the AP user slab. Preserve the same power
+   * contract so CP0 does not shut down PSRAM after observing zero AP users. */
+  T5AI_AP_PSRAM_USE_COUNT = T5AI_AP_PSRAM_PERMANENT_USE;
+
   /* The pinned CP waits for this AP indication and otherwise resets the
    * system after four start retries. This is the vendor control-channel wire
    * format, not a dependency on its scheduler or IPC implementation. */

@@ -102,6 +102,40 @@ int main(void) {
   };
   prv_ipc_receive_callback(T5AI_IPC_RX_LOGICAL_CHANNEL, &frame, NULL);
   assert(s_pending_count == 0);
+
+  ack.header = (uint32_t)T5AI_IPC_ACK_CONTROL << 12;
+  ack.address = (uint32_t)T5AI_IPC_ROUTE_UNREACHABLE << 28;
+  assert(prv_ipc_ack_status(&ack) == E_AGAIN);
+  ack.address = 1u << 28;
+  assert(prv_ipc_ack_status(&ack) == E_ERROR);
+  ack.address = 0;
+  assert(prv_ipc_ack_status(&ack) == S_SUCCESS);
+
+  T5AIIPCMessage stale = {
+    .header = T5AI_IPC_COMMAND_SEND | T5AI_IPC_RESPONSE_FLAG,
+    .address = (uint32_t)1 << 16,
+  };
+  T5AIIPCMessage matching = {
+    .header = T5AI_IPC_COMMAND_SEND | T5AI_IPC_RESPONSE_FLAG,
+    .address = (uint32_t)2 << 16,
+  };
+  assert(prv_pending_enqueue(&stale) == S_SUCCESS);
+  assert(prv_pending_enqueue(&matching) == S_SUCCESS);
+  T5AIIPCMessage received;
+  assert(prv_wait_for_ipc_transaction(
+             T5AI_IPC_COMMAND_SEND | T5AI_IPC_RESPONSE_FLAG, 2, &received) ==
+         S_SUCCESS);
+  assert(received.address == matching.address);
+  assert(s_pending_count == 0);
+
+  T5AIIPCMessage late_connect = {
+    .header = T5AI_IPC_COMMAND_CONNECT | T5AI_IPC_RESPONSE_FLAG,
+    .address = (uint32_t)3 << 16,
+  };
+  assert(prv_pending_enqueue(&late_connect) == S_SUCCESS);
+  assert(prv_wait_for_ipc(T5AI_IPC_COMMAND_CONNECT | T5AI_IPC_RESPONSE_FLAG,
+                          &received) == S_SUCCESS);
+  assert(received.address == late_connect.address);
   return 0;
 }
 '''
