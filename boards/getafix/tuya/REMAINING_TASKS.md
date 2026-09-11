@@ -52,7 +52,15 @@ This is the continuation handoff for the native PebbleOS port to the Waveshare T
   (`T5AISaradcConfig` 36 bytes and `T5AISaradcCommand` 132 bytes). Eight
   consecutive on-device battery reads completed successfully at approximately
   3.97-4.00 V; USB and charging state were both detected.
-- Focused T5AI regressions currently pass 39 tests, the native firmware builds
+- GPIO interrupt routing and acknowledgement are now hardware-validated on the
+  application core. GPIO IRQ 55 must be enabled in the CPU1 group-2 mask, and
+  each channel must be acknowledged through its self-clearing pin-config bit 13;
+  writing the aggregate status snapshot caused a held-button IRQ storm and task
+  watchdog reset. P18 maps to Back/power and P12 maps to Select, both active-low
+  with pull-ups. One press/release of each produced exactly two interrupts,
+  returned to the idle state, and did not reset the device. The temporary
+  `PBLBTN` register/counter probe was removed after validation.
+- Focused T5AI regressions currently pass 48 tests, the native firmware builds
   successfully, and AP-only flashing remains constrained to physical range
   `0x132000` through `0x205460` using the verified vendor QIO base.
 
@@ -285,7 +293,7 @@ stronger test of the CP release/CPU1 reset contract.
   NimBLE-to-controller IPC protocol all have native implementations or explicit
   safe disabled states. The Bluetooth controller IPC remains deliberately
   gated until its CP startup and shared-memory behavior are proven on hardware.
-- Thirty-nine Tuya host tests and twenty-five Getafix board-selection tests pass.
+- Forty-eight Tuya host tests and twenty-five Getafix board-selection tests pass.
 - Both `getafix@dvt3` and the DVT2 compatibility target configure and build.
   DVT2 retains only its pre-existing stored Golf app unused-variable warning.
 
@@ -400,20 +408,21 @@ providers.
 
 Known areas include PMIC, magnetometer, vibration/haptics, ambient-light assumptions, button topology, display transport, and charger detection. The generic provisional battery curve must be calibrated when hardware is available.
 
-### 6. GPIO, EXTI, and buttons — implemented, hardware validation pending
+### 6. GPIO, EXTI, and buttons — implemented and hardware-validated
 
 Native T5AI GPIO input, pull, push-pull output, and software open-drain output
 are implemented behind Pebble's GPIO interface. GPIO-backed rising, falling,
 and emulated both-edge interrupts are also implemented. The provisional P18
 Back and P12 Select inputs use a 40 ms FreeRTOS-timer debounce path; absent
-Up/Down buttons are represented explicitly. Confirm the mapping, wake sources,
-and safe boot pin states on hardware.
+Up/Down buttons are represented explicitly. P18/P12 mapping, idle pull-ups,
+falling/rising edge delivery, CPU1 interrupt routing, and per-pin interrupt
+acknowledgement are validated. Low-power wake behavior remains to be tested.
 
 Board signals recorded from the reference design:
 
 - Power latch: P19
 - Amplifier enable: P28; keep disabled until audio is implemented
-- Back/select button candidates: P18 and P12; confirm mapping
+- Back/power button: P18; Select/user button: P12
 - Charge detect: P30
 
 Verify all pins from the schematic/BSP before hardware testing.
@@ -719,7 +728,7 @@ Verify all pins from the schematic/BSP before hardware testing.
   `bounds` warning; no DVT3-port warning appeared in that compatibility build.
 - Keep warnings introduced by DVT3 at zero or document unavoidable toolchain warnings.
 
-Current host baseline: 39 `test_tuya*.py` tests and 25 Getafix board tests pass.
+Current host baseline: 48 `test_tuya*.py` tests and 25 Getafix board tests pass.
 The DVT3 native firmware now compiles and links without unresolved platform
 symbols or internal-RAM overflow. Host-generated ELF, map, raw binary, Intel
 HEX, and protected-block binary artifacts are available for inspection. They
@@ -729,10 +738,10 @@ condition for trying another image.
 ### 16. Continued hardware validation
 
 The factory image is preserved, AP-only recovery is proven, and CPU1 reset
-entry plus the CP power-up handshake are proven. Next complete native UART
-write-path validation, then validate clocks, GPIO,
-I2C/RTC, display, touch, sensors, Bluetooth, sleep, watchdog, charging, and
-finally writable storage/update behavior.
+entry, CP power-up handshake, dual-USB UART roles, runtime mailbox RX, scheduler
+and RTC timebases, battery ADC, and GPIO buttons are proven. Next validate
+I2C0 and the external PCF85063 RTC, then display, touch, sensors, Bluetooth,
+sleep/wake, charging, and finally writable storage/update behavior.
 
 ## Validation commands
 

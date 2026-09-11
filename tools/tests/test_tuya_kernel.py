@@ -211,10 +211,16 @@ class TuyaKernelCheckTest(unittest.TestCase):
 
     def test_t5ai_initializes_native_button_debouncing(self):
         main = (ROOT / "src/fw/main.c").read_text()
+        exti = (ROOT / "src/fw/drivers/exti/t5ai.c").read_text()
+        dbgserial_input = (ROOT / "src/fw/console/dbgserial_input.c").read_text()
         button_init = main.split(
             '// entering the kernel event queue.\n', 1
         )[1].split("#ifndef CONFIG_SOC_T5AI", 1)[0]
         self.assertIn("debounced_button_init();", button_init)
+        self.assertIn("T5AI_SYSTEM_CPU1_INT_32_63_ENABLE", exti)
+        self.assertIn("T5AI_GPIO_INTERRUPT_CLEAR (1u << 13)", exti)
+        self.assertIn("*prv_pin_register(pin) |= T5AI_GPIO_INTERRUPT_CLEAR", exti)
+        self.assertNotIn("DbgSerialMailboxProbe_Buttons", dbgserial_input)
 
     def test_cmsis_priorities_do_not_use_raw_freertos_bytes(self):
         config = (ROOT / "third_party/freertos/FreeRTOSConfig.h").read_text()

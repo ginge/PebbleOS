@@ -18,13 +18,14 @@
 
 #define T5AI_GPIO_INTERRUPT_TYPE_MASK (3u << 10)
 #define T5AI_GPIO_INTERRUPT_ENABLE (1u << 12)
+#define T5AI_GPIO_INTERRUPT_CLEAR (1u << 13)
 
 #define T5AI_GPIO_INT_LOW_LEVEL 0u
 #define T5AI_GPIO_INT_HIGH_LEVEL 1u
 #define T5AI_GPIO_INT_RISING_EDGE 2u
 #define T5AI_GPIO_INT_FALLING_EDGE 3u
 
-#define T5AI_SYSTEM_CPU0_INT_32_63_ENABLE (*(volatile uint32_t *)0x44010084u)
+#define T5AI_SYSTEM_CPU1_INT_32_63_ENABLE (*(volatile uint32_t *)0x4401008cu)
 #define T5AI_SYSTEM_GPIO_INTERRUPT_ENABLE (1u << 23)
 
 typedef struct {
@@ -52,11 +53,9 @@ static void prv_unlock(uint32_t primask) {
 }
 
 static void prv_clear_pending(uint8_t pin) {
-  if (pin < 32u) {
-    T5AI_GPIO_STATUS_0_31 = 1u << pin;
-  } else {
-    T5AI_GPIO_STATUS_32_55 = 1u << (pin - 32u);
-  }
+  /* BK7258 clears a channel by writing its self-clearing gpio_int_clear bit.
+   * The aggregate status words are snapshots, not the channel ACK path. */
+  *prv_pin_register(pin) |= T5AI_GPIO_INTERRUPT_CLEAR;
 }
 
 static uint32_t prv_interrupt_type(uint8_t pin, ExtiTrigger trigger) {
@@ -69,8 +68,8 @@ static uint32_t prv_interrupt_type(uint8_t pin, ExtiTrigger trigger) {
 
   // Hardware has no both-edge mode. Arm the transition away from the current
   // input level and reverse it after each interrupt.
-  return ((*prv_pin_register(pin) & 1u) != 0u) ?
-      T5AI_GPIO_INT_FALLING_EDGE : T5AI_GPIO_INT_RISING_EDGE;
+  return ((*prv_pin_register(pin) & 1u) != 0u) ? T5AI_GPIO_INT_FALLING_EDGE
+                                               : T5AI_GPIO_INT_RISING_EDGE;
 }
 
 static void prv_set_interrupt_type(uint8_t pin, ExtiTrigger trigger) {
@@ -81,12 +80,11 @@ static void prv_set_interrupt_type(uint8_t pin, ExtiTrigger trigger) {
   *reg = value;
 }
 
-void exti_configure_pin(ExtiConfig cfg, ExtiTrigger trigger,
-                        ExtiHandlerCallback cb) {
+void exti_configure_pin(ExtiConfig cfg, ExtiTrigger trigger, ExtiHandlerCallback cb) {
   PBL_ASSERTN(cb != NULL);
   PBL_ASSERTN(cfg.pin < T5AI_GPIO_COUNT);
 
-  const InputConfig input = { .pin = cfg.pin };
+  const InputConfig input = {.pin = cfg.pin};
   gpio_input_init_pull_up_down(&input, (GPIOPuPd_TypeDef)cfg.pull);
 
   const uint32_t primask = prv_lock();
@@ -97,7 +95,7 @@ void exti_configure_pin(ExtiConfig cfg, ExtiTrigger trigger,
   prv_set_interrupt_type(cfg.pin, trigger);
   prv_clear_pending(cfg.pin);
 
-  T5AI_SYSTEM_CPU0_INT_32_63_ENABLE |= T5AI_SYSTEM_GPIO_INTERRUPT_ENABLE;
+  T5AI_SYSTEM_CPU1_INT_32_63_ENABLE |= T5AI_SYSTEM_GPIO_INTERRUPT_ENABLE;
   NVIC_ClearPendingIRQ(GPIO_IRQn);
   NVIC_SetPriority(GPIO_IRQn, 6u);
   NVIC_EnableIRQ(GPIO_IRQn);
