@@ -57,10 +57,16 @@ This is the continuation handoff for the native PebbleOS port to the Waveshare T
   and revision `0x0006`. The hardware-proven MIPC directions are `0x17` from AP
   to CP and `0x47` from CP to AP. CP-originated frames are routed through the
   shared mailbox owner, and callback replies use the vendor asynchronous echo
-  sequence. Normal SRAM works; the temporary PSRAM placement and all `PBLHCI`
-  probes were removed. Keep the NimBLE gate closed until native ACL traffic is
-  proven in both directions and the remaining vendor CRC diagnostics are
-  understood.
+  sequence. Native NimBLE then advertised as `Pebble ACL`; BlueZ connected on
+  handle `0x0001`, completed LE Read Remote Features, sent 19 ATT/GATT requests,
+  and received all 19 Pebble host responses with status zero. Controller-owned
+  event/ACL data is copied into aligned AP SRAM before acknowledging its shared
+  IPC descriptor. Asynchronous callback-response descriptors are not reused
+  until their logical MIPC ACK arrives; this removed the temporary 100 ms HCI
+  command/ACL delays. The DVT3 config now enables NimBLE and records the CP HCI
+  gate as validated. The CP still prints non-fatal MIPC CRC diagnostics while
+  successfully dispatching every transaction; that vendor ABI discrepancy
+  remains to be characterized.
 - The native CO5300 display path is hardware-proven. GPIO bit-banging first
   established the reset sequence, command framing, panel wiring, and four-lane
   pixel order independently of the QSPI controller. Native QSPI then removed
@@ -91,9 +97,11 @@ This is the continuation handoff for the native PebbleOS port to the Waveshare T
   with pull-ups. One press/release of each produced exactly two interrupts,
   returned to the idle state, and did not reset the device. The temporary
   `PBLBTN` register/counter probe was removed after validation.
-- Focused T5AI regressions currently pass 49 tests, the native firmware builds
-  successfully, and AP-only flashing remains constrained to physical range
-  `0x132000` through `0x205460` using the verified vendor QIO base.
+- The native firmware builds successfully, and AP-only flashing remains
+  constrained to the generated protected payload beginning at physical address
+  `0x132000`, bounded by Pebble's `0x1f0000`-byte logical experimental slot.
+  QIO packaging preserves the verified vendor boot/CP prefix and can now extend
+  beyond a shorter vendor AP payload without crossing the pinned AP partition.
 
 The native target configures, compiles, links, packages, and boots on hardware.
 The original 2026-09-10 handoff below is retained as historical context; its

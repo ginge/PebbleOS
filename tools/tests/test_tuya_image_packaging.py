@@ -107,6 +107,22 @@ class T5AIImagePackagingTest(unittest.TestCase):
         self.assertEqual(packaged[PRIMARY_AP_APP_PHYSICAL_OFFSET + len(protected):],
                          trailer[len(protected):])
 
+    def test_qio_packaging_extends_a_short_vendor_ap(self):
+        prefix = b"\xaa" * PRIMARY_AP_APP_PHYSICAL_OFFSET
+        old_ap = encode_pebble_application(b"old")
+        base = prefix + old_ap
+        digest = hashlib.sha256(base).hexdigest()
+        vector = (
+            (0x28020000).to_bytes(4, "little")
+            + (PRIMARY_AP_APP_XIP_BASE + 0x101).to_bytes(4, "little")
+            + b"Pebble image larger than the vendor application"
+        )
+        protected = encode_pebble_application(vector)
+        packaged = package_ap_qio(base, protected, digest)
+        self.assertEqual(len(packaged), PRIMARY_AP_APP_PHYSICAL_OFFSET + len(protected))
+        self.assertEqual(packaged[:PRIMARY_AP_APP_PHYSICAL_OFFSET], prefix)
+        self.assertEqual(packaged[PRIMARY_AP_APP_PHYSICAL_OFFSET:], protected)
+
     def test_qio_packaging_rejects_wrong_base_and_bad_vectors(self):
         base = b"\xaa" * (PRIMARY_AP_APP_PHYSICAL_OFFSET + 1)
         digest = hashlib.sha256(base).hexdigest()

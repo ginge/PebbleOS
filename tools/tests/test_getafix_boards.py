@@ -608,9 +608,9 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertEqual(dvt3["ACCEL_LIS2DW12"], "n")
         self.assertEqual(dvt3["BATTERY_T5AI"], "y")
         self.assertEqual(dvt3["BATTERY_PMIC"], "n")
-        self.assertEqual(dvt3["BT_FW_STUB"], "y")
-        self.assertEqual(dvt3["BT_FW_NIMBLE"], "n")
-        self.assertEqual(dvt3["T5AI_CP_HCI_VALIDATED"], "n")
+        self.assertEqual(dvt3["BT_FW_STUB"], "n")
+        self.assertEqual(dvt3["BT_FW_NIMBLE"], "y")
+        self.assertEqual(dvt3["T5AI_CP_HCI_VALIDATED"], "y")
         self.assertEqual(dvt3["PROMPT"], "n")
         self.assertEqual(dvt3["SPEAKER"], "n")
         self.assertEqual(dvt3["MIC"], "n")
@@ -618,6 +618,25 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertEqual(dvt3["AMBIENT_LIGHT"], "n")
         self.assertEqual(dvt3["PRESSURE"], "n")
         self.assertEqual(dvt3["TEMPERATURE"], "n")
+
+    def test_dvt3_hci_callback_buffers_have_explicit_ownership(self):
+        source = (
+            ROOT / "third_party/nimble/transport/t5ai_hci_ipc.c"
+        ).read_text()
+        copy = source.index(
+            "memcpy(payload, (const void *)(uintptr_t)message->request"
+        )
+        response = source.index("status = prv_respond_to_event(message)", copy)
+        callback = source.index("callback(payload, message->request_length)", response)
+        self.assertLess(copy, response)
+        self.assertLess(response, callback)
+        self.assertIn("s_event_response_transport_ack = true;", source)
+        self.assertIn("prv_wait_for_event_response_ack()", source)
+
+        transport = (
+            ROOT / "third_party/nimble/transport/hci_t5ai.c"
+        ).read_text()
+        self.assertNotIn("vTaskDelay(pdMS_TO_TICKS(100))", transport)
 
         board_source = (ROOT / "src/fw/board/boards/board_t5ai.c").read_text()
         self.assertIn("T5AI_GPIO_BASE + 19u * sizeof(uint32_t)", board_source)

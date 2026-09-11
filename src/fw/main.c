@@ -177,7 +177,52 @@ static void watchdog_timer_callback(void* data) {
 }
 
 #ifdef CONFIG_SOC_T5AI
+#include <bluetooth/init.h>
+#include <host/ble_gap.h>
+#include <host/ble_hs.h>
+#include <pbl/soc/t5ai/hci_ipc.h>
+
 static char s_t5ai_timebase_response[128];
+
+static int prv_t5ai_nimble_gap_event(struct ble_gap_event* event, void* context) {
+  (void)context;
+  if (event->type == BLE_GAP_EVENT_CONNECT) {
+    dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
+                         "PBLNIM connect status=%d handle=%04x", event->connect.status,
+                         event->connect.conn_handle);
+  } else if (event->type == BLE_GAP_EVENT_DISCONNECT) {
+    dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
+                         "PBLNIM disconnect reason=%d", event->disconnect.reason);
+  }
+  return 0;
+}
+
+static void prv_t5ai_nimble_probe_start(void) {
+  static BTDriverConfig config;
+  vTaskDelay(pdMS_TO_TICKS(2000));
+  bt_driver_init();
+  ble_hs_cfg.store_gen_key_cb = NULL;
+  const bool started = bt_driver_start(&config);
+  dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
+                       "PBLNIM start=%u", started);
+  if (!started) {
+    return;
+  }
+
+  static const uint8_t advertising_data[] = {0x02, 0x01, 0x06, 0x0b, 0x09, 'P', 'e', 'b',
+                                             'b',  'l',  'e',  ' ',  'A',  'C', 'L'};
+  const int data_status = ble_gap_adv_set_data(advertising_data, sizeof(advertising_data));
+  const struct ble_gap_adv_params parameters = {
+      .conn_mode = BLE_GAP_CONN_MODE_UND,
+      .disc_mode = BLE_GAP_DISC_MODE_GEN,
+  };
+  const int advertising_status =
+      data_status == 0 ? ble_gap_adv_start(BLE_OWN_ADDR_PUBLIC, NULL, BLE_HS_FOREVER, &parameters,
+                                           prv_t5ai_nimble_gap_event, NULL)
+                       : data_status;
+  dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
+                       "PBLNIM advertise=%d", advertising_status);
+}
 
 static void cp_heartbeat_timer_callback(void* data) {
   (void)t5ai_cp_mailbox_process_pending();
@@ -398,6 +443,8 @@ static NOINLINE void prv_main_task_init(void) {
 
 #ifndef CONFIG_SOC_T5AI
   bt_driver_init();
+#else
+  prv_t5ai_nimble_probe_start();
 #endif
 
 #ifndef CONFIG_SOC_T5AI

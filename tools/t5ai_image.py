@@ -136,10 +136,12 @@ def package_ap_qio(base_qio: bytes, protected_ap: bytes,
         raise ValueError(f"invalid T5AI reset vector 0x{reset_vector:08x}")
 
     ap_end = PRIMARY_AP_APP_PHYSICAL_OFFSET + len(protected_ap)
-    if ap_end > len(base_qio):
-        raise ValueError("Pebble AP payload overlaps the required Tuya AP trailer")
-    # The factory AP file ends with boot metadata consumed by the pinned CP.
-    # Preserve it byte-for-byte and replace only the protected executable prefix.
+    partition_end = PRIMARY_AP_APP_PHYSICAL_OFFSET + PRIMARY_AP_APP_PHYSICAL_SIZE
+    if ap_end > partition_end:
+        raise ValueError("Pebble AP payload exceeds the factory AP partition")
+    # Some vendor QIO artifacts end at the last used AP block rather than at the
+    # partition boundary. Extend such an artifact with the checked Pebble payload;
+    # when the base is longer, preserve every byte after the overlay unchanged.
     output = (base_qio[:PRIMARY_AP_APP_PHYSICAL_OFFSET] + protected_ap
               + base_qio[ap_end:])
     if output[:PRIMARY_AP_APP_PHYSICAL_OFFSET] != base_qio[:PRIMARY_AP_APP_PHYSICAL_OFFSET]:

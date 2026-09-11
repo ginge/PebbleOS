@@ -45,10 +45,8 @@ static bool prv_event_valid(const uint8_t *data, size_t length) {
 }
 
 static bool prv_acl_valid(const uint8_t *data, size_t length) {
-  return data != NULL && length >= T5AI_HCI_ACL_HEADER_SIZE &&
-         length <= T5AI_HCI_MAX_ACL_SIZE &&
-         length == T5AI_HCI_ACL_HEADER_SIZE + data[2] +
-                       ((size_t)data[3] << 8);
+  return data != NULL && length >= T5AI_HCI_ACL_HEADER_SIZE && length <= T5AI_HCI_MAX_ACL_SIZE &&
+         length == T5AI_HCI_ACL_HEADER_SIZE + data[2] + ((size_t)data[3] << 8);
 }
 
 static void prv_receive_event(const uint8_t *data, size_t length) {
@@ -147,8 +145,7 @@ int ble_transport_to_ll_acl_impl(struct os_mbuf *acl) {
   int result = BLE_ERR_MEM_CAPACITY;
 
   if (s_started && !s_failed && length <= sizeof(s_acl_tx) &&
-      os_mbuf_copydata(acl, 0, length, s_acl_tx) == 0 &&
-      prv_acl_valid(s_acl_tx, length) &&
+      os_mbuf_copydata(acl, 0, length, s_acl_tx) == 0 && prv_acl_valid(s_acl_tx, length) &&
       t5ai_hci_ipc_send_acl(s_acl_tx, length) == 0) {
     result = 0;
   } else {
