@@ -3,11 +3,78 @@
 
 #include "dbgserial_input.h"
 
-#include "board/board.h"
-#include <pbl/drivers/uart.h>
 #include "pbl/util/attributes.h"
 
-#if (!defined(CONFIG_RELEASE) || defined(CONFIG_MFG)) && !defined(CONFIG_SOC_T5AI)
+#if defined(CONFIG_SOC_T5AI)
+
+#include <pbl/mcu/cache.h>
+#include <pbl/soc/t5ai/cp_mailbox.h>
+
+#include <string.h>
+
+#define T5AI_CP_LOG_RX_CHANNEL 0x4eu
+#define T5AI_CP_LOG_USER_INPUT_COMMAND 3u
+
+typedef struct {
+  uint32_t header;
+  uint32_t buffer;
+  uint32_t length;
+  uint32_t result;
+} T5AILogMailboxMessage;
+
+static const uint8_t s_mailbox_probe_request[] = {'P', 'B', 'L', 'R', 'X', '\r', '\n'};
+static volatile bool s_mailbox_probe_received;
+
+static void prv_log_mailbox_receive(uint8_t logical_channel, const T5AICPMailboxFrame *frame,
+                                    void *context) {
+  (void)logical_channel;
+  (void)context;
+
+  bool handled = false;
+  uint32_t header = 0u;
+  uint32_t parameter1 = 0u;
+  uint32_t parameter2 = 0u;
+  if (frame->length == sizeof(T5AILogMailboxMessage)) {
+    T5AILogMailboxMessage message;
+    dcache_invalidate((void *)frame->address, sizeof(message));
+    memcpy(&message, (const void *)frame->address, sizeof(message));
+    header = message.header;
+    parameter1 = message.buffer;
+    parameter2 = message.length;
+    if ((uint8_t)message.header == T5AI_CP_LOG_USER_INPUT_COMMAND && message.buffer != 0u &&
+        (uint16_t)message.length == sizeof(s_mailbox_probe_request)) {
+      const void *request = (const void *)(uintptr_t)message.buffer;
+      dcache_invalidate((void *)request, sizeof(s_mailbox_probe_request));
+      handled = memcmp(request, s_mailbox_probe_request, sizeof(s_mailbox_probe_request)) == 0;
+      if (handled) {
+        __atomic_store_n(&s_mailbox_probe_received, true, __ATOMIC_RELEASE);
+      }
+    }
+  }
+  (void)t5ai_cp_mailbox_acknowledge(header, parameter1, parameter2, handled);
+}
+
+void dbgserial_input_init(void) {
+  (void)t5ai_cp_mailbox_register(T5AI_CP_LOG_RX_CHANNEL, prv_log_mailbox_receive, NULL);
+}
+
+void dbgserial_register_character_callback(DbgSerialCharacterCallback callback) {
+  (void)callback;
+}
+
+void dbgserial_set_rx_dma_enabled(bool enabled) {
+  (void)enabled;
+}
+
+void dbgserial_set_input_enabled(bool enabled) {
+  (void)enabled;
+}
+
+bool dbgserial_input_consume_mailbox_probe(void) {
+  return __atomic_exchange_n(&s_mailbox_probe_received, false, __ATOMIC_ACQ_REL);
+}
+
+#elif !defined(CONFIG_RELEASE) || defined(CONFIG_MFG)
 
 static DbgSerialCharacterCallback s_character_callback;
 

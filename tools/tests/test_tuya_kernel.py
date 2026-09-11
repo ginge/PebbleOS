@@ -66,7 +66,19 @@ class TuyaKernelCheckTest(unittest.TestCase):
         dbgserial_input = (ROOT / "src/fw/console/dbgserial_input.c").read_text()
         serial_console = (ROOT / "src/fw/console/serial_console.c").read_text()
         self.assertIn("t5ai_cp_mailbox_log(s_t5ai_buffer", dbgserial)
-        self.assertIn("!defined(CONFIG_SOC_T5AI)", dbgserial_input)
+        self.assertIn("T5AI_CP_LOG_RX_CHANNEL 0x4eu", dbgserial_input)
+        self.assertIn("T5AI_CP_LOG_USER_INPUT_COMMAND 3u", dbgserial_input)
+        self.assertIn("prv_log_mailbox_receive", dbgserial_input)
+        self.assertIn(
+            "t5ai_cp_mailbox_acknowledge(header, parameter1, parameter2, handled)",
+            dbgserial_input,
+        )
+        self.assertIn(".parameter1 = parameter1", mailbox)
+        self.assertIn(".parameter2 = parameter2", mailbox)
+        self.assertIn("t5ai_cp_mailbox_process_pending();", main)
+        self.assertIn("dbgserial_input_consume_mailbox_probe()", main)
+        self.assertIn('dbgserial_putstr("PBLRX-OK: T5AI USB mailbox RX passed")', main)
+        self.assertNotIn("s_character_callback", dbgserial_input.split("#elif", 1)[0])
         self.assertIn("dbgserial_putchar_lazy(*(msg++))", serial_console)
         self.assertIn("T5AI_CP_CONTROL_CHANNEL 0x10u", mailbox)
         self.assertIn("T5AI_CP_POWER_UP_COMMAND 1u", mailbox)
@@ -121,11 +133,22 @@ class TuyaKernelCheckTest(unittest.TestCase):
 
     def test_t5ai_debug_uart_keeps_the_board_runtime_baud_rate(self):
         console = (ROOT / "src/fw/console/dbgserial.c").read_text()
+        driver = (ROOT / "src/fw/drivers/uart/t5ai.c").read_text()
         self.assertIn(
             "#elif defined(CONFIG_SOC_T5AI)\n"
             "#define DEFAULT_SERIAL_BAUD_RATE 460800",
             console,
         )
+        self.assertIn("uart->global_ctrl = (1u << 0) | (1u << 1);", driver)
+        self.assertIn(
+            "T5AI_SYSTEM_CPU0_INTERRUPT_ENABLE |= T5AI_UART0_INTERRUPT_ENABLE",
+            driver,
+        )
+        self.assertIn(
+            "T5AI_SYSTEM_CPU1_INTERRUPT_ENABLE |= T5AI_UART0_INTERRUPT_ENABLE",
+            driver,
+        )
+        self.assertIn("UART_INT_RX_FINISH", driver)
 
     def test_t5ai_enables_global_interrupts_at_first_task_entry(self):
         main = (ROOT / "src/fw/main.c").read_text()

@@ -20,7 +20,12 @@ enum {
   UART_INT_RX_OVERFLOW = 1u << 2,
   UART_INT_PARITY_ERROR = 1u << 3,
   UART_INT_STOP_ERROR = 1u << 4,
+  UART_INT_RX_FINISH = 1u << 6,
 };
+
+#define T5AI_SYSTEM_CPU0_INTERRUPT_ENABLE (*(volatile uint32_t *)0x44010080u)
+#define T5AI_SYSTEM_CPU1_INTERRUPT_ENABLE (*(volatile uint32_t *)0x44010088u)
+#define T5AI_UART0_INTERRUPT_ENABLE (1u << 4)
 
 static T5AIUartRegisters *prv_regs(UARTDevice *dev) {
   return (T5AIUartRegisters *)dev->base;
@@ -42,7 +47,9 @@ static void prv_init(UARTDevice *dev, bool tx, bool rx) {
   PBL_ASSERTN(dev && dev->state && dev->clock_hz && dev->baud_rate);
   T5AIUartRegisters *uart = prv_regs(dev);
   prv_configure_pins(dev);
-  uart->global_ctrl = 1u << 1;
+  /* BK7258 calls bit 0 soft_reset, but the vendor HAL asserts it to release
+   * the UART. Bit 1 bypasses the peripheral's local clock gate. */
+  uart->global_ctrl = (1u << 0) | (1u << 1);
   uart->int_enable = 0;
   uart->int_status = 0xffu;
   uart->fifo_config = 0;
@@ -122,6 +129,8 @@ void uart_set_tx_interrupt_handler(UARTDevice *dev, UARTTXInterruptHandler handl
 }
 static void prv_update_nvic(UARTDevice *dev) {
   if (dev->state->rx_int_enabled || dev->state->tx_int_enabled) {
+    T5AI_SYSTEM_CPU0_INTERRUPT_ENABLE |= T5AI_UART0_INTERRUPT_ENABLE;
+    T5AI_SYSTEM_CPU1_INTERRUPT_ENABLE |= T5AI_UART0_INTERRUPT_ENABLE;
     NVIC_SetPriority(dev->irqn, dev->irq_priority);
     NVIC_EnableIRQ(dev->irqn);
   } else {
@@ -129,8 +138,8 @@ static void prv_update_nvic(UARTDevice *dev) {
   }
 }
 void uart_set_rx_interrupt_enabled(UARTDevice *dev, bool enabled) {
-  const uint32_t mask =
-      UART_INT_RX_READY | UART_INT_RX_OVERFLOW | UART_INT_PARITY_ERROR | UART_INT_STOP_ERROR;
+  const uint32_t mask = UART_INT_RX_READY | UART_INT_RX_OVERFLOW | UART_INT_PARITY_ERROR |
+                        UART_INT_STOP_ERROR | UART_INT_RX_FINISH;
   dev->state->rx_int_enabled = enabled;
   if (enabled)
     prv_regs(dev)->int_enable |= mask;

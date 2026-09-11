@@ -176,7 +176,11 @@ static void watchdog_timer_callback(void* data) {
 
 #ifdef CONFIG_SOC_T5AI
 static void cp_heartbeat_timer_callback(void* data) {
+  (void)t5ai_cp_mailbox_process_pending();
   t5ai_cp_mailbox_heartbeat();
+  if (dbgserial_input_consume_mailbox_probe()) {
+    dbgserial_putstr("PBLRX-OK: T5AI USB mailbox RX passed");
+  }
 }
 #endif
 

@@ -4,6 +4,24 @@ This is the continuation handoff for the native PebbleOS port to the Waveshare T
 
 ## 2026-09-11 native hardware progress
 
+- Both CH342F USB serial interfaces are usable, but they have different roles.
+  Interface `if00` (currently `/dev/ttyACM0`) is the Tuya programming/reset
+  port. Interface `if02` (currently `/dev/ttyACM2`) is the 460800-baud CP shell
+  and runtime-log port. Use the stable by-id names
+  `usb-1a86_USB_Dual_Serial_5C75025844-if00` and
+  `usb-1a86_USB_Dual_Serial_5C75025844-if02` rather than relying on ACM numbers.
+- CP-shell input now reaches native PebbleOS through the vendor-compatible
+  CP-to-AP log mailbox channel `0x4e`. `ap_cmd PBLRX` is copied from the shared
+  payload, acknowledged with the complete original 16-byte transport contents,
+  and answered with `PBLRX-OK: T5AI USB mailbox RX passed` on the runtime port.
+  Processing pending receive frames before the periodic heartbeat and
+  snapshotting the command before constructing its ACK removes the shared-frame
+  overwrite and one-shot-channel failure seen during initial testing.
+- After a full DTR/RTS chip reset, the AP has a startup interval during which
+  the CP shell is already visible but the Pebble mailbox route is not yet ready.
+  Once ready, hardware validation completed 10/10 consecutive response-aware
+  `ap_cmd PBLRX` transactions. A following 30-second watch saw no Tuya boot,
+  CPU1-start retry, or Pebble reset marker.
 - Native PebbleOS now reaches the normal launcher path with the production
   diagnostic loops removed. Build `6da7d158a9253150f7c256bb74f016f235e3fe91`
   ran for more than 90 seconds without the former approximately 71-second
@@ -29,7 +47,7 @@ This is the continuation handoff for the native PebbleOS port to the Waveshare T
   (`T5AISaradcConfig` 36 bytes and `T5AISaradcCommand` 132 bytes). Eight
   consecutive on-device battery reads completed successfully at approximately
   3.97-4.00 V; USB and charging state were both detected.
-- Focused T5AI regressions currently pass 22 tests, the native firmware builds
+- Focused T5AI regressions currently pass 39 tests, the native firmware builds
   successfully, and AP-only flashing remains constrained to physical range
   `0x132000` through `0x205460` using the verified vendor QIO base.
 
@@ -47,8 +65,9 @@ driver until native reset entry is proved.
 
 - Board: Waveshare T5-E1 Touch AMOLED 1.75 / Tuya T5AI (BK7258).
 - USB bridge: CH342F `1a86:55d2`, product `USB Dual_Serial`, serial
-  `5C75025844`. `/dev/ttyACM0` is the programming port and `/dev/ttyACM1` is
-  the 460800-baud runtime log port.
+  `5C75025844`. USB interface `if00` is the programming port and interface
+  `if02` is the 460800-baud runtime log/CP-shell port. At the latest session
+  they enumerated as `/dev/ttyACM0` and `/dev/ttyACM2`, respectively.
 - Two matching 8 MiB factory reads are stored at
   `/home/baz/Documents/ChatGPT/pebble/factory-backups/` as
   `t5e1-factory-5C75025844-read1.bin` and `read2.bin`. Both have SHA-256

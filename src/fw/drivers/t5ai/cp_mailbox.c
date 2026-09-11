@@ -43,6 +43,9 @@
 #define T5AI_CP_PM_POWER_ON 0u
 #define T5AI_CP_PM_SETTLE_TICKS (T5AI_AON_RTC_HZ / 10u)
 #define T5AI_CP_HEADER_ACK (1u << 12u)
+#define T5AI_CP_ACK_COMPLETE 2u
+#define T5AI_CP_ACK_FAIL 3u
+#define T5AI_CP_ACK_CAPACITY 4u
 #define T5AI_CP_LOG_CHANNEL 0x1eu
 #define T5AI_CP_LOG_ASSERT_OUT_COMMAND 4u
 #define T5AI_CP_LOG_STATIC_TAG 0xffffu
@@ -68,11 +71,14 @@ static uint8_t s_transport_frames[T5AI_MBOX_TRANSPORT_FRAME_COUNT][T5AI_MBOX_TRA
 static T5AICPControlMessage s_control_message __attribute__((aligned(32)));
 static T5AICPControlMessage s_pm_message __attribute__((aligned(32)));
 static T5AICPControlMessage s_ack_message __attribute__((aligned(32)));
+static T5AICPControlMessage s_logical_ack_messages[T5AI_CP_ACK_CAPACITY]
+    __attribute__((aligned(32)));
 static T5AICPControlMessage s_log_message __attribute__((aligned(32)));
 static uint8_t s_log_buffer[T5AI_CP_LOG_BUFFER_SIZE] __attribute__((aligned(32)));
 static uint32_t s_heartbeat_parameter __attribute__((aligned(32)));
 static uint8_t s_control_sequence;
 static uint8_t s_transport_frame_index;
+static uint8_t s_logical_ack_index;
 static uint64_t s_last_heartbeat;
 
 static uint64_t prv_ticks(void) {
@@ -239,6 +245,51 @@ void t5ai_cp_mailbox_unregister(uint8_t logical_channel) {
       return;
     }
   }
+}
+
+status_t t5ai_cp_mailbox_acknowledge(uint32_t header, uint32_t parameter1, uint32_t parameter2,
+                                     bool handled) {
+  T5AICPControlMessage *ack = &s_logical_ack_messages[s_logical_ack_index];
+  s_logical_ack_index = (uint8_t)((s_logical_ack_index + 1u) % T5AI_CP_ACK_CAPACITY);
+  *ack = (T5AICPControlMessage){
+      .header = (header & ~(0xfu << 8u)) | T5AI_CP_HEADER_ACK,
+      .parameter1 = parameter1,
+      .parameter2 = parameter2,
+  };
+  ack->parameter3 = handled ? T5AI_CP_ACK_COMPLETE : T5AI_CP_ACK_FAIL;
+  dcache_flush(ack, sizeof(*ack));
+  return t5ai_cp_mailbox_send(ack, sizeof(*ack));
+}
+
+status_t t5ai_cp_mailbox_process_pending(void) {
+  PebbleMutex *mutex = s_mutex;
+  if (mutex == NULL || !mutex_lock_with_timeout(mutex, 0u)) {
+    return E_BUSY;
+  }
+
+  status_t status = S_SUCCESS;
+  while ((T5AI_MBOX_CH1_CTRL & T5AI_MBOX_FIFO_NOT_EMPTY) != 0u) {
+    (void)T5AI_MBOX_CH1_RX_ID;
+    T5AICPMailboxFrame frame = {
+        .address = T5AI_MBOX_CH1_RX_DATA0,
+        .length = T5AI_MBOX_CH1_RX_DATA1,
+    };
+    uint8_t logical_channel;
+    status = prv_frame_channel(&frame, &logical_channel);
+    if (FAILED(status)) {
+      break;
+    }
+    if (prv_frame_is_transport_ack(&frame) || prv_dispatch(logical_channel, &frame)) {
+      continue;
+    }
+    status = prv_reject_unrouted(&frame);
+    if (FAILED(status)) {
+      break;
+    }
+  }
+
+  mutex_unlock(mutex);
+  return status;
 }
 
 status_t t5ai_cp_mailbox_receive(uint8_t logical_channel, T5AICPMailboxFrame *frame) {
