@@ -46,6 +46,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
     def test_t5ai_announces_ap_startup_to_the_communication_processor(self):
         initialization = (ROOT / "soc/t5ai/init.c").read_text()
         startup = (ROOT / "src/fw/startup/startup_cortex_m.c").read_text()
+        main = (ROOT / "src/fw/main.c").read_text()
         mailbox = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
         port = (ROOT / "soc/t5ai/freertos.c").read_text()
         marker = startup.index("uart0[7] = 'A'")
@@ -76,7 +77,14 @@ class TuyaKernelCheckTest(unittest.TestCase):
             "message->header >> 16u) == s_control_sequence", mailbox
         )
         self.assertIn("void vApplicationTickHook(void)", port)
-        self.assertIn("t5ai_cp_mailbox_heartbeat();", port)
+        self.assertNotIn("t5ai_cp_mailbox_heartbeat();", port)
+        self.assertIn("t5ai_cp_mailbox_heartbeat();", main)
+        self.assertIn("regular_timer_add_seconds_callback(&cp_heartbeat_timer)", main)
+        heartbeat = mailbox.split("void t5ai_cp_mailbox_heartbeat(void)", 1)[1]
+        heartbeat = heartbeat.split("static status_t prv_pm_request", 1)[0]
+        self.assertIn("mutex_lock_with_timeout(mutex, 0u)", heartbeat)
+        self.assertIn("sizeof(s_heartbeat_parameter), false", heartbeat)
+        self.assertNotIn("prv_control_request", heartbeat)
         self.assertIn(
             "pdMS_TO_TICKS(TASK_WATCHDOG_FEED_PERIOD_MS)", port
         )
@@ -116,6 +124,35 @@ class TuyaKernelCheckTest(unittest.TestCase):
         initialize = main.index("prv_main_task_init();", task_entry)
         self.assertLess(task_entry, enable_irq)
         self.assertLess(enable_irq, initialize)
+
+    def test_t5ai_leaves_cp_owned_watchdog_disabled(self):
+        board = (ROOT / "src/fw/board/boards/board_t5ai.c").read_text()
+        early_init = board.split("void board_early_init(void)", 1)[1]
+        early_init = early_init.split("void board_init(void)", 1)[0]
+        self.assertIn("watchdog_init();", early_init)
+        self.assertNotIn("watchdog_start();", early_init)
+
+    def test_t5ai_kernelbg_proves_liveness_from_its_idle_wait(self):
+        service = (ROOT / "src/fw/services/system_task/service.c").read_text()
+        self.assertIn(
+            "#ifdef CONFIG_SOC_T5AI\n"
+            "// Until T5AI enables the full service stack",
+            service,
+        )
+        self.assertIn("#define SYSTEM_TASK_PRIORITY (tskIDLE_PRIORITY + 3)", service)
+        task = service.split("static void system_task_main", 1)[1]
+        task = task.split("void system_task_init", 1)[0]
+        self.assertIn("#ifdef CONFIG_SOC_T5AI", task)
+        self.assertIn("milliseconds_to_ticks(1000)", task)
+        self.assertIn("if (activated_queue == NULL)", task)
+        self.assertIn("system_task_watchdog_feed();", task)
+
+    def test_t5ai_initializes_native_button_debouncing(self):
+        main = (ROOT / "src/fw/main.c").read_text()
+        button_init = main.split(
+            '// entering the kernel event queue.\n', 1
+        )[1].split("#ifndef CONFIG_SOC_T5AI", 1)[0]
+        self.assertIn("debounced_button_init();", button_init)
 
     def test_cmsis_priorities_do_not_use_raw_freertos_bytes(self):
         config = (ROOT / "third_party/freertos/FreeRTOSConfig.h").read_text()

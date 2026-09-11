@@ -25,14 +25,11 @@ static const InputConfig s_charge = {.pin = 30u};
 static int s_last_millivolts = T5AI_BATTERY_DEFAULT_MV;
 
 static int prv_raw_to_millivolts(uint16_t raw) {
-  int32_t tap_mv = ((int32_t)raw - T5AI_BATTERY_CAL_LOW) * 1000 /
-                       T5AI_BATTERY_CAL_SPAN +
-                   1000;
+  int32_t tap_mv = ((int32_t)raw - T5AI_BATTERY_CAL_LOW) * 1000 / T5AI_BATTERY_CAL_SPAN + 1000;
   if (tap_mv < 0) {
     tap_mv = 0;
   }
-  return tap_mv * T5AI_BATTERY_DIVIDER_NUMERATOR /
-         T5AI_BATTERY_DIVIDER_DENOMINATOR;
+  return tap_mv * T5AI_BATTERY_DIVIDER_NUMERATOR / T5AI_BATTERY_DIVIDER_DENOMINATOR;
 }
 
 void battery_init(void) {
@@ -41,8 +38,8 @@ void battery_init(void) {
 
 int battery_get_millivolts(void) {
   uint16_t peak;
-  status_t status = t5ai_saradc_read_peak(T5AI_BATTERY_ADC_CHANNEL,
-                                          T5AI_BATTERY_ADC_SAMPLES, &peak);
+  status_t status =
+      t5ai_saradc_read_peak(T5AI_BATTERY_ADC_CHANNEL, T5AI_BATTERY_ADC_SAMPLES, &peak);
   if (FAILED(status)) {
     PBL_LOG_ERR("Battery ADC read failed: %ld", (long)status);
     return s_last_millivolts;
@@ -88,8 +85,7 @@ int battery_charge_status_get(BatteryChargeStatus *status) {
   if (status == NULL) {
     return E_INVALID_ARGUMENT;
   }
-  *status = battery_charge_controller_thinks_we_are_charging_impl()
-                ? BatteryChargeStatusCC
-                : BatteryChargeStatusUnknown;
+  *status = battery_charge_controller_thinks_we_are_charging_impl() ? BatteryChargeStatusCC
+                                                                    : BatteryChargeStatusUnknown;
   return S_SUCCESS;
 }

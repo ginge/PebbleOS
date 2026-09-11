@@ -24,8 +24,11 @@ PBL_LOG_MODULE_DEFINE(driver_accel_qmi8658, CONFIG_DRIVER_IMU_LOG_LEVEL);
 #define QMI8658_CTRL7 0x08u
 #define QMI8658_STATUS0 0x2eu
 #define QMI8658_AX_L 0x35u
+#define QMI8658_RESET 0x60u
 
 #define QMI8658_ID 0x05u
+#define QMI8658_RESET_COMMAND 0xb0u
+#define QMI8658_RESET_SETTLE_MS 10u
 #define QMI8658_CTRL1_INIT 0x60u
 #define QMI8658_ACCEL_RANGE_4G 0x10u
 #define QMI8658_ACCEL_ENABLE 0x01u
@@ -39,7 +42,7 @@ typedef struct {
 } QMI8658Rate;
 
 static const QMI8658Rate s_rates[] = {
-    {8000u, 0x06u}, {16000u, 0x07u}, {32000u, 0x08u},
+    {8000u, 0x06u},  {16000u, 0x07u}, {32000u, 0x08u},
     {48000u, 0x0du}, {91000u, 0x0eu}, {333000u, 0x0fu},
 };
 
@@ -85,8 +88,7 @@ static int16_t prv_to_mg(const uint8_t *raw) {
 static bool prv_read_sample(AccelDriverSample *sample) {
   uint8_t status;
   uint8_t raw[6];
-  if (!prv_read(QMI8658_STATUS0, &status, 1) ||
-      !(status & QMI8658_ACCEL_DATA_READY) ||
+  if (!prv_read(QMI8658_STATUS0, &status, 1) || !(status & QMI8658_ACCEL_DATA_READY) ||
       !prv_read(QMI8658_AX_L, raw, sizeof(raw))) {
     return false;
   }
@@ -129,6 +131,12 @@ static void prv_timer_callback(void *context) {
 }
 
 void accel_init(void) {
+  if (!prv_write(QMI8658_RESET, QMI8658_RESET_COMMAND)) {
+    PBL_LOG_ERR("QMI8658 reset failed");
+    return;
+  }
+  psleep(QMI8658_RESET_SETTLE_MS);
+
   uint8_t id = 0xffu;
   if (!prv_read(QMI8658_WHO_AM_I, &id, 1) || id != QMI8658_ID) {
     PBL_LOG_ERR("QMI8658 not detected (id 0x%02x)", id);
@@ -159,16 +167,14 @@ uint32_t accel_set_sampling_interval(uint32_t interval_us) {
       rate = &s_rates[i];
     }
   }
-  if (s_initialized && !prv_write(QMI8658_CTRL2,
-                                  QMI8658_ACCEL_RANGE_4G | rate->odr)) {
+  if (s_initialized && !prv_write(QMI8658_CTRL2, QMI8658_ACCEL_RANGE_4G | rate->odr)) {
     PBL_LOG_ERR("Could not set QMI8658 sampling rate");
     return s_interval_us;
   }
   s_interval_us = rate->interval_us;
   if (s_timer != TIMER_INVALID_ID && s_num_samples != 0u) {
     const uint32_t period_ms = (s_interval_us + 999u) / 1000u;
-    (void)new_timer_start(s_timer, period_ms, prv_timer_callback, NULL,
-                          TIMER_START_FLAG_REPEATING);
+    (void)new_timer_start(s_timer, period_ms, prv_timer_callback, NULL, TIMER_START_FLAG_REPEATING);
   }
   return s_interval_us;
 }
@@ -189,8 +195,7 @@ void accel_set_num_samples(uint32_t num_samples) {
   }
   if (num_samples) {
     const uint32_t period_ms = (s_interval_us + 999u) / 1000u;
-    (void)new_timer_start(s_timer, period_ms, prv_timer_callback, NULL,
-                          TIMER_START_FLAG_REPEATING);
+    (void)new_timer_start(s_timer, period_ms, prv_timer_callback, NULL, TIMER_START_FLAG_REPEATING);
   } else {
     (void)new_timer_stop(s_timer);
   }

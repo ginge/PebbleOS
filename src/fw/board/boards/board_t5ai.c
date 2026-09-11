@@ -70,11 +70,11 @@ const BoardConfig BOARD_CONFIG = {.backlight_on_percent = 20};
 const BoardConfigButton BOARD_CONFIG_BUTTON = {
     .buttons =
         {
-            [BUTTON_ID_BACK] = {.name = "Back", .pin = 18, .pull = GPIO_PuPd_UP,
-                                .active_high = false},
+            [BUTTON_ID_BACK] =
+                {.name = "Back", .pin = 18, .pull = GPIO_PuPd_UP, .active_high = false},
             [BUTTON_ID_UP] = {.name = "Up", .pin = UINT8_MAX},
-            [BUTTON_ID_SELECT] = {.name = "Select", .pin = 12,
-                                  .pull = GPIO_PuPd_UP, .active_high = false},
+            [BUTTON_ID_SELECT] =
+                {.name = "Select", .pin = 12, .pull = GPIO_PuPd_UP, .active_high = false},
             [BUTTON_ID_DOWN] = {.name = "Down", .pin = UINT8_MAX},
         },
 };
@@ -85,8 +85,9 @@ void board_early_init(void) {
   gpio_output_set(&s_power_latch, true);
   gpio_output_init(&s_amplifier_enable, GPIO_OType_PP);
   gpio_output_set(&s_amplifier_enable, false);
+  /* The T5AI CP owns reset supervision and monitors the AP heartbeat. The
+   * vendor AP adapter deliberately leaves both local watchdogs disabled. */
   watchdog_init();
-  watchdog_start();
 }
 void board_init(void) {
   i2c_init(I2C0_BUS);

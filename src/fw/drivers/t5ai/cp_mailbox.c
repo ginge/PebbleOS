@@ -27,6 +27,8 @@
 #define T5AI_AON_RTC_HZ 32000u
 #define T5AI_MBOX_TIMEOUT_TICKS (2u * T5AI_AON_RTC_HZ)
 #define T5AI_MBOX_MAX_ROUTES 4u
+#define T5AI_MBOX_TRANSPORT_FRAME_SIZE 16u
+#define T5AI_MBOX_TRANSPORT_FRAME_COUNT 8u
 #define T5AI_CP_CONTROL_CHANNEL 0x10u
 #define T5AI_CP_POWER_UP_COMMAND 1u
 #define T5AI_CP_HEARTBEAT_COMMAND 2u
@@ -61,6 +63,8 @@ typedef struct {
 
 static PebbleMutex *s_mutex;
 static T5AICPMailboxRoute s_routes[T5AI_MBOX_MAX_ROUTES];
+static uint8_t s_transport_frames[T5AI_MBOX_TRANSPORT_FRAME_COUNT][T5AI_MBOX_TRANSPORT_FRAME_SIZE]
+    __attribute__((aligned(32)));
 static T5AICPControlMessage s_control_message __attribute__((aligned(32)));
 static T5AICPControlMessage s_pm_message __attribute__((aligned(32)));
 static T5AICPControlMessage s_ack_message __attribute__((aligned(32)));
@@ -68,6 +72,7 @@ static T5AICPControlMessage s_log_message __attribute__((aligned(32)));
 static uint8_t s_log_buffer[T5AI_CP_LOG_BUFFER_SIZE] __attribute__((aligned(32)));
 static uint32_t s_heartbeat_parameter __attribute__((aligned(32)));
 static uint8_t s_control_sequence;
+static uint8_t s_transport_frame_index;
 static uint64_t s_last_heartbeat;
 
 static uint64_t prv_ticks(void) {
@@ -107,7 +112,18 @@ static bool prv_is_transport_ack(const T5AICPControlMessage *message) {
 
 static status_t prv_acknowledge(const T5AICPControlMessage *message) {
   s_ack_message = *message;
-  s_ack_message.header |= T5AI_CP_HEADER_ACK;
+  s_ack_message.header = (s_ack_message.header & ~(0xfu << 8u)) | T5AI_CP_HEADER_ACK;
+  dcache_flush(&s_ack_message, sizeof(s_ack_message));
+  return t5ai_cp_mailbox_send(&s_ack_message, sizeof(s_ack_message));
+}
+
+static status_t prv_reject_unrouted(const T5AICPMailboxFrame *frame) {
+  if (frame->length < sizeof(s_ack_message)) {
+    return E_ERROR;
+  }
+  dcache_invalidate((void *)frame->address, sizeof(s_ack_message));
+  memcpy(&s_ack_message, (const void *)frame->address, sizeof(s_ack_message));
+  s_ack_message.header = (s_ack_message.header & ~(0xfu << 8u)) | T5AI_CP_HEADER_ACK | (1u << 8u);
   dcache_flush(&s_ack_message, sizeof(s_ack_message));
   return t5ai_cp_mailbox_send(&s_ack_message, sizeof(s_ack_message));
 }
@@ -131,20 +147,33 @@ void t5ai_cp_mailbox_unlock(void) {
   }
 }
 
-status_t t5ai_cp_mailbox_send(const void *data, size_t length) {
-  if (data == NULL || length == 0 || length > UINT32_MAX) {
+static status_t prv_send(const void *data, size_t length, bool wait_for_space) {
+  if (data == NULL || length == 0 || length > T5AI_MBOX_TRANSPORT_FRAME_SIZE) {
     return E_INVALID_ARGUMENT;
   }
   const uint64_t start = prv_ticks();
   while ((T5AI_MBOX_CH0_FIFO_STATUS & T5AI_MBOX_FIFO_FULL) != 0) {
+    if (!wait_for_space) {
+      return E_BUSY;
+    }
     if (prv_timed_out(start)) {
       return E_BUSY;
     }
   }
-  T5AI_MBOX_CH1_TX_DATA0 = (uint32_t)(uintptr_t)data;
+  uint8_t *frame = s_transport_frames[s_transport_frame_index];
+  s_transport_frame_index =
+      (uint8_t)((s_transport_frame_index + 1u) % T5AI_MBOX_TRANSPORT_FRAME_COUNT);
+  memset(frame, 0, T5AI_MBOX_TRANSPORT_FRAME_SIZE);
+  memcpy(frame, data, length);
+  dcache_flush(frame, T5AI_MBOX_TRANSPORT_FRAME_SIZE);
+  T5AI_MBOX_CH1_TX_DATA0 = (uint32_t)(uintptr_t)frame;
   T5AI_MBOX_CH1_TX_DATA1 = (uint32_t)length;
   T5AI_MBOX_CH1_TX_ID = T5AI_MBOX_CPU_CP;
   return S_SUCCESS;
+}
+
+status_t t5ai_cp_mailbox_send(const void *data, size_t length) {
+  return prv_send(data, length, true);
 }
 
 static status_t prv_receive_physical(T5AICPMailboxFrame *frame, uint64_t start) {
@@ -168,6 +197,16 @@ static status_t prv_frame_channel(const T5AICPMailboxFrame *frame, uint8_t *logi
   memcpy(&header, (const void *)frame->address, sizeof(header));
   *logical_channel = (uint8_t)(header >> 24);
   return S_SUCCESS;
+}
+
+static bool prv_frame_is_transport_ack(const T5AICPMailboxFrame *frame) {
+  if (frame->address == 0 || frame->length < sizeof(uint32_t)) {
+    return false;
+  }
+  uint32_t header;
+  dcache_invalidate((void *)frame->address, sizeof(header));
+  memcpy(&header, (const void *)frame->address, sizeof(header));
+  return (header & T5AI_CP_HEADER_ACK) != 0u;
 }
 
 status_t t5ai_cp_mailbox_register(uint8_t logical_channel, T5AICPMailboxReceiveCallback callback,
@@ -222,6 +261,13 @@ status_t t5ai_cp_mailbox_receive(uint8_t logical_channel, T5AICPMailboxFrame *fr
     if (prv_dispatch(received_channel, frame)) {
       continue;
     }
+    if (prv_frame_is_transport_ack(frame)) {
+      continue;
+    }
+    status = prv_reject_unrouted(frame);
+    if (FAILED(status)) {
+      return status;
+    }
   }
 }
 
@@ -243,7 +289,18 @@ status_t t5ai_cp_mailbox_try_receive(uint8_t logical_channel, T5AICPMailboxFrame
     if (received_channel == logical_channel) {
       return S_SUCCESS;
     }
-    prv_dispatch(received_channel, frame);
+    if (!prv_dispatch(received_channel, frame)) {
+      if (prv_frame_is_transport_ack(frame)) {
+        if ((T5AI_MBOX_CH1_CTRL & T5AI_MBOX_FIFO_NOT_EMPTY) == 0) {
+          return E_AGAIN;
+        }
+        continue;
+      }
+      status_t status = prv_reject_unrouted(frame);
+      if (FAILED(status)) {
+        return status;
+      }
+    }
     if ((T5AI_MBOX_CH1_CTRL & T5AI_MBOX_FIFO_NOT_EMPTY) == 0) {
       return E_AGAIN;
     }
@@ -258,7 +315,8 @@ void t5ai_cp_mailbox_discard_pending(void) {
   }
 }
 
-static void prv_send_control(uint8_t command, const void *buffer, size_t length) {
+static status_t prv_send_control_with_policy(uint8_t command, const void *buffer, size_t length,
+                                             bool wait_for_space) {
   ++s_control_sequence;
   s_control_message.header =
       command | ((uint32_t)s_control_sequence << 16) | (T5AI_CP_CONTROL_CHANNEL << 24);
@@ -269,11 +327,59 @@ static void prv_send_control(uint8_t command, const void *buffer, size_t length)
     dcache_flush((void *)buffer, length);
   }
   dcache_flush(&s_control_message, sizeof(s_control_message));
-  (void)t5ai_cp_mailbox_send(&s_control_message, sizeof(s_control_message));
+  return prv_send(&s_control_message, sizeof(s_control_message), wait_for_space);
+}
+
+static status_t prv_send_control(uint8_t command, const void *buffer, size_t length) {
+  return prv_send_control_with_policy(command, buffer, length, true);
+}
+
+static status_t prv_control_request(uint8_t command, const void *buffer, size_t length) {
+  status_t status = prv_send_control(command, buffer, length);
+  if (FAILED(status)) {
+    return status;
+  }
+
+  const uint64_t start = prv_ticks();
+  for (;;) {
+    T5AICPMailboxFrame frame;
+    status = prv_receive_physical(&frame, start);
+    if (FAILED(status) || frame.length < sizeof(T5AICPControlMessage)) {
+      return FAILED(status) ? status : E_ERROR;
+    }
+
+    T5AICPControlMessage response;
+    dcache_invalidate((void *)frame.address, sizeof(response));
+    memcpy(&response, (const void *)frame.address, sizeof(response));
+    if ((uint8_t)(response.header >> 24u) != T5AI_CP_CONTROL_CHANNEL) {
+      if (prv_is_transport_ack(&response)) {
+        continue;
+      }
+      if (prv_dispatch((uint8_t)(response.header >> 24u), &frame)) {
+        continue;
+      }
+      status = prv_reject_unrouted(&frame);
+      if (FAILED(status)) {
+        return status;
+      }
+      continue;
+    }
+    if (prv_is_transport_ack(&response)) {
+      if ((uint8_t)(response.header >> 16u) == s_control_sequence) {
+        return (response.header & (0xfu << 8u)) == 0u ? S_SUCCESS : E_ERROR;
+      }
+      continue;
+    }
+
+    status = prv_acknowledge(&response);
+    if (FAILED(status)) {
+      return status;
+    }
+  }
 }
 
 void t5ai_cp_mailbox_announce_power_up(void) {
-  prv_send_control(T5AI_CP_POWER_UP_COMMAND, NULL, 0u);
+  (void)prv_control_request(T5AI_CP_POWER_UP_COMMAND, NULL, 0u);
   s_last_heartbeat = prv_ticks();
 }
 
@@ -282,10 +388,17 @@ void t5ai_cp_mailbox_heartbeat(void) {
   if (now - s_last_heartbeat < T5AI_CP_HEARTBEAT_TICKS) {
     return;
   }
-  s_last_heartbeat = now;
+  PebbleMutex *mutex = s_mutex;
+  if (mutex == NULL || !mutex_lock_with_timeout(mutex, 0u)) {
+    return;
+  }
   s_heartbeat_parameter = 0u;
-  prv_send_control(T5AI_CP_HEARTBEAT_COMMAND, &s_heartbeat_parameter,
-                   sizeof(s_heartbeat_parameter));
+  const status_t status = prv_send_control_with_policy(
+      T5AI_CP_HEARTBEAT_COMMAND, &s_heartbeat_parameter, sizeof(s_heartbeat_parameter), false);
+  mutex_unlock(mutex);
+  if (PASSED(status)) {
+    s_last_heartbeat = now;
+  }
 }
 
 static status_t prv_pm_request(uint8_t command, uint32_t parameter1, uint32_t parameter2) {

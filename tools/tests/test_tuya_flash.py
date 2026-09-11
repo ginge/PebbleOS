@@ -77,6 +77,11 @@ status_t t5ai_cp_mailbox_send(const void *data, size_t length) {
 status_t t5ai_cp_mailbox_receive(uint8_t channel, T5AICPMailboxFrame *frame) {
   (void)channel; (void)frame; return E_AGAIN;
 }
+status_t t5ai_cp_mailbox_register(uint8_t channel,
+                                  T5AICPMailboxReceiveCallback callback,
+                                  void *context) {
+  (void)channel; (void)callback; (void)context; return S_SUCCESS;
+}
 void t5ai_cp_mailbox_discard_pending(void) {}
 
 int main(void) {
@@ -87,6 +92,16 @@ int main(void) {
   assert(prv_crc32(vector, sizeof(vector) - 1) == 0x2dfd2d88);
   assert(prv_ipc_address_word(0x2a) == 0x002a5001);
   assert(prv_ipc_data_word(5, 16, 0xa2) == 0x05a20010);
+
+  T5AIIPCMessage ack = {
+    .header = ((uint32_t)T5AI_IPC_ACK_CONTROL << 12),
+  };
+  T5AICPMailboxFrame frame = {
+    .address = (uintptr_t)&ack,
+    .length = sizeof(ack),
+  };
+  prv_ipc_receive_callback(T5AI_IPC_RX_LOGICAL_CHANNEL, &frame, NULL);
+  assert(s_pending_count == 0);
   return 0;
 }
 '''

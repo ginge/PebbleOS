@@ -2,6 +2,37 @@
 
 This is the continuation handoff for the native PebbleOS port to the Waveshare T5-E1 Touch AMOLED 1.75 board. Continue on branch `tuya`.
 
+## 2026-09-11 native hardware progress
+
+- Native PebbleOS now reaches the normal launcher path with the production
+  diagnostic loops removed. Build `6da7d158a9253150f7c256bb74f016f235e3fe91`
+  ran for more than 90 seconds without the former approximately 71-second
+  reboot, a Pebble task-watchdog warning, a CP heartbeat timeout, or a new boot
+  banner.
+- The reset loop was a scheduler-starvation issue during the partial T5AI
+  bring-up. `KernelMain` remains runnable at priority 3 while the full service
+  stack is disabled, starving priority-1 `KernelBG`. T5AI now starts
+  `KernelBG` at the same priority and uses a one-second queue wait so the task
+  proves its own idle liveness. Other SoCs retain their existing priority and
+  tickless-friendly watchdog behavior.
+- The CP heartbeat is dispatched from the regular one-second timer rather than
+  the SysTick ISR. It uses a zero-timeout mailbox mutex acquisition and a
+  non-blocking FIFO write, so CP supervision cannot block shared Pebble timer
+  infrastructure. The local AP watchdog remains disabled, matching the pinned
+  vendor adapter where reset supervision belongs to the CP.
+- The AP-to-CP mailbox transport now distinguishes physical ACKs from logical
+  responses, uses the hardware-proven directional channels (`0x11` AP-to-CP,
+  `0x41` CP-to-AP), preserves a logical response that precedes its physical
+  ACK, acknowledges CP notifications, and copies outbound frames into a
+  cache-flushed ring so callers need not retain their source buffers.
+- SARADC channel/configuration ABI was matched to the pinned CP firmware
+  (`T5AISaradcConfig` 36 bytes and `T5AISaradcCommand` 132 bytes). Eight
+  consecutive on-device battery reads completed successfully at approximately
+  3.97-4.00 V; USB and charging state were both detected.
+- Focused T5AI regressions currently pass 22 tests, the native firmware builds
+  successfully, and AP-only flashing remains constrained to physical range
+  `0x132000` through `0x205460` using the verified vendor QIO base.
+
 The native target configures, compiles, links, and packages on the host. A
 physical board was backed up and used for bring-up on 2026-09-10. The vendor
 diagnostic image boots and validates the display and buttons, but the native

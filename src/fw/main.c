@@ -36,6 +36,9 @@
 #include <pbl/drivers/voltage_monitor.h>
 #include <pbl/drivers/watchdog.h>
 #include <pbl/drivers/sf32lb52/rc10k.h>
+#ifdef CONFIG_SOC_T5AI
+#include <pbl/soc/t5ai/cp_mailbox.h>
+#endif
 
 #include "resource/resource.h"
 #include "resource/system_resource.h"
@@ -171,9 +174,22 @@ static void watchdog_timer_callback(void* data) {
   task_watchdog_bit_set(PebbleTask_NewTimers);
 }
 
+#ifdef CONFIG_SOC_T5AI
+static void cp_heartbeat_timer_callback(void* data) {
+  t5ai_cp_mailbox_heartbeat();
+}
+#endif
+
 static void register_system_timers(void) {
   static RegularTimerInfo watchdog_timer = {.list_node = {0, 0}, .cb = watchdog_timer_callback};
   regular_timer_add_seconds_callback(&watchdog_timer);
+#ifdef CONFIG_SOC_T5AI
+  static RegularTimerInfo cp_heartbeat_timer = {
+      .list_node = {0, 0},
+      .cb = cp_heartbeat_timer_callback,
+  };
+  regular_timer_add_seconds_callback(&cp_heartbeat_timer);
+#endif
 }
 
 static void init_drivers(void) {
@@ -398,9 +414,7 @@ static NOINLINE void prv_main_task_init(void) {
 
   // Initialize button driver at the last moment to prevent "system on" button press from
   // entering the kernel event queue.
-#ifndef CONFIG_SOC_T5AI
   debounced_button_init();
-#endif
 
 #ifndef CONFIG_SOC_T5AI
   task_watchdog_resume();
@@ -415,14 +429,5 @@ static void main_task(void* parameter) {
   __enable_irq();
 #endif
   prv_main_task_init();
-#ifdef CONFIG_SOC_T5AI
-  GBitmap framebuffer = compositor_get_framebuffer_as_bitmap();
-  memset(gbitmap_get_data(&framebuffer), 0xff,
-         gbitmap_get_bytes_per_row(&framebuffer) * framebuffer.bounds.size.h);
-  display_update_boot_frame(gbitmap_get_data(&framebuffer));
-  for (;;) {
-    vTaskDelay(pdMS_TO_TICKS(1000));
-  }
-#endif
   launcher_main_loop();
 }
