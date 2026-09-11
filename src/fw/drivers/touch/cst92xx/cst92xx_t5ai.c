@@ -63,8 +63,7 @@ static bool prv_read_report(uint8_t report[CST92XX_REPORT_LENGTH]) {
 }
 
 static int16_t prv_map_coordinate(uint16_t coordinate) {
-  return (int16_t)((CST92XX_NATIVE_SIZE - 1u - coordinate) * PBL_DISPLAY_WIDTH /
-                   CST92XX_NATIVE_SIZE);
+  return (int16_t)(coordinate * PBL_DISPLAY_WIDTH / CST92XX_NATIVE_SIZE);
 }
 
 static void prv_poll(void *context) {

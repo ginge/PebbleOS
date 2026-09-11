@@ -92,8 +92,10 @@ static bool prv_read_sample(AccelDriverSample *sample) {
       !prv_read(QMI8658_AX_L, raw, sizeof(raw))) {
     return false;
   }
-  sample->x = prv_to_mg(&raw[0]);
-  sample->y = prv_to_mg(&raw[2]);
+  const int16_t sensor_x = prv_to_mg(&raw[0]);
+  const int16_t sensor_y = prv_to_mg(&raw[2]);
+  sample->x = sensor_y;
+  sample->y = -sensor_x;
   sample->z = prv_to_mg(&raw[4]);
   if (s_rotated) {
     sample->x = -sample->x;

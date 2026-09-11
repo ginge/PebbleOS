@@ -56,7 +56,7 @@ static bool s_initialized;
 static bool s_enabled;
 static bool s_updating;
 static bool s_rotated;
-static uint8_t s_brightness;
+static uint8_t s_brightness = 0xffu;
 static bool s_brightness_dirty;
 static uint8_t s_panel_row[PANEL_WIDTH * 2u] __attribute__((aligned(4)));
 
@@ -92,13 +92,7 @@ static bool prv_command(uint8_t command, const uint8_t *data, size_t length, boo
   *prv_qspi(QSPI_CMD_C_L) = 0;
   *prv_qspi(QSPI_CMD_C_H) = (quad_data ? 0x32u : 0x02u) | ((uint32_t)command << 16);
 
-  if (length <= sizeof(uint32_t)) {
-    uint32_t word = 0;
-    if (length != 0u) {
-      memcpy(&word, data, length);
-    }
-    *prv_qspi(QSPI_CMD_C_L) = word;
-  } else {
+  if (length != 0u) {
     volatile uint32_t *fifo = prv_qspi(QSPI_FIFO_DATA);
     for (size_t offset = 0; offset < length; offset += sizeof(uint32_t)) {
       uint32_t word = 0;
@@ -107,10 +101,9 @@ static bool prv_command(uint8_t command, const uint8_t *data, size_t length, boo
       fifo[offset / sizeof(word)] = word;
     }
   }
-  *prv_qspi(QSPI_CMD_C_CFG1) = length <= sizeof(uint32_t) ? 0x3u << ((length + 4u) * 2u) : 0x300u;
-  *prv_qspi(QSPI_CMD_C_CFG2) = length <= sizeof(uint32_t)
-                                   ? 0u
-                                   : ((uint32_t)length << 2) | (quad_data ? QSPI_DATA_LINE_4 : 0u);
+  *prv_qspi(QSPI_CMD_C_CFG1) = 0x300u;
+  *prv_qspi(QSPI_CMD_C_CFG2) =
+      ((uint32_t)length << 2) | (quad_data && length != 0u ? QSPI_DATA_LINE_4 : 0u);
   *prv_qspi(QSPI_CMD_C_CFG2) |= QSPI_CMD_START;
   const bool result = prv_wait_command();
   *prv_qspi(QSPI_CMD_C_CFG1) = 0;
@@ -200,14 +193,18 @@ static bool prv_send_logical_row(uint16_t logical_y, const uint8_t *data) {
   return true;
 }
 
-static void prv_qspi_init(void) {
+static bool prv_qspi_init(void) {
   // BK7258 gates QSPI with both the AHB-peripheral power domain and its
   // individual peripheral clock. A cleared power-down bit turns AHBP on.
-  (void)t5ai_cp_mailbox_enable_qspi0();
+  const status_t status = t5ai_cp_mailbox_enable_qspi0();
+  if (FAILED(status)) {
+    PBL_LOG_ERR("QSPI0 power/clock request failed: %ld", (long)status);
+    return false;
+  }
   prv_power_up();
   delay_us(10);
-  SYSTEM_CLK_MODE2 = (SYSTEM_CLK_MODE2 & ~((0x0fu << 6) | (1u << 10))) | (11u << 6) |
-                     (1u << 10);  // 480 MHz / (11 + 1) = 40 MHz.
+  SYSTEM_CLK_MODE2 = (SYSTEM_CLK_MODE2 & ~((0x0fu << 6) | (1u << 10))) | (5u << 6) |
+                     (1u << 10);  // 480 MHz / (5 + 1) = 80 MHz.
 
   for (unsigned pin = 22; pin <= 27; ++pin) {
     // Match Tuya's T5AI adapter: secondary function, maximum drive on every
@@ -222,13 +219,13 @@ static void prv_qspi_init(void) {
   }
 
   *prv_qspi(QSPI_GLB_CTRL) = 1u;
-  *prv_qspi(QSPI_GLB_CTRL) = 0;
-  *prv_qspi(QSPI_CONFIG) = QSPI_ENABLE | QSPI_IO23_ENABLE;
+  *prv_qspi(QSPI_CONFIG) = (8u << 24) | QSPI_ENABLE | QSPI_IO23_ENABLE;
   *prv_qspi(QSPI_CMD_A_L) = 0;
   *prv_qspi(QSPI_CMD_A_H) = 0;
   *prv_qspi(QSPI_CMD_A_CFG1) = 0x3u;
   *prv_qspi(QSPI_CMD_A_CFG2) = QSPI_DATA_LINE_4;
-  *prv_qspi(QSPI_RST_CFG) |= 1u << 1;
+  *prv_qspi(QSPI_RST_CFG) = 0u;
+  return true;
 }
 
 static bool prv_panel_init(void) {
@@ -246,7 +243,7 @@ static bool prv_panel_init(void) {
     uint8_t value;
   } init[] = {
       {0xfe, 0x20}, {0x19, 0x10}, {0x1c, 0xa0}, {0xfe, 0x00}, {0xc4, 0x80},
-      {0x3a, 0x55}, {0x35, 0x00}, {0x53, 0x20}, {0x63, 0xff},
+      {0x3a, 0x55}, {0x35, 0x00}, {0x53, 0x20}, {0x51, 0xff}, {0x63, 0xff},
   };
   for (unsigned i = 0; i < sizeof(init) / sizeof(init[0]); ++i) {
     if (!prv_register(init[i].command, &init[i].value, 1)) {
@@ -257,12 +254,11 @@ static bool prv_panel_init(void) {
     return false;
   }
   delay_us(200000);
-  return prv_register(0x51u, &s_brightness, 1u) && prv_register(0x29u, NULL, 0);
+  return prv_register(0x29u, NULL, 0);
 }
 
 void display_init(void) {
-  prv_qspi_init();
-  s_initialized = prv_panel_init();
+  s_initialized = prv_qspi_init() && prv_panel_init();
   s_enabled = s_initialized;
   s_brightness_dirty = false;
   if (!s_initialized) {

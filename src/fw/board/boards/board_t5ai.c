@@ -5,10 +5,22 @@
 #include <pbl/drivers/i2c.h>
 #include <pbl/drivers/gpio.h>
 
-static const OutputConfig s_power_latch = {
-    .pin = 19u,
-    .active_high = true,
-};
+#define T5AI_GPIO_BASE 0x44000400u
+#define T5AI_GPIO_OUTPUT (1u << 1)
+#define T5AI_GPIO_INPUT_ENABLE (1u << 2)
+#define T5AI_GPIO_OUTPUT_DISABLE (1u << 3)
+#define T5AI_GPIO_PULL_ENABLE (1u << 5)
+#define T5AI_GPIO_SECOND_FUNCTION (1u << 6)
+#define T5AI_GPIO_DRIVE_STRENGTH_1 (1u << 8)
+
+static void prv_assert_power_latch(void) {
+  volatile uint32_t *reg = (volatile uint32_t *)(T5AI_GPIO_BASE + 19u * sizeof(uint32_t));
+  uint32_t value = *reg;
+  value &= ~(T5AI_GPIO_INPUT_ENABLE | T5AI_GPIO_OUTPUT_DISABLE | T5AI_GPIO_PULL_ENABLE |
+             T5AI_GPIO_SECOND_FUNCTION);
+  value &= ~(3u << 8);
+  *reg = value | T5AI_GPIO_OUTPUT | T5AI_GPIO_DRIVE_STRENGTH_1;
+}
 
 /* The module amplifier enable is active-low. It remains deasserted until a
  * native Pebble audio path owns the codec, clocks, and sample transport. */
@@ -81,8 +93,9 @@ const BoardConfigButton BOARD_CONFIG_BUTTON = {
 const BoardConfigPower BOARD_CONFIG_POWER = {.low_power_threshold = 5};
 const BoardConfigActuator BOARD_CONFIG_VIBE = {.ctl = {.pin = UINT8_MAX}};
 void board_early_init(void) {
-  gpio_output_init(&s_power_latch, GPIO_OType_PP);
-  gpio_output_set(&s_power_latch, true);
+  // P19 holds the module power rail on. Preload HIGH in the same write that
+  // enables output so initialization cannot glitch the rail low.
+  prv_assert_power_latch();
   gpio_output_init(&s_amplifier_enable, GPIO_OType_PP);
   gpio_output_set(&s_amplifier_enable, false);
   /* The T5AI CP owns reset supervision and monitors the AP heartbeat. The

@@ -620,8 +620,12 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertEqual(dvt3["TEMPERATURE"], "n")
 
         board_source = (ROOT / "src/fw/board/boards/board_t5ai.c").read_text()
-        self.assertIn(".pin = 19u", board_source)
-        self.assertIn("gpio_output_set(&s_power_latch, true)", board_source)
+        self.assertIn("T5AI_GPIO_BASE + 19u * sizeof(uint32_t)", board_source)
+        self.assertIn(
+            "*reg = value | T5AI_GPIO_OUTPUT | T5AI_GPIO_DRIVE_STRENGTH_1",
+            board_source,
+        )
+        self.assertIn("prv_assert_power_latch();", board_source)
         self.assertIn(".pin = 28u", board_source)
         self.assertIn("gpio_output_set(&s_amplifier_enable, false)", board_source)
 
@@ -638,6 +642,9 @@ class GetafixBoardsTest(unittest.TestCase):
         status = imu_source.index("prv_read(QMI8658_STATUS0")
         sample = imu_source.index("prv_read(QMI8658_AX_L", status)
         self.assertLess(status, sample)
+        self.assertIn("sample->x = sensor_y;", imu_source)
+        self.assertIn("sample->y = -sensor_x;", imu_source)
+        self.assertIn("sample->z = prv_to_mg(&raw[4]);", imu_source)
 
     def test_original_dvt_keeps_its_haptics(self):
         config = load_config("dvt", "normal")

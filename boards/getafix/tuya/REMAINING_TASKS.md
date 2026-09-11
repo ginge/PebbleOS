@@ -50,6 +50,19 @@ This is the continuation handoff for the native PebbleOS port to the Waveshare T
   the valid external-clock path and seeded Pebble time without rewriting the
   RTC. T5AI RTC startup now also rebases stale retained AON-counter state after
   a hardware-counter reset, preventing unsigned elapsed-time underflow.
+- The native CO5300 display path is hardware-proven. GPIO bit-banging first
+  established the reset sequence, command framing, panel wiring, and four-lane
+  pixel order independently of the QSPI controller. Native QSPI then removed
+  that retained image with command `28h` and replaced horizontal reference
+  bands with four full-height vertical bands through 2,812 FIFO commands with
+  no controller timeout. The CP accepted both the AHBP/QSPI power vote and the
+  QSPI clock vote. Production register writes now use the vendor FIFO command
+  mode, the controller setup matches the pinned T5AI implementation, and panel
+  brightness no longer defaults to zero. Temporary bit-bang, register-dump,
+  and display-probe code was removed after validation. A black screen after
+  normal native startup is currently expected because the T5AI bring-up path
+  deliberately skips the complete services/application stack; it is not a
+  display-driver result.
 - The AP-to-CP mailbox transport now distinguishes physical ACKs from logical
   responses, uses the hardware-proven directional channels (`0x11` AP-to-CP,
   `0x41` CP-to-AP), preserves a logical response that precedes its physical
@@ -470,25 +483,34 @@ Verify all pins from the schematic/BSP before hardware testing.
   safe transport boundary. With no ALS fitted, the ambient-light driver
   explicitly reports unavailable/unknown rather than emulating a sensor.
 
-### 9. Touch — initial native path implemented, hardware validation pending
+### 9. Touch — native hardware path validated; service activation pending
 
 - The CST9217/CST92xx controller is implemented at address `0x5a` using I2C0,
   P42 reset, validated report framing, and Pebble's touch service. Native
-  466x466 coordinates are range-checked, mirrored to match the module, and
-  mapped into Pebble's 260x260 space; service-level rotation remains intact.
+  466x466 coordinates are range-checked and mapped directly into Pebble's
+  260x260 space; service-level rotation remains intact. Hardware testing on
+  DVT3 proved sustained 20 ms polling with zero I2C errors, valid coordinate
+  motion in both axes, edge scaling, and clean finger-up transitions. That
+  testing also found and removed an incorrect inversion of both axes.
 - No interrupt pin is identified in the module BSP, so the initial driver uses
   bounded 20 ms polling offloaded to the system task. Confirm interrupt/wake
   routing before replacing polling or claiming low-power wake support.
-- Validate edge behavior and touch-up reporting on hardware. Add controller
+- T5AI still skips `services_init()`, so normal subscribers cannot yet enable
+  the sensor or receive these proven reports. Validate end-to-end Pebble touch
+  event delivery when the common service stage is enabled. Add controller
   gestures only if they preserve Pebble recognizer and button-substitution
   behavior.
 - Keep classic Pebble button behavior stable for applications.
 
-### 10. Accelerometer — initial native path implemented, hardware validation pending
+### 10. Accelerometer — native hardware path validated
 
 - The QMI8658 is implemented on I2C0 at address `0x6b`, with WHO_AM_I `0x05`
   validation, 4 g scaling, Pebble sampling-rate negotiation, timestamps, axis
-  rotation, direct peeks, and power-down while unsubscribed.
+  rotation, direct peeks, and power-down while unsubscribed. DVT3 stationary
+  testing measured approximately 1 g on each positive and negative physical
+  axis with stable one-shot reads. The mounting transform was measured and
+  corrected to Pebble's API convention: right is sensor +Y / Pebble +X, top is
+  sensor -X / Pebble +Y, and out of the watchface is +Z.
 - Button debounce, touch polling, and accelerometer polling use Pebble's native
   high-priority timer service; DVT3 no longer depends on the deliberately
   disabled FreeRTOS software-timer daemon.
@@ -496,7 +518,9 @@ Verify all pins from the schematic/BSP before hardware testing.
   bounded system-task polling and delivers one sample at a time. Confirm the
   interrupt routing before adding FIFO batching, wake-on-motion, shake, or
   double-tap handling.
-- Validate physical axis orientation and calibration on hardware.
+- Validate continuous service delivery once T5AI's common services are enabled;
+  refine per-unit offset calibration only if broader production samples require
+  it.
 
 ### 11. Battery measurement and charging state — initial native path implemented
 
