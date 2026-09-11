@@ -33,7 +33,7 @@ static int prv_raw_to_millivolts(uint16_t raw) {
 }
 
 void battery_init(void) {
-  gpio_input_init(&s_charge);
+  gpio_input_init_pull_up_down(&s_charge, GPIO_PuPd_UP);
 }
 
 int battery_get_millivolts(void) {

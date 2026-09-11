@@ -522,16 +522,21 @@ Verify all pins from the schematic/BSP before hardware testing.
   refine per-unit offset calibration only if broader production samples require
   it.
 
-### 11. Battery measurement and charging state — initial native path implemented
+### 11. Battery measurement and charging state — blocked on fitted battery
 
 - The CP-owned T5AI SARADC is accessed through its native mailbox service.
   P13/channel 15 uses the reference 16-sample peak strategy and the module's
   measured two-point SAR calibration plus the schematic 2 MOhm/510 kOhm divider.
 - Active-low P30 feeds Pebble's charging and cable-present state. The module has
   no separate standby/full signal, so a completed charge cannot currently be
-  distinguished from unplugged state.
-- Validate voltage against a meter across the usable battery range and refine
-  calibration/state-of-charge curves if production units differ.
+  distinguished from unplugged state. P30 is an open-drain charger-status line;
+  native initialization now enables the pull-up required by the pinned vendor
+  implementation.
+- The available DVT3 has no battery fitted. Its ADC path completes successfully
+  and reads about 4.0 V while USB-powered, but that is the unloaded charger node,
+  not a cell voltage; removing USB powers the board down. Fit a battery before
+  validating voltage against a meter, unplug/charge transitions, retention, and
+  the state-of-charge curve. Do not treat the no-battery reading as validation.
 
 ### 12. Bluetooth/NimBLE — NimBLE transport implemented, controller IPC pending
 

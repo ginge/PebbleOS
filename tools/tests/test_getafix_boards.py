@@ -646,6 +646,12 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertIn("sample->y = -sensor_x;", imu_source)
         self.assertIn("sample->z = prv_to_mg(&raw[4]);", imu_source)
 
+        battery_source = (ROOT / "src/fw/drivers/battery/t5ai.c").read_text()
+        self.assertIn(
+            "gpio_input_init_pull_up_down(&s_charge, GPIO_PuPd_UP)",
+            battery_source,
+        )
+
     def test_original_dvt_keeps_its_haptics(self):
         config = load_config("dvt", "normal")
         self.assertEqual(config["PROMPT"], "y")
