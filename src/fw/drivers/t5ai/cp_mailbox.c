@@ -3,6 +3,11 @@
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/mcu/cache.h>
 #include <pbl/os/mutex.h>
+#include <pbl/services/new_timer/new_timer.h>
+
+#include "FreeRTOS.h"
+#include "task.h"
+#include <cmsis_core.h>
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -20,7 +25,11 @@
 
 #define T5AI_MBOX_FIFO_NOT_EMPTY (1u << 19)
 #define T5AI_MBOX_FIFO_FULL (1u << 0)
+#define T5AI_MBOX_INTERRUPT_ENABLE (1u << 8)
 #define T5AI_MBOX_CPU_CP 0u
+#define T5AI_SYSTEM_CPU1_INT_32_63_ENABLE (*(volatile uint32_t *)0x4401008cu)
+#define T5AI_MAILBOX_SYSTEM_INTERRUPT_ENABLE (1u << 31)
+#define T5AI_MAILBOX_IRQ ((IRQn_Type)63)
 
 #define T5AI_AON_RTC_LOW (*(volatile uint32_t *)0x4400020cu)
 #define T5AI_AON_RTC_HIGH (*(volatile uint32_t *)0x44000228u)
@@ -33,14 +42,17 @@
 #define T5AI_CP_POWER_UP_COMMAND 1u
 #define T5AI_CP_HEARTBEAT_COMMAND 2u
 #define T5AI_CP_HEARTBEAT_TICKS T5AI_AON_RTC_HZ
-#define T5AI_CP_PM_CHANNEL 0x12u
+#define T5AI_CP_PM_TX_CHANNEL 0x12u
+#define T5AI_CP_PM_RX_CHANNEL 0x42u
 #define T5AI_CP_PM_CLOCK_COMMAND 2u
 #define T5AI_CP_PM_UART0_CLOCK 2u
 #define T5AI_CP_PM_CLOCK_ENABLE 1u
 #define T5AI_CP_PM_POWER_COMMAND 1u
+#define T5AI_CP_PM_PSRAM_POWER_COMMAND 7u
 #define T5AI_CP_PM_QSPI0_CLOCK 20u
 #define T5AI_CP_PM_AHBP_QSPI_POWER 101u
 #define T5AI_CP_PM_POWER_ON 0u
+#define T5AI_CP_PM_PSRAM_APP_MODULE 9u
 #define T5AI_CP_PM_SETTLE_TICKS (T5AI_AON_RTC_HZ / 10u)
 #define T5AI_CP_HEADER_ACK (1u << 12u)
 #define T5AI_CP_ACK_COMPLETE 2u
@@ -80,6 +92,7 @@ static uint8_t s_control_sequence;
 static uint8_t s_transport_frame_index;
 static uint8_t s_logical_ack_index;
 static uint64_t s_last_heartbeat;
+static volatile bool s_rx_interrupt_work_pending;
 
 static uint64_t prv_ticks(void) {
   uint32_t high_before;
@@ -108,7 +121,7 @@ static bool prv_dispatch(uint8_t logical_channel, const T5AICPMailboxFrame *fram
 }
 
 static bool prv_is_pm_response(const T5AICPControlMessage *message, uint8_t command) {
-  return (message->header >> 24u) == T5AI_CP_PM_CHANNEL && (uint8_t)message->header == command &&
+  return (message->header >> 24u) == T5AI_CP_PM_RX_CHANNEL && (uint8_t)message->header == command &&
          message->parameter1 == 0u;
 }
 
@@ -261,12 +274,7 @@ status_t t5ai_cp_mailbox_acknowledge(uint32_t header, uint32_t parameter1, uint3
   return t5ai_cp_mailbox_send(ack, sizeof(*ack));
 }
 
-status_t t5ai_cp_mailbox_process_pending(void) {
-  PebbleMutex *mutex = s_mutex;
-  if (mutex == NULL || !mutex_lock_with_timeout(mutex, 0u)) {
-    return E_BUSY;
-  }
-
+static status_t prv_process_pending_locked(void) {
   status_t status = S_SUCCESS;
   while ((T5AI_MBOX_CH1_CTRL & T5AI_MBOX_FIFO_NOT_EMPTY) != 0u) {
     (void)T5AI_MBOX_CH1_RX_ID;
@@ -288,8 +296,46 @@ status_t t5ai_cp_mailbox_process_pending(void) {
     }
   }
 
+  return status;
+}
+
+status_t t5ai_cp_mailbox_process_pending(void) {
+  PebbleMutex *mutex = s_mutex;
+  if (mutex == NULL || !mutex_lock_with_timeout(mutex, 0u)) {
+    return E_BUSY;
+  }
+  const status_t status = prv_process_pending_locked();
   mutex_unlock(mutex);
   return status;
+}
+
+static void prv_process_pending_from_interrupt(void *context) {
+  (void)context;
+  PebbleMutex *mutex = s_mutex;
+  if (mutex != NULL) {
+    mutex_lock(mutex);
+    (void)prv_process_pending_locked();
+    mutex_unlock(mutex);
+  }
+  __atomic_store_n(&s_rx_interrupt_work_pending, false, __ATOMIC_RELEASE);
+  T5AI_MBOX_CH1_CTRL |= T5AI_MBOX_INTERRUPT_ENABLE;
+}
+
+void MAILBOX_IRQHandler(void) {
+  T5AI_MBOX_CH1_CTRL &= ~T5AI_MBOX_INTERRUPT_ENABLE;
+  bool should_context_switch = false;
+  if (!__atomic_exchange_n(&s_rx_interrupt_work_pending, true, __ATOMIC_ACQ_REL)) {
+    should_context_switch =
+        new_timer_add_work_callback_from_isr(prv_process_pending_from_interrupt, NULL);
+  }
+  portEND_SWITCHING_ISR(should_context_switch);
+}
+
+void t5ai_cp_mailbox_enable_rx_interrupt(void) {
+  T5AI_MBOX_CH1_CTRL |= T5AI_MBOX_INTERRUPT_ENABLE;
+  T5AI_SYSTEM_CPU1_INT_32_63_ENABLE |= T5AI_MAILBOX_SYSTEM_INTERRUPT_ENABLE;
+  NVIC_SetPriority(T5AI_MAILBOX_IRQ, configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY);
+  NVIC_EnableIRQ(T5AI_MAILBOX_IRQ);
 }
 
 status_t t5ai_cp_mailbox_receive(uint8_t logical_channel, T5AICPMailboxFrame *frame) {
@@ -454,7 +500,8 @@ void t5ai_cp_mailbox_heartbeat(void) {
 
 static status_t prv_pm_request(uint8_t command, uint32_t parameter1, uint32_t parameter2) {
   ++s_control_sequence;
-  s_pm_message.header = command | ((uint32_t)s_control_sequence << 16) | (T5AI_CP_PM_CHANNEL << 24);
+  s_pm_message.header =
+      command | ((uint32_t)s_control_sequence << 16) | (T5AI_CP_PM_TX_CHANNEL << 24);
   s_pm_message.parameter1 = parameter1;
   s_pm_message.parameter2 = parameter2;
   s_pm_message.parameter3 = 0u;
@@ -468,7 +515,7 @@ static status_t prv_pm_request(uint8_t command, uint32_t parameter1, uint32_t pa
   T5AICPMailboxFrame response_frame;
   const uint64_t start = prv_ticks();
   while (1) {
-    status = t5ai_cp_mailbox_try_receive(T5AI_CP_PM_CHANNEL, &response_frame);
+    status = t5ai_cp_mailbox_try_receive(T5AI_CP_PM_RX_CHANNEL, &response_frame);
     if (status == S_SUCCESS) {
       if (response_frame.length < sizeof(T5AICPControlMessage)) {
         return E_ERROR;
@@ -504,6 +551,11 @@ status_t t5ai_cp_mailbox_enable_qspi0(void) {
   return FAILED(status) ? status
                         : prv_pm_request(T5AI_CP_PM_CLOCK_COMMAND, T5AI_CP_PM_QSPI0_CLOCK,
                                          T5AI_CP_PM_CLOCK_ENABLE);
+}
+
+status_t t5ai_cp_mailbox_enable_psram(void) {
+  return prv_pm_request(T5AI_CP_PM_PSRAM_POWER_COMMAND, T5AI_CP_PM_PSRAM_APP_MODULE,
+                        T5AI_CP_PM_POWER_ON);
 }
 
 status_t t5ai_cp_mailbox_log(const void *data, size_t length) {

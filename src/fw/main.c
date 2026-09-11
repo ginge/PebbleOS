@@ -38,6 +38,8 @@
 #include <pbl/drivers/sf32lb52/rc10k.h>
 #ifdef CONFIG_SOC_T5AI
 #include <pbl/soc/t5ai/cp_mailbox.h>
+#include <pbl/soc/t5ai/freertos.h>
+#include <pbl/soc/t5ai/rtc.h>
 #endif
 
 #include "resource/resource.h"
@@ -175,11 +177,20 @@ static void watchdog_timer_callback(void* data) {
 }
 
 #ifdef CONFIG_SOC_T5AI
+static char s_t5ai_timebase_response[128];
+
 static void cp_heartbeat_timer_callback(void* data) {
   (void)t5ai_cp_mailbox_process_pending();
   t5ai_cp_mailbox_heartbeat();
-  if (dbgserial_input_consume_mailbox_probe()) {
+  const DbgSerialMailboxProbe probe = dbgserial_input_consume_mailbox_probe();
+  if (probe == DbgSerialMailboxProbe_Rx) {
     dbgserial_putstr("PBLRX-OK: T5AI USB mailbox RX passed");
+  } else if (probe == DbgSerialMailboxProbe_Timebase) {
+    dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
+                         "PBLTIM freertos=%lu rtc=%lu aon=%lu core=%lu reload=%lu",
+                         (unsigned long)xTaskGetTickCount(), (unsigned long)rtc_get_ticks(),
+                         (unsigned long)t5ai_rtc_get_raw_ticks(), (unsigned long)SystemCoreClock,
+                         (unsigned long)SysTick->LOAD);
   }
 }
 #endif
@@ -376,6 +387,14 @@ static NOINLINE void prv_main_task_init(void) {
   // Can't use the compositor framebuffer until the compositor is initialized
   compositor_init();
   kernel_ui_init();
+
+#ifdef CONFIG_SOC_T5AI
+  t5ai_freertos_apply_systick_clock();
+
+  /* CP0's shell fallback is interrupt-scale. Defer mailbox dispatch from IRQ
+   * 63 to the high-priority NewTimer work queue after hardware bring-up. */
+  t5ai_cp_mailbox_enable_rx_interrupt();
+#endif
 
 #ifndef CONFIG_SOC_T5AI
   bt_driver_init();

@@ -3,6 +3,7 @@
 #include <pbl/drivers/rtc.h>
 #include <pbl/drivers/i2c.h>
 #include <pbl/soc/t5ai/retained.h>
+#include <pbl/soc/t5ai/rtc.h>
 
 #include "board/board.h"
 #include "system/rtc_registers.h"
@@ -33,8 +34,7 @@ static RtcTicks prv_raw_ticks(void) {
   do {
     low = T5AI_AON_RTC_COUNT_LOW;
     high = T5AI_AON_RTC_COUNT_HIGH;
-  } while (low != T5AI_AON_RTC_COUNT_LOW ||
-           high != T5AI_AON_RTC_COUNT_HIGH);
+  } while (low != T5AI_AON_RTC_COUNT_LOW || high != T5AI_AON_RTC_COUNT_HIGH);
   return ((uint64_t)high << 32) | low;
 }
 
@@ -50,8 +50,7 @@ static void prv_set_retained_time(time_t time) {
   t5ai_retained_write(T5AI_RTC_BASE_TICKS_HIGH, (uint32_t)(ticks >> 32));
 }
 
-static bool prv_decode_bcd(uint8_t raw, uint8_t minimum, uint8_t maximum,
-                           uint8_t *value) {
+static bool prv_decode_bcd(uint8_t raw, uint8_t minimum, uint8_t maximum, uint8_t *value) {
   if ((raw & 0x0fu) > 9u || (raw >> 4) > 9u) {
     return false;
   }
@@ -67,16 +66,12 @@ static bool __attribute__((unused)) prv_external_rtc_read(time_t *time) {
   uint8_t control;
   uint8_t registers[7];
   i2c_use(I2C_PCF85063);
-  const bool read_control = i2c_read_register(I2C_PCF85063,
-                                               PCF85063_REG_CONTROL1,
-                                               &control);
-  const bool read_time = read_control &&
-      i2c_read_register_block(I2C_PCF85063, PCF85063_REG_SECONDS,
-                              sizeof(registers), registers);
+  const bool read_control = i2c_read_register(I2C_PCF85063, PCF85063_REG_CONTROL1, &control);
+  const bool read_time = read_control && i2c_read_register_block(I2C_PCF85063, PCF85063_REG_SECONDS,
+                                                                 sizeof(registers), registers);
   i2c_release(I2C_PCF85063);
 
-  if (!read_time || (control & (PCF85063_CONTROL1_STOP |
-                                PCF85063_CONTROL1_12_24)) ||
+  if (!read_time || (control & (PCF85063_CONTROL1_STOP | PCF85063_CONTROL1_12_24)) ||
       (registers[0] & PCF85063_SECONDS_OS)) {
     return false;
   }
@@ -91,8 +86,7 @@ static bool __attribute__((unused)) prv_external_rtc_read(time_t *time) {
   if (!prv_decode_bcd(registers[0] & 0x7fu, 0, 59, &second) ||
       !prv_decode_bcd(registers[1] & 0x7fu, 0, 59, &minute) ||
       !prv_decode_bcd(registers[2] & 0x3fu, 0, 23, &hour) ||
-      !prv_decode_bcd(registers[3] & 0x3fu, 1, 31, &day) ||
-      weekday > 6u ||
+      !prv_decode_bcd(registers[3] & 0x3fu, 1, 31, &day) || weekday > 6u ||
       !prv_decode_bcd(registers[5] & 0x1fu, 1, 12, &month) ||
       !prv_decode_bcd(registers[6], 0, 37, &year)) {
     return false;
@@ -108,9 +102,8 @@ static bool __attribute__((unused)) prv_external_rtc_read(time_t *time) {
       .tm_isdst = 0,
   };
   const time_t result = mktime(&decoded);
-  if (decoded.tm_sec != second || decoded.tm_min != minute ||
-      decoded.tm_hour != hour || decoded.tm_mday != day ||
-      decoded.tm_mon != month - 1 || decoded.tm_year != year + 100 ||
+  if (decoded.tm_sec != second || decoded.tm_min != minute || decoded.tm_hour != hour ||
+      decoded.tm_mday != day || decoded.tm_mon != month - 1 || decoded.tm_year != year + 100 ||
       decoded.tm_wday != weekday) {
     return false;
   }
@@ -137,21 +130,15 @@ static bool prv_external_rtc_write(time_t time) {
 
   uint8_t control;
   i2c_use(I2C_PCF85063);
-  bool result = i2c_read_register(I2C_PCF85063, PCF85063_REG_CONTROL1,
-                                  &control);
+  bool result = i2c_read_register(I2C_PCF85063, PCF85063_REG_CONTROL1, &control);
   if (result) {
-    const uint8_t stopped = (control | PCF85063_CONTROL1_STOP) &
-                            ~PCF85063_CONTROL1_12_24;
-    result = i2c_write_register(I2C_PCF85063, PCF85063_REG_CONTROL1,
-                                stopped);
-    result = result && i2c_write_register_block(I2C_PCF85063,
-                                                 PCF85063_REG_SECONDS,
-                                                 sizeof(registers), registers);
+    const uint8_t stopped = (control | PCF85063_CONTROL1_STOP) & ~PCF85063_CONTROL1_12_24;
+    result = i2c_write_register(I2C_PCF85063, PCF85063_REG_CONTROL1, stopped);
+    result = result && i2c_write_register_block(I2C_PCF85063, PCF85063_REG_SECONDS,
+                                                sizeof(registers), registers);
     if (result) {
-      const uint8_t running = control & ~(PCF85063_CONTROL1_STOP |
-                                          PCF85063_CONTROL1_12_24);
-      result = i2c_write_register(I2C_PCF85063, PCF85063_REG_CONTROL1,
-                                  running);
+      const uint8_t running = control & ~(PCF85063_CONTROL1_STOP | PCF85063_CONTROL1_12_24);
+      result = i2c_write_register(I2C_PCF85063, PCF85063_REG_CONTROL1, running);
     }
   }
   i2c_release(I2C_PCF85063);
@@ -182,10 +169,9 @@ void rtc_set_time(time_t time) {
 
 void rtc_get_time_ms(time_t *out_seconds, uint16_t *out_ms) {
   const RtcTicks elapsed = prv_raw_ticks() - prv_base_ticks();
-  *out_seconds = (time_t)t5ai_retained_read(CURRENT_TIME_REGISTER) +
-                 (time_t)(elapsed / T5AI_AON_RTC_HZ);
-  *out_ms = (uint16_t)(((elapsed % T5AI_AON_RTC_HZ) * 1000u) /
-                       T5AI_AON_RTC_HZ);
+  *out_seconds =
+      (time_t)t5ai_retained_read(CURRENT_TIME_REGISTER) + (time_t)(elapsed / T5AI_AON_RTC_HZ);
+  *out_ms = (uint16_t)(((elapsed % T5AI_AON_RTC_HZ) * 1000u) / T5AI_AON_RTC_HZ);
 }
 
 time_t rtc_get_time(void) {
@@ -197,6 +183,10 @@ time_t rtc_get_time(void) {
 
 RtcTicks rtc_get_ticks(void) {
   return prv_raw_ticks() / (T5AI_AON_RTC_HZ / RTC_TICKS_HZ);
+}
+
+uint64_t t5ai_rtc_get_raw_ticks(void) {
+  return prv_raw_ticks();
 }
 
 void rtc_set_time_tm(struct tm *time_tm) {

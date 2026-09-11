@@ -26,9 +26,18 @@ config T5AI_CORE_CLOCK_HZ
     depends on SOC_T5AI
     default 120000000
     help
-      Application-core clock established by the BK7258 boot stages. Pebble
-      does not currently reprogram the clock tree, so changing this value also
-      requires a validated boot configuration and matching peripheral timing.
+      Application-core clock inherited from the BK7258 CP0 boot stage. Pebble
+      does not currently request a DVFS transition, so changing this value also
+      requires a validated clock-tree vote and matching peripheral timing.
+
+config T5AI_SYSTICK_CLOCK_HZ
+    int "T5AI application CPU SysTick clock"
+    depends on SOC_T5AI
+    default 60000000
+    help
+      Effective SysTick clock on the BK7258 application CPU. The core and
+      peripheral clock remains 120 MHz, but hardware validation shows that the
+      application CPU SysTick counter advances at 60 MHz.
 
 config SOC
     string

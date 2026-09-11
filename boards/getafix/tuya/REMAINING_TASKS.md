@@ -22,6 +22,11 @@ This is the continuation handoff for the native PebbleOS port to the Waveshare T
   Once ready, hardware validation completed 10/10 consecutive response-aware
   `ap_cmd PBLRX` transactions. A following 30-second watch saw no Tuya boot,
   CPU1-start retry, or Pebble reset marker.
+- The application core reports `SystemCoreClock=120000000` while its SysTick
+  counter runs at 60 MHz. Applying reload `59999` after `kernel_ui_init()`
+  preserves vendor-compatible early startup timing and produces the intended
+  1 kHz FreeRTOS tick. Ten consecutive `ap_cmd PBLTIM` samples measured median
+  FreeRTOS/RTC `1.000000` and AON/RTC `32.001000`.
 - Native PebbleOS now reaches the normal launcher path with the production
   diagnostic loops removed. Build `6da7d158a9253150f7c256bb74f016f235e3fe91`
   ran for more than 90 seconds without the former approximately 71-second
@@ -51,13 +56,10 @@ This is the continuation handoff for the native PebbleOS port to the Waveshare T
   successfully, and AP-only flashing remains constrained to physical range
   `0x132000` through `0x205460` using the verified vendor QIO base.
 
-The native target configures, compiles, links, and packages on the host. A
-physical board was backed up and used for bring-up on 2026-09-10. The vendor
-diagnostic image boots and validates the display and buttons, but the native
-Pebble AP replacement does not enter its reset handler. The board has been
-restored to the known-good four-quadrant diagnostic image. Treat CPU1/AP boot
-handoff as the immediate blocker; do not spend more cycles changing the display
-driver until native reset entry is proved.
+The native target configures, compiles, links, packages, and boots on hardware.
+The original 2026-09-10 handoff below is retained as historical context; its
+CPU1/AP reset-entry blocker and known-good diagnostic on-device state have been
+superseded by the 2026-09-11 progress above.
 
 ## 2026-09-10 hardware-session handoff
 

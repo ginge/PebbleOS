@@ -78,6 +78,14 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("t5ai_cp_mailbox_process_pending();", main)
         self.assertIn("dbgserial_input_consume_mailbox_probe()", main)
         self.assertIn('dbgserial_putstr("PBLRX-OK: T5AI USB mailbox RX passed")', main)
+        self.assertIn("DbgSerialMailboxProbe_Timebase", dbgserial_input)
+        self.assertIn("DbgSerialMailboxProbe_Timebase", main)
+        self.assertIn(
+            '"PBLTIM freertos=%lu rtc=%lu aon=%lu core=%lu reload=%lu"', main
+        )
+        self.assertIn("t5ai_rtc_get_raw_ticks()", main)
+        self.assertIn("(unsigned long)SystemCoreClock", main)
+        self.assertIn("(unsigned long)SysTick->LOAD", main)
         self.assertNotIn("s_character_callback", dbgserial_input.split("#elif", 1)[0])
         self.assertIn("dbgserial_putchar_lazy(*(msg++))", serial_console)
         self.assertIn("T5AI_CP_CONTROL_CHANNEL 0x10u", mailbox)
@@ -85,6 +93,8 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("T5AI_CP_HEARTBEAT_COMMAND 2u", mailbox)
         self.assertIn("((uint32_t)s_control_sequence << 16)", mailbox)
         self.assertIn("message->parameter1 == 0u", mailbox)
+        self.assertIn("T5AI_CP_PM_TX_CHANNEL 0x12u", mailbox)
+        self.assertIn("T5AI_CP_PM_RX_CHANNEL 0x42u", mailbox)
         self.assertNotIn(
             "message->header >> 16u) == s_control_sequence", mailbox
         )
@@ -109,27 +119,46 @@ class TuyaKernelCheckTest(unittest.TestCase):
 
     def test_t5ai_holds_psram_power_for_the_compositor_framebuffer(self):
         initialization = (ROOT / "soc/t5ai/init.c").read_text()
-        hold_psram = initialization.index(
-            "T5AI_AP_PSRAM_USE_COUNT = T5AI_AP_PSRAM_PERMANENT_USE"
-        )
-        announce = initialization.index("t5ai_cp_mailbox_announce_power_up()")
-        self.assertLess(hold_psram, announce)
-        self.assertIn("T5AI_SHARED_POWER_STATE_BASE 0x2809f700u", initialization)
-        self.assertIn("T5AI_AP_PSRAM_PERMANENT_USE 100u", initialization)
+        mailbox = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
+        compositor = (
+            ROOT / "src/fw/services/compositor/compositor.c"
+        ).read_text()
+        self.assertNotIn("0x2809f700u", initialization)
+        self.assertIn("T5AI_CP_PM_PSRAM_POWER_COMMAND 7u", mailbox)
+        self.assertIn("T5AI_CP_PM_PSRAM_APP_MODULE 9u", mailbox)
+        vote = compositor.index("t5ai_cp_mailbox_enable_psram()")
+        validate = compositor.index("prv_validate_t5ai_framebuffer_ram()", vote)
+        self.assertLess(vote, validate)
 
     def test_t5ai_core_clock_is_an_explicit_systick_contract(self):
         kconfig = (ROOT / "soc/Kconfig").read_text()
         initialization = (ROOT / "soc/t5ai/init.c").read_text()
         port = (ROOT / "soc/t5ai/freertos.c").read_text()
+        main = (ROOT / "src/fw/main.c").read_text()
+        mailbox = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
         self.assertIn("config T5AI_CORE_CLOCK_HZ", kconfig)
         self.assertIn("default 120000000", kconfig)
+        self.assertIn("config T5AI_SYSTICK_CLOCK_HZ", kconfig)
+        self.assertIn("application CPU SysTick counter advances at 60 MHz", kconfig)
         self.assertIn(
             "SystemCoreClock = CONFIG_T5AI_CORE_CLOCK_HZ", initialization
         )
         self.assertIn(
-            "CONFIG_T5AI_CORE_CLOCK_HZ % RTC_TICKS_HZ == 0u", port
+            "CONFIG_T5AI_SYSTICK_CLOCK_HZ % RTC_TICKS_HZ == 0u", port
         )
         self.assertIn("T5AI_SYSTICK_RELOAD <= SysTick_LOAD_RELOAD_Msk", port)
+        self.assertIn("t5ai_freertos_apply_systick_clock", port)
+        self.assertIn("SysTick->LOAD = T5AI_SYSTICK_RELOAD", port)
+        self.assertIn("return false;", port)
+        self.assertIn("t5ai_freertos_apply_systick_clock();", main)
+        self.assertIn("t5ai_cp_mailbox_enable_rx_interrupt();", main)
+        self.assertIn("void MAILBOX_IRQHandler(void)", mailbox)
+        self.assertIn("new_timer_add_work_callback_from_isr", mailbox)
+        self.assertIn("T5AI_MAILBOX_SYSTEM_INTERRUPT_ENABLE", mailbox)
+        self.assertIn(
+            "T5AI_CP_LOG_RX_CHANNEL 0x4eu",
+            (ROOT / "src/fw/console/dbgserial_input.c").read_text(),
+        )
 
     def test_t5ai_debug_uart_keeps_the_board_runtime_baud_rate(self):
         console = (ROOT / "src/fw/console/dbgserial.c").read_text()

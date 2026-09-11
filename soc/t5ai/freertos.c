@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "console/prompt.h"
 #include "pbl/drivers/task_watchdog.h"
+#include "pbl/soc/t5ai/freertos.h"
 #include "pbl/drivers/rtc.h"
 #include "pbl/services/analytics/analytics.h"
 
@@ -11,10 +12,10 @@
 #include <inttypes.h>
 #include <stdio.h>
 
-#define T5AI_SYSTICK_RELOAD (CONFIG_T5AI_CORE_CLOCK_HZ / RTC_TICKS_HZ - 1u)
+#define T5AI_SYSTICK_RELOAD (CONFIG_T5AI_SYSTICK_CLOCK_HZ / RTC_TICKS_HZ - 1u)
 
-_Static_assert(CONFIG_T5AI_CORE_CLOCK_HZ % RTC_TICKS_HZ == 0u,
-               "T5AI core clock must produce an exact FreeRTOS tick");
+_Static_assert(CONFIG_T5AI_SYSTICK_CLOCK_HZ % RTC_TICKS_HZ == 0u,
+               "T5AI SysTick clock must produce an exact FreeRTOS tick");
 _Static_assert(T5AI_SYSTICK_RELOAD <= SysTick_LOAD_RELOAD_Msk,
                "T5AI FreeRTOS tick does not fit the SysTick reload register");
 
@@ -49,6 +50,13 @@ void vApplicationTickHook(void) {
 
 bool vPortEnableTimer(void) {
   return false;
+}
+
+void t5ai_freertos_apply_systick_clock(void) {
+  /* Keep the vendor-retained timer state through scheduler startup. Updating
+   * LOAD after platform initialization avoids exposing early drivers to the
+   * corrected tick rate; the new period takes effect at the next wrap. */
+  SysTick->LOAD = T5AI_SYSTICK_RELOAD;
 }
 
 void dump_current_runtime_stats(void) {
