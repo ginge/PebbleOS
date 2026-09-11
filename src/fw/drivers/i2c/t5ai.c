@@ -40,7 +40,6 @@ typedef volatile struct {
 
 #define T5AI_SYSTEM_DEVICE_CLOCK_ENABLE (*(volatile uint32_t *)0x44010030u)
 #define T5AI_SYSTEM_POWER_SLEEP_WAKEUP (*(volatile uint32_t *)0x44010040u)
-#define T5AI_SYSTEM_CPU0_INTERRUPT_ENABLE (*(volatile uint32_t *)0x44010080u)
 #define T5AI_SYSTEM_CPU1_INTERRUPT_ENABLE (*(volatile uint32_t *)0x44010088u)
 #define T5AI_SYSTEM_GPIO_FUNCTION_BASE ((volatile uint32_t *)0x440100c0u)
 
@@ -98,7 +97,6 @@ void i2c_hal_init(I2CBus *bus) {
                  T5AI_I2C_CONFIG_TIMEOUT_ENABLE | T5AI_I2C_CONFIG_IDLE_DETECT_ENABLE;
   regs->extended_config = 3u;
 
-  T5AI_SYSTEM_CPU0_INTERRUPT_ENABLE |= 1u << 6;
   T5AI_SYSTEM_CPU1_INTERRUPT_ENABLE |= 1u << 6;
   NVIC_ClearPendingIRQ(bus->hal->irqn);
   NVIC_SetPriority(bus->hal->irqn, 6u);
@@ -109,10 +107,10 @@ void i2c_hal_enable(I2CBus *bus) {
   T5AI_SYSTEM_DEVICE_CLOCK_ENABLE |= 1u;
   prv_regs(bus)->global_control |= 1u << 1;
   prv_regs(bus)->config |= T5AI_I2C_CONFIG_ENABLE;
+  delay_us(5u);
 }
 
 void i2c_hal_disable(I2CBus *bus) {
-  i2c_hal_abort_transfer(bus);
   prv_regs(bus)->config &= ~T5AI_I2C_CONFIG_ENABLE;
 }
 
@@ -173,6 +171,10 @@ void i2c_hal_start_transfer(I2CBus *bus) {
     return;
   }
 
+  /* Completion is reported when STOP is requested, before the external bus
+   * free interval is guaranteed. Leave margin above the 400 kHz tBUF minimum
+   * before issuing another START. */
+  delay_us(5u);
   transfer->idx = 0u;
   if (transfer->direction == I2CTransferDirection_Read &&
       transfer->type == I2CTransferType_NoRegisterAddress) {

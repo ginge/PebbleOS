@@ -43,6 +43,13 @@ This is the continuation handoff for the native PebbleOS port to the Waveshare T
   non-blocking FIFO write, so CP supervision cannot block shared Pebble timer
   infrastructure. The local AP watchdog remains disabled, matching the pinned
   vendor adapter where reset supervision belongs to the CP.
+- Native I2C0 and the external PCF85063 RTC are hardware-proven. Reads at
+  address `0x51` returned coherent BCD calendar data, an invalid oscillator-stop
+  state was initialized from Pebble's 2010 minimum epoch, the OS flag cleared,
+  and the clock advanced normally. Reflashing the unchanged AP image then took
+  the valid external-clock path and seeded Pebble time without rewriting the
+  RTC. T5AI RTC startup now also rebases stale retained AON-counter state after
+  a hardware-counter reset, preventing unsigned elapsed-time underflow.
 - The AP-to-CP mailbox transport now distinguishes physical ACKs from logical
   responses, uses the hardware-proven directional channels (`0x11` AP-to-CP,
   `0x41` CP-to-AP), preserves a logical response that precedes its physical
@@ -60,7 +67,7 @@ This is the continuation handoff for the native PebbleOS port to the Waveshare T
   with pull-ups. One press/release of each produced exactly two interrupts,
   returned to the idle state, and did not reset the device. The temporary
   `PBLBTN` register/counter probe was removed after validation.
-- Focused T5AI regressions currently pass 48 tests, the native firmware builds
+- Focused T5AI regressions currently pass 49 tests, the native firmware builds
   successfully, and AP-only flashing remains constrained to physical range
   `0x132000` through `0x205460` using the verified vendor QIO base.
 
@@ -293,7 +300,7 @@ stronger test of the CP release/CPU1 reset contract.
   NimBLE-to-controller IPC protocol all have native implementations or explicit
   safe disabled states. The Bluetooth controller IPC remains deliberately
   gated until its CP startup and shared-memory behavior are proven on hardware.
-- Forty-eight Tuya host tests and twenty-five Getafix board-selection tests pass.
+- Forty-nine Tuya host tests and twenty-five Getafix board-selection tests pass.
 - Both `getafix@dvt3` and the DVT2 compatibility target configure and build.
   DVT2 retains only its pre-existing stored Golf app unused-variable warning.
 
@@ -427,16 +434,20 @@ Board signals recorded from the reference design:
 
 Verify all pins from the schematic/BSP before hardware testing.
 
-### 7. I2C and RTC — implemented, hardware validation pending
+### 7. I2C and RTC — implemented and hardware validated
 
 - Native I2C0 uses SCL P20 / SDA P21 with controller timeouts, reset recovery,
-  repeated-start reads, and Pebble locking semantics; validate on hardware.
+  repeated-start reads, and Pebble locking semantics. The CPU1 interrupt route,
+  register-address write, repeated START, one-byte and seven-byte reads, and
+  successive write/readback transactions are proven on hardware.
 - The PCF85063 at address `0x51` seeds Pebble wall-clock time after I2C0 starts
   and is updated by `rtc_set_time`; stopped, 12-hour, oscillator-stop, invalid
   BCD, and inconsistent calendar values are rejected without corrupting the
   retained AON-derived clock.
 - The T5AI AON counter remains the monotonic/subsecond source so routine time
-  reads do not block on I2C. Test coherent reads and time retention on hardware.
+  reads do not block on I2C. Hardware samples showed the external RTC and the
+  retained/AON-derived clock advancing together within one second, and a later
+  unchanged-image boot restored its time from the external device.
 - The external RTC alarm output is not enabled because its MCU interrupt/wake
   routing has not been confirmed. Pebble alarm timing continues to use the AON
   counter without claiming hardware wake support.
@@ -728,7 +739,7 @@ Verify all pins from the schematic/BSP before hardware testing.
   `bounds` warning; no DVT3-port warning appeared in that compatibility build.
 - Keep warnings introduced by DVT3 at zero or document unavoidable toolchain warnings.
 
-Current host baseline: 48 `test_tuya*.py` tests and 25 Getafix board tests pass.
+Current host baseline: 49 `test_tuya*.py` tests and 25 Getafix board tests pass.
 The DVT3 native firmware now compiles and links without unresolved platform
 symbols or internal-RAM overflow. Host-generated ELF, map, raw binary, Intel
 HEX, and protected-block binary artifacts are available for inspection. They
@@ -740,8 +751,8 @@ condition for trying another image.
 The factory image is preserved, AP-only recovery is proven, and CPU1 reset
 entry, CP power-up handshake, dual-USB UART roles, runtime mailbox RX, scheduler
 and RTC timebases, battery ADC, and GPIO buttons are proven. Next validate
-I2C0 and the external PCF85063 RTC, then display, touch, sensors, Bluetooth,
-sleep/wake, charging, and finally writable storage/update behavior.
+the display, then touch, sensors, Bluetooth, sleep/wake, charging, and finally
+writable storage/update behavior. I2C0 and the external PCF85063 RTC are proven.
 
 ## Validation commands
 

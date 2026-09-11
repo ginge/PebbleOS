@@ -222,6 +222,30 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("*prv_pin_register(pin) |= T5AI_GPIO_INTERRUPT_CLEAR", exti)
         self.assertNotIn("DbgSerialMailboxProbe_Buttons", dbgserial_input)
 
+    def test_t5ai_i2c_and_external_rtc(self):
+        rtc = (ROOT / "src/fw/drivers/rtc/t5ai.c").read_text()
+        i2c = (ROOT / "src/fw/drivers/i2c/t5ai.c").read_text()
+        self.assertIn("T5AI_SYSTEM_CPU1_INTERRUPT_ENABLE |= 1u << 6", i2c)
+        self.assertNotIn("T5AI_SYSTEM_CPU0_INTERRUPT_ENABLE", i2c)
+        enable = i2c.split("void i2c_hal_enable", 1)[1].split(
+            "void i2c_hal_disable", 1
+        )[0]
+        self.assertIn("delay_us(5u);", enable)
+        start = i2c.split("void i2c_hal_start_transfer", 1)[1].split(
+            "void i2c_irq_handler", 1
+        )[0]
+        self.assertIn("delay_us(5u);", start)
+        disable = i2c.split("void i2c_hal_disable", 1)[1].split(
+            "bool i2c_hal_is_busy", 1
+        )[0]
+        self.assertNotIn("i2c_hal_abort_transfer", disable)
+        self.assertIn("~T5AI_I2C_CONFIG_ENABLE", disable)
+        self.assertIn("if (!prv_external_rtc_read_raw(&control, registers))", rtc)
+        self.assertIn("prv_set_retained_time(external_time);", rtc)
+        self.assertIn("prv_external_rtc_write(fallback_time)", rtc)
+        self.assertIn("T5AI_RTC_MIN_VALID_TIME", rtc)
+        self.assertIn("if (base_ticks > ticks", rtc)
+
     def test_cmsis_priorities_do_not_use_raw_freertos_bytes(self):
         config = (ROOT / "third_party/freertos/FreeRTOSConfig.h").read_text()
         fault = (ROOT / "src/fw/kernel/fault_handling.c").read_text()

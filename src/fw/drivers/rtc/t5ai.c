@@ -15,6 +15,8 @@
 #define T5AI_AON_RTC_COUNT_LOW (*(volatile uint32_t *)(T5AI_AON_RTC_BASE + 0x0cu))
 #define T5AI_AON_RTC_COUNT_HIGH (*(volatile uint32_t *)(T5AI_AON_RTC_BASE + 0x28u))
 #define T5AI_AON_RTC_HZ 32000u
+#define T5AI_RTC_MIN_VALID_TIME 1262304000u
+#define T5AI_RTC_MAX_VALID_TIME 2145916799u
 
 _Static_assert(T5AI_AON_RTC_HZ % RTC_TICKS_HZ == 0u,
                "AON RTC must divide exactly into Pebble ticks");
@@ -62,16 +64,17 @@ static uint8_t prv_encode_bcd(unsigned value) {
   return (uint8_t)(((value / 10u) << 4) | (value % 10u));
 }
 
-static bool __attribute__((unused)) prv_external_rtc_read(time_t *time) {
-  uint8_t control;
-  uint8_t registers[7];
+static bool prv_external_rtc_read_raw(uint8_t *control, uint8_t registers[7]) {
   i2c_use(I2C_PCF85063);
-  const bool read_control = i2c_read_register(I2C_PCF85063, PCF85063_REG_CONTROL1, &control);
-  const bool read_time = read_control && i2c_read_register_block(I2C_PCF85063, PCF85063_REG_SECONDS,
-                                                                 sizeof(registers), registers);
+  const bool read_control = i2c_read_register(I2C_PCF85063, PCF85063_REG_CONTROL1, control);
+  const bool read_time =
+      read_control && i2c_read_register_block(I2C_PCF85063, PCF85063_REG_SECONDS, 7u, registers);
   i2c_release(I2C_PCF85063);
+  return read_time;
+}
 
-  if (!read_time || (control & (PCF85063_CONTROL1_STOP | PCF85063_CONTROL1_12_24)) ||
+static bool prv_external_rtc_decode(uint8_t control, const uint8_t registers[7], time_t *time) {
+  if ((control & (PCF85063_CONTROL1_STOP | PCF85063_CONTROL1_12_24)) ||
       (registers[0] & PCF85063_SECONDS_OS)) {
     return false;
   }
@@ -111,6 +114,13 @@ static bool __attribute__((unused)) prv_external_rtc_read(time_t *time) {
   return true;
 }
 
+static bool prv_external_rtc_read(time_t *time) {
+  uint8_t control;
+  uint8_t registers[7];
+  return prv_external_rtc_read_raw(&control, registers) &&
+         prv_external_rtc_decode(control, registers, time);
+}
+
 static bool prv_external_rtc_write(time_t time) {
   struct tm encoded;
   gmtime_r(&time, &encoded);
@@ -147,6 +157,16 @@ static bool prv_external_rtc_write(time_t time) {
 
 void rtc_init(void) {
   t5ai_retained_init();
+
+  const RtcTicks ticks = prv_raw_ticks();
+  const RtcTicks base_ticks = prv_base_ticks();
+  uint32_t saved_time = t5ai_retained_read(CURRENT_TIME_REGISTER);
+  if (saved_time < T5AI_RTC_MIN_VALID_TIME || saved_time > T5AI_RTC_MAX_VALID_TIME) {
+    saved_time = T5AI_RTC_MIN_VALID_TIME;
+  }
+  if (base_ticks > ticks || t5ai_retained_read(CURRENT_TIME_REGISTER) != saved_time) {
+    prv_set_retained_time((time_t)saved_time);
+  }
 }
 
 void rtc_calibrate_frequency(uint32_t frequency) {
@@ -154,10 +174,27 @@ void rtc_calibrate_frequency(uint32_t frequency) {
 }
 
 void rtc_init_timers(void) {
-  /* Keep the optional PCF85063 out of the boot-critical path until the T5AI
-   * I2C block-read timeout/recovery path is available. The always-on counter
-   * and retained epoch provide the system clock in the meantime. */
   s_external_rtc_ready = false;
+  uint8_t control;
+  uint8_t registers[7];
+  if (!prv_external_rtc_read_raw(&control, registers)) {
+    return;
+  }
+  time_t external_time;
+  if (prv_external_rtc_decode(control, registers, &external_time)) {
+    prv_set_retained_time(external_time);
+    s_external_rtc_ready = true;
+    return;
+  }
+
+  /* A responding RTC with stopped/invalid contents is safe to initialize from
+   * the retained fallback. Do not attempt writes when the bus/device itself
+   * did not answer. Read back before trusting it for future time updates. */
+  const time_t fallback_time = rtc_get_time();
+  if (prv_external_rtc_write(fallback_time) && prv_external_rtc_read(&external_time)) {
+    prv_set_retained_time(external_time);
+    s_external_rtc_ready = true;
+  }
 }
 
 void rtc_set_time(time_t time) {
