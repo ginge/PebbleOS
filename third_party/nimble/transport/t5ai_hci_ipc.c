@@ -17,6 +17,7 @@
 #define T5AI_HCI_TYPE 0u
 #define T5AI_HCI_MAX_EVENT_SIZE 257u
 #define T5AI_HCI_MAX_ACL_SIZE 1028u
+#define T5AI_HCI_PENDING_FRAME_CAPACITY 8u
 
 enum {
   T5AI_HCI_INIT = 0,
@@ -46,6 +47,11 @@ typedef struct {
   T5AIMIPCFrame frame __attribute__((aligned(32)));
 } T5AIHCIOutbound;
 
+typedef struct {
+  T5AIMIPCFrame frame;
+  bool physically_acknowledged;
+} T5AIHCIPendingFrame;
+
 static const char s_channel_name[] = "__tkl_ipc_handle";
 static T5AIHCIOutbound s_request;
 static T5AIHCIOutbound s_event_response;
@@ -55,8 +61,10 @@ static uint8_t s_sequence;
 static bool s_started;
 static bool s_request_transport_ack;
 static bool s_event_response_transport_ack;
-static T5AIMIPCFrame s_pending_frame __attribute__((aligned(32)));
-static bool s_pending_frame_valid;
+static T5AIHCIPendingFrame s_pending_frames[T5AI_HCI_PENDING_FRAME_CAPACITY]
+    __attribute__((aligned(32)));
+static uint8_t s_pending_frame_head;
+static uint8_t s_pending_frame_count;
 static uint8_t s_event_payload[T5AI_HCI_MAX_EVENT_SIZE] __attribute__((aligned(32)));
 static uint8_t s_acl_payload[T5AI_HCI_MAX_ACL_SIZE] __attribute__((aligned(32)));
 
@@ -129,16 +137,11 @@ static status_t prv_prepare_outbound(T5AIHCIOutbound *outbound, const void *payl
   return prv_send_frame(&outbound->frame);
 }
 
-static status_t prv_read_frame(T5AIMIPCFrame *frame, bool blocking) {
-  if (s_pending_frame_valid) {
-    *frame = s_pending_frame;
-    s_pending_frame_valid = false;
-    return S_SUCCESS;
-  }
+static status_t prv_read_mailbox_channel_frame(uint8_t logical_channel, T5AIMIPCFrame *frame,
+                                               bool blocking) {
   T5AICPMailboxFrame mailbox_frame;
-  status_t status = blocking
-                        ? t5ai_cp_mailbox_receive(T5AI_MIPC_RX_LOGICAL_CHANNEL, &mailbox_frame)
-                        : t5ai_cp_mailbox_try_receive(T5AI_MIPC_RX_LOGICAL_CHANNEL, &mailbox_frame);
+  status_t status = blocking ? t5ai_cp_mailbox_receive(logical_channel, &mailbox_frame)
+                             : t5ai_cp_mailbox_try_receive(logical_channel, &mailbox_frame);
   if (FAILED(status) || mailbox_frame.length != sizeof(*frame)) {
     return status;
   }
@@ -147,15 +150,61 @@ static status_t prv_read_frame(T5AIMIPCFrame *frame, bool blocking) {
   return S_SUCCESS;
 }
 
+static status_t prv_read_mailbox_frame(T5AIMIPCFrame *frame, bool blocking) {
+  return prv_read_mailbox_channel_frame(T5AI_MIPC_RX_LOGICAL_CHANNEL, frame, blocking);
+}
+
+static status_t prv_read_frame(T5AIMIPCFrame *frame, bool *physically_acknowledged, bool blocking) {
+  if (s_pending_frame_count != 0u) {
+    *frame = s_pending_frames[s_pending_frame_head].frame;
+    *physically_acknowledged = s_pending_frames[s_pending_frame_head].physically_acknowledged;
+    s_pending_frame_head = (uint8_t)((s_pending_frame_head + 1u) % T5AI_HCI_PENDING_FRAME_CAPACITY);
+    --s_pending_frame_count;
+    return S_SUCCESS;
+  }
+  *physically_acknowledged = false;
+  return prv_read_mailbox_frame(frame, blocking);
+}
+
 static bool prv_is_transport_ack(const T5AIMIPCFrame *frame, const T5AIMIPCData *data) {
   return (uint8_t)frame->header == t5ai_mipc_header(T5AI_MIPC_CPU_CP, T5AI_MIPC_TYPE_ACK) &&
          frame->object == (uint32_t)(uintptr_t)data;
 }
 
+static status_t prv_queue_pending_frame(const T5AIMIPCFrame *frame, bool physically_acknowledged) {
+  if (s_pending_frame_count == T5AI_HCI_PENDING_FRAME_CAPACITY) {
+    return E_OUT_OF_RESOURCES;
+  }
+  const uint8_t tail =
+      (uint8_t)((s_pending_frame_head + s_pending_frame_count) % T5AI_HCI_PENDING_FRAME_CAPACITY);
+  s_pending_frames[tail] = (T5AIHCIPendingFrame){
+      .frame = *frame,
+      .physically_acknowledged = physically_acknowledged,
+  };
+  ++s_pending_frame_count;
+  return S_SUCCESS;
+}
+
 static status_t prv_wait_for_event_response_ack(void) {
+  for (uint8_t offset = 0; offset < s_pending_frame_count; ++offset) {
+    const uint8_t index =
+        (uint8_t)((s_pending_frame_head + offset) % T5AI_HCI_PENDING_FRAME_CAPACITY);
+    if (prv_is_transport_ack(&s_pending_frames[index].frame, &s_event_response.data)) {
+      for (; offset + 1u < s_pending_frame_count; ++offset) {
+        const uint8_t to =
+            (uint8_t)((s_pending_frame_head + offset) % T5AI_HCI_PENDING_FRAME_CAPACITY);
+        const uint8_t from =
+            (uint8_t)((s_pending_frame_head + offset + 1u) % T5AI_HCI_PENDING_FRAME_CAPACITY);
+        s_pending_frames[to] = s_pending_frames[from];
+      }
+      --s_pending_frame_count;
+      s_event_response_transport_ack = false;
+      break;
+    }
+  }
   while (s_event_response_transport_ack) {
     T5AIMIPCFrame received;
-    status_t status = prv_read_frame(&received, true);
+    status_t status = prv_read_mailbox_frame(&received, true);
     if (FAILED(status)) {
       return status;
     }
@@ -169,9 +218,10 @@ static status_t prv_wait_for_event_response_ack(void) {
     if (prv_is_transport_ack(&received, &s_event_response.data)) {
       s_event_response_transport_ack = false;
     } else {
-      s_pending_frame = received;
-      s_pending_frame_valid = true;
-      return E_BUSY;
+      status = prv_queue_pending_frame(&received, true);
+      if (FAILED(status)) {
+        return status;
+      }
     }
   }
   return S_SUCCESS;
@@ -181,12 +231,17 @@ static void prv_route_frame(uint8_t logical_channel, const T5AICPMailboxFrame *f
                             void *context) {
   (void)logical_channel;
   (void)context;
-  if (s_pending_frame_valid || frame->length != sizeof(s_pending_frame)) {
+  if (frame->length != sizeof(T5AIMIPCFrame) ||
+      s_pending_frame_count == T5AI_HCI_PENDING_FRAME_CAPACITY) {
     return;
   }
-  dcache_invalidate((void *)frame->address, sizeof(s_pending_frame));
-  memcpy(&s_pending_frame, (const void *)frame->address, sizeof(s_pending_frame));
-  s_pending_frame_valid = true;
+  T5AIMIPCFrame pending;
+  dcache_invalidate((void *)frame->address, sizeof(pending));
+  memcpy(&pending, (const void *)frame->address, sizeof(pending));
+  if ((pending.header & (0xfu << 12)) == 0u && FAILED(prv_physical_ack(&pending))) {
+    return;
+  }
+  (void)prv_queue_pending_frame(&pending, true);
 }
 
 static status_t prv_decode_remote(T5AIMIPCFrame *frame, T5AIMIPCData **remote_data,
@@ -276,16 +331,19 @@ static status_t prv_exchange(uint8_t subtype, const void *payload, size_t length
   bool matched = false;
   while (!s_request_transport_ack || !matched) {
     T5AIMIPCFrame received;
-    status = prv_read_frame(&received, true);
+    bool physically_acknowledged;
+    status = prv_read_frame(&received, &physically_acknowledged, true);
     if (FAILED(status)) {
       return status;
     }
     if ((received.header & (0xfu << 12)) != 0) {
       continue;
     }
-    status = prv_physical_ack(&received);
-    if (FAILED(status)) {
-      return status;
+    if (!physically_acknowledged) {
+      status = prv_physical_ack(&received);
+      if (FAILED(status)) {
+        return status;
+      }
     }
     const uint8_t command = (uint8_t)received.header;
     if (prv_is_transport_ack(&received, &s_request.data)) {
@@ -317,7 +375,8 @@ int t5ai_hci_ipc_start(const T5AIHCICallbacks *callbacks) {
     return E_INVALID_ARGUMENT;
   }
   s_callbacks = *callbacks;
-  s_pending_frame_valid = false;
+  s_pending_frame_head = 0u;
+  s_pending_frame_count = 0u;
   s_event_response_transport_ack = false;
   status_t status = t5ai_cp_mailbox_register(T5AI_MIPC_RX_LOGICAL_CHANNEL, prv_route_frame, NULL);
   if (FAILED(status)) {
@@ -342,7 +401,8 @@ int t5ai_hci_ipc_stop(void) {
   }
   status_t status = prv_locked_exchange(T5AI_HCI_DEINIT, NULL, 0);
   s_started = false;
-  s_pending_frame_valid = false;
+  s_pending_frame_head = 0u;
+  s_pending_frame_count = 0u;
   s_event_response_transport_ack = false;
   t5ai_cp_mailbox_unregister(T5AI_MIPC_RX_LOGICAL_CHANNEL);
   memset(&s_callbacks, 0, sizeof(s_callbacks));
@@ -364,8 +424,12 @@ void t5ai_hci_ipc_poll(void) {
     return;
   }
   T5AIMIPCFrame received;
-  if (PASSED(prv_read_frame(&received, false)) && (received.header & (0xfu << 12)) == 0) {
-    (void)prv_physical_ack(&received);
+  bool physically_acknowledged;
+  if (PASSED(prv_read_frame(&received, &physically_acknowledged, false)) &&
+      (received.header & (0xfu << 12)) == 0) {
+    if (!physically_acknowledged) {
+      (void)prv_physical_ack(&received);
+    }
     if (prv_is_transport_ack(&received, &s_event_response.data)) {
       s_event_response_transport_ack = false;
     } else if ((uint8_t)received.header ==

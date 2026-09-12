@@ -638,6 +638,29 @@ class GetafixBoardsTest(unittest.TestCase):
         ).read_text()
         self.assertNotIn("vTaskDelay(pdMS_TO_TICKS(100))", transport)
 
+    def test_dvt3_uses_normal_bluetooth_control_with_fail_closed_storage(self):
+        main = (ROOT / "src/fw/main.c").read_text()
+        self.assertIn("static void prv_t5ai_bluetooth_init(void)", main)
+        self.assertIn("bt_persistent_storage_init();", main)
+        self.assertIn("bt_ctl_init();", main)
+        self.assertIn("bt_ctl_set_enabled(true);", main)
+        self.assertNotIn("prv_t5ai_nimble_probe_start", main)
+        self.assertNotIn("ble_gap_adv_start(", main)
+
+        build = (
+            ROOT / "src/fw/services/bluetooth/wscript_build"
+        ).read_text()
+        self.assertIn("if bld.env.CONFIG_SOC_T5AI:", build)
+        self.assertIn(
+            "sources.append('bluetooth_persistent_storage_t5ai.c')", build
+        )
+
+        shared_prf = (
+            ROOT / "src/fw/services/shared_prf_storage/shared_prf_storage.c"
+        ).read_text()
+        self.assertIn("#ifdef CONFIG_SOC_T5AI", shared_prf)
+        self.assertIn("#ifndef CONFIG_SOC_T5AI", shared_prf)
+
         board_source = (ROOT / "src/fw/board/boards/board_t5ai.c").read_text()
         self.assertIn("T5AI_GPIO_BASE + 19u * sizeof(uint32_t)", board_source)
         self.assertIn(

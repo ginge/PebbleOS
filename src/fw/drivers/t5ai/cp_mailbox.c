@@ -93,6 +93,9 @@ static uint8_t s_transport_frame_index;
 static uint8_t s_logical_ack_index;
 static uint64_t s_last_heartbeat;
 static volatile bool s_rx_interrupt_work_pending;
+static bool s_tx_pending;
+
+static status_t prv_wait_for_tx_complete(void);
 
 static uint64_t prv_ticks(void) {
   uint32_t high_before;
@@ -167,8 +170,14 @@ void t5ai_cp_mailbox_unlock(void) {
 }
 
 static status_t prv_send(const void *data, size_t length, bool wait_for_space) {
-  if (data == NULL || length == 0 || length > T5AI_MBOX_TRANSPORT_FRAME_SIZE) {
+  if (data == NULL || length < sizeof(uint32_t) || length > T5AI_MBOX_TRANSPORT_FRAME_SIZE) {
     return E_INVALID_ARGUMENT;
+  }
+  uint32_t header;
+  memcpy(&header, data, sizeof(header));
+  const bool transport_ack = (header & T5AI_CP_HEADER_ACK) != 0u;
+  if (!transport_ack && FAILED(prv_wait_for_tx_complete())) {
+    return E_AGAIN;
   }
   const uint64_t start = prv_ticks();
   while ((T5AI_MBOX_CH0_FIFO_STATUS & T5AI_MBOX_FIFO_FULL) != 0) {
@@ -187,7 +196,12 @@ static status_t prv_send(const void *data, size_t length, bool wait_for_space) {
   dcache_flush(frame, T5AI_MBOX_TRANSPORT_FRAME_SIZE);
   T5AI_MBOX_CH1_TX_DATA0 = (uint32_t)(uintptr_t)frame;
   T5AI_MBOX_CH1_TX_DATA1 = (uint32_t)length;
+  __DSB();
+  if (!transport_ack) {
+    s_tx_pending = true;
+  }
   T5AI_MBOX_CH1_TX_ID = T5AI_MBOX_CPU_CP;
+  __DSB();
   return S_SUCCESS;
 }
 
@@ -226,6 +240,33 @@ static bool prv_frame_is_transport_ack(const T5AICPMailboxFrame *frame) {
   dcache_invalidate((void *)frame->address, sizeof(header));
   memcpy(&header, (const void *)frame->address, sizeof(header));
   return (header & T5AI_CP_HEADER_ACK) != 0u;
+}
+
+static status_t prv_wait_for_tx_complete(void) {
+  const uint64_t start = prv_ticks();
+  while (s_tx_pending) {
+    T5AICPMailboxFrame frame;
+    status_t status = prv_receive_physical(&frame, start);
+    if (FAILED(status)) {
+      return status;
+    }
+    if (prv_frame_is_transport_ack(&frame)) {
+      s_tx_pending = false;
+      continue;
+    }
+    uint8_t logical_channel;
+    if (FAILED(prv_frame_channel(&frame, &logical_channel))) {
+      return E_ERROR;
+    }
+    if (prv_dispatch(logical_channel, &frame)) {
+      continue;
+    }
+    status = prv_reject_unrouted(&frame);
+    if (FAILED(status)) {
+      return status;
+    }
+  }
+  return S_SUCCESS;
 }
 
 status_t t5ai_cp_mailbox_register(uint8_t logical_channel, T5AICPMailboxReceiveCallback callback,
@@ -287,7 +328,11 @@ static status_t prv_process_pending_locked(void) {
     if (FAILED(status)) {
       break;
     }
-    if (prv_frame_is_transport_ack(&frame) || prv_dispatch(logical_channel, &frame)) {
+    if (prv_frame_is_transport_ack(&frame)) {
+      s_tx_pending = false;
+      continue;
+    }
+    if (prv_dispatch(logical_channel, &frame)) {
       continue;
     }
     status = prv_reject_unrouted(&frame);
@@ -352,6 +397,9 @@ status_t t5ai_cp_mailbox_receive(uint8_t logical_channel, T5AICPMailboxFrame *fr
     if (FAILED(prv_frame_channel(frame, &received_channel))) {
       return E_ERROR;
     }
+    if (prv_frame_is_transport_ack(frame)) {
+      s_tx_pending = false;
+    }
     if (received_channel == logical_channel) {
       return S_SUCCESS;
     }
@@ -383,6 +431,9 @@ status_t t5ai_cp_mailbox_try_receive(uint8_t logical_channel, T5AICPMailboxFrame
     if (FAILED(prv_frame_channel(frame, &received_channel))) {
       return E_ERROR;
     }
+    if (prv_frame_is_transport_ack(frame)) {
+      s_tx_pending = false;
+    }
     if (received_channel == logical_channel) {
       return S_SUCCESS;
     }
@@ -410,6 +461,7 @@ void t5ai_cp_mailbox_discard_pending(void) {
     (void)T5AI_MBOX_CH1_RX_DATA0;
     (void)T5AI_MBOX_CH1_RX_DATA1;
   }
+  s_tx_pending = false;
 }
 
 static status_t prv_send_control_with_policy(uint8_t command, const void *buffer, size_t length,
@@ -448,6 +500,9 @@ static status_t prv_control_request(uint8_t command, const void *buffer, size_t 
     T5AICPControlMessage response;
     dcache_invalidate((void *)frame.address, sizeof(response));
     memcpy(&response, (const void *)frame.address, sizeof(response));
+    if (prv_is_transport_ack(&response)) {
+      s_tx_pending = false;
+    }
     if ((uint8_t)(response.header >> 24u) != T5AI_CP_CONTROL_CHANNEL) {
       if (prv_is_transport_ack(&response)) {
         continue;

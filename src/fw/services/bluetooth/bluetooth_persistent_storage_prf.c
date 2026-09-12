@@ -24,9 +24,7 @@
 
 PBL_LOG_MODULE_DECLARE(service_bluetooth, CONFIG_SERVICE_BLUETOOTH_LOG_LEVEL);
 
-
 //! This is just an interface for the shared PRF storage
-
 
 //! These don't matter at all
 #define BLE_BONDING_ID (0)
@@ -54,8 +52,7 @@ static BTBondingID prv_bt_persistent_storage_store_ble_pairing(
                  new_pairing_info->is_remote_encryption_info_valid,
                  new_pairing_info->is_local_encryption_info_valid);
     shared_prf_storage_store_ble_pairing_data(new_pairing_info, device_name,
-                                              requires_address_pinning,
-                                              flags);
+                                              requires_address_pinning, flags);
     prv_call_ble_bonding_change_handlers(BLE_BONDING_ID, op);
     return BLE_BONDING_ID;
   }
@@ -81,8 +78,7 @@ bool bt_persistent_storage_get_ble_pinned_address(BTDeviceAddress *address_out) 
 
 BTBondingID bt_persistent_storage_store_ble_pairing(const SMPairingInfo *new_pairing_info,
                                                     bool is_gateway, const char *device_name,
-                                                    bool requires_address_pinning,
-                                                    uint8_t flags) {
+                                                    bool requires_address_pinning, uint8_t flags) {
   // We only have one slot in PRF and all pairing info (except the device
   // name) will arrive in one-shot so anytime this routine gets called it
   // means we have 'added' a new pairing
@@ -105,9 +101,8 @@ BTBondingID bt_persistent_storage_store_ble_pairing(const SMPairingInfo *new_pai
 
   BtPersistBondingOp pairing_op =
       is_updating_existing ? BtPersistBondingOpDidChange : BtPersistBondingOpDidAdd;
-  return (prv_bt_persistent_storage_store_ble_pairing(new_pairing_info, is_gateway,
-                                               requires_address_pinning,
-                                               flags, device_name, pairing_op));
+  return (prv_bt_persistent_storage_store_ble_pairing(
+      new_pairing_info, is_gateway, requires_address_pinning, flags, device_name, pairing_op));
 }
 
 bool bt_persistent_storage_update_ble_device_name(BTBondingID bonding, const char *device_name) {
@@ -129,10 +124,9 @@ bool bt_persistent_storage_update_ble_device_name(BTBondingID bonding, const cha
     return true;
   }
   // In PRF, only the gateway should get paired, so default to "true":
-  return (BT_BONDING_ID_INVALID !=
-          prv_bt_persistent_storage_store_ble_pairing(&data, true /* is_gateway */,
-                                                      requires_address_pinning, flags,
-                                                      device_name, BtPersistBondingOpDidChange));
+  return (BT_BONDING_ID_INVALID != prv_bt_persistent_storage_store_ble_pairing(
+                                       &data, true /* is_gateway */, requires_address_pinning,
+                                       flags, device_name, BtPersistBondingOpDidChange));
 }
 
 static void prv_remove_ble_bonding_from_bt_driver(void) {
@@ -140,7 +134,7 @@ static void prv_remove_ble_bonding_from_bt_driver(void) {
     return;
   }
   BleBonding bonding = {
-    .is_gateway = true,
+      .is_gateway = true,
   };
   if (!shared_prf_storage_get_ble_pairing_data(&bonding.pairing_info, NULL, NULL, NULL)) {
     return;
@@ -160,9 +154,8 @@ void bt_persistent_storage_delete_ble_pairing_by_addr(const BTDeviceInternal *de
 }
 
 bool bt_persistent_storage_get_ble_pairing_by_id(BTBondingID bonding,
-                                          SMIdentityResolvingKey *IRK_out,
-                                          BTDeviceInternal *device_out,
-                                          char *name_out) {
+                                                 SMIdentityResolvingKey *IRK_out,
+                                                 BTDeviceInternal *device_out, char *name_out) {
   SMPairingInfo data;
   char name[BT_DEVICE_NAME_BUFFER_SIZE];
   if (!shared_prf_storage_get_ble_pairing_data(&data, name, NULL, NULL)) {
@@ -184,15 +177,14 @@ bool bt_persistent_storage_get_ble_pairing_by_id(BTBondingID bonding,
 }
 
 bool bt_persistent_storage_get_ble_pairing_by_addr(const BTDeviceInternal *device,
-                                                 SMIdentityResolvingKey *IRK_out,
-                                                 char name[BT_DEVICE_NAME_BUFFER_SIZE]) {
+                                                   SMIdentityResolvingKey *IRK_out,
+                                                   char name[BT_DEVICE_NAME_BUFFER_SIZE]) {
   BTDeviceInternal device_out = {};
   bool rv = bt_persistent_storage_get_ble_pairing_by_id(BLE_BONDING_ID, IRK_out, &device_out, name);
   return (rv && bt_device_equal(&device->opaque, &device_out.opaque));
 }
 
-void bt_persistent_storage_set_active_ble_gateway(BTBondingID bonding) {
-}
+void bt_persistent_storage_set_active_ble_gateway(BTBondingID bonding) {}
 
 BTBondingID bt_persistent_storage_get_ble_ancs_bonding(void) {
   return BLE_BONDING_ID;
@@ -272,25 +264,29 @@ void bt_persistent_storage_set_local_device_name(char *local_device_name, size_t
   shared_prf_storage_set_local_device_name(local_device_name);
 }
 
+bool bt_persistent_storage_get_airplane_mode_enabled(void) {
+  return false;
+}
+
+void bt_persistent_storage_set_airplane_mode_enabled(bool enabled) {
+  (void)enabled;
+}
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //! Remote Device Info
 
 void bt_persistent_storage_get_cached_system_capabilities(
-    PebbleProtocolCapabilities *capabilities_out) {
-}
+    PebbleProtocolCapabilities *capabilities_out) {}
 
 void bt_persistent_storage_set_cached_system_capabilities(
-    const PebbleProtocolCapabilities *capabilities) {
-}
+    const PebbleProtocolCapabilities *capabilities) {}
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //! Common
 
-void bt_persistent_storage_init(void) {
-}
+void bt_persistent_storage_init(void) {}
 
-void bt_persistent_storage_delete_all(void) {
-}
+void bt_persistent_storage_delete_all(void) {}
 
 void bt_persistent_storage_delete_all_pairings(void) {
   bt_persistent_storage_delete_ble_pairing_by_id(BLE_BONDING_ID);

@@ -24,8 +24,7 @@ static FlashAddress s_protected_end;
 
 static bool prv_range_valid(FlashAddress address, size_t length) {
   const uint32_t offset = address - FLASH_REGION_BASE_ADDRESS;
-  return address >= FLASH_REGION_BASE_ADDRESS && length > 0 &&
-         length <= BOARD_NOR_FLASH_SIZE &&
+  return address >= FLASH_REGION_BASE_ADDRESS && length > 0 && length <= BOARD_NOR_FLASH_SIZE &&
          offset <= BOARD_NOR_FLASH_SIZE - length;
 }
 
@@ -35,8 +34,7 @@ static status_t prv_write_allowed(FlashAddress address, size_t length) {
   }
 
   const FlashAddress end = address + length - 1;
-  if (address < FLASH_REGION_FILESYSTEM_BEGIN ||
-      end >= FLASH_REGION_FILESYSTEM_END) {
+  if (address < FLASH_REGION_FILESYSTEM_BEGIN || end >= FLASH_REGION_FILESYSTEM_END) {
     return E_INVALID_OPERATION;
   }
   if (s_protected && address <= s_protected_end && end >= s_protected_start) {
@@ -74,9 +72,8 @@ status_t flash_impl_read_sync(void *buffer, FlashAddress address, size_t length)
 
   uint8_t *output = buffer;
   while (length != 0) {
-    const size_t chunk = length > T5AI_FLASH_IPC_MAX_TRANSFER
-                             ? T5AI_FLASH_IPC_MAX_TRANSFER
-                             : length;
+    const size_t chunk =
+        length > T5AI_FLASH_IPC_MAX_TRANSFER ? T5AI_FLASH_IPC_MAX_TRANSFER : length;
     const status_t status = t5ai_flash_ipc_read(prv_offset(address), output, chunk);
     if (FAILED(status)) {
       return status;
@@ -88,14 +85,12 @@ status_t flash_impl_read_sync(void *buffer, FlashAddress address, size_t length)
   return S_SUCCESS;
 }
 
-int flash_impl_write_page_begin(const void *buffer, FlashAddress address,
-                                size_t length) {
+int flash_impl_write_page_begin(const void *buffer, FlashAddress address, size_t length) {
   if (buffer == NULL || s_operation != T5AI_FLASH_IDLE) {
     return E_BUSY;
   }
 
-  const size_t page_remaining =
-      PAGE_SIZE_BYTES - (address & (PAGE_SIZE_BYTES - 1u));
+  const size_t page_remaining = PAGE_SIZE_BYTES - (address & (PAGE_SIZE_BYTES - 1u));
   const size_t written = length < page_remaining ? length : page_remaining;
   status_t status = prv_write_allowed(address, written);
   if (FAILED(status)) {
@@ -136,8 +131,7 @@ static status_t prv_erase(FlashAddress address, size_t length) {
 }
 
 status_t flash_impl_erase_subsector_begin(FlashAddress address) {
-  return prv_erase(flash_impl_get_subsector_base_address(address),
-                   SUBSECTOR_SIZE_BYTES);
+  return prv_erase(flash_impl_get_subsector_base_address(address), SUBSECTOR_SIZE_BYTES);
 }
 
 status_t flash_impl_erase_sector_begin(FlashAddress address) {
@@ -172,8 +166,7 @@ static status_t prv_blank_check(FlashAddress address, size_t length) {
 }
 
 status_t flash_impl_blank_check_subsector(FlashAddress address) {
-  return prv_blank_check(flash_impl_get_subsector_base_address(address),
-                         SUBSECTOR_SIZE_BYTES);
+  return prv_blank_check(flash_impl_get_subsector_base_address(address), SUBSECTOR_SIZE_BYTES);
 }
 
 status_t flash_impl_blank_check_sector(FlashAddress address) {
@@ -236,8 +229,7 @@ status_t flash_impl_read_security_register(uint32_t address, uint8_t *value) {
   return E_INVALID_OPERATION;
 }
 
-status_t flash_impl_security_register_is_locked(uint32_t address,
-                                                bool *locked) {
+status_t flash_impl_security_register_is_locked(uint32_t address, bool *locked) {
   (void)address;
   (void)locked;
   return E_INVALID_OPERATION;
