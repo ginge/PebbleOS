@@ -12,9 +12,16 @@ MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
 
 from tools.t5ai_image import (
-    PEBBLE_FILESYSTEM_LOGICAL_OFFSET,
+    PEBBLE_AP_PHYSICAL_OFFSET,
+    PEBBLE_FILESYSTEM_PHYSICAL_OFFSET,
     PEBBLE_FILESYSTEM_SIZE,
-    PEBBLE_RESOURCES_LOGICAL_OFFSET,
+    PEBBLE_EXPERIMENTAL_SLOT_SIZE,
+    PEBBLE_RESOURCES_PHYSICAL_OFFSET,
+    PFS_ERASED_PAGE_FLAGS,
+    PFS_INITIAL_ERASE_COUNT,
+    PFS_PAGE_SIZE,
+    PFS_VERSION,
+    build_empty_pfs,
     build_pebble_flash_image,
     verify_protected_blocks,
 )
@@ -80,27 +87,39 @@ FLASH            0x02120000         0x000f0000         xr
         self.assertTrue(any("stack/heap" in error for error in errors))
         self.assertTrue(any("vendor/reference" in error for error in errors))
 
-    def test_flash_image_contains_firmware_resources_and_clean_pfs(self):
+    def test_flash_image_contains_firmware_resources_and_formatted_pfs(self):
         firmware = b"firmware"
         resources = b"resources"
         protected = build_pebble_flash_image(firmware, resources)
-        logical = verify_protected_blocks(protected)
+        protected_firmware_size = PEBBLE_EXPERIMENTAL_SLOT_SIZE * 34 // 32
+        logical = verify_protected_blocks(protected[:protected_firmware_size])
 
         self.assertEqual(logical[: len(firmware)], firmware)
-        resource_start = PEBBLE_RESOURCES_LOGICAL_OFFSET
+        resource_start = PEBBLE_RESOURCES_PHYSICAL_OFFSET - PEBBLE_AP_PHYSICAL_OFFSET
         self.assertEqual(
-            logical[resource_start : resource_start + len(resources)], resources
+            protected[resource_start : resource_start + len(resources)], resources
         )
-        filesystem_start = PEBBLE_FILESYSTEM_LOGICAL_OFFSET
-        self.assertEqual(
-            logical[filesystem_start : filesystem_start + PEBBLE_FILESYSTEM_SIZE],
-            b"\xff" * PEBBLE_FILESYSTEM_SIZE,
+        filesystem_start = (
+            PEBBLE_FILESYSTEM_PHYSICAL_OFFSET - PEBBLE_AP_PHYSICAL_OFFSET
         )
+        self.assertEqual(protected[filesystem_start:], build_empty_pfs())
+
+        pfs = protected[filesystem_start:]
+        expected_prefix = (
+            PFS_VERSION.to_bytes(2, "little")
+            + b"\xff"
+            + bytes([PFS_ERASED_PAGE_FLAGS])
+            + b"\xff" * 4
+            + PFS_INITIAL_ERASE_COUNT.to_bytes(4, "little")
+        )
+        self.assertEqual(pfs[: len(expected_prefix)], expected_prefix)
+        self.assertEqual(pfs[PFS_PAGE_SIZE : PFS_PAGE_SIZE + len(expected_prefix)], expected_prefix)
+        self.assertEqual(pfs[len(expected_prefix) : PFS_PAGE_SIZE], b"\xff" * (PFS_PAGE_SIZE - len(expected_prefix)))
 
     def test_flash_image_rejects_region_overflow(self):
         with self.assertRaises(ValueError):
             build_pebble_flash_image(
-                b"x" * (PEBBLE_RESOURCES_LOGICAL_OFFSET + 1), b""
+                b"x" * (PEBBLE_EXPERIMENTAL_SLOT_SIZE + 1), b""
             )
         with self.assertRaises(ValueError):
             build_pebble_flash_image(b"", b"x" * (0x100000 + 1))

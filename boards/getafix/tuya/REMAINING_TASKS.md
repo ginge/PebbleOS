@@ -1670,7 +1670,7 @@ Verify all pins from the schematic/BSP before hardware testing.
   diagnostic are proven. Two matching full-flash backups exist, but complete
   factory restoration has not needed to be exercised.
 - DVT3 uses a flash-only `tyutool` runner. It creates one exact-range protected
-  AP image containing firmware, the system-resource pack, and an erased PFS;
+  AP image containing firmware, the system-resource pack, and a preformatted PFS;
   the bootloader and CP partitions are not included. Reset, run, erase,
   debug-server, direct resource imaging, and recovery imaging remain gated.
 - The firmware-side boundary also fails closed on T5AI. Firmware-update start
@@ -1797,7 +1797,7 @@ Verify all pins from the schematic/BSP before hardware testing.
   drivers as further changes are made.
 - T5AI host packaging enforces a 1 MiB logical system-resource pack ceiling;
   the current 1,026,537-byte pack fits narrowly. The flash-only runner installs
-  it into the single `0x02210000..0x02310000` resource bank. Runtime resource
+  it into the single raw `0x00231000..0x00331000` resource bank. Runtime resource
   updates remain disabled; there is no redundant bank.
 - The mandatory T5AI pre-objcopy map gate now verifies the exact FLASH, kernel,
   worker, app, and display-memory regions; the 0x140-byte vector table at slot

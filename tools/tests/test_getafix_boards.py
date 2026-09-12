@@ -103,6 +103,13 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertIn("pfs_init(true);", early_init)
         self.assertNotIn("CONFIG_SOC_T5AI", early_init)
 
+        main = (ROOT / "src/fw/main.c").read_text()
+        flash_init = main.index("  flash_init();")
+        flash_ready_wait = main.rindex(
+            "vTaskDelay(pdMS_TO_TICKS(2000));", 0, flash_init
+        )
+        self.assertLess(flash_ready_wait, flash_init)
+
     def test_dvt3_raw_flash_console_paths_are_not_linked(self):
         console_build = (ROOT / "src/fw/console/wscript_build").read_text()
         self.assertIn("if bld.env.CONFIG_SOC_T5AI:", console_build)

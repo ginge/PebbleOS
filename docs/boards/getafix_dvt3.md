@@ -91,13 +91,16 @@ payload. It is not a complete QIO, UA, UG, factory, recovery, or OTA image.
 
 The pinned partition places the AP at physical flash offset `0x132000`, mapped
 to logical XIP address `0x02120000`. Pebble links into a `0xf0000`-byte
-firmware region followed by a 1 MiB system-resource bank and 1 MiB PFS.
+protected firmware region. The flash service accesses the 1 MiB system-resource
+bank at physical `0x231000` and the 1 MiB PFS at physical `0x340000` as raw
+data partitions.
 
 For an already-backed-up lab board, `pbl flash` builds an exact-range protected
 AP image containing firmware, system resources (including stored base apps),
-and a clean PFS region. On first boot, Pebble formats that erased region before
-normal resource and launcher startup. The factory bootloader and CP partitions
-remain untouched:
+and a preformatted empty PFS region. The host image writes the same active-low
+page headers as `pfs_format(true)`, so filesystem provisioning is deterministic
+before normal resource and launcher startup. The factory bootloader and CP
+partitions remain untouched:
 
 ```sh
 python pbl flash \

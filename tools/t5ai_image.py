@@ -42,10 +42,15 @@ PEBBLE_EXPERIMENTAL_SLOT_PHYSICAL_SIZE = (
     PEBBLE_EXPERIMENTAL_SLOT_SIZE * PHYSICAL_BLOCK_SIZE // LOGICAL_BLOCK_SIZE
 )
 
-PEBBLE_RESOURCES_LOGICAL_OFFSET = 0x000F0000
+PEBBLE_AP_PHYSICAL_OFFSET = PRIMARY_AP_APP_PHYSICAL_OFFSET
+PEBBLE_RESOURCES_PHYSICAL_OFFSET = 0x00231000
 PEBBLE_RESOURCES_SIZE = 0x00100000
-PEBBLE_FILESYSTEM_LOGICAL_OFFSET = 0x001F0000
+PEBBLE_FILESYSTEM_PHYSICAL_OFFSET = 0x00340000
 PEBBLE_FILESYSTEM_SIZE = 0x00100000
+PFS_PAGE_SIZE = 0x1000
+PFS_VERSION = 0x5001
+PFS_ERASED_PAGE_FLAGS = 0xFE
+PFS_INITIAL_ERASE_COUNT = 1
 
 
 def crc16(block: bytes) -> int:
@@ -80,19 +85,51 @@ def encode_pebble_application(data: bytes) -> bytes:
     return encode_protected_blocks(data)
 
 
+def build_empty_pfs() -> bytes:
+    """Build the empty PFS state produced by ``pfs_format(true)``.
+
+    PFS uses active-low page flags. Formatting an erased filesystem writes the
+    version, erased-page flag, and initial erase count at the start of every
+    4 KiB page; all other bytes remain erased.
+    """
+    if PEBBLE_FILESYSTEM_SIZE % PFS_PAGE_SIZE:
+        raise ValueError("T5AI PFS size is not page aligned")
+
+    filesystem = bytearray([PADDING_BYTE]) * PEBBLE_FILESYSTEM_SIZE
+    erased_header = (
+        PFS_VERSION.to_bytes(2, "little")
+        + bytes([PADDING_BYTE, PFS_ERASED_PAGE_FLAGS])
+        + bytes([PADDING_BYTE]) * 4
+        + PFS_INITIAL_ERASE_COUNT.to_bytes(4, "little")
+    )
+    for offset in range(0, PEBBLE_FILESYSTEM_SIZE, PFS_PAGE_SIZE):
+        filesystem[offset : offset + len(erased_header)] = erased_header
+    return bytes(filesystem)
+
+
 def build_pebble_flash_image(firmware: bytes, resources: bytes) -> bytes:
-    """Build an exact-range AP image with resources and a clean PFS."""
-    if len(firmware) > PEBBLE_RESOURCES_LOGICAL_OFFSET:
+    """Build an exact-range AP image with resources and formatted empty PFS."""
+    if len(firmware) > PEBBLE_EXPERIMENTAL_SLOT_SIZE:
         raise ValueError("Pebble firmware overlaps the T5AI system resource bank")
     if len(resources) > PEBBLE_RESOURCES_SIZE:
         raise ValueError("Pebble system resources exceed the T5AI resource bank")
 
-    logical_size = PEBBLE_FILESYSTEM_LOGICAL_OFFSET + PEBBLE_FILESYSTEM_SIZE
-    image = bytearray([PADDING_BYTE]) * logical_size
-    image[: len(firmware)] = firmware
-    start = PEBBLE_RESOURCES_LOGICAL_OFFSET
-    image[start : start + len(resources)] = resources
-    return encode_protected_blocks(image)
+    firmware_region = bytearray([PADDING_BYTE]) * PEBBLE_EXPERIMENTAL_SLOT_SIZE
+    firmware_region[: len(firmware)] = firmware
+    protected_firmware = encode_protected_blocks(firmware_region)
+
+    image_size = (
+        PEBBLE_FILESYSTEM_PHYSICAL_OFFSET
+        + PEBBLE_FILESYSTEM_SIZE
+        - PEBBLE_AP_PHYSICAL_OFFSET
+    )
+    image = bytearray([PADDING_BYTE]) * image_size
+    image[: len(protected_firmware)] = protected_firmware
+    resource_start = PEBBLE_RESOURCES_PHYSICAL_OFFSET - PEBBLE_AP_PHYSICAL_OFFSET
+    image[resource_start : resource_start + len(resources)] = resources
+    filesystem_start = PEBBLE_FILESYSTEM_PHYSICAL_OFFSET - PEBBLE_AP_PHYSICAL_OFFSET
+    image[filesystem_start : filesystem_start + PEBBLE_FILESYSTEM_SIZE] = build_empty_pfs()
+    return bytes(image)
 
 
 def validate_pinned_ap_layout() -> None:
