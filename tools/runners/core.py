@@ -50,6 +50,7 @@ class RunnerConfig(NamedTuple):
     hex_file: str | None = None
     elf_file: str | None = None
     resources_file: str | None = None
+    bin_file: str | None = None
     dry_run: bool = False
 
 

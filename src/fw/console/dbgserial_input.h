@@ -32,6 +32,9 @@ typedef enum {
   DbgSerialMailboxProbe_ButtonUp,
   DbgSerialMailboxProbe_ButtonSelect,
   DbgSerialMailboxProbe_ButtonDown,
+  DbgSerialMailboxProbe_Touch,
+  DbgSerialMailboxProbe_TouchNav,
+  DbgSerialMailboxProbe_SwipeUp,
 } DbgSerialMailboxProbe;
 
 //! Consume a completed safe CP-to-AP mailbox probe. This deliberately does not expose the

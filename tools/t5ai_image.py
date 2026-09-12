@@ -37,10 +37,15 @@ PRIMARY_AP_APP_XIP_BASE = T5AI_XIP_BASE + PRIMARY_AP_APP_LOGICAL_OFFSET
 
 # Pebble intentionally links only the first part of the factory AP partition.
 # This is not a second factory/OTA partition and must not be packaged as one.
-PEBBLE_EXPERIMENTAL_SLOT_SIZE = 0x001F0000
+PEBBLE_EXPERIMENTAL_SLOT_SIZE = 0x000F0000
 PEBBLE_EXPERIMENTAL_SLOT_PHYSICAL_SIZE = (
     PEBBLE_EXPERIMENTAL_SLOT_SIZE * PHYSICAL_BLOCK_SIZE // LOGICAL_BLOCK_SIZE
 )
+
+PEBBLE_RESOURCES_LOGICAL_OFFSET = 0x000F0000
+PEBBLE_RESOURCES_SIZE = 0x00100000
+PEBBLE_FILESYSTEM_LOGICAL_OFFSET = 0x001F0000
+PEBBLE_FILESYSTEM_SIZE = 0x00100000
 
 
 def crc16(block: bytes) -> int:
@@ -73,6 +78,21 @@ def encode_pebble_application(data: bytes) -> bytes:
             f"{len(data)} > {PEBBLE_EXPERIMENTAL_SLOT_SIZE} bytes"
         )
     return encode_protected_blocks(data)
+
+
+def build_pebble_flash_image(firmware: bytes, resources: bytes) -> bytes:
+    """Build an exact-range AP image with resources and a clean PFS."""
+    if len(firmware) > PEBBLE_RESOURCES_LOGICAL_OFFSET:
+        raise ValueError("Pebble firmware overlaps the T5AI system resource bank")
+    if len(resources) > PEBBLE_RESOURCES_SIZE:
+        raise ValueError("Pebble system resources exceed the T5AI resource bank")
+
+    logical_size = PEBBLE_FILESYSTEM_LOGICAL_OFFSET + PEBBLE_FILESYSTEM_SIZE
+    image = bytearray([PADDING_BYTE]) * logical_size
+    image[: len(firmware)] = firmware
+    start = PEBBLE_RESOURCES_LOGICAL_OFFSET
+    image[start : start + len(resources)] = resources
+    return encode_protected_blocks(image)
 
 
 def validate_pinned_ap_layout() -> None:

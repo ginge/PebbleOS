@@ -65,6 +65,41 @@ static void prv_start_address(T5AII2CRegisters *regs, uint16_t address, bool rea
   prv_write_status(regs, T5AI_I2C_STATUS_START);
 }
 
+static uint32_t prv_read_interrupt_mode(uint32_t remaining) {
+  if (remaining > 12u) {
+    return 0u << 6;  // Interrupt when 12 receive-FIFO bytes are available.
+  }
+  if (remaining > 8u) {
+    return 1u << 6;  // Interrupt when 8 receive-FIFO bytes are available.
+  }
+  if (remaining > 4u) {
+    return 2u << 6;  // Interrupt when 4 receive-FIFO bytes are available.
+  }
+  return 3u << 6;  // Interrupt for each remaining byte.
+}
+
+static uint32_t prv_read_fifo_count(uint32_t status) {
+  switch ((status & T5AI_I2C_STATUS_INT_MODE_MASK) >> 6) {
+    case 0u: return 12u;
+    case 1u: return 8u;
+    case 2u: return 4u;
+    default: return 1u;
+  }
+}
+
+static uint32_t prv_write_interrupt_mode(uint32_t size) {
+  return size < 4u ? 0u << 6 : 1u << 6;
+}
+
+static uint32_t prv_write_fifo_space(uint32_t status) {
+  switch ((status & T5AI_I2C_STATUS_INT_MODE_MASK) >> 6) {
+    case 0u: return 16u;
+    case 1u: return 12u;
+    case 2u: return 8u;
+    default: return 4u;
+  }
+}
+
 static void prv_configure_pin(uint8_t pin) {
   volatile uint32_t *gpio = (volatile uint32_t *)0x44000400u;
   const uint32_t pull_up = (1u << 4) | (1u << 5);
@@ -184,7 +219,10 @@ void i2c_hal_start_transfer(I2CBus *bus) {
     transfer->state = transfer->type == I2CTransferType_SendRegisterAddress
                           ? I2CTransferState_WriteRegAddress
                           : I2CTransferState_WriteData;
-    prv_start_address(prv_regs(bus), transfer->device_address, false);
+    T5AII2CRegisters *regs = prv_regs(bus);
+    regs->data = (uint32_t)transfer->device_address << 1;
+    prv_write_status(regs, T5AI_I2C_STATUS_START |
+                               prv_write_interrupt_mode(transfer->size));
   }
 }
 
@@ -225,21 +263,41 @@ void i2c_irq_handler(I2CBus *bus) {
         prv_stop(regs);
         prv_complete(bus, I2CTransferEvent_TransferComplete);
       } else {
-        regs->data = transfer->data[transfer->idx++];
-        prv_write_status(regs, 0u);
+        uint32_t space = prv_write_fifo_space(status);
+        const uint32_t remaining = transfer->size - transfer->idx;
+        if (space > remaining) {
+          space = remaining;
+        }
+        for (uint32_t i = 0; i < space; ++i) {
+          regs->data = transfer->data[transfer->idx++];
+        }
+        const uint32_t mode =
+            (transfer->size - transfer->idx) < prv_write_fifo_space(status)
+                ? prv_write_interrupt_mode(transfer->size - transfer->idx)
+                : (status & T5AI_I2C_STATUS_INT_MODE_MASK);
+        prv_write_status(regs, mode);
       }
       break;
     case I2CTransferState_ReadData:
       if ((status & T5AI_I2C_STATUS_START) != 0u) {
-        prv_write_status(regs, T5AI_I2C_STATUS_ACK | T5AI_I2C_STATUS_INT_MODE_MASK);
+        prv_write_status(regs, T5AI_I2C_STATUS_ACK |
+                                   prv_read_interrupt_mode(transfer->size - transfer->idx));
         break;
       }
-      transfer->data[transfer->idx++] = (uint8_t)regs->data;
+      uint32_t available = prv_read_fifo_count(status);
+      const uint32_t remaining = transfer->size - transfer->idx;
+      if (available > remaining) {
+        available = remaining;
+      }
+      for (uint32_t i = 0; i < available; ++i) {
+        transfer->data[transfer->idx++] = (uint8_t)regs->data;
+      }
       if (transfer->idx == transfer->size) {
         prv_stop(regs);
         prv_complete(bus, I2CTransferEvent_TransferComplete);
       } else {
-        prv_write_status(regs, T5AI_I2C_STATUS_ACK | T5AI_I2C_STATUS_INT_MODE_MASK);
+        prv_write_status(regs, T5AI_I2C_STATUS_ACK |
+                                   prv_read_interrupt_mode(transfer->size - transfer->idx));
       }
       break;
     default:

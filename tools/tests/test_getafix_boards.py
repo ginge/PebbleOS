@@ -52,21 +52,26 @@ class GetafixBoardsTest(unittest.TestCase):
                 self.assertEqual(board.revision, revision)
                 self.assertEqual(board.normalized, f"getafix_{revision}")
                 self.assertEqual(board.isolated_defconfig, revision == "dvt3")
-                expected_runners = [] if revision == "dvt3" else ["sftool"]
+                expected_runners = ["tyutool"] if revision == "dvt3" else ["sftool"]
                 self.assertEqual(board.runners, expected_runners)
-                self.assertEqual(board.allow_no_runner, revision == "dvt3")
+                self.assertFalse(board.allow_no_runner)
 
-    def test_dvt3_device_programming_is_fail_closed(self):
+    def test_dvt3_only_exposes_exact_range_flash_runner(self):
         dvt3 = parse_board(str(ROOT), "getafix@dvt3")
-        self.assertEqual(dvt3.runners, [])
+        self.assertEqual(dvt3.runners, ["tyutool"])
 
         cli = (ROOT / "pbl").read_text()
         self.assertIn("if env.CONFIG_SOC_T5AI:", cli)
         self.assertIn("no validated image container or recovery", cli)
-        self.assertIn('_reject_unvalidated_t5ai_operation(env, "flash")', cli)
+        self.assertIn('if command != "flash":', cli)
         self.assertIn(
             '_reject_unvalidated_t5ai_operation(env, "recovery imaging")', cli
         )
+
+        runner = (ROOT / "tools/runners/tyutool.py").read_text()
+        self.assertIn('commands={"flash"}', runner)
+        self.assertIn('start = 0x132000', runner)
+        self.assertNotIn('"erase"', runner)
 
     def test_dvt3_internal_update_paths_are_fail_closed(self):
         build_script = (ROOT / "wscript").read_text()
@@ -86,6 +91,17 @@ class GetafixBoardsTest(unittest.TestCase):
 
         prf_update = (ROOT / "src/fw/services/prf_update/service.c").read_text()
         self.assertIn("Ignoring unsupported T5AI recovery firmware update", prf_update)
+
+    def test_dvt3_initializes_the_provisioned_filesystem(self):
+        services = (
+            ROOT / "src/fw/services/services_normal/service.c"
+        ).read_text()
+        early_init = services[
+            services.index("void services_normal_early_init(void)") :
+            services.index("void services_normal_init(void)")
+        ]
+        self.assertIn("pfs_init(true);", early_init)
+        self.assertNotIn("CONFIG_SOC_T5AI", early_init)
 
     def test_dvt3_raw_flash_console_paths_are_not_linked(self):
         console_build = (ROOT / "src/fw/console/wscript_build").read_text()

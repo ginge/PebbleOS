@@ -10,6 +10,7 @@ from .core import (
 from .nrfutil import NrfUtilRunner
 from .openocd import OpenOcdRunner
 from .sftool import SfToolRunner
+from .tyutool import TyuToolRunner
 
 __all__ = [
     "RunnerCaps",
@@ -29,6 +30,7 @@ RUNNERS = {
         OpenOcdRunner,
         SfToolRunner,
         NrfUtilRunner,
+        TyuToolRunner,
     )
 }
 

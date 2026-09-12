@@ -6,10 +6,11 @@ T5-E1 Touch AMOLED 1.75 board. Continue in the only valid source checkout,
 `/home/baz/Documents/ChatGPT/pebble` is reference and artifact storage, not a
 PebbleOS source tree.
 
-## Current priority: recover the black panel before Bluetooth work
+## Current priority: stabilize physical touch navigation before Bluetooth resumes
 
-- Bluetooth validation is paused at the user's request. Do not resume it until
-  the panel produces visible output.
+- Bluetooth validation remains paused at the user's request. The panel and
+  launcher now produce visible output; finish physical touch-direction and
+  button interaction checks before asking to resume Bluetooth work.
 - The CP shell/runtime USART is `if02` (normally `ttyACM1`) at 460800 baud;
   `if00` (normally `ttyACM0`) is the programming/reset interface. Both are on
   the same USB-C dual-UART bridge and disappear when the board is unplugged.
@@ -595,8 +596,191 @@ PebbleOS source tree.
   `5011c77c55832312fdd95832c609e7d8b3ca4bf37e1679d62ee7bbdeb67c0d91`
   and occupies exactly `0x132000..0x1f51e4`; exact-range flashing and reboot
   succeeded. Hardware returned `PBLB3 result=0` without resetting, proving a
-  timed Down press was admitted to Pebble's real event queue. Visible launcher
-  movement is awaiting operator confirmation.
+  timed Down press was admitted to Pebble's real event queue. The operator
+  confirmed that the highlighted launcher row visibly moved down. This proves
+  end-to-end USART mailbox input, kernel event routing, app click recognition,
+  menu state change, compositor redraw, and panel delivery.
+- The physical control names are now cross-checked against the pinned Waveshare
+  board source: its `BOARD_BUTTON_PWR_PIN` is active-low GPIO18 and its ordinary
+  `BOARD_BUTTON_PIN` is active-low GPIO12. Pebble maps those to Back and Select,
+  respectively. Use a short press of the ordinary `KEY` button for Select; the
+  `PWR` button is Back and should not be held during routine UI testing.
+- A physical upward swipe produced no visible launcher movement. A read-only
+  `PBLTP` mailbox probe is implemented to report the touch master/nav/app gates
+  plus CST92xx enable state, poll/read-failure/valid-report counters, finger
+  state, and last coordinates. The source passes all 146 tests and
+  `git diff --check` and builds cleanly. The 799,544-byte protected AP payload
+  has SHA-256
+  `d266f3921c826408870bfaafcedc5dc4e399cee27e01eb853112b2b96d3c96f8`
+  and occupies exactly `0x132000..0x1f5338`. Flashing has not started: after
+  the USB interfaces re-enumerated at 16:24, both `/dev/ttyACM0` and
+  `/dev/ttyACM1` lost the desktop user ACL and are accessible only to
+  `root:dialout`; restoring the two-device ACL is the current blocker.
+- The ACL was restored and the telemetry image flashed successfully. Initial
+  hardware telemetry returned `global=1 nav=0 app=0 enabled=0 polls=0`, proving
+  the T5AI volatile-preferences early return preserved default values but
+  skipped the normal tail that applies them to touch. The T5AI branch now
+  applies the default touch-backlight, global-touch, and navigation gates
+  before returning, without opening PFS or initializing unrelated services.
+- The corrected source passes all 146 tests and `git diff --check` and builds
+  cleanly. Its 799,578-byte protected AP payload has SHA-256
+  `18481c284f45c7c4b95fe09a3ee384f3a5e57454598ad1a351bdffd1ecf3330f`
+  and occupies exactly `0x132000..0x1f535a`; exact-range flashing and reboot
+  succeeded. Live `PBLTP` now reports
+  `global=1 nav=1 app=1 enabled=1 polls=355 fail=6 valid=0`, proving the
+  controller is powered, the app navigation twin is installed, and polling is
+  active. Capture telemetry after a physical swipe next; track the small I2C
+  failure count and confirm whether valid reports and launcher movement agree.
+- Post-swipe telemetry reported
+  `global=1 nav=1 app=1 enabled=1 down=0 polls=2910 fail=33 valid=13 x=148 y=247`.
+  The physical controller therefore delivered 13 valid samples and a clean
+  liftoff into the enabled driver while the launcher navigation twin was live.
+  The cumulative I2C failure rate was about 1.1%; keep tracking it, but it did
+  not prevent the gesture report. The operator confirmed that the menu did not
+  move. Sensor power and basic I2C framing are therefore no longer the leading
+  suspects; continue at touch-event delivery and gesture recognition.
+- A bounded `PBLSU` mailbox probe now requests a synthetic upward swipe through
+  Pebble's existing remote-input service. This follows the injected-touch event
+  path and will separate physical CST92xx sample geometry/timing from app
+  recognizer and menu routing. The source passes the focused 78-test suite and
+  `git diff --check`, and builds cleanly. Its 799,680-byte protected AP payload
+  has SHA-256
+  `fe0356e5cecb7a828f7f6be2e36b345c7b3914730901a9f33083b996111d7691`
+  and occupies exactly `0x132000..0x1f53c0`. After reconnect, both bridge
+  interfaces enumerated with the expected identity and ACL. Exact-range AP-only
+  flashing and reboot succeeded, and the settled runtime returned
+  `PBLSU result=0`. The injected swipe was therefore admitted; visible menu
+  movement was confirmed by the operator. This clears touch-event delivery,
+  app gesture recognition, MenuLayer routing, compositor redraw, and panel
+  delivery for a known-good path; the remaining defect is specific to physical
+  CST92xx samples.
+- `PBLTP` now retains the latest physical contact's sample count, distinct
+  coordinate-change count, and first/minimum/maximum/last mapped coordinates.
+  The path-telemetry source passes the focused 78-test suite and
+  `git diff --check`, and builds cleanly. Its 800,122-byte protected AP payload
+  has SHA-256
+  `bb3909da3522810ee6d1a5618da49beba965366a3004244ede80e163a969577a`
+  and occupies exactly `0x132000..0x1f557a`; exact-range AP-only flashing and
+  reboot succeeded. The launcher returned to healthy `appstage=215 state=2`.
+  Before physical contact, telemetry reports `valid=0 n=0 chg=0`, providing a
+  clean baseline for the next swipe.
+- A deliberate physical upward swipe then reported
+  `n=16 chg=6 first=151,15 min=146,15 max=156,237 last=156,237`. The contact
+  crossed almost the full panel, but reported Y increasing from top to bottom:
+  the CST92xx axes were not mirrored into Pebble screen coordinates. This
+  explains the apparently inert launcher gesture: it was interpreted as a
+  downward drag at the top edge and settled back to the same row.
+- The exact pinned Waveshare board configuration sets both `mirror_x=1` and
+  `mirror_y=1`. The native driver now applies those two mirrors after scaling,
+  with a host regression assertion for both axes. The fix passes the focused
+  78-test suite and `git diff --check`, and builds cleanly. Its 800,122-byte
+  protected AP payload has SHA-256
+  `d87e65a2e06ce72b854b731dea055e1ad2591344596f0f857234bbc16892dafa`
+  and occupies exactly `0x132000..0x1f557a`; exact-range AP-only flashing and
+  reboot succeeded. The launcher returned to healthy `appstage=215 state=2`.
+The first post-fix physical attempt did not move the menu and reported
+`n=15 chg=0 first=min=max=last=131,10`: it was a stationary contact from the
+driver's perspective, not a translated swipe. Repeat with an inset path from
+the lower third to the upper third; do not change recognizer thresholds based
+on this zero-motion sample.
+
+The next inset physical swipe was recovered after correcting the host command
+framing to `ap_cmd PBLTP`: `global=1 nav=1 app=1 enabled=1 down=0 n=20 chg=8
+first=121,215 min=116,61 max=124,215 last=116,61`. This is a valid, nearly
+vertical upward path after mirroring, so the remaining failure is downstream
+of CST92xx sampling. A bounded `PBLTN` probe now reports app-task touch event
+dispatch plus unified Tier-1 widget recognizer callbacks. The focused 78-test
+suite and native build pass; the 800,496-byte protected AP payload has SHA-256
+`0c8cb007d182f96776d13f68f290d649f2da5b2694d919cc7240a7b70e61c925` and
+occupies exactly `0x132000..0x1f56f0`. Exact-range AP-only flashing and reboot
+succeeded. The settled launcher reports `appstage=215 state=2`; the clean
+`PBLTN` baseline is `ev=0/0/0 widget=0/0/0/0 route=0 mgr=0 menu=1 target=0
+bridge=0/0/0/0/0/0`. Capture `PBLTN` after one physical upward swipe to
+separate event-queue delivery, Tier-1 routing, and pan recognition.
+
+That physical swipe reported `n=25 chg=11 first=130,220 min=120,31
+max=139,220 last=120,31`, while `PBLTN` remained exactly at its zero-event
+baseline. The CST92xx driver therefore sees a clean upward path, but the app
+touch dispatcher receives none of its events. The next bounded diagnostic adds
+counters at the touch-service queue boundary and KernelMain mask decision, plus
+the app touch subscription/handler state. Its focused 78-test suite and native
+build pass; the 800,938-byte protected AP payload has SHA-256
+`818578ea98d46a95a280dac157afb3062906c4df5bc4ad559593e7296885626d` and
+occupies exactly `0x132000..0x1f58aa`.
+Exact-range AP-only flashing and reboot succeeded. The launcher is healthy at
+`appstage=215 state=2`, and the expanded clean baseline reports
+`svc=0/0/0/0/0/0/0/4 loop=0/0/0/0 sub=1/1`: four touch holds/subscribers,
+with the app event subscription and system handler both installed.
+
+After a clean upward swipe, the expanded probe reported
+`svc=21/0/1/9/1/0/0/4 loop=0/0/0/0 sub=1/1`: the touch service accepted all
+21 physical samples and queued one touchdown, nine moves, and one liftoff, but
+KernelMain processed none of them even after a long delay. This isolates the
+failure to the shared kernel event queue. `event_take_timeout()` now polls and
+drains the priority kernel queue before blocking on its queue set, recovering
+real events whose queue-set notification was lost during an unsynchronised
+process-queue reset. The focused 78-test suite and native build pass. The
+801,006-byte protected payload has SHA-256
+`ce4ee7f05787b03fa9a14242221db30e6c88a5994e530ad924a2668b557f04c5` and
+occupies exactly `0x132000..0x1f58ee`.
+The first flash attempt stopped before handshake/erase because `/dev/ttyACM0`
+had lost its desktop-user ACL. Restore `baz:rw` on both virtual UART nodes,
+then retry the unchanged exact range.
+After restoring `baz:rw` on both UART nodes, the unchanged exact-range flash
+completed and rebooted successfully. The launcher returned at
+`appstage=215 state=2`; all service, KernelMain, and app touch counters are
+zero at baseline, with `sub=1/1` confirming the app subscription and handler.
+
+The first physical swipe on the queue-poll build still did not move the menu.
+It was a clean upward path (`n=22 chg=11 first=142,209 last=142,66`), and the
+service again queued one touchdown, eleven moves, and one liftoff, but
+KernelMain remained at zero processed touch events. The pre-wait kernel-queue
+poll therefore did not execute after the events arrived, pointing to a broader
+KernelMain stall rather than a touch-specific queue-set wait. A bounded
+synthetic Down-button control was admitted with `PBLB3 result=0`; visible
+movement is the next discriminator for general input-event processing.
+
+The synthetic Down control did not move the menu. Startup checkpoints then
+proved `stage=26`, so KernelMain had completed worker/communication setup and
+entered the launcher loop; task telemetry showed `km=2/853 bg=2/859`. The
+failure was the T5AI KernelMain queue-set wait itself remaining blocked, not an
+earlier startup call. T5AI now polls the self, kernel, app, and worker event
+queues in priority order without blocking; the already-proven ten-tick outer
+loop delay supplies its bounded wait cadence. Other platforms keep the normal
+queue-set path. The focused 78-test suite and native build pass. The
+801,006-byte protected payload has SHA-256
+`4dc0408ce3005924bcdc6ddfc3275669289378bf1df8717232f1d789cc80f623` and
+occupies exactly `0x132000..0x1f58ee`; exact-range AP-only flashing and reboot
+succeeded. The clean baseline is restored and a new `PBLB3` control was
+admitted for visible confirmation.
+
+The user confirmed that the polling build's synthetic Down control moved the
+launcher, but polling is explicitly diagnostic-only and is not an acceptable
+permanent event loop. Review of the shared FreeRTOS queue set found two concrete
+violations: its capacity was 42 although its three members can hold 47 events,
+and `event_reset_from_process_queue()` reset the entire set before manually
+reconstructing notifications while producers remained live. The permanent fix
+sizes the set to 47 and replaces the whole-set reset with a short critical
+section that drains one set snapshot, drops and cleans only the selected
+process queue's events, and restores every other member notification in its
+original order. The direct T5AI polling branch and the pre-wait kernel poll are
+removed; `event_take_timeout()` again uses the normal blocking queue-set path
+on every platform.
+
+The first permanent-fix image passed all 78 focused tests and built cleanly. Its
+801,244-byte protected AP payload had SHA-256
+`91830e55e3aaba93d9a85fd82aeef028c8f931b257896faca887c11dcfca0352` and
+occupied exactly `0x132000..0x1f59dc`; exact-range AP-only flashing and reboot
+succeeded. A follow-up added observation-only queue depth/take counters and
+task/interrupt state to `PBLTIM`, without changing dispatch behavior. That
+801,686-byte payload has SHA-256
+`1c0459a5e61e6299510a9cb0cc0dabd5ff385e74f54be96545306749738b3b95` and
+occupies exactly `0x132000..0x1f5b96`; exact-range AP-only flashing and reboot
+succeeded. At settled baseline it reported empty queues and `take=16`. After
+`PBLB3`, the queues drained, `take` advanced to 19, KernelMain and the app both
+ran, and the app returned to Blocked. The user confirmed that the launcher
+selection visibly moved down. This validates wake, dispatch, app delivery, and
+rendering on the normal blocking path with no event-loop polling workaround.
 
 ## 2026-09-12 handoff: normal NimBLE advertising and GATT proven
 
@@ -1485,12 +1669,10 @@ Verify all pins from the schematic/BSP before hardware testing.
   native runtime. Exact-range AP-only programming and recovery to the known-good
   diagnostic are proven. Two matching full-flash backups exist, but complete
   factory restoration has not needed to be exercised.
-- DVT3 now has an explicit empty runner override, while DVT/DVT2 retain
-  `sftool`. Both the board manifest and the CLI therefore fail closed for
-  `pbl flash`, including an attempted explicit runner override. The same CLI
-  gate rejects T5AI reset/run/erase/debug-server runner operations and direct
-  resource/recovery imaging. Re-enable a runner only together with a reviewed
-  image container and recovery procedure.
+- DVT3 uses a flash-only `tyutool` runner. It creates one exact-range protected
+  AP image containing firmware, the system-resource pack, and an erased PFS;
+  the bootloader and CP partitions are not included. Reset, run, erase,
+  debug-server, direct resource imaging, and recovery imaging remain gated.
 - The firmware-side boundary also fails closed on T5AI. Firmware-update start
   requests are cancelled before entering the update runlevel, and Put Bytes
   rejects firmware, recovery, and system-resource objects while retaining
@@ -1605,7 +1787,7 @@ Verify all pins from the schematic/BSP before hardware testing.
   valid coredump retrieval and mark-read behavior; DVT3 remains read-only.
 - Define recovery before enabling OTA or destructive flash tests.
 - A link assertion and mandatory pre-objcopy map check now require FLASH to be
-  exactly experimental slot 0 (`0x02120000..0x02310000`) and reject any NOR
+  exactly the firmware region (`0x02120000..0x02210000`) and reject any NOR
   VMA/load address outside it. A successful check stamps
   `build/pebbleos.image-layout.ok`; `.bin`/`.hex` generation depends on it.
 
@@ -1613,11 +1795,10 @@ Verify all pins from the schematic/BSP before hardware testing.
 
 - Maintain the clean native compile and link with no unresolved placeholder
   drivers as further changes are made.
-- T5AI host packaging now enforces a 1 MiB logical system-resource pack ceiling;
-  the current 1,026,537-byte pack fits narrowly. On-device resource banks remain
-  deliberately zero-length until the factory partition table identifies safe
-  storage. Define redundant banks and guarded write access only after that
-  evidence exists; the pack is not currently installable on target.
+- T5AI host packaging enforces a 1 MiB logical system-resource pack ceiling;
+  the current 1,026,537-byte pack fits narrowly. The flash-only runner installs
+  it into the single `0x02210000..0x02310000` resource bank. Runtime resource
+  updates remain disabled; there is no redundant bank.
 - The mandatory T5AI pre-objcopy map gate now verifies the exact FLASH, kernel,
   worker, app, and display-memory regions; the 0x140-byte vector table at slot
   start; ordered stack/heap and framebuffer bounds; and absence of Tuya/Beken
@@ -1630,7 +1811,7 @@ Verify all pins from the schematic/BSP before hardware testing.
   `bounds` warning; no DVT3-port warning appeared in that compatibility build.
 - Keep warnings introduced by DVT3 at zero or document unavoidable toolchain warnings.
 
-Current focused host baseline: all 78 tests in the validation command below
+Current focused host baseline: all 80 tests in the validation command below
 pass. The DVT3 native firmware compiles and links without unresolved platform
 symbols or internal-RAM overflow. Host-generated ELF, map, raw binary, Intel
 HEX, protected-block, and checked layout artifacts are available. The AP-only
@@ -1647,6 +1828,45 @@ protocol transfer, then common-service/application integration, sleep/wake,
 and low power. Fit a battery before charging or state-of-charge validation.
 Treat persistent bonding, general writable storage, resources, and OTA as the
 last stage because they require a tested corruption and full-recovery policy.
+
+2026-09-12 watchdog follow-up: decoded UART captures separated two failure
+modes. First, the task watchdog reported `status=0x180 mask=0x182`, with
+`KernelBG` blocked in the common I2C semaphore while `prv_poll` was current.
+The CST92xx transaction now runs in a dedicated worker rather than inside the
+watched system task, so a delayed peripheral timeout cannot stall system
+callbacks. A subsequent reset was not a watchdog trip: after a roughly
+45-second CST wait, 30 once-per-second advertising-cycle callbacks filled the
+undrained system-task queue. T5AI now runs the bounded KernelBG callback runner
+at priority 4 alongside NewTimer. The touch worker was subsequently raised to
+the same blocking priority 4 after hardware counters proved it could be
+starved; KernelMain remains 3 and app/render 1. The idle watchdog also treats
+`s_current_cb == NULL` as healthy;
+a genuinely stuck KernelBG callback still withholds its feed. The resulting
+801,890-byte AP payload has SHA-256
+`fd4a8dc4f5f9e8bae4a0c0537798e1929d5dc86375b9b32eecd6cf0b2ad87781`
+and occupies `0x132000..0x1f5c62`. Exact-range flashing succeeded, all 79
+focused tests pass, the native build and `git diff --check` pass, and the board
+completed a 120-second untouched soak with no watchdog warning, queue-full
+error, or reboot. Physical-swipe stability and navigation were the immediate
+hardware confirmation and are recorded below.
+
+2026-09-12 panel/touch milestone: the native CO5300 path now boots through the
+PebbleOS splash and charging animation into the launcher at forced 100-percent
+brightness. CST92xx bring-up was completed by acknowledging every report with
+`0xAB` at register `0xD000`, running its bounded poller at a priority that is
+not starved by KernelMain, and matching the BK7258 I2C controller's transmit
+and receive FIFO-level behavior. A real upward path decoded as 85 valid
+reports with 48 coordinate changes (`first=132,204`, `last=151,65`). The touch
+service and app event loop delivered one touchdown, 48 moves, and one liftoff;
+the unified Tier-1 MenuLayer recognizer completed one pan with 46 live updates,
+and the user confirmed that the launcher visibly moved. The queue drained on
+the normal shared blocking queue-set path (`take=70`, all member depths zero at
+the first settled sample); no T5AI polling or semaphore alternative remains in
+`events.c`. A later sample reached 182 seconds of uptime without reboot. The
+current 802,400-byte AP payload has SHA-256
+`0fae1147d8372bf1b2fde0d53b6daf86cac108714f6d57d61ad81eb2d25df9ba`
+and occupies exactly `0x132000..0x1f5e60`. Exact-range flashing succeeded, the
+native build passes, `git diff --check` passes, and all 80 focused tests pass.
 
 ## Validation commands
 

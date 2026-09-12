@@ -17,6 +17,20 @@ spec.loader.exec_module(checker)
 
 
 class TuyaKernelCheckTest(unittest.TestCase):
+    def test_t5ai_shared_i2c_bus_uses_cst92xx_qualified_standard_mode(self):
+        board = (ROOT / "src/fw/board/boards/board_t5ai.c").read_text()
+        self.assertIn(".frequency = 100000u", board)
+        self.assertNotIn(".frequency = 400000u", board)
+
+    def test_t5ai_i2c_reads_use_the_bk7258_receive_fifo_levels(self):
+        i2c = (ROOT / "src/fw/drivers/i2c/t5ai.c").read_text()
+        self.assertIn("static uint32_t prv_read_interrupt_mode", i2c)
+        self.assertIn("static uint32_t prv_read_fifo_count", i2c)
+        self.assertIn("static uint32_t prv_write_fifo_space", i2c)
+        self.assertIn("for (uint32_t i = 0; i < available; ++i)", i2c)
+        self.assertIn("for (uint32_t i = 0; i < space; ++i)", i2c)
+        self.assertIn("prv_read_interrupt_mode(transfer->size - transfer->idx)", i2c)
+
     def test_t5ai_fpu_is_enabled_during_reset_initialization(self):
         initialization = (ROOT / "soc/t5ai/init.c").read_text()
         disable_irq = initialization.index("__disable_irq()")
@@ -49,6 +63,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         main = (ROOT / "src/fw/main.c").read_text()
         display = (ROOT / "src/fw/drivers/display/t5ai/display_co5300.c").read_text()
         backlight = (ROOT / "src/fw/drivers/backlight/t5ai.c").read_text()
+        touch = (ROOT / "src/fw/drivers/touch/cst92xx/cst92xx_t5ai.c").read_text()
         mailbox = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
         port = (ROOT / "soc/t5ai/freertos.c").read_text()
         marker = startup.index("uart0[7] = 'A'")
@@ -139,6 +154,72 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("return 100u", backlight)
         self.assertIn("display_co5300_set_brightness(0xffu)", backlight)
         self.assertNotIn("* 255u", backlight)
+        self.assertIn(
+            "PBL_DISPLAY_WIDTH - 1 -\n"
+            "                        prv_map_coordinate(native_x, PBL_DISPLAY_WIDTH)",
+            touch,
+        )
+        self.assertIn(
+            "PBL_DISPLAY_HEIGHT - 1 -\n"
+            "                        prv_map_coordinate(native_y, PBL_DISPLAY_HEIGHT)",
+            touch,
+        )
+        poll = touch[touch.index("static void prv_poll") : touch.index("static void prv_touch_task")]
+        self.assertIn("s_consecutive_read_failures >= 3u", poll)
+        self.assertIn("i2c_bitbang_recovery(I2C_CST92XX)", poll)
+        self.assertIn("prv_reset(true);", poll)
+        read_report_start = touch.index("static bool prv_read_report")
+        read_report = touch[
+            read_report_start : touch.index("static int16_t prv_map_coordinate", read_report_start)
+        ]
+        self.assertNotIn("system_task_watchdog_feed();", read_report)
+        self.assertIn("CST92XX_REPORT_ACK", read_report)
+        self.assertIn("sizeof(acknowledge), acknowledge", read_report)
+        self.assertIn('xTaskCreate(prv_touch_task, "CST92xx"', touch)
+        self.assertIn("CST92XX_TASK_PRIORITY (configMAX_PRIORITIES - 1)", touch)
+        self.assertNotIn("system_task_add_callback(prv_poll", touch)
+        touch_nav = (ROOT / "src/fw/applib/ui/recognizer/touch_nav.c").read_text()
+        self.assertIn("state->counters.position_updates++", touch_nav)
+        self.assertIn("state->counters.widget_started++", touch_nav)
+        self.assertIn("s_mailbox_touch_nav_request", dbgserial_input)
+        self.assertIn('"PBLTN ev=%u/%u/%u widget=%u/%u/%u/%u route=%u mgr=%u "', main)
+        self.assertIn("touch_get_diagnostics(&service)", main)
+        self.assertIn("event_loop_get_touch_diagnostics(&event_loop)", main)
+        self.assertIn("++s_physical_samples", (ROOT / "src/fw/services/touch/touch.c").read_text())
+        events = (ROOT / "src/fw/kernel/events.c").read_text()
+        system_task = (ROOT / "src/fw/services/system_task/service.c").read_text()
+        self.assertIn(
+            "MAX_SYSTEM_EVENT_SET_EVENTS =\n"
+            "      MAX_KERNEL_EVENTS + MAX_FROM_APP_EVENTS + MAX_FROM_WORKER_EVENTS",
+            events,
+        )
+        self.assertIn(
+            "xQueueCreateSet(MAX_SYSTEM_EVENT_SET_EVENTS)",
+            events,
+        )
+        self.assertIn(
+            "const UBaseType_t set_count = uxQueueMessagesWaiting(s_system_event_queue_set)",
+            events,
+        )
+        self.assertIn("taskENTER_CRITICAL();", events)
+        self.assertIn("taskEXIT_CRITICAL();", events)
+        process_reset = events.split("void event_reset_from_process_queue", 1)[1].split(
+            "QueueHandle_t event_kernel_to_kernel_event_queue", 1
+        )[0]
+        self.assertNotIn("xQueueReset(s_system_event_queue_set)", process_reset)
+        event_take = events.split("bool event_take_timeout", 1)[1].split(
+            "void **event_get_buffer", 1
+        )[0]
+        self.assertNotIn("#ifdef CONFIG_SOC_T5AI", event_take)
+        self.assertNotIn("(void)timeout_ms", event_take)
+        self.assertIn("#define SYSTEM_TASK_PRIORITY (configMAX_PRIORITIES - 1)", system_task)
+        self.assertIn("#define SYSTEM_TASK_PRIORITY (tskIDLE_PRIORITY + 1)", system_task)
+        self.assertIn("static volatile SystemTaskEventCallback s_current_cb", system_task)
+        idle_watchdog = system_task.split(
+            "static void system_task_idle_timer_callback", 1
+        )[1].split("static void system_task_main", 1)[0]
+        self.assertIn("if (s_current_cb == NULL)", idle_watchdog)
+        self.assertNotIn("uxQueueMessagesWaiting", idle_watchdog)
         splash = (ROOT / "src/fw/services/boot_splash/service.c").read_text()
         self.assertIn("#if defined(CONFIG_SOC_T5AI)", splash)
         self.assertIn("static uint8_t s_t5ai_splash_row[PBL_DISPLAY_WIDTH]", splash)
@@ -152,7 +233,15 @@ class TuyaKernelCheckTest(unittest.TestCase):
             '"PBLTIM freertos=%lu rtc=%lu aon=%lu core=%lu reload=%lu "', main
         )
         self.assertIn('"stage=%lu appstage=%lu appinit=%u first=%u ', main)
-        self.assertIn('"apptask=%u state=%u prio=%u stack=%u"', main)
+        self.assertIn('"apptask=%u state=%u prio=%u stack=%u km=%u/%u bg=%u/%u "', main)
+        self.assertIn('"nt=%u/%u/%u bth=%u/%u bti=%u/%u "', main)
+        self.assertIn('"q=%lu/%lu/%lu/%lu/%lu take=%lu cur=%lu "', main)
+        self.assertIn('"irq=%08lx/%08lx/%08lx"', main)
+        self.assertIn("event_get_queue_diagnostics(&queue_diagnostics)", main)
+        self.assertIn(
+            "T5AI_BOOT_STAGE(26u)",
+            (ROOT / "src/fw/kernel/event_loop.c").read_text(),
+        )
         self.assertIn("g_t5ai_boot_stage = 6u", main)
         self.assertIn("volatile uint32_t g_t5ai_app_stage", main)
         self.assertIn("app_manager_is_initialized()", main)
@@ -351,18 +440,22 @@ class TuyaKernelCheckTest(unittest.TestCase):
 
     def test_t5ai_kernelbg_proves_liveness_from_its_idle_wait(self):
         service = (ROOT / "src/fw/services/system_task/service.c").read_text()
-        self.assertIn(
-            "#ifdef CONFIG_SOC_T5AI\n"
-            "// Until T5AI enables the full service stack",
-            service,
-        )
-        self.assertIn("#define SYSTEM_TASK_PRIORITY (tskIDLE_PRIORITY + 3)", service)
+        app_manager = (ROOT / "src/fw/process_management/app_manager.c").read_text()
+        self.assertIn("#define SYSTEM_TASK_PRIORITY (configMAX_PRIORITIES - 1)", service)
+        self.assertIn("must drain producers such as the once-per-second advertising cycle", service)
+        self.assertIn("#ifdef CONFIG_SOC_T5AI", app_manager)
+        self.assertIn("const UBaseType_t app_task_priority = tskIDLE_PRIORITY + 1", app_manager)
+        self.assertIn(".uxPriority = app_task_priority | portPRIVILEGE_BIT", app_manager)
         task = service.split("static void system_task_main", 1)[1]
         task = task.split("void system_task_init", 1)[0]
         self.assertIn("#ifdef CONFIG_SOC_T5AI", task)
         self.assertIn("milliseconds_to_ticks(1000)", task)
-        self.assertIn("if (activated_queue == NULL)", task)
+        self.assertIn("xSemaphoreTake(s_system_task_wake, wait_ticks)", task)
+        self.assertIn("xQueueReceive(s_system_task_queue, &event, 0)", task)
+        self.assertIn("xQueueReceive(s_from_app_system_task_queue, &event, 0)", task)
         self.assertIn("system_task_watchdog_feed();", task)
+        self.assertIn("xSemaphoreGiveFromISR(s_system_task_wake", service)
+        self.assertIn("xSemaphoreGive(s_system_task_wake)", service)
 
     def test_t5ai_initializes_native_button_debouncing(self):
         main = (ROOT / "src/fw/main.c").read_text()

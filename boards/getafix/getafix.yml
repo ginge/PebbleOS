@@ -12,7 +12,6 @@ isolated_defconfig_revisions:
 runners:
   - sftool
 
-# DVT3 has no validated programmer, image container, or recovery procedure.
-# Keep it runnerless even when DVT/DVT2 continue to use sftool.
 runner_overrides:
-  dvt3: []
+  dvt3:
+    - tyutool

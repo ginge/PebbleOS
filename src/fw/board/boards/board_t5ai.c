@@ -48,7 +48,9 @@ static I2CBusState s_i2c0_state;
 static const I2CBusHal s_i2c0_hal = {
     .base = 0x45850000u,
     .irqn = I2C0_IRQn,
-    .frequency = 400000u,
+    // The Waveshare CST92xx board configuration qualifies this shared touch/RTC/IMU bus at
+    // standard mode. Running it at 400 kHz causes intermittent CST address-write timeouts.
+    .frequency = 100000u,
     .scl_pin = 20u,
     .sda_pin = 21u,
 };

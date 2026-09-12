@@ -876,6 +876,8 @@ def _check_firmware_image_size(ctx, path):
         else:
             # 3072k of flash
             max_firmware_size = 3072 * BYTES_PER_K
+    elif ctx.env.CONFIG_SOC_T5AI:
+        max_firmware_size = 960 * BYTES_PER_K
     elif ctx.env.CONFIG_QEMU:
         max_firmware_size = 4096 * BYTES_PER_K
     else:
@@ -902,6 +904,8 @@ def _create_runner(ctx, want_resources=False):
     resources_file = None
     if want_resources and ctx.options.resources and ctx.env.VARIANT != 'prf':
         resources_file = ctx.get_pbpack_node().path_from(ctx.path)
+    if ctx.env.CONFIG_SOC_T5AI:
+        resources_file = ctx.get_pbpack_node().path_from(ctx.path)
 
     fw = ctx.get_pebbleos_node()
     cfg = pebble_runners.RunnerConfig(
@@ -910,6 +914,7 @@ def _create_runner(ctx, want_resources=False):
         hex_file=fw.change_ext('.hex').path_from(ctx.path),
         elf_file=fw.change_ext('.elf').path_from(ctx.path),
         resources_file=resources_file,
+        bin_file=fw.change_ext('.bin').path_from(ctx.path),
     )
 
     try:

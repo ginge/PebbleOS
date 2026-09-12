@@ -35,6 +35,9 @@ static const uint8_t s_mailbox_button_request[][7] = {
   {'P', 'B', 'L', 'B', '2', '\r', '\n'},
   {'P', 'B', 'L', 'B', '3', '\r', '\n'},
 };
+static const uint8_t s_mailbox_touch_request[] = {'P', 'B', 'L', 'T', 'P', '\r', '\n'};
+static const uint8_t s_mailbox_touch_nav_request[] = {'P', 'B', 'L', 'T', 'N', '\r', '\n'};
+static const uint8_t s_mailbox_swipe_up_request[] = {'P', 'B', 'L', 'S', 'U', '\r', '\n'};
 static volatile uint8_t s_mailbox_probe_received;
 
 static void prv_log_mailbox_receive(uint8_t logical_channel, const T5AICPMailboxFrame *frame,
@@ -59,10 +62,18 @@ static void prv_log_mailbox_receive(uint8_t logical_channel, const T5AICPMailbox
       DbgSerialMailboxProbe probe = DbgSerialMailboxProbe_None;
       if (request_length == sizeof(s_mailbox_button_request[0])) {
         dcache_invalidate((void *)request, request_length);
-        for (unsigned i = 0; i < ARRAY_LENGTH(s_mailbox_button_request); ++i) {
-          if (memcmp(request, s_mailbox_button_request[i], request_length) == 0) {
-            probe = (DbgSerialMailboxProbe)(DbgSerialMailboxProbe_ButtonBack + i);
-            break;
+        if (memcmp(request, s_mailbox_touch_request, request_length) == 0) {
+          probe = DbgSerialMailboxProbe_Touch;
+        } else if (memcmp(request, s_mailbox_touch_nav_request, request_length) == 0) {
+          probe = DbgSerialMailboxProbe_TouchNav;
+        } else if (memcmp(request, s_mailbox_swipe_up_request, request_length) == 0) {
+          probe = DbgSerialMailboxProbe_SwipeUp;
+        } else {
+          for (unsigned i = 0; i < ARRAY_LENGTH(s_mailbox_button_request); ++i) {
+            if (memcmp(request, s_mailbox_button_request[i], request_length) == 0) {
+              probe = (DbgSerialMailboxProbe)(DbgSerialMailboxProbe_ButtonBack + i);
+              break;
+            }
           }
         }
       } else if (request_length == sizeof(s_mailbox_rx_probe_request)) {

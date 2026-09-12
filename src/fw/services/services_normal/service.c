@@ -79,9 +79,7 @@ static bool prv_is_time_valid_for_activity_init(void) {
 }
 
 void services_normal_early_init(void) {
-#ifndef CONFIG_SOC_T5AI
   pfs_init(true);
-#endif
 }
 
 void services_normal_init(void) {

@@ -11,10 +11,12 @@
 #include <pbl/drivers/i2c.h>
 #include <pbl/os/tick.h>
 #include "kernel/util/sleep.h"
-#include "pbl/services/new_timer/new_timer.h"
-#include "pbl/services/system_task.h"
 #include "pbl/services/touch/touch.h"
 #include <pbl/logging/logging.h>
+#include <pbl/util/math.h>
+
+#include "FreeRTOS.h"
+#include "task.h"
 
 PBL_LOG_MODULE_DEFINE(driver_touch_cst92xx, CONFIG_DRIVER_TOUCH_LOG_LEVEL);
 
@@ -25,13 +27,29 @@ PBL_LOG_MODULE_DEFINE(driver_touch_cst92xx, CONFIG_DRIVER_TOUCH_LOG_LEVEL);
 #define CST92XX_TOUCH_STATUS 0x06u
 #define CST92XX_NATIVE_SIZE 466u
 #define CST92XX_POLL_MS 20u
+#define CST92XX_TASK_STACK_WORDS 768u
+// KernelMain remains continuously ready while dispatching the Pebble event loop. The hardware
+// sampler must run at the service priority or it is permanently starved once boot completes.
+#define CST92XX_TASK_PRIORITY (configMAX_PRIORITIES - 1)
 
-static TimerID s_poll_timer = TIMER_INVALID_ID;
-static bool s_enabled;
-static bool s_poll_pending;
+static volatile bool s_enabled;
 static bool s_finger_down;
 static int16_t s_last_x;
 static int16_t s_last_y;
+static uint32_t s_polls;
+static uint32_t s_read_failures;
+static uint8_t s_consecutive_read_failures;
+static uint32_t s_ack_reports;
+static uint32_t s_valid_reports;
+static uint16_t s_contact_samples;
+static uint16_t s_coordinate_changes;
+static int16_t s_first_x;
+static int16_t s_first_y;
+static int16_t s_min_x;
+static int16_t s_min_y;
+static int16_t s_max_x;
+static int16_t s_max_y;
+static uint8_t s_last_report[CST92XX_REPORT_LENGTH];
 static const OutputConfig s_reset = {
     .pin = CST92XX_RESET_PIN,
     .active_high = true,
@@ -53,40 +71,87 @@ static bool prv_read_report(uint8_t report[CST92XX_REPORT_LENGTH]) {
       (uint8_t)(CST92XX_DATA_REGISTER >> 8),
       (uint8_t)CST92XX_DATA_REGISTER,
   };
+  const uint8_t acknowledge[] = {
+      (uint8_t)(CST92XX_DATA_REGISTER >> 8),
+      (uint8_t)CST92XX_DATA_REGISTER,
+      CST92XX_REPORT_ACK,
+  };
   i2c_use(I2C_CST92XX);
   bool result = i2c_write_block(I2C_CST92XX, sizeof(address), address);
   if (result) {
     result = i2c_read_block(I2C_CST92XX, CST92XX_REPORT_LENGTH, report);
   }
+  // A report remains latched until the host writes 0xAB back to 0xD000. Acknowledge valid,
+  // empty, and malformed frames alike so a stale frame cannot suppress the next contact.
+  if (result) {
+    result = i2c_write_block(I2C_CST92XX, sizeof(acknowledge), acknowledge);
+  }
   i2c_release(I2C_CST92XX);
   return result;
 }
 
-static int16_t prv_map_coordinate(uint16_t coordinate) {
-  return (int16_t)(coordinate * PBL_DISPLAY_WIDTH / CST92XX_NATIVE_SIZE);
+static int16_t prv_map_coordinate(uint16_t coordinate, int16_t display_size) {
+  return (int16_t)(coordinate * display_size / CST92XX_NATIVE_SIZE);
 }
 
-static void prv_poll(void *context) {
-  (void)context;
-  s_poll_pending = false;
+static void prv_poll(void) {
   if (!s_enabled) {
     return;
   }
+  ++s_polls;
 
   uint8_t report[CST92XX_REPORT_LENGTH] = {0};
   if (!prv_read_report(report)) {
+    ++s_read_failures;
+    ++s_consecutive_read_failures;
     PBL_LOG_ERR("CST92xx report read failed");
+    if (s_consecutive_read_failures >= 3u) {
+      i2c_use(I2C_CST92XX);
+      (void)i2c_bitbang_recovery(I2C_CST92XX);
+      i2c_release(I2C_CST92XX);
+      prv_reset(true);
+      s_consecutive_read_failures = 0u;
+    }
     return;
+  }
+  s_consecutive_read_failures = 0u;
+  for (size_t i = 0; i < CST92XX_REPORT_LENGTH; ++i) {
+    s_last_report[i] = report[i];
   }
 
   const uint8_t points = report[5] & 0x7fu;
   const uint8_t status = report[0] & 0x0fu;
+  if (report[6] == CST92XX_REPORT_ACK) {
+    ++s_ack_reports;
+  }
   if (report[6] == CST92XX_REPORT_ACK && points != 0u && status == CST92XX_TOUCH_STATUS) {
     const uint16_t native_x = ((uint16_t)report[1] << 4) | (report[3] >> 4);
     const uint16_t native_y = ((uint16_t)report[2] << 4) | (report[3] & 0x0fu);
     if (native_x < CST92XX_NATIVE_SIZE && native_y < CST92XX_NATIVE_SIZE) {
-      s_last_x = prv_map_coordinate(native_x);
-      s_last_y = prv_map_coordinate(native_y);
+      ++s_valid_reports;
+      // The panel is mounted with both touch axes mirrored. This matches the exact Waveshare board
+      // configuration and was confirmed by physical path telemetry (finger-up read as increasing Y).
+      const int16_t x = PBL_DISPLAY_WIDTH - 1 -
+                        prv_map_coordinate(native_x, PBL_DISPLAY_WIDTH);
+      const int16_t y = PBL_DISPLAY_HEIGHT - 1 -
+                        prv_map_coordinate(native_y, PBL_DISPLAY_HEIGHT);
+      if (!s_finger_down) {
+        s_contact_samples = 1u;
+        s_coordinate_changes = 0u;
+        s_first_x = s_min_x = s_max_x = x;
+        s_first_y = s_min_y = s_max_y = y;
+      } else {
+        ++s_contact_samples;
+        if (x != s_last_x || y != s_last_y) {
+          ++s_coordinate_changes;
+        }
+        s_min_x = MIN(s_min_x, x);
+        s_min_y = MIN(s_min_y, y);
+        s_max_x = MAX(s_max_x, x);
+        s_max_y = MAX(s_max_y, y);
+      }
+      s_last_x = x;
+      s_last_y = y;
       touch_handle_update(TouchState_FingerDown, s_last_x, s_last_y);
       s_finger_down = true;
       return;
@@ -100,14 +165,13 @@ static void prv_poll(void *context) {
   }
 }
 
-static void prv_timer_callback(void *context) {
+static void prv_touch_task(void *context) {
   (void)context;
-  if (!s_enabled || s_poll_pending) {
-    return;
-  }
-  s_poll_pending = true;
-  if (!system_task_add_callback(prv_poll, NULL)) {
-    s_poll_pending = false;
+  while (true) {
+    if (s_enabled) {
+      prv_poll();
+    }
+    vTaskDelay(milliseconds_to_ticks(CST92XX_POLL_MS));
   }
 }
 
@@ -118,34 +182,53 @@ void touch_sensor_init(void) {
   if (!prv_read_report(report)) {
     PBL_LOG_ERR("CST92xx not detected at 0x5a");
   }
-  s_poll_timer = new_timer_create();
-  if (s_poll_timer == TIMER_INVALID_ID) {
-    PBL_LOG_ERR("Could not create CST92xx poll timer");
-  }
-  s_enabled = true;
-  touch_sensor_set_enabled(false);
+  prv_reset(false);
+  const BaseType_t created =
+      xTaskCreate(prv_touch_task, "CST92xx", CST92XX_TASK_STACK_WORDS, NULL,
+                  CST92XX_TASK_PRIORITY, NULL);
+  PBL_ASSERTN(created == pdPASS);
 }
 
 void touch_sensor_set_enabled(bool enabled) {
   if (s_enabled == enabled) {
     return;
   }
-  s_enabled = enabled;
-  s_poll_pending = false;
   if (enabled) {
     prv_reset(true);
-    if (s_poll_timer != TIMER_INVALID_ID) {
-      (void)new_timer_start(s_poll_timer, CST92XX_POLL_MS, prv_timer_callback, NULL,
-                            TIMER_START_FLAG_REPEATING);
-    }
+    s_enabled = true;
   } else {
-    if (s_poll_timer != TIMER_INVALID_ID) {
-      (void)new_timer_stop(s_poll_timer);
-    }
+    s_enabled = false;
     if (s_finger_down) {
       touch_handle_update(TouchState_FingerUp, s_last_x, s_last_y);
       s_finger_down = false;
     }
     prv_reset(false);
+  }
+}
+
+void touch_sensor_get_diagnostics(TouchSensorDiagnostics *diagnostics) {
+  if (!diagnostics) {
+    return;
+  }
+  *diagnostics = (TouchSensorDiagnostics) {
+    .enabled = s_enabled,
+    .finger_down = s_finger_down,
+    .polls = s_polls,
+    .read_failures = s_read_failures,
+    .ack_reports = s_ack_reports,
+    .valid_reports = s_valid_reports,
+    .contact_samples = s_contact_samples,
+    .coordinate_changes = s_coordinate_changes,
+    .first_x = s_first_x,
+    .first_y = s_first_y,
+    .min_x = s_min_x,
+    .min_y = s_min_y,
+    .max_x = s_max_x,
+    .max_y = s_max_y,
+    .last_x = s_last_x,
+    .last_y = s_last_y,
+  };
+  for (size_t i = 0; i < CST92XX_REPORT_LENGTH; ++i) {
+    diagnostics->last_report[i] = s_last_report[i];
   }
 }

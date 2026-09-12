@@ -41,6 +41,11 @@ static bool s_rotated = false;
 //! Set while an injected gesture owns the sensor, between its touchdown and liftoff. Physical
 //! samples are ignored for its duration so the synthetic path cannot be corrupted mid-swipe.
 static bool s_injecting = false;
+static uint32_t s_physical_samples;
+static uint32_t s_physical_samples_ignored;
+static uint32_t s_queued_touchdowns;
+static uint32_t s_queued_position_updates;
+static uint32_t s_queued_liftoffs;
 
 static void prv_apply_rotation(int16_t *x, int16_t *y) {
   if (s_rotated) {
@@ -215,6 +220,13 @@ void touch_set_system_hold(bool held) {
 }
 
 static void prv_put_touch_event(TouchEventType type, int16_t x, int16_t y) {
+  if (type == TouchEvent_Touchdown) {
+    ++s_queued_touchdowns;
+  } else if (type == TouchEvent_PositionUpdate) {
+    ++s_queued_position_updates;
+  } else if (type == TouchEvent_Liftoff) {
+    ++s_queued_liftoffs;
+  }
   PebbleEvent e = {
     .type = PEBBLE_TOUCH_EVENT,
     .touch = {
@@ -280,7 +292,9 @@ static void prv_apply_update(TouchState touch_state, int16_t x, int16_t y, bool 
 
 void touch_handle_update(TouchState touch_state, int16_t x, int16_t y) {
   mutex_lock(s_touch_mutex);
+  ++s_physical_samples;
   if (!s_globally_enabled || s_injecting) {
+    ++s_physical_samples_ignored;
     mutex_unlock(s_touch_mutex);
     return;
   }
@@ -331,6 +345,24 @@ bool touch_injection_is_available(void) {
       s_globally_enabled && (s_injecting || (s_touch_state != TouchState_FingerDown));
   mutex_unlock(s_touch_mutex);
   return available;
+}
+
+void touch_get_diagnostics(TouchServiceDiagnostics *diagnostics) {
+  if (!diagnostics) {
+    return;
+  }
+  mutex_lock(s_touch_mutex);
+  *diagnostics = (TouchServiceDiagnostics) {
+    .physical_samples = s_physical_samples,
+    .physical_samples_ignored = s_physical_samples_ignored,
+    .queued_touchdowns = s_queued_touchdowns,
+    .queued_position_updates = s_queued_position_updates,
+    .queued_liftoffs = s_queued_liftoffs,
+    .touch_state = (uint8_t)s_touch_state,
+    .injecting = (uint8_t)s_injecting,
+    .subscriber_count = s_subscriber_count,
+  };
+  mutex_unlock(s_touch_mutex);
 }
 
 void touch_handle_gesture(TouchGesture gesture, int16_t x, int16_t y) {

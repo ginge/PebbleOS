@@ -364,12 +364,19 @@ static bool prv_app_start(const PebbleProcessMd *app_md, const void *args,
   char task_name[configMAX_TASK_NAME_LEN];
   snprintf(task_name, sizeof(task_name), "App <%s>", process_metadata_get_name(s_app_task_context.app_md));
 
+#ifdef CONFIG_SOC_T5AI
+  // KernelBG services physical input at priority 2. Keep the synchronous DVT3 app/render path
+  // below it so a touch-triggered full-frame update cannot strand the in-flight input callback.
+  const UBaseType_t app_task_priority = tskIDLE_PRIORITY + 1;
+#else
+  const UBaseType_t app_task_priority = APP_TASK_PRIORITY;
+#endif
   TaskParameters_t task_params = {
     .pvTaskCode = prv_app_task_main,
     .pcName = task_name,
     .usStackDepth = stack_size / sizeof(portSTACK_TYPE),
     .pvParameters = entry_point,
-    .uxPriority = APP_TASK_PRIORITY | portPRIVILEGE_BIT,
+    .uxPriority = app_task_priority | portPRIVILEGE_BIT,
     .puxStackBuffer = stack,
   };
 

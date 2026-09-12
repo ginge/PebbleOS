@@ -982,7 +982,14 @@ void shell_prefs_init(void) {
 #ifdef CONFIG_SOC_T5AI
   // DVT3 deliberately does not initialize writable PFS until its partition
   // and recovery contract are proven. Retain the defaults above in RAM rather
-  // than blocking while opening an unavailable settings file.
+  // than blocking while opening an unavailable settings file. Apply the
+  // self-contained touch defaults before returning: the common tail that
+  // normally does this also touches services that remain gated on T5AI.
+#ifdef CONFIG_TOUCH
+  touch_set_backlight_enabled(s_backlight_touch_wake != BacklightTouchWake_Off);
+  touch_service_set_globally_enabled(s_touch_enabled);
+  touch_nav_set_enabled(prv_touch_navigation_effective());
+#endif
   return;
 #endif
 

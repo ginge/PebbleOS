@@ -74,6 +74,8 @@
 #include "kernel/ui/kernel_ui.h"
 #include "kernel/kernel_applib_state.h"
 #include "process_management/app_manager.h"
+#include "process_state/app_state/app_state.h"
+#include "applib/ui/recognizer/touch_nav.h"
 #include "kernel/util/delay.h"
 #include "util/mbuf.h"
 #include "system/firmware_storage.h"
@@ -190,7 +192,7 @@ static void watchdog_timer_callback(void* data) {
 #include <pbl/services/bluetooth/bluetooth_ctl.h>
 #include <pbl/services/bluetooth/bluetooth_persistent_storage.h>
 
-static char s_t5ai_timebase_response[224];
+static char s_t5ai_timebase_response[480];
 volatile uint32_t g_t5ai_boot_stage;
 volatile uint32_t g_t5ai_app_stage;
 
@@ -215,10 +217,20 @@ static void cp_heartbeat_timer_callback(void* data) {
     dbgserial_putstr("PBLRX-OK: T5AI USB mailbox RX passed");
   } else if (probe == DbgSerialMailboxProbe_Timebase) {
     TaskHandle_t app_task = pebble_task_get_handle_for_task(PebbleTask_App);
+    TaskHandle_t kernel_task = pebble_task_get_handle_for_task(PebbleTask_KernelMain);
+    TaskHandle_t background_task = pebble_task_get_handle_for_task(PebbleTask_KernelBackground);
+    TaskHandle_t timer_task = pebble_task_get_handle_for_task(PebbleTask_NewTimers);
+    TaskHandle_t bt_host_task = pebble_task_get_handle_for_task(PebbleTask_BTHost);
+    TaskHandle_t bt_hci_task = pebble_task_get_handle_for_task(PebbleTask_BTHCI);
+    EventQueueDiagnostics queue_diagnostics;
+    event_get_queue_diagnostics(&queue_diagnostics);
     dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
                          "PBLTIM freertos=%lu rtc=%lu aon=%lu core=%lu reload=%lu "
                          "stage=%lu appstage=%lu appinit=%u first=%u "
-                         "apptask=%u state=%u prio=%u stack=%u",
+                         "apptask=%u state=%u prio=%u stack=%u km=%u/%u bg=%u/%u "
+                         "nt=%u/%u/%u bth=%u/%u bti=%u/%u "
+                         "q=%lu/%lu/%lu/%lu/%lu take=%lu cur=%lu "
+                         "irq=%08lx/%08lx/%08lx",
                          (unsigned long)xTaskGetTickCount(), (unsigned long)rtc_get_ticks(),
                          (unsigned long)t5ai_rtc_get_raw_ticks(), (unsigned long)SystemCoreClock,
                          (unsigned long)SysTick->LOAD, (unsigned long)g_t5ai_boot_stage,
@@ -227,7 +239,27 @@ static void cp_heartbeat_timer_callback(void* data) {
                          (unsigned)app_manager_is_first_app_launched(), (unsigned)(app_task != NULL),
                          app_task ? (unsigned)eTaskGetState(app_task) : 0xffu,
                          app_task ? (unsigned)uxTaskPriorityGet(app_task) : 0xffu,
-                         app_task ? (unsigned)uxTaskGetStackHighWaterMark(app_task) : 0u);
+                         app_task ? (unsigned)uxTaskGetStackHighWaterMark(app_task) : 0u,
+                         kernel_task ? (unsigned)eTaskGetState(kernel_task) : 0xffu,
+                         kernel_task ? (unsigned)uxTaskGetStackHighWaterMark(kernel_task) : 0u,
+                         background_task ? (unsigned)eTaskGetState(background_task) : 0xffu,
+                         background_task ? (unsigned)uxTaskGetStackHighWaterMark(background_task) : 0u,
+                         timer_task ? (unsigned)eTaskGetState(timer_task) : 0xffu,
+                         timer_task ? (unsigned)uxTaskPriorityGet(timer_task) : 0xffu,
+                         timer_task ? (unsigned)uxTaskGetStackHighWaterMark(timer_task) : 0u,
+                         bt_host_task ? (unsigned)eTaskGetState(bt_host_task) : 0xffu,
+                         bt_host_task ? (unsigned)uxTaskPriorityGet(bt_host_task) : 0xffu,
+                         bt_hci_task ? (unsigned)eTaskGetState(bt_hci_task) : 0xffu,
+                         bt_hci_task ? (unsigned)uxTaskPriorityGet(bt_hci_task) : 0xffu,
+                         (unsigned long)queue_diagnostics.set_depth,
+                         (unsigned long)queue_diagnostics.kernel_depth,
+                         (unsigned long)queue_diagnostics.app_depth,
+                         (unsigned long)queue_diagnostics.worker_depth,
+                         (unsigned long)queue_diagnostics.self_depth,
+                         (unsigned long)queue_diagnostics.events_taken,
+                         (unsigned long)queue_diagnostics.current_event,
+                         (unsigned long)SCB->ICSR, (unsigned long)__get_BASEPRI(),
+                         (unsigned long)__get_PRIMASK());
   } else if (probe == DbgSerialMailboxProbe_Display) {
     display_co5300_log_diagnostics();
   } else if (probe == DbgSerialMailboxProbe_DisplayBitbang) {
@@ -241,6 +273,67 @@ static void cp_heartbeat_timer_callback(void* data) {
     const RemoteInputResult result = remote_input_button_press(button, 1u, 120u, 0u);
     dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
                          "PBLB%u result=%u", (unsigned)button, (unsigned)result);
+  } else if (probe == DbgSerialMailboxProbe_Touch) {
+    TouchSensorDiagnostics diagnostics;
+    touch_sensor_get_diagnostics(&diagnostics);
+    dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
+                         "PBLTP global=%u nav=%u app=%u enabled=%u down=%u "
+                         "polls=%lu fail=%lu ack=%lu valid=%lu n=%u chg=%u "
+                         "first=%d,%d min=%d,%d max=%d,%d last=%d,%d "
+                         "raw=%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
+                         (unsigned)touch_service_is_globally_enabled(),
+                         (unsigned)touch_nav_enabled(), (unsigned)touch_app_nav_active(),
+                         (unsigned)diagnostics.enabled, (unsigned)diagnostics.finger_down,
+                         (unsigned long)diagnostics.polls,
+                         (unsigned long)diagnostics.read_failures,
+                         (unsigned long)diagnostics.ack_reports,
+                         (unsigned long)diagnostics.valid_reports,
+                         (unsigned)diagnostics.contact_samples,
+                         (unsigned)diagnostics.coordinate_changes,
+                         diagnostics.first_x, diagnostics.first_y,
+                         diagnostics.min_x, diagnostics.min_y,
+                         diagnostics.max_x, diagnostics.max_y,
+                         diagnostics.last_x, diagnostics.last_y,
+                         diagnostics.last_report[0], diagnostics.last_report[1],
+                         diagnostics.last_report[2], diagnostics.last_report[3],
+                         diagnostics.last_report[4], diagnostics.last_report[5],
+                         diagnostics.last_report[6], diagnostics.last_report[7],
+                         diagnostics.last_report[8], diagnostics.last_report[9]);
+  } else if (probe == DbgSerialMailboxProbe_TouchNav) {
+    const TouchNavState *state = app_state_get_touch_nav_state();
+    const TouchServiceState *touch_state = app_state_get_touch_service_state();
+    TouchServiceDiagnostics service;
+    TouchEventLoopDiagnostics event_loop;
+    touch_get_diagnostics(&service);
+    event_loop_get_touch_diagnostics(&event_loop);
+    dbgserial_putstr_fmt(
+        s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
+        "PBLTN ev=%u/%u/%u widget=%u/%u/%u/%u route=%u mgr=%u "
+        "menu=%u target=%u bridge=%u/%u/%u/%u/%u/%u "
+        "svc=%lu/%lu/%lu/%lu/%lu/%u/%u/%u loop=%lu/%lu/%lu/%lu sub=%u/%u",
+        state->counters.touchdowns, state->counters.position_updates,
+        state->counters.liftoffs, state->counters.widget_started,
+        state->counters.widget_updated, state->counters.widget_completed,
+        state->counters.widget_cancelled, (unsigned)state->route,
+        (unsigned)state->manager->state, (unsigned)(state->menu_head != NULL),
+        (unsigned)(state->latched_target != NULL), state->counters.started,
+        state->counters.completed, state->counters.failed,
+        state->counters.cancelled, state->counters.dropped, state->counters.gated,
+        (unsigned long)service.physical_samples,
+        (unsigned long)service.physical_samples_ignored,
+        (unsigned long)service.queued_touchdowns,
+        (unsigned long)service.queued_position_updates,
+        (unsigned long)service.queued_liftoffs, (unsigned)service.touch_state,
+        (unsigned)service.injecting, (unsigned)service.subscriber_count,
+        (unsigned long)event_loop.events, (unsigned long)event_loop.unarmed_touchdowns,
+        (unsigned long)event_loop.masked_animation, (unsigned long)event_loop.masked_modal,
+        (unsigned)touch_state->subscribed, (unsigned)(touch_state->system_handler != NULL));
+  } else if (probe == DbgSerialMailboxProbe_SwipeUp) {
+    const RemoteInputResult result =
+        remote_input_swipe(RemoteInputSwipeDirection_Up,
+                           REMOTE_INPUT_SWIPE_DEFAULT_DURATION_MS);
+    dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
+                         "PBLSU result=%u", (unsigned)result);
   }
 }
 #endif

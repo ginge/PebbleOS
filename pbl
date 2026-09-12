@@ -169,6 +169,8 @@ def make_runner(env, options):
     resources_file = None
     if getattr(options, "resources", False) and env.VARIANT != "prf":
         resources_file = pbpack()
+    if env.CONFIG_SOC_T5AI:
+        resources_file = pbpack()
 
     cfg = runners.RunnerConfig(
         board_dir=os.path.join("boards", env.BOARD_NAME),
@@ -176,6 +178,7 @@ def make_runner(env, options):
         hex_file=fw_hex(),
         elf_file=fw_elf(),
         resources_file=resources_file,
+        bin_file=fw_bin(),
         dry_run=getattr(options, "dry_run", False),
     )
 
@@ -193,7 +196,8 @@ def _reject_unvalidated_t5ai_operation(env, operation):
 
 
 def _run_runner(env, options, command):
-    _reject_unvalidated_t5ai_operation(env, command)
+    if command != "flash":
+        _reject_unvalidated_t5ai_operation(env, command)
     try:
         make_runner(env, options).run(command)
     except runners.RunnerError as e:
@@ -219,6 +223,8 @@ def _check_firmware_image_size(env, path):
             max_firmware_size = 576 * BYTES_PER_K
         else:
             max_firmware_size = 3072 * BYTES_PER_K
+    elif env.CONFIG_SOC_T5AI:
+        max_firmware_size = 960 * BYTES_PER_K
     elif env.CONFIG_QEMU:
         max_firmware_size = 4096 * BYTES_PER_K
     else:
@@ -257,7 +263,6 @@ def run_arm_gdb(elf_path, cmd_str="", target_server_port=3333):
 # --- Operational commands --------------------------------------------------
 
 def cmd_flash(env, options):
-    _reject_unvalidated_t5ai_operation(env, "flash")
     _check_firmware_image_size(env, fw_bin())
     _run_runner(env, options, "flash")
 

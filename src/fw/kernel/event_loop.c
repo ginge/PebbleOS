@@ -90,6 +90,16 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+#ifdef CONFIG_TOUCH
+static TouchEventLoopDiagnostics s_touch_diagnostics;
+
+void event_loop_get_touch_diagnostics(TouchEventLoopDiagnostics *diagnostics) {
+  if (diagnostics) {
+    *diagnostics = s_touch_diagnostics;
+  }
+}
+#endif
+
 static const uint32_t FORCE_QUIT_HOLD_MS = 1500;
 static int s_back_hold_timer = TIMER_INVALID_ID;
 
@@ -298,6 +308,7 @@ static NOINLINE void prv_minimal_event_handler(PebbleEvent* e) {
 
 #ifdef CONFIG_TOUCH
     case PEBBLE_TOUCH_EVENT: {
+      ++s_touch_diagnostics.events;
       // Raw touches only navigate (and hold the backlight) while the
       // interaction session is active; unarmed contact on the idle watchface
       // stays fully inert. Release on liftoff ungated so the refcount can't
@@ -333,6 +344,7 @@ static NOINLINE void prv_minimal_event_handler(PebbleEvent* e) {
         }
         gate = (TouchWakeGateResult){.latch = !armed};
         if (!armed) {
+          ++s_touch_diagnostics.unarmed_touchdowns;
           PBL_ANALYTICS_ADD(touch_gated_touchdown_count, 1);
         }
         touch_session_extend();
@@ -344,7 +356,14 @@ static NOINLINE void prv_minimal_event_handler(PebbleEvent* e) {
         touch_session_extend();
         app_idle_timeout_touch_up();
       }
-      if (compositor_is_animating() || is_modal_focused) {
+      const bool compositor_animating = compositor_is_animating();
+      if (compositor_animating) {
+        ++s_touch_diagnostics.masked_animation;
+      }
+      if (is_modal_focused) {
+        ++s_touch_diagnostics.masked_modal;
+      }
+      if (compositor_animating || is_modal_focused) {
         // Mask the app task while the compositor animates or a modal is focused. Otherwise a
         // gesture over a focused modal reaches both the kernel (modal) twin and the app twin
         // underneath, firing two actions for one gesture; masking the app leaves the modal twin
@@ -657,9 +676,12 @@ static NOINLINE void prv_launcher_main_loop_init(void) {
     });
   }
 #endif
+  T5AI_BOOT_STAGE(23u);
 
   notify_system_ready_for_communication();
+  T5AI_BOOT_STAGE(24u);
   serial_console_enable_prompt();
+  T5AI_BOOT_STAGE(25u);
 }
 
 void launcher_main_loop(void) {
@@ -668,6 +690,7 @@ void launcher_main_loop(void) {
   prv_launcher_main_loop_init();
 
   while (1) {
+    T5AI_BOOT_STAGE(26u);
     task_watchdog_bit_set(PebbleTask_KernelMain);
 
     // We make this PebbleEvent static to save stack space
@@ -687,7 +710,7 @@ void launcher_main_loop(void) {
       event_loop_upkeep();
     }
 #ifdef CONFIG_SOC_T5AI
-    // KernelMain is priority 3 and the app task is priority 2. The partial
+    // KernelMain is priority 3 and the T5AI app task is lower priority. The partial
     // DVT3 service set currently keeps the kernel queue selectable, so the
     // normal blocking receive does not provide a scheduling window for the
     // ready app task. A bounded 10-tick pause keeps the kernel responsive
