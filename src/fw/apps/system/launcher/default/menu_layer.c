@@ -104,8 +104,8 @@ static void prv_menu_layer_draw_row(GContext* ctx, const Layer *cell_layer, Menu
   }
 
 #ifdef CONFIG_SOC_T5AI
-  // DVT3 has no validated system resource bank yet. Render the built-in app
-  // name with the existing basic menu path instead of requiring glance reels.
+  // Use the non-animated menu path on DVT3 while still loading each base app's
+  // icon from the validated system resource bank.
   app_menu_data_source_draw_row(data_source, ctx, (Layer *)cell_layer, cell_index);
 #else
   AppMenuNode *node = app_menu_data_source_get_node_at_index(data_source, cell_index->row);
@@ -151,8 +151,7 @@ static int16_t prv_menu_layer_get_cell_height(PBL_UNUSED MenuLayer *menu_layer,
 
 static void prv_play_glance_for_row(LauncherMenuLayer *launcher_menu_layer, uint16_t row) {
 #ifdef CONFIG_SOC_T5AI
-  // Glance resources are unavailable until the T5AI resource-bank layout is
-  // implemented. Selection remains functional without the animation.
+  // Keep selection functional without enabling the heavier glance animations.
   return;
 #else
   if (!launcher_menu_layer || !launcher_menu_layer->selection_animations_enabled) {

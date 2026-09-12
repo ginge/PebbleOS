@@ -43,9 +43,9 @@ PEBBLE_EXPERIMENTAL_SLOT_PHYSICAL_SIZE = (
 )
 
 PEBBLE_AP_PHYSICAL_OFFSET = PRIMARY_AP_APP_PHYSICAL_OFFSET
-PEBBLE_RESOURCES_PHYSICAL_OFFSET = 0x00231000
+PEBBLE_RESOURCES_LOGICAL_OFFSET = 0x000F0000
 PEBBLE_RESOURCES_SIZE = 0x00100000
-PEBBLE_FILESYSTEM_PHYSICAL_OFFSET = 0x00340000
+PEBBLE_FILESYSTEM_PHYSICAL_OFFSET = 0x00350000
 PEBBLE_FILESYSTEM_SIZE = 0x00100000
 PFS_PAGE_SIZE = 0x1000
 PFS_VERSION = 0x5001
@@ -109,26 +109,27 @@ def build_empty_pfs() -> bytes:
 
 def build_pebble_flash_image(firmware: bytes, resources: bytes) -> bytes:
     """Build an exact-range AP image with resources and formatted empty PFS."""
-    if len(firmware) > PEBBLE_EXPERIMENTAL_SLOT_SIZE:
+    if len(firmware) > PEBBLE_RESOURCES_LOGICAL_OFFSET:
         raise ValueError("Pebble firmware overlaps the T5AI system resource bank")
     if len(resources) > PEBBLE_RESOURCES_SIZE:
         raise ValueError("Pebble system resources exceed the T5AI resource bank")
 
-    firmware_region = bytearray([PADDING_BYTE]) * PEBBLE_EXPERIMENTAL_SLOT_SIZE
-    firmware_region[: len(firmware)] = firmware
-    protected_firmware = encode_protected_blocks(firmware_region)
+    protected_logical_size = PEBBLE_RESOURCES_LOGICAL_OFFSET + PEBBLE_RESOURCES_SIZE
+    protected_logical = bytearray([PADDING_BYTE]) * protected_logical_size
+    protected_logical[: len(firmware)] = firmware
+    protected_logical[PEBBLE_RESOURCES_LOGICAL_OFFSET :
+                      PEBBLE_RESOURCES_LOGICAL_OFFSET + len(resources)] = resources
+    protected_prefix = encode_protected_blocks(protected_logical)
 
     image_size = (
         PEBBLE_FILESYSTEM_PHYSICAL_OFFSET
         + PEBBLE_FILESYSTEM_SIZE
-        - PEBBLE_AP_PHYSICAL_OFFSET
+        - PRIMARY_AP_APP_PHYSICAL_OFFSET
     )
     image = bytearray([PADDING_BYTE]) * image_size
-    image[: len(protected_firmware)] = protected_firmware
-    resource_start = PEBBLE_RESOURCES_PHYSICAL_OFFSET - PEBBLE_AP_PHYSICAL_OFFSET
-    image[resource_start : resource_start + len(resources)] = resources
-    filesystem_start = PEBBLE_FILESYSTEM_PHYSICAL_OFFSET - PEBBLE_AP_PHYSICAL_OFFSET
-    image[filesystem_start : filesystem_start + PEBBLE_FILESYSTEM_SIZE] = build_empty_pfs()
+    image[: len(protected_prefix)] = protected_prefix
+    filesystem_start = PEBBLE_FILESYSTEM_PHYSICAL_OFFSET - PRIMARY_AP_APP_PHYSICAL_OFFSET
+    image[filesystem_start:] = build_empty_pfs()
     return bytes(image)
 
 

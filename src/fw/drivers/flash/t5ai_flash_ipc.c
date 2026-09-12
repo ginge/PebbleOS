@@ -32,6 +32,7 @@
 #define T5AI_FLASH_COMMAND_READ 3u
 #define T5AI_FLASH_COMMAND_READ_DONE 4u
 #define T5AI_FLASH_COMMAND_WRITE 5u
+#define T5AI_FLASH_CONNECT_ATTEMPTS 4u
 
 typedef struct {
   uint32_t header;
@@ -359,7 +360,16 @@ status_t t5ai_flash_ipc_init(void) {
     t5ai_cp_mailbox_unlock();
     return status;
   }
-  status = prv_connect(T5AI_FLASH_CLIENT_PORT, T5AI_FLASH_SERVER_PORT);
+  /* The AP can reach this point while the CP is still registering services.
+   * CONNECT either receives a route-unreachable response or times out in that
+   * window, so retry before allowing later flash reads to proceed disconnected.
+   */
+  for (unsigned attempt = 0; attempt < T5AI_FLASH_CONNECT_ATTEMPTS; ++attempt) {
+    status = prv_connect(T5AI_FLASH_CLIENT_PORT, T5AI_FLASH_SERVER_PORT);
+    if (PASSED(status)) {
+      break;
+    }
+  }
   s_connected = PASSED(status);
   t5ai_cp_mailbox_unlock();
   return s_connected ? S_SUCCESS : E_ERROR;

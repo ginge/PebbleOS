@@ -255,6 +255,19 @@ class TuyaKernelCheckTest(unittest.TestCase):
         ).read_text()
         self.assertIn("app_menu_data_source_draw_row(data_source", launcher_menu)
         self.assertIn("#ifndef CONFIG_SOC_T5AI\n  launcher_app_glance_service_init", launcher_menu)
+        resource_impl = (ROOT / "src/fw/resource/resource_impl.def").read_text()
+        t5ai_resource_impl = resource_impl.split("#if defined(CONFIG_SOC_T5AI)", 1)[1].split(
+            "#elif", 1
+        )[0]
+        self.assertIn("RESOURCE_IMPL(g_builtin_impl)", t5ai_resource_impl)
+        self.assertIn("RESOURCE_IMPL(g_system_bank_impl)", t5ai_resource_impl)
+        builtin_storage = (ROOT / "src/fw/resource/resource_storage_builtin.c").read_text()
+        self.assertNotIn(
+            "defined(CONFIG_RECOVERY_FW) || defined(CONFIG_SOC_T5AI)", builtin_storage
+        )
+        flash_storage = (ROOT / "src/fw/resource/resource_storage_flash.c").read_text()
+        self.assertIn("legacy_defective_checksum_memory(", flash_storage)
+        self.assertIn("(const void *)(uintptr_t)(BANK.begin + offset)", flash_storage)
         self.assertIn("T5AI_BOOT_STAGE(7u)", event_loop)
         self.assertIn("T5AI_BOOT_STAGE(22u)", event_loop)
         self.assertIn(

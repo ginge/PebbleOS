@@ -91,9 +91,10 @@ payload. It is not a complete QIO, UA, UG, factory, recovery, or OTA image.
 
 The pinned partition places the AP at physical flash offset `0x132000`, mapped
 to logical XIP address `0x02120000`. Pebble links into a `0xf0000`-byte
-protected firmware region. The flash service accesses the 1 MiB system-resource
-bank at physical `0x231000` and the 1 MiB PFS at physical `0x340000` as raw
-data partitions.
+protected firmware region followed by a 1 MiB protected system-resource bank.
+The CP flash service accesses the PFS as raw physical data, so the image leaves
+a sector-alignment gap after the resource bank and places the 1 MiB raw PFS at
+physical `0x350000`.
 
 For an already-backed-up lab board, `pbl flash` builds an exact-range protected
 AP image containing firmware, system resources (including stored base apps),
@@ -906,10 +907,12 @@ remains disabled.
 
 That fix advanced through app-list construction and exposed the next resource
 boundary. Launcher glance initialization asserted at LR `0x02139493`, mapped
-to a NULL generic glance reel because the external system resource bank is not
-yet validated. The T5AI launcher therefore uses the existing basic app-menu
-row renderer and skips glance reels/animations; builds for every other platform
-retain the full glance launcher.
+to a NULL generic glance reel because the external system resource bank was not
+yet validated. The T5AI launcher therefore initially used the existing basic
+app-menu row renderer and skipped glance reels/animations. Once the external
+bank was included in the exact-range flash image and verified by readback,
+T5AI enabled that bank for fonts and base-app icons while retaining the simpler
+non-animated menu path.
 
 All 146 tests and `git diff --check` pass for the basic launcher. The resulting
 799,170-byte protected AP image has SHA-256

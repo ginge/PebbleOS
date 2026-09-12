@@ -92,6 +92,7 @@ int main(void) {
   assert(prv_crc32(vector, sizeof(vector) - 1) == 0x2dfd2d88);
   assert(prv_ipc_address_word(0x2a) == 0x002a5001);
   assert(prv_ipc_data_word(5, 16, 0xa2) == 0x05a20010);
+  assert(T5AI_FLASH_CONNECT_ATTEMPTS > 1);
 
   T5AIIPCMessage ack = {
     .header = ((uint32_t)T5AI_IPC_ACK_CONTROL << 12),

@@ -1797,8 +1797,10 @@ Verify all pins from the schematic/BSP before hardware testing.
   drivers as further changes are made.
 - T5AI host packaging enforces a 1 MiB logical system-resource pack ceiling;
   the current 1,026,537-byte pack fits narrowly. The flash-only runner installs
-  it into the single raw `0x00231000..0x00331000` resource bank. Runtime resource
-  updates remain disabled; there is no redundant bank.
+  it into the single protected logical `0x00210000..0x00310000` resource bank
+  (physical `0x00231000..0x00341000`). Runtime resource updates remain disabled;
+  there is no redundant bank. The PFS remains a raw CP-flash partition at
+  physical `0x00350000..0x00450000` after a sector-alignment gap.
 - The mandatory T5AI pre-objcopy map gate now verifies the exact FLASH, kernel,
   worker, app, and display-memory regions; the 0x140-byte vector table at slot
   start; ordered stack/heap and framebuffer bounds; and absence of Tuya/Beken

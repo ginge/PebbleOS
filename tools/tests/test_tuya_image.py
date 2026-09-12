@@ -16,7 +16,8 @@ from tools.t5ai_image import (
     PEBBLE_FILESYSTEM_PHYSICAL_OFFSET,
     PEBBLE_FILESYSTEM_SIZE,
     PEBBLE_EXPERIMENTAL_SLOT_SIZE,
-    PEBBLE_RESOURCES_PHYSICAL_OFFSET,
+    PEBBLE_RESOURCES_LOGICAL_OFFSET,
+    PEBBLE_RESOURCES_SIZE,
     PFS_ERASED_PAGE_FLAGS,
     PFS_INITIAL_ERASE_COUNT,
     PFS_PAGE_SIZE,
@@ -91,17 +92,17 @@ FLASH            0x02120000         0x000f0000         xr
         firmware = b"firmware"
         resources = b"resources"
         protected = build_pebble_flash_image(firmware, resources)
-        protected_firmware_size = PEBBLE_EXPERIMENTAL_SLOT_SIZE * 34 // 32
-        logical = verify_protected_blocks(protected[:protected_firmware_size])
+        protected_prefix_size = (
+            (PEBBLE_RESOURCES_LOGICAL_OFFSET + PEBBLE_RESOURCES_SIZE) * 34 // 32
+        )
+        logical = verify_protected_blocks(protected[:protected_prefix_size])
 
         self.assertEqual(logical[: len(firmware)], firmware)
-        resource_start = PEBBLE_RESOURCES_PHYSICAL_OFFSET - PEBBLE_AP_PHYSICAL_OFFSET
+        resource_start = PEBBLE_RESOURCES_LOGICAL_OFFSET
         self.assertEqual(
-            protected[resource_start : resource_start + len(resources)], resources
+            logical[resource_start : resource_start + len(resources)], resources
         )
-        filesystem_start = (
-            PEBBLE_FILESYSTEM_PHYSICAL_OFFSET - PEBBLE_AP_PHYSICAL_OFFSET
-        )
+        filesystem_start = PEBBLE_FILESYSTEM_PHYSICAL_OFFSET - PEBBLE_AP_PHYSICAL_OFFSET
         self.assertEqual(protected[filesystem_start:], build_empty_pfs())
 
         pfs = protected[filesystem_start:]
@@ -119,7 +120,7 @@ FLASH            0x02120000         0x000f0000         xr
     def test_flash_image_rejects_region_overflow(self):
         with self.assertRaises(ValueError):
             build_pebble_flash_image(
-                b"x" * (PEBBLE_EXPERIMENTAL_SLOT_SIZE + 1), b""
+                b"x" * (PEBBLE_RESOURCES_LOGICAL_OFFSET + 1), b""
             )
         with self.assertRaises(ValueError):
             build_pebble_flash_image(b"", b"x" * (0x100000 + 1))
