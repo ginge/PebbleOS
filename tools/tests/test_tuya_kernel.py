@@ -47,6 +47,8 @@ class TuyaKernelCheckTest(unittest.TestCase):
         initialization = (ROOT / "soc/t5ai/init.c").read_text()
         startup = (ROOT / "src/fw/startup/startup_cortex_m.c").read_text()
         main = (ROOT / "src/fw/main.c").read_text()
+        display = (ROOT / "src/fw/drivers/display/t5ai/display_co5300.c").read_text()
+        backlight = (ROOT / "src/fw/drivers/backlight/t5ai.c").read_text()
         mailbox = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
         port = (ROOT / "soc/t5ai/freertos.c").read_text()
         marker = startup.index("uart0[7] = 'A'")
@@ -80,9 +82,162 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn('dbgserial_putstr("PBLRX-OK: T5AI USB mailbox RX passed")', main)
         self.assertIn("DbgSerialMailboxProbe_Timebase", dbgserial_input)
         self.assertIn("DbgSerialMailboxProbe_Timebase", main)
+        self.assertIn("DbgSerialMailboxProbe_Display", dbgserial_input)
+        self.assertIn("DbgSerialMailboxProbe_Display", main)
+        self.assertIn("DbgSerialMailboxProbe_Splash", dbgserial_input)
+        self.assertIn("DbgSerialMailboxProbe_Splash", main)
         self.assertIn(
-            '"PBLTIM freertos=%lu rtc=%lu aon=%lu core=%lu reload=%lu"', main
+            "else if (memcmp(request, s_mailbox_display_probe_request",
+            dbgserial_input,
         )
+        self.assertIn("s_mailbox_splash_request", dbgserial_input)
+        self.assertIn("boot_splash_start();", main)
+        self.assertIn('dbgserial_putstr("PBLSPL done")', main)
+        self.assertIn("const status_t boot_power_status", display)
+        self.assertIn("prv_qspi_init() && prv_panel_init()", display)
+        self.assertIn("prv_register(0x13u, NULL, 0) && prv_register(0x29u, NULL, 0)", display)
+        panel_init = display.split("static bool prv_panel_init(void)", 1)[1].split(
+            "static void prv_bitbang_write_pin", 1
+        )[0]
+        self.assertNotIn("prv_register(0x23u", panel_init)
+        self.assertIn("prv_read_register(0x0au, &power_mode_raw)", display)
+        self.assertIn("exact compiled Tuya ordering", display)
+        self.assertIn(
+            "GPIO_BASE[pin] = (GPIO_BASE[pin] & ~0x3fffu) | (1u << 3) | (1u << 6) | (3u << 8)",
+            display,
+        )
+        self.assertIn("*prv_qspi(QSPI_CMD_C_CFG1) = 0x300u", display)
+        self.assertNotIn("0x3u << ((length + 4u) * 2u)", display)
+        brightness = display.index("{0x51, 0xff}")
+        sleep_out = display.index("prv_register(0x11u")
+        self.assertLess(brightness, sleep_out)
+        self.assertIn(
+            "*prv_qspi(QSPI_CONFIG) = QSPI_CS_HIGH_WAIT | QSPI_ENABLE | QSPI_IO23_ENABLE",
+            display,
+        )
+        self.assertIn("#define QSPI_CS_HIGH_WAIT (8u << 24)", display)
+        self.assertIn("SYSTEM_CPU1_INTERRUPT_ENABLE |= 1u << 20", display)
+        self.assertNotIn("NVIC_EnableIRQ(QSPI0_IRQn)", display)
+        self.assertIn("*prv_qspi(QSPI_GLB_CTRL) |= 1u", display)
+        self.assertIn("(5u << 6)", display)
+        self.assertIn("*prv_qspi(QSPI_RST_CFG) = 0u", display)
+        self.assertIn('"PBLPWR clk=%08lx', display)
+        self.assertIn('"PBLPIN p22-27=%03lx', display)
+        self.assertIn('"PBLREG %02lx=%08lx', display)
+        self.assertNotIn("prv_bitbang_panel_init", display)
+        self.assertIn("void display_co5300_bitbang_probe(void)", display)
+        self.assertIn("*prv_qspi(QSPI_CONFIG) &= ~QSPI_ENABLE", display)
+        self.assertIn('prv_bitbang_byte(clock, data, 0x02u)', display)
+        self.assertIn("GPIO_PuPd_NOPULL, data0_float", display)
+        self.assertIn("GPIO_PuPd_UP, data0_up", display)
+        self.assertIn("GPIO_PuPd_DOWN, data0_down", display)
+        self.assertIn('"pull-down=%02x%02x%02x%02x/%02x%02x%02x%02x', display)
+        self.assertIn('"PBLBIT done', display)
+        self.assertIn("static bool prv_draw_diagnostic_pattern(void)", display)
+        self.assertIn("const bool pattern_written = reinitialized", display)
+        self.assertIn('"PBLDSP bootpm=%ld nowpm=%ld reinit=%u pattern=%u', display)
+        self.assertIn("return 100u", backlight)
+        self.assertIn("display_co5300_set_brightness(0xffu)", backlight)
+        self.assertNotIn("* 255u", backlight)
+        splash = (ROOT / "src/fw/services/boot_splash/service.c").read_text()
+        self.assertIn("#if defined(CONFIG_SOC_T5AI)", splash)
+        self.assertIn("static uint8_t s_t5ai_splash_row[PBL_DISPLAY_WIDTH]", splash)
+        self.assertIn("display_update(prv_t5ai_splash_next_row", splash)
+        self.assertIn("The logo is compiled into the AP image", splash)
+        t5ai_splash = splash.split("#if defined(CONFIG_SOC_T5AI)", 1)[1].split(
+            "#elif defined(CONFIG_PBLBOOT)", 1
+        )[0]
+        self.assertNotIn("kernel_malloc", t5ai_splash)
+        self.assertIn(
+            '"PBLTIM freertos=%lu rtc=%lu aon=%lu core=%lu reload=%lu "', main
+        )
+        self.assertIn('"stage=%lu appstage=%lu appinit=%u first=%u ', main)
+        self.assertIn('"apptask=%u state=%u prio=%u stack=%u"', main)
+        self.assertIn("g_t5ai_boot_stage = 6u", main)
+        self.assertIn("volatile uint32_t g_t5ai_app_stage", main)
+        self.assertIn("app_manager_is_initialized()", main)
+        self.assertIn("app_manager_is_first_app_launched()", main)
+        self.assertIn("cron_service_init();", main)
+        self.assertIn("touch_init();", main)
+        event_loop = (ROOT / "src/fw/kernel/event_loop.c").read_text()
+        self.assertIn("app_install_manager_init();", event_loop)
+        launcher_menu = (
+            ROOT / "src/fw/apps/system/launcher/default/menu_layer.c"
+        ).read_text()
+        self.assertIn("app_menu_data_source_draw_row(data_source", launcher_menu)
+        self.assertIn("#ifndef CONFIG_SOC_T5AI\n  launcher_app_glance_service_init", launcher_menu)
+        self.assertIn("T5AI_BOOT_STAGE(7u)", event_loop)
+        self.assertIn("T5AI_BOOT_STAGE(22u)", event_loop)
+        self.assertIn(
+            "normal blocking receive does not provide a scheduling window",
+            event_loop,
+        )
+        self.assertIn("vTaskDelay(10u);", event_loop)
+        self.assertIn(
+            "#ifndef CONFIG_SOC_T5AI\n  // emulate a button press-and-release",
+            event_loop,
+        )
+        shell_event_loop = (ROOT / "src/fw/shell/normal/shell_event_loop.c").read_text()
+        self.assertIn("T5AI_SHELL_STAGE(171u)", shell_event_loop)
+        self.assertIn("T5AI_SHELL_STAGE(180u)", shell_event_loop)
+        self.assertIn(
+            "#else\n      battery_ui_handle_state_change_event",
+            shell_event_loop,
+        )
+        shell_prefs = (ROOT / "src/fw/shell/normal/prefs.c").read_text()
+        self.assertIn("DVT3 deliberately does not initialize writable PFS", shell_prefs)
+        self.assertIn("#ifndef CONFIG_SOC_T5AI\n  prv_maybe_run_settings", shell_event_loop)
+        self.assertIn(
+            "#ifndef CONFIG_SOC_T5AI\n  bool factory_reset_or_first_use",
+            shell_event_loop,
+        )
+        services = (ROOT / "src/fw/services/services.c").read_text()
+        services_common = (ROOT / "src/fw/services/services_common/service.c").read_text()
+        process_manager = (ROOT / "src/fw/process_management/process_manager.c").read_text()
+        app_install_manager = (
+            ROOT / "src/fw/process_management/app_install_manager.c"
+        ).read_text()
+        app_order_storage = (
+            ROOT / "src/fw/services/process_management/app_order_storage.c"
+        ).read_text()
+        app_manager = (ROOT / "src/fw/process_management/app_manager.c").read_text()
+        launcher = (
+            ROOT / "src/fw/apps/system/launcher/default/launcher.c"
+        ).read_text()
+        app_state = (ROOT / "src/fw/process_state/app_state/app_state.c").read_text()
+        self.assertIn(
+            "#if !defined(CONFIG_RECOVERY_FW) && !defined(CONFIG_SOC_T5AI)\n"
+            "  services_normal_set_runlevel(runlevel);",
+            services,
+        )
+        self.assertIn("#ifndef CONFIG_SOC_T5AI\n  {\n    .set_enable_fn = accel_manager_enable", services_common)
+        self.assertIn("#ifndef CONFIG_SOC_T5AI\n  {\n    .set_enable_fn = light_allow", services_common)
+        self.assertIn(
+            "#ifndef CONFIG_SOC_T5AI\n  persist_service_client_open", process_manager
+        )
+        self.assertIn(
+            "#ifndef CONFIG_SOC_T5AI\n  persist_service_client_close", process_manager
+        )
+        self.assertIn(
+            "DVT3 deliberately leaves writable PFS and the persist service disabled",
+            process_manager,
+        )
+        self.assertIn(
+            "#ifndef CONFIG_SOC_T5AI\n  // DVT3 currently has no initialized AppDB",
+            app_install_manager,
+        )
+        self.assertIn(
+            "DVT3 does not initialize writable PFS or this service's mutex yet",
+            app_order_storage,
+        )
+        self.assertIn("T5AI_APP_STAGE(201u)", app_manager)
+        self.assertIn("T5AI_APP_STAGE(205u)", app_manager)
+        self.assertIn("T5AI_LAUNCHER_STAGE(211u)", launcher)
+        self.assertIn("T5AI_LAUNCHER_STAGE(224u)", launcher)
+        self.assertIn("T5AI_APP_STATE_STAGE(301u)", app_state)
+        self.assertIn("T5AI_APP_STATE_STAGE(323u)", app_state)
+        self.assertIn("T5AI_APP_STATE_STAGE(324u)", app_state)
+        self.assertIn("T5AI_APP_STATE_STAGE(326u)", app_state)
         self.assertIn("t5ai_rtc_get_raw_ticks()", main)
         self.assertIn("(unsigned long)SystemCoreClock", main)
         self.assertIn("(unsigned long)SysTick->LOAD", main)

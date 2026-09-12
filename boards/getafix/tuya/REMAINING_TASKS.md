@@ -1,6 +1,842 @@
 # Getafix DVT3 native port: hardware validation and remaining tasks
 
-This is the continuation handoff for the native PebbleOS port to the Waveshare T5-E1 Touch AMOLED 1.75 board. Continue on branch `tuya`.
+This is the continuation handoff for the native PebbleOS port to the Waveshare
+T5-E1 Touch AMOLED 1.75 board. Continue in the only valid source checkout,
+`/home/baz/coredevices/pebbleos`. The similarly named directory under
+`/home/baz/Documents/ChatGPT/pebble` is reference and artifact storage, not a
+PebbleOS source tree.
+
+## Current priority: recover the black panel before Bluetooth work
+
+- Bluetooth validation is paused at the user's request. Do not resume it until
+  the panel produces visible output.
+- The CP shell/runtime USART is `if02` (normally `ttyACM1`) at 460800 baud;
+  `if00` (normally `ttyACM0`) is the programming/reset interface. Both are on
+  the same USB-C dual-UART bridge and disappear when the board is unplugged.
+- The first `PBLDSP` command was unreachable because it has the same eight-byte
+  request length as `PBLTIM`, while the parser selected the timebase branch by
+  length before comparing the display request. The parser now compares both
+  requests inside that shared-length branch. The diagnostic itself is
+  read-only and reports display state plus QSPI, clock, gate, P19 power-latch,
+  and P29 panel-reset registers.
+- The corrected source passes all 78 focused tests and builds successfully. Its
+  906,100-byte protected AP payload has SHA-256
+  `078c16aa87c95140aa3c2cabacec1a1db22f482c3b9bc1c7d77c81cd16cf6d8c`
+  and occupies exactly `0x132000..0x20f374`. It has not been flashed: both USB
+  serial interfaces disappeared immediately before programming. After the
+  shared cable is replugged, flash only that exact AP range, then send
+  `ap_cmd PBLDSP` on `if02` at 460800 baud and record the complete response.
+- That image was subsequently flashed successfully. Its read-only response was
+  `PBLDSP i/e/u=1/1/0 glb=00000001 cfg=08000009 rst=00000000 st=0001100a
+  clk=05000570 gate=87188491 p19=00000103 p29=00000003`. This proves the
+  driver considered initialization successful, QSPI was enabled with an empty
+  FIFO and completed-command status, the FIFO reset was clear, and both the
+  board power latch and released panel reset were physically high.
+- The next on-demand diagnostic retries the CP QSPI power vote after boot,
+  reconfigures QSPI, and repeats the exact vendor reset/init/all-pixels-on
+  sequence. It also passes all 78 tests and builds with 852,947 bytes of FLASH,
+  82,464 bytes of KERNEL_RAM, 67,614 bytes of T5AI_DISPLAY_RAM, and 119,266
+  bytes of LOG_STRINGS. Its 906,270-byte payload has SHA-256
+  `7b155c26591ddc9d75dba4c5f42c9ae9da6ab45e92a01795253fe7fec543f920`
+  and occupies exactly `0x132000..0x20f41e`. The exact-range flash succeeded.
+  Its response was `PBLDSP bootpm=0 nowpm=0 reinit=1 i/e/u=1/1/0
+  glb=00000001 cfg=08000009 rst=00000000 st=0001100a clk=05000570
+  gate=8f188491 p19=00000103 p29=00000003`. Both the early and late CP power
+  votes succeeded, so CP service readiness is not the cause. Visual observation
+  after this live reinitialization confirmed no flash or visible output.
+- A deeper diagnostic adds the vendor-framed command-D power-mode read and
+  dumps the AP power-domain, QSPI pin, and pin-mux registers. It passes all 78
+  tests and builds with 853,235 bytes of FLASH. Its 906,576-byte payload has
+  SHA-256
+  `54a178ac86d25fedda4105aff062f64d4b99780e3527a27d6af9df1a75f83abf`
+  and occupies exactly `0x132000..0x20f550`; exact-range flashing succeeded.
+  Three repeated probes returned the identical result: `rd=1 pm=ff
+  raw=bce9bdff`, `mem=00000000/00000000 sleep=200000c0`, QSPI GPIO values
+  `70348/378/30378/150378/150378/150378`, and mux words
+  `33000000/00003333`. The controller raises RX-done, but `0xff` is not a
+  valid CO5300 power-mode response and the complete FIFO word is unchanged
+  across resets. The AP power domain, clock, QSPI GPIO configuration, and mux
+  match the pinned vendor implementation. The panel is not electrically
+  answering; do not mistake controller completion for panel acknowledgement.
+- The earlier short-command experiment was invalid because its normal-firmware
+  startup never called `display_init()`. A valid A/B build now uses the pinned
+  dedicated BK LCD driver's inline command-C encoding for zero-to-four-byte
+  register writes while retaining FIFO mode for pixel payloads. All 78 tests
+  pass. Its 906,576-byte payload has SHA-256
+  `0c705b0de7ecb10067d574455c996b880d1357e7d855f1565d23501fb144d5af`
+  and occupies `0x132000..0x20f550`; exact-range flashing succeeded. The live
+  reinitialization completed with `reinit=1`, but the panel read remained
+  `pm=ff raw=beedfdff` and all power/mux registers were unchanged. Visible
+  output from this valid inline-framing test remained completely black.
+- A final software-transport isolation build bypasses the QSPI controller,
+  FIFO, pin mux, and both command-packing variants. It temporarily drives CLK
+  P22, CS P23, and DATA/IO0 P24 as GPIO, performs the exact vendor panel-reset
+  timing, bit-bangs the four-byte command header and initialization sequence,
+  then sends sleep-out, display-on, and all-pixels-on. All 78 focused tests
+  pass. The build uses 853,683 bytes of FLASH, 82,464 bytes of KERNEL_RAM,
+  67,614 bytes of T5AI_DISPLAY_RAM, and 119,266 bytes of LOG_STRINGS. Its
+  907,052-byte protected payload has SHA-256
+  `eaee4df317032ef3e5e66bef88a4882738ee16522e1f60dddcb719bf32baa46d`
+  and occupies exactly `0x132000..0x20f72c`; exact-range flashing succeeded.
+  The live probe completed with `PBLBIT done=1 clk=00030301 cs=00000303
+  data=00030301 reset=00000003`, after the hardware path again returned
+  `reinit=1 rd=1 pm=ff raw=bfe9ffff`. The screen remained black. Software has
+  now driven the panel through two valid QSPI command encodings and an
+  independent bit-banged transport without visible output; stop changing the
+  display protocol blindly. The next diagnostic must inspect the physical
+  panel path: reseat/inspect the display FPC and connector, verify panel rails,
+  and scope P22/P23/P24 plus P29 during `PBLDSP`. This physical-fault
+  conclusion was subsequently disproved by the stock vendor firmware working
+  on the same board; retain the experiment as evidence only.
+- A non-protocol pad-sense follow-up enables each BK7258 input sampler while
+  its push-pull output remains active, drives QSPI CLK, CS, and DATA/IO0 both
+  low and high, and reports the two samples. All 78 focused tests pass. The
+  build uses 853,875 bytes of FLASH, 82,464 bytes of KERNEL_RAM, 67,614 bytes
+  of T5AI_DISPLAY_RAM, and 119,266 bytes of LOG_STRINGS. Its 907,256-byte
+  protected payload has SHA-256
+  `cf2ace1d5b42618a0abbaceb15a43231976530922ee4ec42f15a9c942cc57d58`
+  and occupies exactly `0x132000..0x20f7f8`; exact-range flashing succeeded.
+  The live result was `PBLPAD low/high clk=2 cs=2 data=2 expected=2`. A value
+  of 2 means the pad sampled low after a low drive and high after a high drive.
+  All three output pads therefore follow the AP commands; this rules out a
+  stuck output latch or disabled GPIO pad. The working stock vendor firmware
+  proves the remaining fault is in native software configuration.
+- Recomparison against the exact Tuya `tkl_qspi_init()` path found that its
+  80 MHz case selects the 480 MHz source with system divider 5 and leaves the
+  QSPI controller `clk_div` field at bits 8..15 zero. The high byte in live
+  `cfg=08000009` was initially misidentified as that divider; it is actually
+  `spi_cs_h_wait`. The next build restores the exact
+  generic Tuya CO5300 command path (FIFO parameter bytes and `CFG1=0x300`), sets
+  controller config to `0x00000009`, and removes the bit-bang/pad test so the
+  diagnostic leaves QSPI ownership intact. All 78 focused tests pass. The
+  build uses 853,203 bytes of FLASH, 82,464 bytes of KERNEL_RAM, 67,614 bytes
+  of T5AI_DISPLAY_RAM, and 119,266 bytes of LOG_STRINGS. Its 906,542-byte
+  protected payload has SHA-256
+  `94ae5985ed3a66013af611bd01d6972e6f462fc3938fe10f2de1d2e5469694a8`
+  and occupies exactly `0x132000..0x20f52e`; exact-range flashing and reboot
+  succeeded. The live probe confirms `cfg=00000009` and `reinit=1`; the
+  command-D read still returns noncredible `pm=ff raw=bfedffff`. Visible-output
+  observation is pending.
+- That build was not yet fully vendor-equivalent: the live `glb=00000001`
+  exposed that native code left QSPI `GLB_CTRL.bit0`, the active controller soft
+  reset, asserted. Tuya's generic `qspi_hal_init()`/`qspi_ll_init_common()` does
+  not assert that bit, and the earlier native display-bring-up revision at
+  `052392be5` explicitly pulsed it from 1 back to 0. The next build adds that
+  reset deassertion while retaining `cfg=00000009`, FIFO parameters, and
+  `RST_CFG=0`. All 78 focused tests pass. The 906,542-byte protected payload
+  has SHA-256
+  `a07590d77788662e5bc98fa75ac61490c53ce6a2adf87627a925cc1597af7c03`
+  and occupies exactly `0x132000..0x20f52e`; exact-range flashing and reboot
+  succeeded. The live probe confirms `glb=00000000 cfg=00000009 rst=00000000
+  reinit=1`; command-D still reads invalid `pm=ff raw=bee9ffff`. Visible-output
+  observation confirmed the panel remained black.
+- Git history identifies `05292094e` as the display regression boundary: it
+  simultaneously changed the preceding native bring-up from 40 to 80 MHz,
+  inline to FIFO short commands, released to asserted soft reset, and
+  `RST_CFG.bit1` set to clear. The immediately preceding diagnostic in
+  `bc29e5967` forced full brightness and all pixels on through the 40 MHz
+  inline-command path. The focused A/B restores that complete earlier
+  transport/register state, retains explicit brightness `0xff` and command
+  `0x23`, and does not copy or link vendor code. All 78 focused tests pass and
+  `git diff --check` passes. The build uses 853,267 bytes of FLASH, 82,464
+  bytes of KERNEL_RAM, 67,614 bytes of T5AI_DISPLAY_RAM, and 119,266 bytes of
+  LOG_STRINGS. Its 906,610-byte protected payload has SHA-256
+  `0e098ebe7088e44ac3a6a54b3821e7f9e4a68c4738d4fac3d1f77e2ee7fda729`
+  and occupies exactly `0x132000..0x20f572`; exact-range flashing and reboot
+  succeeded. The live probe reports `bootpm=0 nowpm=0 reinit=1 rd=1 pm=ff
+  raw=befdbdff i/e/u=1/1/0 glb=00000000 cfg=00000009 rst=00000002
+  st=0001100b` and clock register `050006f0`, confirming the intended
+  historical state on hardware. Visible-output observation confirmed the panel
+  remained completely black. The four display-driver changes bundled into
+  `05292094e` are therefore not the sole regression cause; compare the complete
+  known-working native bring-up state against current power, clock, pinmux, and
+  startup code before another flash.
+- Read-only disassembly of the preserved native artifact
+  `known-good-native-cpu1_AP.bin` found that its executed transport does not
+  match the nearby source history: it uses FIFO framing and `CFG1=0x300` for
+  every command length, while retaining the 40 MHz system divider, global-reset
+  pulse/release, and `RST_CFG.bit1`. It also sends brightness `0xff` after
+  sleep-out. The next A/B matches that actual machine-code combination. All 78
+  focused tests and `git diff --check` pass. The build uses 853,235 bytes of
+  FLASH, 82,464 bytes of KERNEL_RAM, 67,614 bytes of T5AI_DISPLAY_RAM, and
+  119,266 bytes of LOG_STRINGS. Its 906,576-byte protected payload has SHA-256
+  `f639c7718992f7bba361881820b70f501f14d2c01debbf5eeb9d3ecb99567447`
+  and occupies exactly `0x132000..0x20f550`; exact-range flashing and reboot
+  succeeded. Visible-output observation is pending; do not issue the QSPI read
+  probe until that observation is recorded.
+- During display bring-up, the T5AI backlight driver now forces every requested
+  level, including zero/off requests from the light service, to 100 percent and
+  sends CO5300 brightness `0xff`. Restore dynamic brightness only after the
+  panel produces reliable visible output. All 78 focused tests and `git diff
+  --check` pass. The 906,576-byte protected payload has SHA-256
+  `be7f894052087a91219248a27e392e9bc6e45b43e28c922a4c56b2cc83e664d7`
+  and occupies exactly `0x132000..0x20f550`; exact-range flashing and reboot
+  succeeded. The panel remained completely black, ruling out light-service
+  dimming and CO5300 brightness level as the cause.
+- The runtime USART immediately filled with binary HCI traffic after that
+  observation, preventing a reliable `PBLDSP` capture. DVT3 now selects
+  `CONFIG_BT_FW_STUB=y` for the panel diagnostic build; restore NimBLE only
+  after visible panel output is recovered. `PBLDSP` now also dumps every QSPI
+  register from offset `0x00` through `0x7c` in `PBLREG` lines.
+- Read-only disassembly of the exact working Tuya ELF confirms its QSPI0 pin
+  calls map P22/P23/P24/P25/P26/P27 to function IDs
+  `0xad/0xae/0x64/0x65/0x66/0x67`. The vendor GPIO mapping table places each
+  of those board-specific IDs at mux index 3, confirming native mux words
+  `33000000/00003333` are correct. The same disassembly confirms Tuya calls
+  `qspi_hal_enable_soft_reset()`, which sets `GLB_CTRL.bit0`; do not describe
+  a live value of one as proof that the vendor controller is held in reset.
+  The Bluetooth-quiet diagnostic passes all 78 focused tests and builds with
+  759,315 bytes of FLASH, 49,216 bytes of KERNEL_RAM, 67,614 bytes of
+  T5AI_DISPLAY_RAM, and 110,737 bytes of LOG_STRINGS. Its 806,786-byte
+  protected AP payload has SHA-256
+  `53e6fc492d142b44376ddb520a1c8a62e20628e278e6a684a206714e234333ae`
+  and occupies exactly `0x132000..0x1f6f82`; exact-range flashing and reboot
+  succeeded. The clean probe returned `reinit=1 rd=1 pm=ff raw=bfedfdff`,
+  `glb=0 cfg=9 rst=2 st=0001100b`, and valid QSPI device ID `51535049`.
+  `PBLREG` shows no command-failure status and the final command-C state is
+  `CMD_C_H=00230002`, the all-pixels-on command. The panel still does not
+  drive command-D IO0. The screen remained completely black, ruling out
+  Bluetooth runtime contention.
+- The next A/B uses the exact compiled Tuya controller ordering, not merely its
+  final register values: configure/enable QSPI, select 80 MHz, program
+  command-A, then set `GLB_CTRL.bit0` and leave `RST_CFG=0`. It also restores
+  brightness `0xff` to its exact vendor position before sleep-out while
+  retaining the final all-pixels-on probe. This tests whether enabling the
+  controller only after its register programming was the missing condition.
+  All 78 focused tests and `git diff --check` pass. The build uses 759,283
+  bytes of FLASH, 49,216 bytes of KERNEL_RAM, 67,614 bytes of
+  T5AI_DISPLAY_RAM, and 110,737 bytes of LOG_STRINGS. Its 806,752-byte
+  protected AP payload has SHA-256
+  `5efc66cb220bd5baa9cbd165eb277ff0c3b2530d7aeb398790ea9cb3fb207ffd`
+  and occupies exactly `0x132000..0x1f6f60`; exact-range flashing and reboot
+  succeeded. The clean runtime probe reports `reinit=1 rd=1 pm=ff
+  raw=bcedfdff`, `glb=1 cfg=9 rst=0 st=0001100b`, clock register `05000570`,
+  the expected mux words, and final `CMD_C_H=00230002`. The screen remained
+  completely black. Exact vendor controller enable/reset ordering and the
+  vendor brightness position are therefore ruled out as the active fault; the
+  command-D value remains a floating-bus result rather than a valid panel ID.
+- A pad-handoff A/B cleared GPIO register bit 3 on P22 through P27. The
+  complete 146-test host suite and `git diff --check` passed. The build used
+  759,283 bytes of FLASH, 49,216 bytes of KERNEL_RAM, 67,614 bytes of
+  T5AI_DISPLAY_RAM, and 110,737 bytes of LOG_STRINGS. Its 806,752-byte
+  protected AP payload had SHA-256
+  `d268d1fda0653386e356f90b6649c8dd6c9cfb3e6e58957b9a69aba6080630d3`
+  and occupied exactly `0x132000..0x1f6f60`; exact-range flashing and reboot
+  succeeded, and the panel remained black. This A/B was invalid: BK7258 GPIO
+  output-enable is active-low, so bit 3 set means disabled. Clearing it
+  re-enabled GPIO output ownership instead of releasing the pads. Restore bit
+  3 before any further panel test; do not use this result to rule out a
+  hypothesis.
+- The active-low GPIO output-disable bit was restored. The corrected build
+  passes the complete 146-test suite and was flashed safely to the same exact
+  AP range; its protected payload SHA-256 is
+  `cf3272f5d86a83dd6cc0416eebe0ba8e915bf8d81a9df751711a5f986950e786`.
+  The next one-variable A/B adds the remaining compiled Tuya initialization
+  action: open QSPI0's CPU1 system interrupt-router bit before controller
+  enable. Command completion remains polled and the QSPI NVIC line remains
+  disabled, avoiding an unhandled interrupt while testing whether the system
+  route participates in controller operation. The complete 146-test suite and
+  `git diff --check` pass. The build uses 759,283 bytes of FLASH, 49,216 bytes
+  of KERNEL_RAM, 67,614 bytes of T5AI_DISPLAY_RAM, and 110,737 bytes of
+  LOG_STRINGS. Its 806,752-byte protected AP payload has SHA-256
+  `4c0d3bf8987d12a570085eb397510c69cd3fc386f734d8e7bbd0de6455c27492`
+  and occupies exactly `0x132000..0x1f6f60`; exact-range flashing and reboot
+  succeeded. The live probe reports `irq=00100040`, proving QSPI0 router bit 20
+  is set alongside the existing I2C bit 6, while the correct active-low GPIO
+  disable values and expected QSPI state remain intact. The panel remained
+  completely black, ruling out the CPU1 system interrupt-router bit as the
+  missing condition.
+- Rechecking the register definition corrects an earlier label: bits 24..31 of
+  `QSPI_CONFIG` are `spi_cs_h_wait`, not the controller clock divider (which is
+  bits 8..15). Tuya's compiled initializer read-modify-writes the configuration
+  and therefore preserves this field, while current native code assigns
+  `0x00000009` and clears it. The preserved native setup used a value of eight.
+  The next isolated A/B programs `QSPI_CONFIG=0x08000009`, retaining the
+  otherwise current 80 MHz, FIFO, reset, IRQ-router, maximum-brightness, and
+  all-pixels-on configuration. This tests whether the panel requires a
+  nonzero chip-select-high gap between initialization commands. The complete
+  146-test suite and `git diff --check` pass. The build uses 759,315 bytes of
+  FLASH, 49,216 bytes of KERNEL_RAM, 67,614 bytes of T5AI_DISPLAY_RAM, and
+  110,737 bytes of LOG_STRINGS. Its 806,786-byte protected AP payload has
+  SHA-256
+  `c77a73bd3911b8963ef42abe2e64bece8379ed473eb110bb80f08bc7b80202fa`
+  and occupies exactly `0x132000..0x1f6f82`; exact-range flashing and reboot
+  succeeded. The post-boot USART probe confirms `cfg=08000009`,
+  `irq=00100040`, `glb=00000001`, safe active-low GPIO output-disable values,
+  and successful command completion (`st=0001100b`). The panel remained
+  completely black, ruling out the preserved `spi_cs_h_wait=8` field as the
+  missing condition.
+- The exact preserved native AP artifact that originally produced visible
+  colour stripes is now the source-versus-hardware boundary test. The stored
+  file has 25,451 valid 34-byte protected blocks followed by 42 erased padding
+  bytes; only its CRC-validated 865,334-byte prefix was replayed. That prefix
+  has SHA-256
+  `375ed67e04a8da44e7a84fcdfc10e19a73c4ba706d909470628acdb41845ce6d`,
+  decodes to a valid `sp=0x28066000` and `reset=0x0212ee05`, and occupies
+  exactly `0x132000..0x205436`. Exact-range AP-only flashing and reboot
+  succeeded. This older image is silent on the runtime UART and the panel
+  remained completely black. The exact formerly visible native binary no
+  longer reproduces visible output, so the active fault is below the current
+  display source diff. Continue with a direct GPIO-bit-banged panel-init
+  boundary test before changing more QSPI-controller state.
+- A separate USART command, `ap_cmd PBLBIT`, now implements that boundary
+  test. It disables QSPI0, returns P22/P23/P24 to GPIO ownership, and sends the
+  exact one-wire CO5300 command/address/payload byte stream in SPI mode 0 at
+  approximately 125 kHz. It repeats the validated reset timing and init list,
+  including brightness `0xff`, display-on `0x29`, and all-pixels-on `0x23`,
+  then leaves the GPIO pins idle for inspection. It does not replace the
+  production transport. The complete 146-test suite and `git diff --check`
+  pass. The build uses 759,827 bytes of FLASH, 49,216 bytes of KERNEL_RAM,
+  67,614 bytes of T5AI_DISPLAY_RAM, and 110,737 bytes of LOG_STRINGS. Its
+  807,330-byte protected AP payload has SHA-256
+  `80190b3e59221608c368d12411237da65671976432102761c4c5760235e7950e`
+  and occupies exactly `0x132000..0x1f71a2`; exact-range AP-only flashing and
+  reboot succeeded. `ap_cmd PBLBIT` completed and reported
+  `cfg=08000008 clk/cs/io0/rst=30301/303/30301/003`, confirming QSPI0 is
+  disabled, CS is idle high, CLK and IO0 are idle low, and reset is high after
+  the complete slow GPIO sequence. The panel remained completely black. This
+  rules out QSPI clocking, FIFO/DMA behavior, controller interrupts, and the
+  peripheral mux as the sole cause; extend the GPIO probe with a direct DCS
+  power-mode read before moving to panel power/reset sequencing.
+- `PBLBIT` now follows its write sequence with a GPIO-bit-banged DCS `0x0a`
+  power-mode read. It releases and samples both IO0 and IO1 for 32 clocks so
+  the result does not depend on an assumed single-wire return pin or byte
+  alignment. The complete 146-test suite and `git diff --check` pass. The
+  build uses 760,083 bytes of FLASH, 49,216 bytes of KERNEL_RAM, 67,614 bytes
+  of T5AI_DISPLAY_RAM, and 110,737 bytes of LOG_STRINGS. Its 807,602-byte
+  protected AP payload has SHA-256
+  `4a76dfcfa69016a5d187827b0a767b3eca6c9557ba314749eec2398deddffbb6`
+  and occupies exactly `0x132000..0x1f72b2`; exact-range AP-only flashing and
+  reboot succeeded. The live readback was `rd0=00000000 rd1=ffffffff`, which
+  is not a valid DCS power-mode response but does not yet distinguish active
+  drive from floating lines retaining opposite idle levels. The next revision
+  repeats the read with pull-up and pull-down bias on both possible return
+  lines.
+- The pull-bias revision repeats the same 32-bit IO0/IO1 capture with no pull,
+  pull-up, and pull-down. A driven panel response should remain stable while a
+  floating return follows the selected bias. The complete 146-test suite and
+  `git diff --check` pass. The build uses 760,339 bytes of FLASH, 49,216 bytes
+  of KERNEL_RAM, 67,614 bytes of T5AI_DISPLAY_RAM, and 110,737 bytes of
+  LOG_STRINGS. Its 807,874-byte protected AP payload has SHA-256
+  `e10b6a82924cf62d60e8fcfb9c724a198987fbae7063df1d5ad1ef3477f51f4e`
+  and occupies exactly `0x132000..0x1f73c2`; exact-range AP-only flashing and
+  reboot succeeded. The live probe reported
+  `float=00000000/ffffffff`, `pull-up=ffffffff/ffffffff`, and
+  `pull-down=00000000/00000000`. Both possible return pins therefore follow
+  their configured bias instead of presenting a panel-driven DCS response.
+  This rules out the earlier opposite idle levels as a real readback value and
+  directs the next comparison to the pinned vendor implementation's read
+  turnaround, lane selection, panel-enable/reset prerequisites, and write
+  framing.
+- The pinned vendor reference has no CO5300 register-read implementation, but
+  confirms the native write framing, P29 reset timing, mode 0, initialization
+  sequence, and maximum brightness exactly. The next controlled A/B therefore
+  stops relying on optional DCS all-pixels-on behavior: `PBLDSP` now exits that
+  mode and writes saturated red, green, and blue bands through the real
+  address-window and GRAM data path used by the formerly visible native
+  bring-up. The complete 146-test suite and `git diff --check` pass. The build
+  uses 760,467 bytes of FLASH, 49,216 bytes of KERNEL_RAM, 67,614 bytes of
+  T5AI_DISPLAY_RAM, and 110,737 bytes of LOG_STRINGS. Its 808,010-byte
+  protected AP payload has SHA-256
+  `9b1234809472fe3a76d35c423660c4caa92230f4c530e69b99b6e853183d2ede`
+  and occupies exactly `0x132000..0x1f744a`; exact-range AP-only flashing and
+  reboot succeeded. The live command reported `reinit=1 pattern=1`: all 1,864
+  pixel-transfer commands for the 466-row RGB pattern completed without a
+  controller timeout. The final state remained `glb=00000001 cfg=08000009
+  rst=00000000 st=0001100b`, with the expected pins and mux. The panel remained
+  completely black. This rules out normal UI/framebuffer contents and optional
+  DCS all-pixels-on behavior: even explicit saturated GRAM data is not reaching
+  visible panel output despite successful controller-side completion.
+- The exact formerly visible AP image also remaining black after a full USB
+  power cycle makes retained shared-SoC state the next controlled boundary.
+  The pinned Tuya QSPI display path has no separate panel-power GPIO: its device
+  configuration uses `TUYA_GPIO_NUM_MAX`, and the application asserts the same
+  active-high P19 global latch as native startup. The generic Beken LCD
+  driver's external-LDO vote is not used by this Tuya QSPI path. `PBLDSP` now
+  read-only dumps BK7258 system analog registers 0 through 27 as `PBLANA`
+  lines; it deliberately does not write undocumented analog or voltage bits.
+  All 146 host tests and `git diff --check` passed. The 808,146-byte protected
+  AP payload had SHA-256
+  `3badd8e90e899ccfac61c70702786fcc9ab40596581cd87f2e99682eb258d003`
+  and occupied exactly `0x132000..0x1f74d2`; exact-range AP-only flashing and
+  reboot succeeded. `PBLANA` showed analog register 5 as `6c0fa76c`, including
+  a clear `en_lcd` bit, but the vendor symbol and only vendor use identify that
+  bit as segment-LCD power, not this QSPI panel. The QSPI display path never
+  enables it, so no speculative analog write was made.
+- The remaining concrete transport difference is now isolated. Tuya's real
+  frame path forces CS low, sends one `32 00 2c 00` preamble, selects the QSPI
+  memory path, disables command-generated clocks, DMA-streams all 434,312
+  pixel bytes through the incrementing `0x64000000` aperture, then reverses
+  those controls and releases CS. The earlier explicit RGB test instead sent
+  1,864 independent FIFO commands. The next `PBLDSP` build uses CPU stores to
+  the same non-cacheable aperture to reproduce the exact continuous wire
+  transaction without adding an unproven DMA driver. All 146 tests and
+  `git diff --check` pass. The build uses 760,787 bytes of FLASH, 49,248 bytes
+  of KERNEL_RAM, 67,614 bytes of T5AI_DISPLAY_RAM, and 110,737 bytes of
+  LOG_STRINGS. Its 808,350-byte protected AP payload has SHA-256
+  `3268133fbbc4a8c8f93a235f58a2270dd05d6976161be0efeae8aca94b39f13b`
+  and occupies exactly `0x132000..0x1f759e`; exact-range AP-only flashing and
+  reboot succeeded. The live command reported `PBLPIX continuous=1
+  words=108578 bytes=434312 cfg=08000009 st=0001102a`, proving that the CPU
+  completed the entire aperture stream and that all temporary QSPI controls
+  were restored. The following `PBLDSP` line still reported `reinit=1
+  pattern=1`. The panel displayed the expected saturated colour stripes. This
+  proves the root cause: CO5300 pixel data must remain in one uninterrupted
+  CS-low transaction, and the former 256-byte command-C FIFO chunks were not a
+  valid continuation mechanism. The normal row-update path is being converted
+  to the now-proven continuous aperture stream. The CO5300 brightness setter
+  itself now also ignores lower requests and retains `0xff`, in addition to the
+  backlight service's forced 100% policy. All 146 tests and `git diff --check`
+  pass. The production-path build uses the same memory totals and produces an
+  808,350-byte protected AP payload with SHA-256
+  `35c4999e0503d79b3af038376bbc5d3e5a692059733a7449ce088fc33368f6e0`,
+  occupying exactly `0x132000..0x1f759e`. Exact-range AP-only flashing and
+  reboot succeeded, and a ten-second runtime UART check found no fault output.
+  The display was black. Source tracing found this is not an external-flash
+  dependency: the Getafix logo is compiled into the AP image. Instead,
+  `boot_splash_start()` was compiled as a no-op for normal T5AI builds, and its
+  existing animated implementation would in any case try to allocate a
+  67,600-byte framebuffer from only about 56 KiB of free kernel RAM. T5AI now
+  has a bounded 260-byte row renderer that sends the compiled logo and a static
+  progress indicator through `display_update()` before resource/flash startup.
+  This also provides a direct normal-row-path test independent of external
+  flash. All 146 tests and `git diff --check` pass. The build uses 761,363
+  bytes of FLASH, 49,504 bytes of KERNEL_RAM, 67,614 bytes of
+  T5AI_DISPLAY_RAM, and 110,737 bytes of LOG_STRINGS. Its 808,962-byte
+  protected AP payload has SHA-256
+  `6240d077ead944138475d4cba5dab646a4c239466603fde5efc6b8ffedf38a7c`
+  and occupies exactly `0x132000..0x1f7802`; exact-range AP-only flashing and
+  reboot succeeded. The panel remained black. Since the full-frame diagnostic
+  stripes were visible but the same aperture mechanism restarted once per
+  932-byte row was not, the panel requires the uninterrupted transaction to
+  cover the complete 434,312-byte frame. The normal unrotated Pebble update,
+  boot-frame, and clear paths now set one full-panel window and keep CS low
+  while scaling and streaming all 466 physical rows. Build, safe AP-only flash,
+  and visible validation were then exercised. All 146 tests and
+  `git diff --check` pass. The build uses 761,523 bytes of FLASH, 49,504 bytes
+  of KERNEL_RAM, 67,614 bytes of T5AI_DISPLAY_RAM, and 110,737 bytes of
+  LOG_STRINGS. Its 809,132-byte protected AP payload has SHA-256
+  `099cefffa0fa4702c49a8e1d08371ab1ee3fadca69e91c99ecfad07a100a2501`
+  and occupies exactly `0x132000..0x1f78ac`; exact-range AP-only flashing and
+  reboot succeeded. The panel showed a stable full-white frame at full
+  brightness. This proves the production `display_update()` callback path and
+  uninterrupted full-frame transfer now reach panel GRAM; the remaining issue
+  is limited to why the black splash pixels are absent or subsequently
+  overwritten. A safe `ap_cmd PBLSPL` mailbox probe now reruns the bounded
+  splash renderer after startup, distinguishing those cases without touching
+  flash or relying on boot timing. All 146 tests and `git diff --check` pass.
+  The probe build uses 761,587 bytes of FLASH, 49,504 bytes of KERNEL_RAM,
+  67,614 bytes of T5AI_DISPLAY_RAM, and 110,737 bytes of LOG_STRINGS. Its
+  809,200-byte protected AP payload has SHA-256
+  `acd536f5786181edf91c4dcbc4650cff9a3e3269f09fe79fb9a41232f4f25642`
+  and occupies exactly `0x132000..0x1f78f0`; exact-range AP-only flashing and
+  reboot succeeded. The settled runtime accepted `ap_cmd PBLSPL` and returned
+  `PBLSPL done`, proving the renderer completed. The panel remained solid
+  white, ruling out a later compositor overwrite. Source inspection then
+  identified the direct cause: `prv_panel_init()` still ended with the
+  temporary DCS `0x23` all-pixels-on diagnostic, which masks GRAM as white.
+  The stripe probe appeared only because it sent DCS `0x13` normal-display
+  mode before transferring its frame. Production initialization now sends
+  `0x13` followed by display-on `0x29` and no longer enters `0x23`. All 146
+  tests and `git diff --check` pass. The resulting memory totals are unchanged;
+  the 809,200-byte protected AP payload has SHA-256
+  `705c2fb06ff9925d573b15bac15380fd3f118f6e7ef063791633542e84f4c242`
+  and occupies exactly `0x132000..0x1f78f0`. Exact-range AP-only flashing and
+  reboot succeeded, and a post-startup `PBLSPL` again returned `PBLSPL done`;
+  the panel displayed the PebbleOS logo and static progress indicator at full
+  brightness. This proves panel power/reset/init, normal DCS mode, the compiled
+  splash row generator, GColor8-to-RGB565 conversion, logical-to-physical
+  scaling, and one-transaction full-frame delivery. The splash remains static
+  by design on T5AI; continue by finding why the partial common/application
+  startup does not replace it with its first compositor frame.
+- A subsequent clean reset without issuing `PBLSPL` also remained on the static
+  splash, confirming this is not merely the diagnostic redraw covering an
+  already-running UI. The existing read-only `PBLTIM` probe now reports a
+  numbered main-init stage plus `appinit` and `first` flags. This distinguishes
+  a resource, compositor, Bluetooth, launcher-init, or first-app boundary
+  without enabling writable storage or altering runtime state.
+- Hardware returned `PBLTIM ... stage=6 appinit=1 first=0`: all main-task
+  initialization completed, `launcher_main_loop()` was entered, and the app
+  manager initialized, but the first built-in app was not launched. Finer
+  read-only stage markers now bracket each launcher initialization call to
+  isolate the exact blocking service before changing startup policy.
+- The finer probe remained at stage 17 and never reached the marker immediately
+  after `shell_prefs_init()`. That function was blocking while opening the
+  settings filesystem, which T5AI intentionally does not initialize because no
+  writable PFS partition/recovery contract is proven. T5AI shell preferences
+  now retain their compiled in-RAM defaults, and the settings-DB compaction
+  migration is skipped; neither change writes flash.
+- With volatile preferences, hardware advanced through shell stage 179: all
+  shell initializers through the workout service returned. It then blocked on
+  the final shared-PRF getting-started read/write, whose mutex/storage is not
+  initialized on this partial T5AI path. That persistent first-use transaction
+  is now skipped on T5AI, consistent with its deliberately volatile identity
+  and bonding policy and without weakening other platforms.
+- With the shared-PRF transaction gated, hardware advanced to stage 18,
+  confirming `shell_event_loop_init()` returned. It then blocked in
+  `services_set_runlevel()` because that function still invoked setters for
+  common and normal services omitted from the partial T5AI startup. T5AI now
+  applies runlevel only to its initialized light and Bluetooth-control
+  services; accel-manager, vibe-service, HRM-manager, and the complete normal
+  service runlevel table remain gated until their initialization is enabled.
+- The first runlevel-gated build asserted at `cron_job_unschedule()` (captured
+  LR `0x0217682b`) and rebooted because `light_allow()` depends on the cron
+  service, which is also outside partial T5AI startup. T5AI already forces the
+  panel/backlight to 100%, so its light runlevel setter is now gated as well;
+  only initialized Bluetooth control remains in the T5AI common runlevel table.
+- A corrected runlevel-table build still asserted at the same cron boundary:
+  the following synthetic `light_button_pressed()`/`released()` boot gesture
+  independently uses cron. That synthetic gesture is now skipped on T5AI,
+  where brightness is already forced to 100%; physical input initialization
+  and other platforms are unchanged.
+- A following build still reached `cron_job_unschedule()` from another shell
+  component. Cron is a self-contained RAM/new-timer service with no flash
+  dependency, while multiple legitimate normal-shell components assume it was
+  initialized by `services_common_init()`. Partial T5AI startup now explicitly
+  calls `cron_service_init()` before light/compositor/launcher use, preserving
+  the writable-storage gates rather than suppressing each cron consumer.
+- With cron initialized, hardware advanced to `stage=21 appinit=1 first=0`,
+  placing the next block inside `app_manager_start_first_app()`. Process setup
+  unconditionally opened a per-app persistence store even though T5AI's
+  persist service and writable PFS are deliberately disabled. T5AI now skips
+  the matching persistence-client open and close while system apps use
+  volatile state. The 807,194-byte AP-only image (SHA-256
+  `2ac85c0feffe8aba65c47871c967a09bc3cec36b4ceb8a34fdf6b55042d6e1a7`,
+  `0x132000..0x1f711a`) flashed successfully and advanced to
+  `stage=22 appinit=1 first=1`, proving first-app setup and task creation
+  returned.
+- The launcher also assumes initialized app-order and AppDB storage. T5AI now
+  uses compiled launcher ordering and enumerates only the built-in registry;
+  it performs neither PFS nor AppDB access. Separate kernel/app stage counters
+  were then added because a single shared counter could be overwritten during
+  scheduling. The current 807,024-byte AP-only image (SHA-256
+  `e655f4b91a13d692b1b26d5b310528b3f7c0600794d9f2ac37bcac073c27e720`,
+  `0x132000..0x1f7070`) flashed successfully and reports
+  `stage=22 appstage=0 appinit=1 first=1`. The board is stable, but the app task
+  has not executed its first instruction. The frozen splash is therefore now
+  isolated to FreeRTOS app-task scheduling/context entry, before app-state,
+  launcher menu, compositor render, or display transport. Inspect the task's
+  live state/priority and the T5AI CM33 restricted-task context/MPU setup next.
+- Extended `PBLTIM` telemetry showed that the app task existed, remained in
+  FreeRTOS Ready state at priority 2, and retained nearly its whole stack, while
+  priority-3 KernelMain never blocked long enough to schedule it. A T5AI-only
+  one-tick delay in the kernel event loop allowed the task to enter
+  `app_state_init()` (`appstage=201`), ruling out task creation, privilege, MPU,
+  and initial context restore. Fine checkpoints then reached `appstage=316` and
+  isolated the next block to `app_touch_nav_subscribe()`: partial T5AI startup
+  had omitted the RAM-only `touch_init()` required by that path. The main task
+  now initializes touch beside cron and light before compositor/launcher use.
+- The touch-enabled 807,398-byte AP-only image (SHA-256
+  `adc63b2858f3c012b53690efbf19f35f139ef5e31f21d172a811b1f831c66df2`,
+  exact range `0x132000..0x1f71e6`) passed all 146 tests and `git diff --check`,
+  flashed successfully, and advanced beyond touch setup. The panel displayed a
+  full-brightness PebbleOS charging animation: this is the first confirmed live
+  compositor UI and proves the normal panel path is no longer blocked at the
+  static boot splash.
+- Subsequent checkpoints moved from `appstage=325` to `307`, spanning the
+  67,614-byte application framebuffer clear. The task remained Ready with a
+  955-word stack high-water mark, so this is extreme CPU starvation rather than
+  a fault or framebuffer corruption. The diagnostic one-tick pause took tens of
+  seconds to clear one frame. The next build uses a bounded T5AI-only ten-tick
+  kernel pause to give app initialization and rendering useful CPU time while
+  retaining kernel service; after launcher bring-up, identify the event source
+  that keeps KernelMain's queue continuously selectable and replace this
+  compatibility pause with the normal blocking behavior.
+- The ten-tick scheduling build reached launcher checkpoint 222 within seconds.
+  Fine probes placed the next stop in the app-list sorter: its Music/Workout
+  override calls `app_install_is_prioritized()`, but partial startup had never
+  initialized the recent-app cache's recursive mutex. T5AI now runs
+  `app_install_manager_init()` after the system event service is ready while
+  retaining its built-in-only enumeration and disabled AppDB/PFS paths.
+- With that manager initialized, launcher setup reached the glance service and
+  asserted at LR `0x02139493`, mapped to the required generic glance-reel
+  resource being NULL. That resource lives in the not-yet-validated external
+  system resource bank. T5AI now uses the existing basic app-menu row renderer
+  and omits glance-reel initialization/animation; all other platforms retain
+  their full launcher glance behavior.
+- The basic-launcher build passes all 146 tests and `git diff --check`. Its
+  799,170-byte protected AP payload has SHA-256
+  `428695001028a4aac2a43d6f8de330d4cbe54b72780f7e0597ce3e961f574579`
+  and occupies exactly `0x132000..0x1f51c2`; exact-range AP-only flashing and
+  reboot succeeded. Hardware reports `stage=22 appstage=215 appinit=1 first=1`
+  with the app task Ready, priority 2, and 769 words of stack headroom.
+  Checkpoint 215 is immediately before `app_event_loop()`, proving the launcher
+  window, built-in app list, basic menu layer, idle timer, and event loop are
+  all live. A visible-screen report for this exact image is pending; the prior
+  image showed the full-brightness charging animation, which may be a kernel
+  modal covering the now-running launcher.
+- Because development power and both virtual UARTs share the same USB-C cable,
+  the board cannot be observed while unplugged and the charging modal masks the
+  launcher continuously. The T5AI shell now continues normal battery monitoring
+  but suppresses only battery UI state transitions until a battery is fitted;
+  other platforms are unchanged. All 146 tests and `git diff --check` pass. The
+  799,000-byte protected AP payload has SHA-256
+  `9f8f1b569d4ac256fc4c29ef3949eaf1c8399cadd536b00d069eb43f360fbf93`
+  and occupies exactly `0x132000..0x1f5118`; exact-range AP-only flashing and
+  reboot succeeded. It reports `appstage=215 state=2 stack=602`: the launcher
+  app is correctly blocked in its event loop with substantial stack headroom.
+  The panel displayed the PebbleOS launcher menu at full brightness. This
+  closes panel/UI bring-up: the boot splash is replaced by a live compositor
+  frame, the built-in launcher renders, and the app event loop remains healthy.
+  Validate physical button/touch navigation next before removing diagnostic
+  checkpoints or reducing the temporary scheduling pause.
+
+## 2026-09-12 handoff: normal NimBLE advertising and GATT proven
+
+- A flashed follow-up build reached the real Pebble numeric-comparison popup
+  and BlueZ displayed the same six-digit value, proving the pairing UI and SMP
+  callback path. That attempt expired before both sides were confirmed; the
+  watch remained alive but did not resume advertising until AP reset.
+- Skipping the optional peer Device Name GATT read did not remove the
+  intermittent pre-confirmation timeout and has been reverted.
+- The pairing screen remained black because the partial T5AI startup bypasses
+  `services_common_init()`, which normally initializes the light service.
+  T5AI now initializes that self-contained service before the compositor and
+  launcher use its mutex, timers, runlevel state, and interaction wake path.
+- NimBLE pairing confirmation now uses a real, stable context object instead of
+  encoding the connection handle as a pointer. A disconnect during numeric
+  comparison reports one failed completion and clears the pending transaction,
+  preventing stale pairing state from leaking into the next attempt.
+- The first updated source passed the focused 78-test host suite and a DVT3 firmware
+  build. That image used 852,307 bytes of FLASH, 82,304 bytes of
+  KERNEL_RAM, 67,614 bytes of T5AI_DISPLAY_RAM, and 119,239 bytes of
+  LOG_STRINGS; its 905,590-byte protected payload has SHA-256
+  `669f01d6b111ef8a2bb33ff8f63ac5957821a8c26b79f3e477d90a1a9fd6a8ab`; it
+  was flashed successfully and booted. The optional-name-read build also passed
+  all 78 tests, built, flashed, booted, reached numeric comparison, and resumed
+  advertising after a canceled attempt once BlueZ's stale device record was
+  removed. The light-service follow-up also passes all 78 tests and builds with
+  852,467 bytes of FLASH, 82,304 bytes of KERNEL_RAM, 67,614 bytes of
+  T5AI_DISPLAY_RAM, and 119,239 bytes of LOG_STRINGS. Its 905,760-byte
+  protected payload has SHA-256
+  `96ae871f34a2cf3e47120b7e3df97a6cec278b43d20e18b95e0baad633a59a7d` and
+  occupies `0x132000..0x20f220`. It flashed and rebooted successfully, then
+  reached numeric comparison `101692`, but the panel remained black and the
+  attempted button confirmation expired with `AuthenticationCanceled`.
+- A potential display ordering race was corrected: T5AI started the
+  asynchronous boot-splash task before driver initialization, then reset and
+  reinitialized the CO5300 while that task could still be writing QSPI rows.
+  T5AI splash/display initialization now starts once, after driver setup;
+  the focused 78-test suite passes and the build succeeds with 852,051 bytes
+  of FLASH. Its 905,318-byte protected payload has SHA-256
+  `8b7f44b7b1768ac6c30e07de14e1b671ec4dc28497b308b6ee4991292b40b54a`
+  and occupies `0x132000..0x20f066`. AP-only flashing and reboot succeeded;
+  visible-display and pairing validation are pending.
+- A cold boot still showed no splash. A captured boot log had no QSPI timeout
+  or CO5300 initialization error, but source comparison found that a later
+  driver change had moved zero- and one-byte panel commands into FIFO mode.
+  The pinned vendor `bk_lcd_qspi_send_cmd()` uses inline command-register data
+  and a length-specific `CMD_C_CFG1` value for payloads up to four bytes, using
+  FIFO mode only above four bytes. That framing is restored; all 78 focused
+  tests pass and the final build uses 852,083 bytes of FLASH. Its 905,352-byte
+  protected payload has SHA-256
+  `7c2ba1487dfccaf1579bd6aa23b6b9bbc4b13f9d910ed83e631afb34f6d7ceaa`
+  and occupies `0x132000..0x20f088`. A QSPI done bit alone does not prove the
+  panel accepted a malformed command. AP-only flashing and reboot succeeded;
+  the panel still produced no visible output.
+- A temporary synchronous panel probe now sends CO5300 `all pixels on` (`0x23`)
+  immediately after maximum-brightness and display-on initialization. This
+  bypasses the splash framebuffer, compositor, and Bluetooth paths. All 78
+  focused tests pass and the build succeeds with unchanged memory use. Its
+  905,352-byte protected payload has SHA-256
+  `579d6823a3906c91fc7ec3a800e0d90b364623b5e633466c8919ffc43585c680`
+  and occupies `0x132000..0x20f088`. The reconnected bridge enumerated as
+  `1a86:55d2`; its serial nodes required host-level access from the current
+  task. The diagnostic image was flashed successfully over `if00`, restricted
+  to `0x132000..0x20f088`, and the AP rebooted. The panel remained completely
+  black, isolating the fault below the splash framebuffer, compositor, and
+  Bluetooth paths.
+- Comparison with the earlier native display revision that produced visible
+  output found four simultaneous QSPI-controller changes. The diagnostic build
+  now restores that known-visible setup: 40 MHz serial clock, an asserted then
+  released controller soft reset, the reset-default FIFO threshold, and the
+  QSPI clock-gate-enable bit. It retains checked mailbox power-up, corrected
+  short-command framing, and the `all pixels on` probe. All 78 focused tests
+  pass; memory use is unchanged. The 905,352-byte payload has SHA-256
+  `1f3877dda7587d52a851259d35c06b11722db9ee998ff5c73691d73bafb37818`
+  and occupies `0x132000..0x20f088`. It flashed successfully to that exact AP
+  range and rebooted. The panel again remained completely black, ruling out
+  those four later QSPI-controller settings as the active fault.
+- For a source-versus-hardware boundary test, the exact historical display
+  probe from revision `cc642becb` was built in an isolated `/tmp` checkout.
+  It contains the original maximum-brightness/all-pixels-on sequence, raw QSPI
+  and reset-pin logging, and a display-only main loop. The 736,304-byte
+  protected payload has SHA-256
+  `e4ec3628cc5e1a6cdcf6c296a6bf7955229d514b66ea0964098d418c3141b5c4`
+  and was flashed successfully to its exact `0x132000..0x1e5c30` AP range.
+  It also remained completely black after the flash reboot. This moves the
+  active investigation below the current source diff to panel power/reset or
+  CP-mediated QSPI power state. The attempted cold-boot capture was invalid:
+  `if00` and `if02` are two channels of the same USB-C dual-UART bridge, so
+  unplugging that connector necessarily removed both capture channels. Board
+  power and the virtual UARTs share this connector, so future cold-boot capture
+  must use a firmware-side delay or host-triggered gate after re-enumeration.
+  The current Bluetooth image was restored successfully.
+- The next probe uses the CO5300's documented `0x03` command-read transaction
+  and the pinned BK7258 command-D/FIFO conversion to read DCS power mode
+  (`0x0a`). Because the AP log UART is not exposed reliably, the returned byte
+  is encoded into the discoverable Bluetooth name as `PBL-Dxx`. This keeps the
+  test on the current known-booting Bluetooth path. All 78 focused tests pass;
+  the build uses 852,211 bytes of FLASH and otherwise unchanged memory. Its
+  905,488-byte protected payload has SHA-256
+  `84faaab946359a27bee6070ec573b52ebb9c860ff1495033a83f00cb77acc608`
+  and occupies `0x132000..0x20f110`. It flashed successfully. Removing the
+  unbonded BlueZ record and rediscovering the board still returned the default
+  `Pebble 0AAB` name, proving the power-mode read was not marked valid rather
+  than exposing a cached advertisement.
+- The Bluetooth self-report now distinguishes QSPI power failure (`PBL-QER`),
+  panel write-initialization failure (`PBL-PER`), command-D read failure
+  (`PBL-RER`), and successful power-mode data (`PBL-Dxx`). All 78 focused tests
+  pass; the build uses 852,275 bytes of FLASH and otherwise unchanged memory.
+  Its 905,556-byte payload has SHA-256
+  `a8d3faa14dec6376735e01f7aa0a89e648f8ed7940857db18d524988de73e66f`
+  and occupies `0x132000..0x20f154`. It flashed successfully, and a fresh
+  BlueZ discovery returned `PBL-QER`. Later source-level tracing showed that
+  this result was the probe's untouched default rather than evidence that the
+  CP-mediated QSPI request had failed: normal firmware compiles the boot-splash
+  service to a no-op, so the T5AI panel initializer was never called.
+- The original visible display probe treated the CP power request as advisory
+  and applied the AP's validated QSPI power/clock registers regardless. The
+  current driver now retains the CP request but falls back to those direct AP
+  registers instead of aborting display initialization when the CP service is
+  not ready. The focused 78-test suite passes and the build succeeds with
+  852,275 bytes of FLASH, 82,304 bytes of KERNEL_RAM, 67,614 bytes of
+  T5AI_DISPLAY_RAM, and 119,265 bytes of LOG_STRINGS. Its 905,556-byte payload
+  has SHA-256
+  `9727acb7bfc495438d1f3262dad30d938bfe5049feecccab66a035aed92b9a05`
+  and occupies `0x132000..0x20f154`. It flashed successfully to that exact AP
+  range and rebooted. The board did not advertise during the first post-flash
+  scan, consistent with CP state after repeated AP-only resets; cold-boot
+  display and diagnostic-name observations were pending at that point. Because
+  power and both UARTs share one USB-C connection, capture must begin through a
+  firmware-side delay or trigger after the tty devices re-enumerate.
+- A subsequent full USB replug re-enumerated the bridge as `ttyACM0`/`ttyACM1`
+  (`if00`/`if02`) and fresh BlueZ discovery again returned `PBL-QER`. Inspection
+  then found the actual integration regression: `main.c` skipped its explicit
+  T5AI `display_init()` and called `boot_splash_start()`, but the normal-firmware
+  implementation of that service is a no-op. Explicit panel initialization is
+  now restored immediately after driver setup. The focused 78-test suite passes
+  and the build succeeds with 852,851 bytes of FLASH, 82,304 bytes of
+  KERNEL_RAM, 67,614 bytes of T5AI_DISPLAY_RAM, and 119,265 bytes of
+  LOG_STRINGS. Its 906,168-byte protected payload has SHA-256
+  `d80c64909d963fb0849fdcf9cdc1ecc910402df03e2de75fe8b7988ca3d3a55a` and
+  occupies `0x132000..0x20f3b8`. It flashed successfully to exactly that AP
+  range and rebooted. Fresh BlueZ discovery returned `PBL-D00`: explicit panel
+  initialization ran, every write command completed, and the command-D read
+  transaction completed with power-mode byte `0x00`. A visible-screen
+  observation is pending; if it remains black, distinguish a real all-zero
+  panel response from incorrect BK7258 read-data reconstruction before changing
+  the proven write sequence again.
+- The screen remained black with `PBL-D00`. Panel bring-up is now isolated from
+  Bluetooth diagnostics and uses direct AP UART0 output at 460800 baud on
+  `if00`/`ttyACM0`. Rechecking the pinned Tuya adapter found that the prior
+  short-parameter change was incorrect: the four-byte `02 00 <register> 00`
+  header stays in command C and every parameter length, including one byte, is
+  written through the QSPI FIFO. The diagnostic image restores that exact FIFO
+  framing and the board's production 80 MHz clock, then reports QSPI registers,
+  each initialization command, and raw command-D data over UART after a
+  host-triggered capture gate. Bluetooth-name instrumentation has been removed.
+  All 78 focused tests pass. The current build uses 853,171 bytes of FLASH, 82,464 bytes
+  of KERNEL_RAM, 67,614 bytes of T5AI_DISPLAY_RAM, and 119,266 bytes of
+  LOG_STRINGS. Its 906,508-byte protected payload has SHA-256
+  `24877ffdf7b2170b60538e29be71ee3aebf02017efb4dbccabd0c836ef84b86f` and
+  occupies `0x132000..0x20f50c`; flashing and UART capture are pending. The
+  board and both virtual UARTs share the same USB-C connection, so unplugging
+  power also removes both tty devices; there is no separate board-power cable.
+  A host-triggered AP-UART image was silent and did not accept its `G` byte,
+  matching the earlier documented finding that native AP UART0 has no electrical
+  output. The trace is therefore routed through Pebble's established CP-mailbox
+  logger to `if02`/`ttyACM1` at 115200, with a ten-second delay after boot so the
+  tty can be reopened before panel initialization starts.
+  The resulting 906,508-byte image (SHA-256
+  `24877ffdf7b2170b60538e29be71ee3aebf02017efb4dbccabd0c836ef84b86f`)
+  flashed successfully to `0x132000..0x20f50c`, but a 30-second `if02` capture
+  received no forwarded trace. Early CP log forwarding is therefore not a
+  dependable panel diagnostic channel either. The corrected FIFO/80 MHz panel
+  sequence did execute after its ten-second delay, but the screen remained
+  completely black. Comparison with Tuya's QSPI HAL then exposed a controller
+  reset-state mismatch: Pebble set `QSPI_GLB_CTRL.soft_reset` and immediately
+  cleared it, while Tuya leaves that bit set after initialization. The next
+  probe leaves it set and restores the known FIFO threshold. All 78 focused
+  tests pass and the build succeeds with 853,171 bytes of FLASH, 82,464 bytes
+  of KERNEL_RAM, 67,614 bytes of T5AI_DISPLAY_RAM, and 119,266 bytes of
+  LOG_STRINGS. Its 906,508-byte protected payload has SHA-256
+  `21b3aff34168b47ffe0b3c62ca876fbd5978ec8ccda10a15bde0d37823f62803`
+  and occupies `0x132000..0x20f50c`. It flashed successfully to exactly that
+  protected AP range and rebooted. A 25-second `if02` capture at 115200 baud
+  received undecodable binary-like traffic rather than the expected panel
+  text; `if02` is in fact the previously proven 460800-baud CP shell. Sending
+  `ap_cmd PBLTIM` at 460800 produced a readable AP mailbox response, confirming
+  the live USART diagnostic route. The screen remained black. Register-level
+  comparison then found that offset `0x64` bit 1 is the active
+  `sw_rst_fifo` control, not reset release. The failing probes left it set, so
+  their commands could complete while parameter bytes were discarded. The next
+  image restores `QSPI_RST_CFG=0`, matching both the last hardware-proven Pebble
+  revision and Tuya's normal command path. All 78 focused tests pass. The
+  906,508-byte protected payload has SHA-256
+  `fef6582b3c4aa8835ae8f2f1f82d6e8adfb4012010a66826dd352960e94bc0d2`,
+  occupies `0x132000..0x20f50c`, and flashed successfully to exactly that AP
+  range. The 460800-baud post-flash capture showed repeated CP IPC CRC warnings
+  plus mixed runtime traffic, and the screen remained black. A subsequent
+  build removed noisy boot-time command logging and added the safe
+  `ap_cmd PBLDSP` USART probe. Existing `PBLRX` and `PBLTIM` commands responded,
+  but the first `PBLDSP` handler (which also issued live QSPI operations) did
+  not return output. The next probe is deliberately read-only to distinguish
+  mailbox routing from a blocked or disruptive QSPI transaction.
+
+- A diagnostics-free native build was flashed and validated. BlueZ discovered
+  `Pebble 0AAB` at public address `20:F1:B2:B8:0A:AB`, connected, and reached
+  `ServicesResolved: yes`. The board was disconnected cleanly and left
+  advertising.
+- The resolved server includes Generic Access (`1800`), Generic Attribute
+  (`1801`), Device Information (`180a`), Battery (`180f`), Pebble (`fed9`), and
+  Pebble vendor (`40000000-328e-0fbb-c642-1aa6699bdada`) services. The session
+  was deliberately unpaired and unbonded; pairing, reconnect, and real Pebble
+  protocol transfer are the next milestone.
+- All legacy advertising commands complete successfully in the normal path:
+  LE Set Advertising Data (`0x2008`), LE Set Scan Response Data (`0x2009`), LE
+  Set Advertising Parameters (`0x2006`), and LE Set Advertise Enable (`0x200a`).
+  The temporary scan-response skip has been removed.
+- The root cause of the intermittent HCI timeouts was mailbox ownership, not
+  radio configuration. The physical AP-to-CP mailbox supports one ordinary
+  message outstanding at a time, matching the pinned vendor `bk_ipc` semaphore.
+  `cp_mailbox.c` now serializes every non-transport-ACK send until its physical
+  ACK and clears that state on every receive and discard path. Hardware ACK
+  frames bypass the wait to avoid deadlock.
+- CP-owned HCI callback frames are copied and physically acknowledged before
+  their shared descriptor can be reused. The T5AI NimBLE transport now uses an
+  eight-entry FIFO, preserving interleaved physical ACKs, events, ACL packets,
+  MIPC object ACKs, and application replies. Asynchronous callback-response
+  descriptors remain owned until their logical MIPC ACK. This removed the
+  descriptor overwrite, double-ACK, and event-order failures.
+- The T5AI advertising-rotation timer bounces work to the system task because
+  the launcher task is not initialized by the current partial service startup.
+- The T5AI Bluetooth persistence backend is intentionally volatile. It holds
+  identity, bond, and capability state in RAM and seeds per-boot root keys from
+  the AP TRNG. Reboot loses bonds. Shared PRF remains read-only until its write,
+  compaction, corruption recovery, and factory-recovery rules are validated.
+- The CP may continue to print non-fatal
+  `bk_ipc_crc_check crc check failed` lines while transactions succeed. The
+  native code mirrors the pinned vendor dispatch behavior because mutable
+  list/result fields can race the CRC. Judge success by the logical response,
+  not this line alone.
+- A wedged CP requires a complete power cycle: disconnect both USB cables for
+  five seconds, then reconnect. AP reset or flashing alone does not necessarily
+  reset the CP.
+- The final image contained no temporary `T5ADV`, `T5CMD`, `T5TX`, `T5EV`,
+  `T5POLL`, or `T5X` diagnostics and no phase-coded error offsets. The NimBLE
+  submodule is clean.
+- The final build used 852,243 bytes of FLASH, 82,304 bytes of KERNEL_RAM,
+  67,614 bytes of T5AI_DISPLAY_RAM, and 119,131 bytes of LOG_STRINGS. The
+  1,026,537-byte resource pack remains close to its 1 MiB ceiling.
+- The focused test set in the validation section passes all 78 tests. The
+  diagnostics-free protected image was 905,522 bytes and occupied physical
+  flash range `0x132000..0x20f132` for that build only.
+
+The dated 2026-09-10 and 2026-09-11 sections below remain as investigation
+history. Their statements that native Bluetooth is gated, ACL is pending, or
+the vendor diagnostic is the current device image are superseded by this
+section.
 
 ## 2026-09-11 native hardware progress
 
@@ -243,12 +1079,13 @@ investigating native AP startup.
   operation in `soc_early_init()`, before interrupts and all Pebble subsystem
   initialization, matching the previously proven CP startup-handshake timing.
 
-### Bluetooth controller evidence from the vendor-runtime diagnostic
+### Historical Bluetooth controller evidence from the vendor-runtime diagnostic
 
 The following results were observed over the air and on HCI while the vendor
-runtime owned the controller. They establish expected controller behavior, not
-correctness of Pebble's native CP mailbox transport, so
-`T5AI_CP_HCI_VALIDATED` must remain disabled:
+runtime owned the controller. At that point they established expected
+controller behavior, not correctness of Pebble's native CP mailbox transport,
+so the gate remained disabled. This restriction was lifted after the native
+transport passed the 2026-09-11 and 2026-09-12 hardware validation above:
 
 - HCI Reset completed. Read Local Version reported Bluetooth 5.2 / HCI and LMP
   version 11, revision and LMP subversion `0x0006`, manufacturer 1520.
@@ -309,32 +1146,25 @@ stronger test of the CP release/CPU1 reset contract.
 
 ## Current native state
 
-- `getafix@dvt3` has an isolated defconfig and does not inherit the DVT2 SiFli platform.
-- The target selects the T5AI SoC, STAR-MC1 CPU, and Pebble FreeRTOS.
-- Native configuration succeeds.
-- A minimal CMSIS device header and the exact 64-entry IRQ table from the pinned BSP have been added.
-- Startup, VTOR, SysTick, memory-map, MPU, board selection, and storage layout compile natively.
-- UART0, retained boot state, watchdog, AON RTC, protected-flash translation,
-  the Pebble flash backend, the native AP-to-CP mailbox flash transport, and
-  native GPIO, EXTI, buttons, I2C0, and external PCF85063 wall-clock support
-  are implemented.
-- The 260x260 compositor framebuffer has a bounded 128 KiB PSRAM region. The
-  pinned AP BSP leaves controller initialization to the boot stages (its AP
-  `bk_psram_init()` is compiled out), so Pebble validates that boot handoff with
-  complementary address-pattern passes over only the dedicated NOLOAD
-  framebuffer before the compositor uses it; hardware validation is pending.
-- The native build compiles and links without unresolved platform symbols or a
-  RAM overflow, and emits ELF, map, raw binary, Intel HEX, protected-block
-  binary, and image-layout validation artifacts.
-- The vendor bridge remains reference code and is not linked into production PebbleOS.
-- Display/backlight, GPIO/buttons, I2C/RTC, touch, accelerometer, battery/ADC,
-  absent-hardware service behavior, manufacturing OTP fallback, and the
-  NimBLE-to-controller IPC protocol all have native implementations or explicit
-  safe disabled states. The Bluetooth controller IPC remains deliberately
-  gated until its CP startup and shared-memory behavior are proven on hardware.
-- Forty-nine Tuya host tests and twenty-five Getafix board-selection tests pass.
-- Both `getafix@dvt3` and the DVT2 compatibility target configure and build.
-  DVT2 retains only its pre-existing stored Golf app unused-variable warning.
+- `getafix@dvt3` selects T5AI/STAR-MC1, Pebble FreeRTOS, and the validated CP
+  HCI path in an isolated defconfig; it does not inherit DVT2's SiFli platform.
+- Native startup, scheduling, runtime UART, CP heartbeat/mailbox, GPIO/buttons,
+  I2C/RTC, display/QSPI, touch, accelerometer, SARADC, and Bluetooth are all
+  proven on the DVT3 hardware. Battery-cell behavior is not proven because no
+  battery is fitted.
+- Pebble's NimBLE host now advertises, accepts a BlueZ ACL connection, responds
+  to ATT traffic, and exposes the expected Pebble GATT services through the
+  native CP controller path.
+- The normal T5AI startup in `src/fw/main.c` remains intentionally partial and
+  skips the full common services/application stack. A black normal-startup
+  display can therefore mean no UI has drawn, not a panel failure.
+- Bluetooth persistence is RAM-only. General shared-PRF writes, OTA, firmware
+  and resource-bank updates, persistent logs/coredumps, and unsafe raw flash
+  interfaces remain disabled until storage and recovery are validated.
+- The native build emits checked ELF, map, raw, Intel HEX, protected-block, and
+  image-layout artifacts without unresolved platform symbols or RAM overflow.
+- The current focused host baseline is 78 passing tests. Both DVT3 and the DVT2
+  compatibility target have built successfully; preserve DVT2 behavior.
 
 ## Resume commands
 
@@ -342,7 +1172,7 @@ stronger test of the CP release/CPU1 reset contract.
 cd /home/baz/coredevices/pebbleos
 . .venv/bin/activate
 python pbl configure --board getafix@dvt3
-python pbl build
+python ./waf build
 ```
 
 Keep the clean build green while addressing the remaining host-auditable work.
@@ -352,12 +1182,10 @@ implementation.
 
 ## Remaining work, in recommended order
 
-The broad host-side port is complete. Sections 2 through 13 primarily record
-implemented behavior and the corresponding on-target validation still needed.
-The remaining immediately actionable host work is the boot-image/recovery
-investigation in section 14. Do not enable destructive
-flash testing, OTA, resource-bank writes, or the Bluetooth controller path
-merely to advance the checklist.
+The broad host-side port and primary peripheral bring-up are complete. The next
+active milestone is pairing and Pebble protocol data transfer over the proven
+NimBLE/CP transport. Do not enable persistent shared-PRF writes, destructive
+flash testing, OTA, or resource-bank writes merely to advance the checklist.
 
 ### 1. Audit the working tree — complete; repeat before material changes
 
@@ -373,60 +1201,65 @@ merely to advance the checklist.
 - Recheck the working tree before material changes, preserve DVT2 behavior and
   shared Pebble abstractions, and do not commit unless explicitly requested.
 
-### 2. Native UART and debug console — implemented, hardware validation pending
+### 2. Native UART and debug console — implemented and hardware-proven
 
-- Define the DVT3 debug UART through the existing Pebble console/serial interfaces.
-- Implement T5AI pinmux, clocks, baud generation, TX, RX, IRQ handling, and error clearing.
-- Start with a correct polled TX path if needed for early boot diagnostics.
-- Add interrupt-driven RX through Pebble's existing serial plumbing.
-- Use DMA only when it is a real implementation with correct ownership and cache handling.
-- Remove remaining assumptions that `DBG_UART` is a legacy STM32/Getafix peripheral.
+- Native UART0 initialization, pinmux, clocks, baud generation, TX, RX, IRQ
+  routing, and error clearing are implemented through Pebble's serial plumbing.
+- The runtime log and CP shell are proven at 460800 baud on CH342F interface
+  `if02`; the programming/reset function remains on `if00`.
+- CP-shell `ap_cmd` traffic reaches Pebble through the log mailbox and has
+  completed repeated response-aware transactions without resetting the AP.
+- ACM numbering is not stable. Select the port by CH342F serial and interface.
+- DMA remains unnecessary for the current functional path; add it only with
+  explicit ownership, cache, timeout, and recovery semantics.
 
-### 3. Native flash controller and storage — implemented, hardware validation pending
+### 3. Native flash controller and storage — read/safety path implemented; writes gated
 
-- Finish the T5AI flash controller implementation behind Pebble's flash interfaces.
-- Verify erase sizes, write alignment, read behavior, XIP/cache coherency, timeouts, and error reporting against authoritative T5AI reference code.
-- Verify the 34-byte physical / 32-byte logical protected-block CRC translation.
-- Ensure erase and write operations cannot reach the bootloader or vendor calibration sectors.
-- Review the experimental DVT3 flash layout before treating it as final.
+- The native BK7258 mailbox client and Pebble flash interface are implemented;
+  flash/SARADC and Bluetooth now safely share the physical mailbox owner.
+- The 34-byte physical / 32-byte logical protected-block translation, image
+  bounds, and AP-only packaging are host-tested. Manual AP-only programming and
+  recovery are proven on the backed-up lab board.
+- Firmware-side policy restricts writable/erasable NOR to PFS. Shared PRF,
+  firmware, resources, logs, and coredumps remain read-only or unavailable.
+- Before lifting those gates, verify erase geometry, alignment, XIP/cache
+  coherency, interruption behavior, corruption recovery, and factory restore.
+- Keep the experimental DVT3 layout provisional.
 - Keep OTA disabled until packaging, metadata, slotting, rollback, and recovery are defined and tested.
 
-The production path now uses Pebble's flash interfaces and a small native BK7258
-mailbox client for the authoritative CP flash server. It does not link the Tuya
-RTOS or application framework. Before enabling destructive tests, verify the
-mailbox register alias, shared-buffer cache coherency, CP availability, erase
-geometry, and the experimental partition boundaries on hardware.
+The production path does not link the Tuya RTOS or application framework. Do
+not broaden the writable range merely because AP programming through TuyaBoot
+works; these are separate recovery and runtime-storage contracts.
 
-### 4. SoC bring-up boundary
+### 4. SoC bring-up boundary — boot and timing proven; isolation/low power remain
 
-- Complete reset entry, vector relocation, clock tree, cache/FPU setup, and core initialization using the Pebble startup path.
+- CPU1 reset entry, vector relocation, CP power-up acknowledgement, cache/FPU
+  setup, and entry through Pebble startup are proven on hardware.
 - Reset-time initialization now enables full CP10/CP11 access using the pinned
   BK7258 CMSIS sequence before any pre-scheduler C can execute compiler-emitted
-  FP instructions. FreeRTOS retains ownership of lazy FP context preservation;
-  cache and clock-tree state remain boot-stage assumptions pending hardware
-  validation.
-- Confirm `SystemCoreClock`, SysTick frequency, PendSV/SVC priorities, and FreeRTOS tick behavior.
+  FP instructions. FreeRTOS retains ownership of lazy FP context preservation.
+- The 120 MHz `SystemCoreClock`, 60 MHz SysTick source, 1 kHz scheduler tick,
+  PendSV/SVC operation, and AON/RTC timebase ratios are measured on hardware.
 - Reset initialization now masks IRQs, stops and clears inherited SysTick
   state, clears pending SysTick/PendSV exceptions, and enforces eight-byte
   exception-stack alignment before relocating VTOR. This prevents a boot-stage
   scheduler interrupt from reaching Pebble before FreeRTOS installs its 1 kHz
-  tick and lowest-priority handlers; validate exception entry on hardware.
+  tick and lowest-priority handlers.
 - CMSIS interrupt setup now uses logical priorities derived from
   `__NVIC_PRIO_BITS`, rather than passing FreeRTOS's raw left-aligned BASEPRI
   byte as though it were a CMSIS priority. On T5AI the syscall-safe boundary
-  is therefore logical priority 5 of 7, with UART at 5 and GPIO/I2C at 6;
-  validate nesting and FromISR calls under load on hardware.
+  is therefore logical priority 5 of 7, with UART at 5 and GPIO/I2C at 6.
 - The raw 32 kHz AON oscillator is now kept private to the T5AI RTC driver and
   scaled to Pebble's 1 kHz `rtc_get_ticks()` contract. This prevents FreeRTOS
   from programming a pathological 32 kHz SysTick while retaining raw-counter
-  precision for wall-clock seconds and milliseconds. Confirm oscillator
-  accuracy and the resulting 1 kHz scheduler cadence on hardware.
+  precision for wall-clock seconds and milliseconds. Scheduler and AON/RTC
+  cadence are hardware-proven; long-duration oscillator drift is not.
 - The pinned BK7258 120 MHz AP boot setting is now an explicit
   `T5AI_CORE_CLOCK_HZ` contract instead of an unexplained constant.
   Compile-time checks require it to divide exactly into the scheduler rate and
-  produce a valid 24-bit SysTick reload. Pebble still does not reprogram or
-  measure that boot-owned clock; confirm it against a hardware timebase.
-- Confirm which T5AI core boots PebbleOS and keep unused cores quiescent.
+  produce a valid 24-bit SysTick reload. Pebble does not reprogram the
+  boot-owned clock.
+- CPU1 is the Pebble application core; keep unused cores quiescent.
 - Validate MPU regions, privilege transitions, syscall wrappers, MSPLIM/PSPLIM, and fault handlers.
 - Implement watchdog and low-power entry through existing Pebble services.
 - Validate the native microsecond delay, hardware RNG, factory device ID, and
@@ -484,18 +1317,18 @@ Verify all pins from the schematic/BSP before hardware testing.
   routing has not been confirmed. Pebble alarm timing continues to use the AON
   counter without claiming hardware wake support.
 
-### 8. Display — initial native path implemented, hardware validation pending
+### 8. Display — native QSPI/CO5300 path hardware-proven
 
 - Native QSPI0 and the pinned CO5300 initialization sequence are implemented
   for the exact module parameters: 466x466, X offset 6, reset P29, mode 0 at
-  80 MHz. Validate the clock, pin drive, reset timing, and panel response.
+  80 MHz. Hardware validation proved reset/command framing, display off/on,
+  full-height colour bands, pixel ordering, and successful FIFO completion.
 - Pebble's 260x260 ARGB2222 contract is preserved. A bounded 932-byte scanline
   buffer converts to big-endian RGB565 and nearest-neighbor scales dirty rows
   at the display boundary, including software 180-degree rotation.
-- The initial transport is deliberately synchronous and FIFO-driven; it avoids
-  claiming DMA/cache ownership before those paths are proven. Add asynchronous
-  DMA, transfer timeout recovery, optimized dirty-region batching, brightness
-  policy, deeper sleep/wake, and teardown after hardware validation.
+- The transport is deliberately synchronous and FIFO-driven. Add asynchronous
+  DMA only with correct cache/ownership semantics. Dirty-region batching,
+  brightness policy, deeper sleep/wake, and teardown remain.
 - Do not expose the vendor framebuffer or UI framework to Pebble applications.
 - Pebble brightness control maps 0..100 onto the CO5300 `0x51` register;
   requests before initialization or during an update are cached for the next
@@ -557,42 +1390,32 @@ Verify all pins from the schematic/BSP before hardware testing.
   validating voltage against a meter, unplug/charge transitions, retention, and
   the state-of-charge curve. Do not treat the no-battery reading as validation.
 
-### 12. Bluetooth/NimBLE — command/event IPC proven, native ACL validation pending
+### 12. Bluetooth/NimBLE — advertising, ACL, and GATT hardware-proven
 
 - Keep Pebble's NimBLE host and Bluetooth services.
-- The T5AI NimBLE transport now validates and copies borrowed CP event/ACL
-  buffers into NimBLE-owned storage, serializes outbound ACL mbufs, rejects ISO,
-  and exposes a narrow controller-only IPC contract. DVT3 intentionally remains
-  on the Bluetooth stub until that contract is backed by the native shared
-  mailbox dispatcher; enabling it earlier would race the flash/SARADC clients.
-- The physical CP mailbox now has a single native owner and transaction mutex;
-  flash and SARADC no longer access or drain its FIFO registers directly.
-- The transaction lock uses Pebble's lightweight mutex abstraction and does not
-  depend on FreeRTOS's deliberately disabled queue-mutex feature.
-- Logical-channel routing now prevents channel `0x11` flash/SARADC waits from
-  consuming frames belonging to registered services such as MIPC `0x17`.
-- The vendor-compatible MIPC ABI is now explicit and host-tested: fixed 32-bit
-  shared pointers, list/config/handle/data sizes, directional channel `0x17`
-  AP-to-CP and `0x47` CP-to-AP framing,
-  command/ACK type bits, and the BSP's CRC-8 polynomial/coverage (including
-  its deliberate exclusion of the receiver-mutated flags word).
-- The two-stage Tuya MIPC/HCI state machine is implemented: physical delivery
-  ACKs, MIPC object ACKs, application replies, command/ACL requests, callback
-  registration, controller init/deinit, and controller-originated event/ACL
-  polling. Separate shared objects preserve an in-flight host request when a
-  controller event is interleaved. Native hardware has now proven controller
-  registration/init, consecutive HCI commands, asynchronous event delivery, and
-  correct event-versus-ACL callback selection. HCI Reset and Read Local Version
-  both completed successfully using normal SRAM shared objects.
-- Kconfig now enforces that boundary: `BT_FW_NIMBLE` is unavailable on T5AI
-  unless `T5AI_CP_HCI_VALIDATED` is deliberately enabled. DVT3 keeps that gate
-  off, so the SoC default cannot accidentally replace the controller stub.
-- Validate native controller-to-host and host-to-controller ACL traffic before
-  lifting the gate. Resolve the CP's non-fatal MIPC CRC diagnostic, then validate
-  cache ownership, polling latency, timeouts, and recovery; replace polling with
-  IRQ delivery once proven.
+- DVT3 enables `T5AI_CP_HCI_VALIDATED`; the controller stub is no longer the
+  active path. Controller registration/init, commands, asynchronous events,
+  bidirectional ACL, legacy advertising, a BlueZ connection, ATT responses, and
+  GATT service resolution are proven on hardware.
+- The physical CP mailbox has one native owner. It permits one ordinary
+  AP-to-CP message in flight, so every non-transport-ACK send is serialized
+  until physical completion. Flash, SARADC, log, and MIPC/HCI traffic share the
+  dispatcher without draining one another's channels.
+- HCI callbacks copy borrowed controller data before physical acknowledgement.
+  An eight-entry receive FIFO preserves interleaved transport ACKs, MIPC ACKs,
+  application replies, events, and ACL packets. Callback-response descriptors
+  remain owned until their logical ACK.
+- The vendor-compatible MIPC ABI uses fixed 32-bit shared pointers and channels
+  `0x17` AP-to-CP and `0x47` CP-to-AP. The CP's recurring CRC log is non-fatal
+  when a valid logical reply follows and matches pinned vendor behavior.
 - Ensure the vendor Bluetooth stack and Pebble NimBLE never own the controller simultaneously.
-- Verify pairing, bonding persistence, reconnect, MTU, notifications, and low-power behavior when hardware arrives.
+- Next verify pairing, encryption, same-boot reconnect, MTU, notifications, and
+  real Pebble protocol transfer over `fed9`.
+- Bond persistence is intentionally unavailable: the T5AI backend is volatile
+  and shared PRF is read-only. Validate its write/recovery contract before
+  enabling persistent bonds.
+- Replace polling with IRQ delivery and validate Bluetooth low-power behavior
+  only after the functional data path is stable.
 
 ### 13. Audio and optional hardware — safely disabled
 
@@ -620,7 +1443,7 @@ Verify all pins from the schematic/BSP before hardware testing.
 - Implement audio only through Pebble's audio interfaces.
 - Explicitly disable any unsupported peripheral rather than retaining a legacy DVT2 driver.
 
-### 14. Image packaging and boot flow — pinned host format audited; recovery pending
+### 14. Image packaging and boot flow — AP-only path proven; product recovery pending
 
 - The pinned `tuya_app` table places 68 KiB primary bootloader, 68 KiB Tuya
   BL2, and 1088 KiB CP application partitions before the AP. The resulting AP
@@ -630,8 +1453,8 @@ Verify all pins from the schematic/BSP before hardware testing.
 - The official outputs are not interchangeable with Pebble's artifact: QIO is
   a complete physical-flash image, UA concatenates Tuya BL2 + CP + AP, and UG
   adds a 64-byte compressed-OTA header. `pebbleos.t5ai-crc.bin` is deliberately
-  an AP-only protected payload with no QIO/UA/UG header and cannot boot or
-  update a factory device by itself.
+  an AP-only protected payload with no QIO/UA/UG header. It boots only within
+  the retained vendor bootloader/CP environment and is not an update container.
 - The pinned BK7258 packager's protected-block transform is implemented and
   host-tested: 32 logical bytes, `0xff` tail padding, then a big-endian Beken
   CRC-16 (polynomial `0x8005`, initial value `0xffffffff`). T5AI builds now
@@ -641,12 +1464,10 @@ Verify all pins from the schematic/BSP before hardware testing.
 - The pinned SDK selects its normal bootloader and its packaging path contains
   no signing step for this configuration. That does not prove the factory
   device's OTP/fuse policy or authorize replacing its AP payload.
-- The protected payload has been flashed experimentally and read back correctly,
-  but did not enter Pebble's reset handler. Do not repeat native flashes until
-  the AP/CP compatibility, security policy, and CPU1 release contract are
-  understood. Programming transport and recovery to the known-good diagnostic
-  AP are proven; complete factory restoration is backed up but has not needed
-  to be exercised.
+- The protected payload repeatedly enters Pebble's reset handler and boots the
+  native runtime. Exact-range AP-only programming and recovery to the known-good
+  diagnostic are proven. Two matching full-flash backups exist, but complete
+  factory restoration has not needed to be exercised.
 - DVT3 now has an explicit empty runner override, while DVT/DVT2 retain
   `sftool`. Both the board manifest and the CLI therefore fail closed for
   `pbl flash`, including an attempted explicit runner override. The same CLI
@@ -792,20 +1613,23 @@ Verify all pins from the schematic/BSP before hardware testing.
   `bounds` warning; no DVT3-port warning appeared in that compatibility build.
 - Keep warnings introduced by DVT3 at zero or document unavoidable toolchain warnings.
 
-Current host baseline: 49 `test_tuya*.py` tests and 25 Getafix board tests pass.
-The DVT3 native firmware now compiles and links without unresolved platform
+Current focused host baseline: all 78 tests in the validation command below
+pass. The DVT3 native firmware compiles and links without unresolved platform
 symbols or internal-RAM overflow. Host-generated ELF, map, raw binary, Intel
-HEX, and protected-block binary artifacts are available for inspection. They
-remain experimental; section 14 records the failed reset-entry test and the
-condition for trying another image.
+HEX, protected-block, and checked layout artifacts are available. The AP-only
+payload remains experimental even though repeated programming and recovery are
+proven on the backed-up lab board.
 
 ### 16. Continued hardware validation
 
-The factory image is preserved, AP-only recovery is proven, and CPU1 reset
-entry, CP power-up handshake, dual-USB UART roles, runtime mailbox RX, scheduler
-and RTC timebases, battery ADC, and GPIO buttons are proven. Next validate
-the display, then touch, sensors, Bluetooth, sleep/wake, charging, and finally
-writable storage/update behavior. I2C0 and the external PCF85063 RTC are proven.
+The factory image is preserved and AP-only programming/recovery are proven.
+CPU1 startup, the CP handshake, dual USB roles, scheduler/timebases, buttons,
+I2C/RTC, display, touch, accelerometer, SARADC, and normal NimBLE advertising,
+ACL, ATT, and GATT discovery are proven. Continue with pairing and Pebble
+protocol transfer, then common-service/application integration, sleep/wake,
+and low power. Fit a battery before charging or state-of-charge validation.
+Treat persistent bonding, general writable storage, resources, and OTA as the
+last stage because they require a tested corruption and full-recovery policy.
 
 ## Validation commands
 
@@ -814,10 +1638,17 @@ cd /home/baz/coredevices/pebbleos
 . .venv/bin/activate
 
 python pbl configure --board getafix@dvt3
-python pbl build
+python ./waf build
 
-python -B -m unittest tools.tests.test_getafix_boards -v
-python -B -m unittest discover -s tools/tests -p 'test_tuya*.py' -v
+python -m unittest \
+  tools.tests.test_getafix_boards \
+  tools.tests.test_t5ai_boot_probe \
+  tools.tests.test_tuya_flash \
+  tools.tests.test_tuya_hardware \
+  tools.tests.test_tuya_image \
+  tools.tests.test_tuya_image_packaging \
+  tools.tests.test_tuya_kernel \
+  tools.tests.test_tuya_memory
 
 /tmp/pebble-tuya-venv/bin/ruff check \
   tools/waf/boards.py \

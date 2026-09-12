@@ -979,6 +979,13 @@ void shell_prefs_init(void) {
   }
   s_mutex = mutex_create();
 
+#ifdef CONFIG_SOC_T5AI
+  // DVT3 deliberately does not initialize writable PFS until its partition
+  // and recovery contract are proven. Retain the defaults above in RAM rather
+  // than blocking while opening an unavailable settings file.
+  return;
+#endif
+
   SettingsFile file = {{0}};
   if (settings_file_open(&file, SHELL_PREFS_FILE_NAME, SHELL_PREFS_FILE_LEN) != S_SUCCESS) {
     return;

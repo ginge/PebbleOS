@@ -18,12 +18,15 @@
 
 #include "nimble_gattc_op_queue.h"
 #include "nimble_type_conversions.h"
+#include "pairing_confirm_internal.h"
 
 PBL_LOG_MODULE_DECLARE(bt, CONFIG_BT_LOG_LEVEL);
 
-static const ble_uuid16_t s_device_name_chr_uuid = BLE_UUID16_INIT(0x2A00);
 static char s_device_name[BT_DEVICE_NAME_BUFFER_SIZE];
 static bool s_pairing_in_progress;
+static PairingUserConfirmationCtx s_pairing_ctx;
+
+static const ble_uuid16_t s_device_name_chr_uuid = BLE_UUID16_INIT(0x2A00);
 
 static int prv_device_name_read_event_cb(uint16_t conn_handle, const struct ble_gatt_error *error,
                                          struct ble_gatt_attr *attr, void *arg) {
@@ -152,6 +155,11 @@ static void prv_handle_connection_event(struct ble_gap_event *event) {
 }
 
 static void prv_handle_disconnection_event(struct ble_gap_event *event) {
+  if (s_pairing_in_progress && s_pairing_ctx.conn_handle == event->disconnect.conn.conn_handle) {
+    bt_driver_cb_pairing_confirm_handle_completed(&s_pairing_ctx, false);
+    s_pairing_in_progress = false;
+  }
+
   GattDeviceDisconnectionEvent gatt_event;
   nimble_addr_to_pebble_addr(&event->disconnect.conn.peer_id_addr, &gatt_event.dev_address);
   bt_driver_cb_gatt_handle_disconnect(&gatt_event);
@@ -228,8 +236,7 @@ static void prv_handle_passkey_event(struct ble_gap_event *event) {
   char passkey_str[7];
   uint32_t passkey = 0;
   const char *device_name = NULL;
-  PairingUserConfirmationCtx *ctx =
-      (PairingUserConfirmationCtx *)((uintptr_t)event->passkey.conn_handle);
+  s_pairing_ctx.conn_handle = event->passkey.conn_handle;
 
   if (event->passkey.params.action == BLE_SM_IOACT_NUMCMP) {
     passkey = event->passkey.params.numcmp;
@@ -240,7 +247,7 @@ static void prv_handle_passkey_event(struct ble_gap_event *event) {
   }
 
   snprintf(passkey_str, sizeof(passkey_str), "%06lu", passkey);
-  bt_driver_cb_pairing_confirm_handle_request(ctx, device_name, passkey_str);
+  bt_driver_cb_pairing_confirm_handle_request(&s_pairing_ctx, device_name, passkey_str);
   s_pairing_in_progress = true;
 }
 
@@ -251,9 +258,14 @@ static void prv_handle_pairing_complete_event(struct ble_gap_event *event) {
     return;
   }
 
-  PairingUserConfirmationCtx *ctx =
-      (PairingUserConfirmationCtx *)((uintptr_t)event->pairing_complete.conn_handle);
-  bt_driver_cb_pairing_confirm_handle_completed(ctx, event->pairing_complete.status == 0);
+  if (s_pairing_ctx.conn_handle != event->pairing_complete.conn_handle) {
+    PBL_LOG_WRN("Pairing completion for unexpected handle %u (expected %u)",
+                event->pairing_complete.conn_handle, s_pairing_ctx.conn_handle);
+    return;
+  }
+
+  bt_driver_cb_pairing_confirm_handle_completed(&s_pairing_ctx,
+                                                event->pairing_complete.status == 0);
   s_pairing_in_progress = false;
 }
 

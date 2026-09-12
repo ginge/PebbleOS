@@ -115,6 +115,13 @@ bool app_manager_is_first_app_launched(void) {
   return s_first_app_launched;
 }
 
+#ifdef CONFIG_SOC_T5AI
+extern volatile uint32_t g_t5ai_app_stage;
+#define T5AI_APP_STAGE(stage) (g_t5ai_app_stage = (stage))
+#else
+#define T5AI_APP_STAGE(stage) ((void)0)
+#endif
+
 WakeupInfo app_manager_get_app_wakeup_state(void) {
   return s_next_app.wakeup_info;
 }
@@ -123,8 +130,11 @@ WakeupInfo app_manager_get_app_wakeup_state(void) {
 //! This is the wrapper function for all apps here. It's not allowed to return as it's
 //! the top frame on the stack created for the application.
 static void prv_app_task_main(void *entry_point) {
+  T5AI_APP_STAGE(201u);
   app_state_init();
+  T5AI_APP_STAGE(202u);
   task_init();
+  T5AI_APP_STAGE(203u);
 
   // about to start the app in earnest. No longer safe to kill.
   s_app_task_context.safe_to_kill = false;
@@ -137,7 +147,9 @@ static void prv_app_task_main(void *entry_point) {
   }
 
   const PebbleMain main_func = entry_point;
+  T5AI_APP_STAGE(204u);
   main_func();
+  T5AI_APP_STAGE(205u);
 
   // Clean up after the app.  Remember to put only non-critical cleanup here,
   // as the app may crash or otherwise misbehave. If something really needs to

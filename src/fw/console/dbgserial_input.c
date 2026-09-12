@@ -4,6 +4,7 @@
 #include "dbgserial_input.h"
 
 #include "pbl/util/attributes.h"
+#include "pbl/util/size.h"
 
 #if defined(CONFIG_SOC_T5AI)
 
@@ -25,6 +26,15 @@ typedef struct {
 static const uint8_t s_mailbox_rx_probe_request[] = {'P', 'B', 'L', 'R', 'X', '\r', '\n'};
 static const uint8_t s_mailbox_timebase_probe_request[] = {'P', 'B', 'L',  'T',
                                                            'I', 'M', '\r', '\n'};
+static const uint8_t s_mailbox_display_probe_request[] = {'P', 'B', 'L', 'D', 'S', 'P', '\r', '\n'};
+static const uint8_t s_mailbox_display_bitbang_request[] = {'P', 'B', 'L', 'B', 'I', 'T', '\r', '\n'};
+static const uint8_t s_mailbox_splash_request[] = {'P', 'B', 'L', 'S', 'P', 'L', '\r', '\n'};
+static const uint8_t s_mailbox_button_request[][7] = {
+  {'P', 'B', 'L', 'B', '0', '\r', '\n'},
+  {'P', 'B', 'L', 'B', '1', '\r', '\n'},
+  {'P', 'B', 'L', 'B', '2', '\r', '\n'},
+  {'P', 'B', 'L', 'B', '3', '\r', '\n'},
+};
 static volatile uint8_t s_mailbox_probe_received;
 
 static void prv_log_mailbox_receive(uint8_t logical_channel, const T5AICPMailboxFrame *frame,
@@ -47,7 +57,15 @@ static void prv_log_mailbox_receive(uint8_t logical_channel, const T5AICPMailbox
       const void *request = (const void *)(uintptr_t)message.buffer;
       const uint16_t request_length = (uint16_t)message.length;
       DbgSerialMailboxProbe probe = DbgSerialMailboxProbe_None;
-      if (request_length == sizeof(s_mailbox_rx_probe_request)) {
+      if (request_length == sizeof(s_mailbox_button_request[0])) {
+        dcache_invalidate((void *)request, request_length);
+        for (unsigned i = 0; i < ARRAY_LENGTH(s_mailbox_button_request); ++i) {
+          if (memcmp(request, s_mailbox_button_request[i], request_length) == 0) {
+            probe = (DbgSerialMailboxProbe)(DbgSerialMailboxProbe_ButtonBack + i);
+            break;
+          }
+        }
+      } else if (request_length == sizeof(s_mailbox_rx_probe_request)) {
         dcache_invalidate((void *)request, sizeof(s_mailbox_rx_probe_request));
         if (memcmp(request, s_mailbox_rx_probe_request, sizeof(s_mailbox_rx_probe_request)) == 0) {
           probe = DbgSerialMailboxProbe_Rx;
@@ -57,6 +75,15 @@ static void prv_log_mailbox_receive(uint8_t logical_channel, const T5AICPMailbox
         if (memcmp(request, s_mailbox_timebase_probe_request,
                    sizeof(s_mailbox_timebase_probe_request)) == 0) {
           probe = DbgSerialMailboxProbe_Timebase;
+        } else if (memcmp(request, s_mailbox_display_probe_request,
+                          sizeof(s_mailbox_display_probe_request)) == 0) {
+          probe = DbgSerialMailboxProbe_Display;
+        } else if (memcmp(request, s_mailbox_display_bitbang_request,
+                          sizeof(s_mailbox_display_bitbang_request)) == 0) {
+          probe = DbgSerialMailboxProbe_DisplayBitbang;
+        } else if (memcmp(request, s_mailbox_splash_request,
+                          sizeof(s_mailbox_splash_request)) == 0) {
+          probe = DbgSerialMailboxProbe_Splash;
         }
       }
       handled = probe != DbgSerialMailboxProbe_None;

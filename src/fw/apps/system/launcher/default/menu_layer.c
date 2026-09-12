@@ -20,6 +20,13 @@
 #define LAUNCHER_MENU_LAYER_CONTENT_INDICATOR_LAYER_HEIGHT (32)
 #define LAUNCHER_MENU_LAYER_GENERIC_APP_ICON (RESOURCE_ID_MENU_LAYER_GENERIC_WATCHAPP_ICON)
 
+#ifdef CONFIG_SOC_T5AI
+extern volatile uint32_t g_t5ai_app_stage;
+#define T5AI_LAUNCHER_MENU_STAGE(stage) (g_t5ai_app_stage = (stage))
+#else
+#define T5AI_LAUNCHER_MENU_STAGE(stage) ((void)0)
+#endif
+
 ////////////////////////////
 // Misc. callbacks/helpers
 
@@ -41,10 +48,12 @@ static void prv_launcher_menu_layer_mark_dirty(LauncherMenuLayer *launcher_menu_
 //////////////////////////////////////
 // LauncherAppGlanceService handlers
 
+#ifndef CONFIG_SOC_T5AI
 static void prv_glance_changed(void *context) {
   LauncherMenuLayer *launcher_menu_layer = context;
   prv_launcher_menu_layer_mark_dirty(launcher_menu_layer);
 }
+#endif
 
 ////////////////////////
 // MenuLayer callbacks
@@ -94,8 +103,12 @@ static void prv_menu_layer_draw_row(GContext* ctx, const Layer *cell_layer, Menu
     return;
   }
 
+#ifdef CONFIG_SOC_T5AI
+  // DVT3 has no validated system resource bank yet. Render the built-in app
+  // name with the existing basic menu path instead of requiring glance reels.
+  app_menu_data_source_draw_row(data_source, ctx, (Layer *)cell_layer, cell_index);
+#else
   AppMenuNode *node = app_menu_data_source_get_node_at_index(data_source, cell_index->row);
-
   const GRect *cell_layer_bounds = &cell_layer->bounds;
   const bool is_highlighted = menu_cell_layer_is_highlighted(cell_layer);
 
@@ -109,6 +122,7 @@ static void prv_menu_layer_draw_row(GContext* ctx, const Layer *cell_layer, Menu
   launcher_app_glance_service_draw_glance_for_app_node(&launcher_menu_layer->glance_service,
                                                        ctx, cell_layer_bounds, is_highlighted,
                                                        screen_center_y, node);
+#endif
 
   // If we should launch an app after this render, push a callback to do that on the app task
   if (launcher_menu_layer->app_to_launch_after_next_render != INSTALL_ID_INVALID) {
@@ -136,6 +150,11 @@ static int16_t prv_menu_layer_get_cell_height(PBL_UNUSED MenuLayer *menu_layer,
 }
 
 static void prv_play_glance_for_row(LauncherMenuLayer *launcher_menu_layer, uint16_t row) {
+#ifdef CONFIG_SOC_T5AI
+  // Glance resources are unavailable until the T5AI resource-bank layout is
+  // implemented. Selection remains functional without the animation.
+  return;
+#else
   if (!launcher_menu_layer || !launcher_menu_layer->selection_animations_enabled) {
     return;
   }
@@ -146,6 +165,7 @@ static void prv_play_glance_for_row(LauncherMenuLayer *launcher_menu_layer, uint
 
   // Instruct the launcher app glance service to play the glance for the node
   launcher_app_glance_service_play_glance_for_app_node(&launcher_menu_layer->glance_service, node);
+#endif
 }
 
 static void prv_menu_layer_selection_will_change(MenuLayer *PBL_UNUSED menu_layer, MenuIndex *new_index,
@@ -180,11 +200,15 @@ void launcher_menu_layer_init(LauncherMenuLayer *launcher_menu_layer,
   // LAUNCHER_MENU_LAYER_NUM_VISIBLE_ROWS in launcher_menu_layer_private.h is valid
   const GRect frame = DISP_FRAME;
 
+  T5AI_LAUNCHER_MENU_STAGE(401u);
   launcher_menu_layer->title_font = fonts_get_system_font(LAUNCHER_MENU_LAYER_TITLE_FONT);
+  T5AI_LAUNCHER_MENU_STAGE(402u);
   launcher_menu_layer->subtitle_font = fonts_get_system_font(LAUNCHER_MENU_LAYER_SUBTITLE_FONT);
+  T5AI_LAUNCHER_MENU_STAGE(403u);
 
   Layer *container_layer = &launcher_menu_layer->container_layer;
   layer_init(container_layer, &frame);
+  T5AI_LAUNCHER_MENU_STAGE(404u);
 
   launcher_menu_layer->data_source = data_source;
 
@@ -200,11 +224,15 @@ void launcher_menu_layer_init(LauncherMenuLayer *launcher_menu_layer,
 
   MenuLayer *menu_layer = &launcher_menu_layer->menu_layer;
   menu_layer_init(menu_layer, &menu_layer_frame);
+  T5AI_LAUNCHER_MENU_STAGE(405u);
   GColor highlight_bg = shell_prefs_get_theme_highlight_color();
+  T5AI_LAUNCHER_MENU_STAGE(410u);
   menu_layer_set_highlight_colors(menu_layer,
                                   highlight_bg,
                                   gcolor_legible_over(highlight_bg));
+  T5AI_LAUNCHER_MENU_STAGE(411u);
   menu_layer_pad_bottom_enable(menu_layer, false);
+  T5AI_LAUNCHER_MENU_STAGE(412u);
   menu_layer_set_callbacks(menu_layer, launcher_menu_layer, &(MenuLayerCallbacks) {
     .get_num_rows = prv_menu_layer_get_num_rows,
     .draw_row = prv_menu_layer_draw_row,
@@ -212,9 +240,13 @@ void launcher_menu_layer_init(LauncherMenuLayer *launcher_menu_layer,
     .get_cell_height = prv_menu_layer_get_cell_height,
     .selection_will_change = prv_menu_layer_selection_will_change,
   });
+  T5AI_LAUNCHER_MENU_STAGE(413u);
   menu_layer_set_scroll_wrap_around(menu_layer, shell_prefs_get_menu_scroll_wrap_around_enable());
+  T5AI_LAUNCHER_MENU_STAGE(414u);
   menu_layer_set_scroll_vibe_on_wrap(menu_layer, shell_prefs_get_menu_scroll_vibe_behavior() == MenuScrollVibeOnWrapAround);
+  T5AI_LAUNCHER_MENU_STAGE(415u);
   menu_layer_set_scroll_vibe_on_blocked(menu_layer, shell_prefs_get_menu_scroll_vibe_behavior() == MenuScrollVibeOnLocked);
+  T5AI_LAUNCHER_MENU_STAGE(406u);
 
   // Only setup the content indicator on round
 #if PBL_ROUND
@@ -254,20 +286,26 @@ void launcher_menu_layer_init(LauncherMenuLayer *launcher_menu_layer,
   // the indicator arrows only get positioned properly if their layers overlap with the menu layer's
   // edges
   layer_add_child(container_layer, menu_layer_get_layer(menu_layer));
+  T5AI_LAUNCHER_MENU_STAGE(407u);
 
+#ifndef CONFIG_SOC_T5AI
   launcher_app_glance_service_init(&launcher_menu_layer->glance_service,
                                    LAUNCHER_MENU_LAYER_GENERIC_APP_ICON);
+  T5AI_LAUNCHER_MENU_STAGE(408u);
   const LauncherAppGlanceServiceHandlers glance_handlers = (LauncherAppGlanceServiceHandlers) {
     .glance_changed = prv_glance_changed,
   };
   launcher_app_glance_service_set_handlers(&launcher_menu_layer->glance_service,
                                            &glance_handlers, launcher_menu_layer);
+#endif
+  T5AI_LAUNCHER_MENU_STAGE(408u);
 
   // Select the visually first item from the top
   const uint16_t first_index = 0;
   const bool animated = false;
   prv_launcher_menu_layer_set_selection_index(launcher_menu_layer, first_index, MenuRowAlignBottom,
                                               animated);
+  T5AI_LAUNCHER_MENU_STAGE(409u);
 }
 
 Layer *launcher_menu_layer_get_layer(LauncherMenuLayer *launcher_menu_layer) {

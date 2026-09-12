@@ -64,10 +64,13 @@ void services_common_init(void) {
 }
 
 static struct ServiceRunLevelSetting s_runlevel_settings[] = {
+#ifndef CONFIG_SOC_T5AI
   {
     .set_enable_fn = accel_manager_enable,
     .enable_mask = R_Stationary | R_FirmwareUpdate | R_Normal,
   },
+#endif
+#ifndef CONFIG_SOC_T5AI
   {
     .set_enable_fn = light_allow,
     .enable_mask = R_LowPower | R_FirmwareUpdate | R_Normal,
@@ -76,6 +79,7 @@ static struct ServiceRunLevelSetting s_runlevel_settings[] = {
     .set_enable_fn = vibe_service_set_enabled,
     .enable_mask = R_LowPower | R_FirmwareUpdate | R_Normal
   },
+#endif
   {
     .set_enable_fn = bt_ctl_set_enabled,
     .enable_mask = R_FirmwareUpdate | R_Normal,
@@ -88,7 +92,7 @@ static struct ServiceRunLevelSetting s_runlevel_settings[] = {
     .enable_mask = R_Normal,
   },
 #endif
-#ifdef CONFIG_HRM
+#if defined(CONFIG_HRM) && !defined(CONFIG_SOC_T5AI)
   {
     .set_enable_fn = hrm_manager_enable,
     .enable_mask = R_Normal,
@@ -102,4 +106,3 @@ void services_common_set_runlevel(RunLevel runlevel) {
     service->set_enable_fn(((1 << runlevel) & service->enable_mask) != 0);
   }
 }
-

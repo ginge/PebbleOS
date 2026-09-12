@@ -43,9 +43,17 @@
 
 extern void shell_prefs_init(void);
 
+#ifdef CONFIG_SOC_T5AI
+extern volatile uint32_t g_t5ai_boot_stage;
+#define T5AI_SHELL_STAGE(stage) (g_t5ai_boot_stage = (stage))
+#else
+#define T5AI_SHELL_STAGE(stage) ((void)0)
+#endif
+
 // Force-compact every growable settings DB on first boot after upgrade. 
 // Pre-growable-files devices keep their original full-size settings file allocation forever otherwise, 
 // which on devices with many installed apps shows up as launcher scroll lag.
+#ifndef CONFIG_SOC_T5AI
 static void prv_settings_dbs_compaction_migration_cb(void *data) {
   blob_db_compact_growable_dbs();
   shell_prefs_set_settings_dbs_compacted_v1(true);
@@ -57,22 +65,35 @@ static void prv_maybe_run_settings_dbs_compaction_migration(void) {
   }
   system_task_add_callback(prv_settings_dbs_compaction_migration_cb, NULL);
 }
+#endif
 
 void shell_event_loop_init(void) {
   shell_prefs_init();
+  T5AI_SHELL_STAGE(171u);
+#ifndef CONFIG_SOC_T5AI
   prv_maybe_run_settings_dbs_compaction_migration();
+#endif
+  T5AI_SHELL_STAGE(172u);
   notification_window_service_init();
+  T5AI_SHELL_STAGE(173u);
   app_inbox_service_init();
+  T5AI_SHELL_STAGE(174u);
   app_outbox_service_init();
+  T5AI_SHELL_STAGE(175u);
   app_message_sender_init();
+  T5AI_SHELL_STAGE(176u);
   watchface_init();
+  T5AI_SHELL_STAGE(177u);
   timeline_peek_init();
+  T5AI_SHELL_STAGE(178u);
   // Start activity tracking if enabled
   if (activity_prefs_tracking_is_enabled()) {
     activity_start_tracking(false /*test_mode*/);
   }
   workout_service_init();
+  T5AI_SHELL_STAGE(179u);
 
+#ifndef CONFIG_SOC_T5AI
   bool factory_reset_or_first_use = !shared_prf_storage_get_getting_started_complete();
   // We are almost done booting, welcome the user if applicable. This _must_ occur before setting
   // the getting started completed below.
@@ -83,6 +104,8 @@ void shell_event_loop_init(void) {
   // As soon as we boot normally for the first time, we've therefore completed first use mode and
   // we don't need to go through it again until we factory reset.
   shared_prf_storage_set_getting_started_complete(true /* complete */);
+#endif
+  T5AI_SHELL_STAGE(180u);
 }
 
 void shell_event_loop_handle_event(PebbleEvent *e) {
@@ -143,7 +166,13 @@ void shell_event_loop_handle_event(PebbleEvent *e) {
       return;
 
     case PEBBLE_BATTERY_STATE_CHANGE_EVENT:
+#ifdef CONFIG_SOC_T5AI
+      // DVT3 development power and both UARTs share one USB-C cable, and no
+      // battery is fitted for validation yet. Keep battery monitoring active
+      // but suppress its persistent charging modal so the launcher is visible.
+#else
       battery_ui_handle_state_change_event(e->battery_state.new_state);
+#endif
       return;
 
     case PEBBLE_COMM_SESSION_EVENT:
@@ -185,4 +214,3 @@ void shell_event_loop_handle_event(PebbleEvent *e) {
       break; // don't care
   }
 }
-

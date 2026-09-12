@@ -37,6 +37,7 @@
 #include <pbl/drivers/watchdog.h>
 #include <pbl/drivers/sf32lb52/rc10k.h>
 #ifdef CONFIG_SOC_T5AI
+#include <pbl/drivers/display/t5ai.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/freertos.h>
 #include <pbl/soc/t5ai/rtc.h>
@@ -52,19 +53,27 @@
 #include "kernel/fault_handling.h"
 #include "kernel/memory_layout.h"
 #include "kernel/panic.h"
+#include "kernel/pebble_tasks.h"
+#include "kernel/remote_input.h"
 #include "logging/pulse_logging.h"
 #include "pbl/services/services.h"
 #include "pbl/services/boot_splash.h"
 #include "pbl/services/clock.h"
+#include "pbl/services/cron.h"
 #include "pbl/services/compositor/compositor.h"
+#include "pbl/services/light.h"
 #include "pbl/services/regular_timer.h"
 #include "pbl/services/system_task.h"
+#ifdef CONFIG_TOUCH
+#include "pbl/services/touch/touch.h"
+#endif
 #include "pbl/services/new_timer/new_timer_service.h"
 #include "pbl/services/new_timer/new_timer.h"
 #include "pbl/services/analytics/analytics.h"
 #include "pbl/services/prf_update.h"
 #include "kernel/ui/kernel_ui.h"
 #include "kernel/kernel_applib_state.h"
+#include "process_management/app_manager.h"
 #include "kernel/util/delay.h"
 #include "util/mbuf.h"
 #include "system/firmware_storage.h"
@@ -181,7 +190,9 @@ static void watchdog_timer_callback(void* data) {
 #include <pbl/services/bluetooth/bluetooth_ctl.h>
 #include <pbl/services/bluetooth/bluetooth_persistent_storage.h>
 
-static char s_t5ai_timebase_response[128];
+static char s_t5ai_timebase_response[224];
+volatile uint32_t g_t5ai_boot_stage;
+volatile uint32_t g_t5ai_app_stage;
 
 static void prv_t5ai_bluetooth_init(void) {
   /* The CP shell is ready before its flash and HCI services. Normal service
@@ -203,11 +214,33 @@ static void cp_heartbeat_timer_callback(void* data) {
   if (probe == DbgSerialMailboxProbe_Rx) {
     dbgserial_putstr("PBLRX-OK: T5AI USB mailbox RX passed");
   } else if (probe == DbgSerialMailboxProbe_Timebase) {
+    TaskHandle_t app_task = pebble_task_get_handle_for_task(PebbleTask_App);
     dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
-                         "PBLTIM freertos=%lu rtc=%lu aon=%lu core=%lu reload=%lu",
+                         "PBLTIM freertos=%lu rtc=%lu aon=%lu core=%lu reload=%lu "
+                         "stage=%lu appstage=%lu appinit=%u first=%u "
+                         "apptask=%u state=%u prio=%u stack=%u",
                          (unsigned long)xTaskGetTickCount(), (unsigned long)rtc_get_ticks(),
                          (unsigned long)t5ai_rtc_get_raw_ticks(), (unsigned long)SystemCoreClock,
-                         (unsigned long)SysTick->LOAD);
+                         (unsigned long)SysTick->LOAD, (unsigned long)g_t5ai_boot_stage,
+                         (unsigned long)g_t5ai_app_stage,
+                         (unsigned)app_manager_is_initialized(),
+                         (unsigned)app_manager_is_first_app_launched(), (unsigned)(app_task != NULL),
+                         app_task ? (unsigned)eTaskGetState(app_task) : 0xffu,
+                         app_task ? (unsigned)uxTaskPriorityGet(app_task) : 0xffu,
+                         app_task ? (unsigned)uxTaskGetStackHighWaterMark(app_task) : 0u);
+  } else if (probe == DbgSerialMailboxProbe_Display) {
+    display_co5300_log_diagnostics();
+  } else if (probe == DbgSerialMailboxProbe_DisplayBitbang) {
+    display_co5300_bitbang_probe();
+  } else if (probe == DbgSerialMailboxProbe_Splash) {
+    boot_splash_start();
+    dbgserial_putstr("PBLSPL done");
+  } else if (probe >= DbgSerialMailboxProbe_ButtonBack &&
+             probe <= DbgSerialMailboxProbe_ButtonDown) {
+    const ButtonId button = (ButtonId)(probe - DbgSerialMailboxProbe_ButtonBack);
+    const RemoteInputResult result = remote_input_button_press(button, 1u, 120u, 0u);
+    dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
+                         "PBLB%u result=%u", (unsigned)button, (unsigned)result);
   }
 }
 #endif
@@ -324,7 +357,9 @@ static NOINLINE void prv_main_task_init(void) {
 
   board_early_init();
 
+#ifndef CONFIG_SOC_T5AI
   boot_splash_start();
+#endif
 
   kernel_applib_init();
 
@@ -348,11 +383,12 @@ static NOINLINE void prv_main_task_init(void) {
   init_drivers();
 
 #ifdef CONFIG_SOC_T5AI
-  /* The AMOLED controller is self-contained and can be initialized before
-   * filesystem-backed services. Doing so also replaces the bootloader's
-   * retained framebuffer as soon as native peripheral setup is complete. */
+  /* Normal firmware's boot splash service is intentionally a no-op, so T5AI
+   * must initialize its panel explicitly after the peripheral drivers. */
   display_init();
+  boot_splash_start();
   backlight_set_brightness(BOARD_CONFIG.backlight_on_percent);
+  g_t5ai_boot_stage = 1u;
 #endif
 
   clock_init();
@@ -389,6 +425,10 @@ static NOINLINE void prv_main_task_init(void) {
 
   system_resource_init();
 
+#ifdef CONFIG_SOC_T5AI
+  g_t5ai_boot_stage = 2u;
+#endif
+
 #ifdef CONFIG_HRM
   hrm_init(HRM);
 #endif
@@ -403,11 +443,22 @@ static NOINLINE void prv_main_task_init(void) {
 
   // Stop boot splash before initializing compositor
   boot_splash_stop();
+#ifdef CONFIG_SOC_T5AI
+  /* services_common_init() is still gated while persistent storage and OTA
+   * remain unsafe. Initialize the self-contained RAM/timer services required
+   * by the launcher and pairing UI without enabling writable storage. */
+  cron_service_init();
+  light_init();
+#ifdef CONFIG_TOUCH
+  touch_init();
+#endif
+#endif
   // Can't use the compositor framebuffer until the compositor is initialized
   compositor_init();
   kernel_ui_init();
 
 #ifdef CONFIG_SOC_T5AI
+  g_t5ai_boot_stage = 3u;
   t5ai_freertos_apply_systick_clock();
 
   /* CP0's shell fallback is interrupt-scale. Defer mailbox dispatch from IRQ
@@ -419,6 +470,7 @@ static NOINLINE void prv_main_task_init(void) {
   bt_driver_init();
 #else
   prv_t5ai_bluetooth_init();
+  g_t5ai_boot_stage = 4u;
 #endif
 
 #ifndef CONFIG_SOC_T5AI
@@ -460,6 +512,10 @@ static NOINLINE void prv_main_task_init(void) {
   // entering the kernel event queue.
   debounced_button_init();
 
+#ifdef CONFIG_SOC_T5AI
+  g_t5ai_boot_stage = 5u;
+#endif
+
 #ifndef CONFIG_SOC_T5AI
   task_watchdog_resume();
 #endif
@@ -473,5 +529,8 @@ static void main_task(void* parameter) {
   __enable_irq();
 #endif
   prv_main_task_init();
+#ifdef CONFIG_SOC_T5AI
+  g_t5ai_boot_stage = 6u;
+#endif
   launcher_main_loop();
 }
