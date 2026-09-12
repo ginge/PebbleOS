@@ -938,6 +938,24 @@ app event handling. Physical button/touch navigation is the next validation
 step before diagnostic checkpoints are removed or the temporary scheduling
 pause is reduced.
 
+The first USART navigation attempt sent Pebble prompt text through the CP's
+`ap_cmd` shell, but T5AI intentionally exposes only a bounded mailbox probe
+surface rather than the unrestricted Pebble prompt. The new `PBLB0` through
+`PBLB3` probes map to Back, Up, Select, and Down and request one 120 ms press
+through Pebble's shared remote-input service. The first probe build exposed one
+more partial-startup dependency: `remote_input_init()` had been omitted with
+`services_common_init()`, so its mutex was NULL and `PBLB3` reset the AP. T5AI
+now initializes that RAM/timer-only service immediately after the system event
+service, without enabling writable storage or Bluetooth.
+
+The corrected source passes all 146 tests and `git diff --check` and builds
+cleanly. Its 799,204-byte protected AP payload has SHA-256
+`5011c77c55832312fdd95832c609e7d8b3ca4bf37e1679d62ee7bbdeb67c0d91`
+and occupies exactly `0x132000..0x1f51e4`. Exact-range AP-only flashing and
+reboot succeeded. Runtime remained at the healthy launcher state and returned
+`PBLB3 result=0`, proving that a timed Down press was admitted into Pebble's
+real event queue. Visible row movement remains to be confirmed on the panel.
+
 The CP can print repeated `bk_ipc_crc_check crc check failed` diagnostics even
 while every transaction succeeds. The native implementation intentionally
 matches the pinned vendor behavior and continues dispatch: the mutable
@@ -989,7 +1007,7 @@ cd /home/baz/coredevices/pebbleos
   tools.tests.test_tuya_memory
 ```
 
-The 2026-09-12 run passed all 78 tests. Finish a handoff with:
+The latest 2026-09-12 run passed all 146 tests. Finish a handoff with:
 
 ```sh
 git diff --check
@@ -1000,21 +1018,22 @@ git status --short --branch
 
 Continue in this order:
 
-1. Restore the panel first: flash the validated read-only `PBLDSP` diagnostic,
-   capture its live register report over the CP shell USART, and continue
-   register/power/reset diagnosis until visible output returns.
-2. Pair from BlueZ, validate encryption and the security callbacks, then
+1. Confirm visible launcher movement from the acknowledged `PBLB3` probe, then
+   validate physical Back/Select GPIOs and touch Up/Down navigation end to end.
+2. Remove temporary startup checkpoints and identify the event source requiring
+   the T5AI-only ten-tick KernelMain scheduling pause.
+3. Pair from BlueZ, validate encryption and the security callbacks, then
    disconnect and reconnect within the same boot.
-3. Exchange real Pebble protocol data over the `fed9` characteristics and
+4. Exchange real Pebble protocol data over the `fed9` characteristics and
    verify notifications, writes, MTU negotiation, and sustained ACL ordering.
-4. Design and validate persistent bonding storage only after shared-PRF write,
+5. Design and validate persistent bonding storage only after shared-PRF write,
    compaction, corruption recovery, and full-board recovery are safe.
-5. Enable the remaining common services/application path and validate normal UI,
-   touch, accelerometer, and Pebble application behavior together.
-6. Validate sleep/wake, Bluetooth low-power operation, and peripheral resume.
-7. Fit a battery and validate voltage calibration, charging transitions,
+6. Enable the remaining common services and validate accelerometer and broader
+   Pebble application behavior together.
+7. Validate sleep/wake, Bluetooth low-power operation, and peripheral resume.
+8. Fit a battery and validate voltage calibration, charging transitions,
    retention, and state of charge against external measurements.
-8. Leave OTA, resource-bank writes, and general flash mutation until the image,
+9. Leave OTA, resource-bank writes, and general flash mutation until the image,
    rollback, and recovery design is complete.
 
 ## Source and reference map

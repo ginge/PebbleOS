@@ -580,6 +580,23 @@ PebbleOS source tree.
   frame, the built-in launcher renders, and the app event loop remains healthy.
   Validate physical button/touch navigation next before removing diagnostic
   checkpoints or reducing the temporary scheduling pause.
+- The first attempted USART navigation test used `ap_cmd click long 3 120`, but
+  T5AI does not expose Pebble's unrestricted serial prompt. The AP mailbox
+  deliberately accepts only its bounded `PBL*` probes, so the CP shell prompt
+  alone was not evidence that a button event had reached Pebble. A bounded
+  `PBLB0` through `PBLB3` mailbox diagnostic now maps to Back, Up, Select, and
+  Down and injects one 120 ms press through the shared remote-input service.
+- The first `PBLB3` image rebooted because partial T5AI startup also omitted
+  `remote_input_init()` with the rest of `services_common_init()`. T5AI now
+  initializes this RAM/mutex/timer-only service immediately after the system
+  event service; writable storage and Bluetooth remain gated. The corrected
+  image passes all 146 tests and `git diff --check`, and builds cleanly. Its
+  799,204-byte protected AP payload has SHA-256
+  `5011c77c55832312fdd95832c609e7d8b3ca4bf37e1679d62ee7bbdeb67c0d91`
+  and occupies exactly `0x132000..0x1f51e4`; exact-range flashing and reboot
+  succeeded. Hardware returned `PBLB3 result=0` without resetting, proving a
+  timed Down press was admitted to Pebble's real event queue. Visible launcher
+  movement is awaiting operator confirmation.
 
 ## 2026-09-12 handoff: normal NimBLE advertising and GATT proven
 
