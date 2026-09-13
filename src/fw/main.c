@@ -60,7 +60,10 @@
 #include "pbl/services/boot_splash.h"
 #include "pbl/services/clock.h"
 #include "pbl/services/cron.h"
+#include "pbl/services/data_logging/data_logging_service.h"
 #include "pbl/services/compositor/compositor.h"
+#include "pbl/services/persist.h"
+#include "pbl/services/process_management/app_order_storage.h"
 #include "pbl/services/light.h"
 #include "pbl/services/regular_timer.h"
 #include "pbl/services/system_task.h"
@@ -70,6 +73,7 @@
 #include "pbl/services/new_timer/new_timer_service.h"
 #include "pbl/services/new_timer/new_timer.h"
 #include "pbl/services/analytics/analytics.h"
+#include "pbl/services/accel_manager.h"
 #include "pbl/services/prf_update.h"
 #include "kernel/ui/kernel_ui.h"
 #include "kernel/kernel_applib_state.h"
@@ -542,6 +546,7 @@ static NOINLINE void prv_main_task_init(void) {
    * by the launcher and pairing UI without enabling writable storage. */
   cron_service_init();
   light_init();
+  accel_manager_init();
 #ifdef CONFIG_TOUCH
   touch_init();
 #endif
@@ -568,6 +573,12 @@ static NOINLINE void prv_main_task_init(void) {
 
 #ifndef CONFIG_SOC_T5AI
   services_init();
+#else
+  // T5AI's PFS is initialized by services_early_init(). Bring up the persistent
+  // services whose storage is confined to that validated writable partition.
+  persist_service_init();
+  dls_init();
+  app_order_storage_init();
 #endif
 
   // The RTC needs be calibrated after the mfg registry service has been initialized so we can

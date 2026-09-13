@@ -35,12 +35,6 @@ void app_order_storage_reset_for_tests(void) {
 AppMenuOrderStorage *app_order_read_order(void) {
   PBL_ASSERT_TASK(PebbleTask_App);
 
-#ifdef CONFIG_SOC_T5AI
-  // DVT3 does not initialize writable PFS or this service's mutex yet. Keep
-  // the compiled launcher order until protected storage has a safe backend.
-  return NULL;
-#endif
-
   AppMenuOrderStorage *storage = NULL;
   bool delete_file = false;
   mutex_lock(s_data.order_mutex);

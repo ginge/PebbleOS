@@ -535,14 +535,7 @@ const void *process_manager_get_current_process_args(void) {
 // right before we launch the task for the new process.
 void process_manager_process_setup(PebbleTask task) {
   ProcessContext *context = prv_get_context_for_task(task);
-#ifndef CONFIG_SOC_T5AI
   persist_service_client_open(&context->app_md->uuid);
-#else
-  // DVT3 deliberately leaves writable PFS and the persist service disabled
-  // until the factory partition layout and recovery policy are known. System
-  // apps can run with volatile state without opening a persistence store.
-  (void)context;
-#endif
 }
 
 
@@ -562,9 +555,7 @@ void process_manager_process_cleanup(PebbleTask task) {
   // just in case other services are still in flight.
   accel_service_cleanup_task_session(task);
   animation_service_cleanup(task);
-#ifndef CONFIG_SOC_T5AI
   persist_service_client_close(&context->app_md->uuid);
-#endif
   event_reset_from_process_queue(task);
   evented_timer_clear_process_timers(task);
   event_service_clear_process_subscriptions(task);

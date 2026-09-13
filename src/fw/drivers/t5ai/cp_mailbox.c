@@ -3,7 +3,7 @@
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/mcu/cache.h>
 #include <pbl/os/mutex.h>
-#include <pbl/services/new_timer/new_timer.h>
+#include <pbl/services/system_task.h>
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -370,8 +370,11 @@ void MAILBOX_IRQHandler(void) {
   T5AI_MBOX_CH1_CTRL &= ~T5AI_MBOX_INTERRUPT_ENABLE;
   bool should_context_switch = false;
   if (!__atomic_exchange_n(&s_rx_interrupt_work_pending, true, __ATOMIC_ACQ_REL)) {
-    should_context_switch =
-        new_timer_add_work_callback_from_isr(prv_process_pending_from_interrupt, NULL);
+    if (!system_task_add_callback_from_isr(prv_process_pending_from_interrupt, NULL,
+                                           &should_context_switch)) {
+      __atomic_store_n(&s_rx_interrupt_work_pending, false, __ATOMIC_RELEASE);
+      T5AI_MBOX_CH1_CTRL |= T5AI_MBOX_INTERRUPT_ENABLE;
+    }
   }
   portEND_SWITCHING_ISR(should_context_switch);
 }

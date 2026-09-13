@@ -247,7 +247,11 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("app_manager_is_initialized()", main)
         self.assertIn("app_manager_is_first_app_launched()", main)
         self.assertIn("cron_service_init();", main)
+        self.assertIn("accel_manager_init();", main)
         self.assertIn("touch_init();", main)
+        self.assertIn("persist_service_init();", main)
+        self.assertIn("dls_init();", main)
+        self.assertIn("app_order_storage_init();", main)
         event_loop = (ROOT / "src/fw/kernel/event_loop.c").read_text()
         self.assertIn("app_install_manager_init();", event_loop)
         launcher_menu = (
@@ -287,7 +291,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
             shell_event_loop,
         )
         shell_prefs = (ROOT / "src/fw/shell/normal/prefs.c").read_text()
-        self.assertIn("DVT3 deliberately does not initialize writable PFS", shell_prefs)
+        self.assertNotIn("DVT3 deliberately does not initialize writable PFS", shell_prefs)
         self.assertIn("#ifndef CONFIG_SOC_T5AI\n  prv_maybe_run_settings", shell_event_loop)
         self.assertIn(
             "#ifndef CONFIG_SOC_T5AI\n  bool factory_reset_or_first_use",
@@ -314,24 +318,14 @@ class TuyaKernelCheckTest(unittest.TestCase):
         )
         self.assertIn("#ifndef CONFIG_SOC_T5AI\n  {\n    .set_enable_fn = accel_manager_enable", services_common)
         self.assertIn("#ifndef CONFIG_SOC_T5AI\n  {\n    .set_enable_fn = light_allow", services_common)
-        self.assertIn(
-            "#ifndef CONFIG_SOC_T5AI\n  persist_service_client_open", process_manager
-        )
-        self.assertIn(
-            "#ifndef CONFIG_SOC_T5AI\n  persist_service_client_close", process_manager
-        )
-        self.assertIn(
-            "DVT3 deliberately leaves writable PFS and the persist service disabled",
-            process_manager,
-        )
+        self.assertIn("persist_service_client_open", process_manager)
+        self.assertIn("persist_service_client_close", process_manager)
+        self.assertNotIn("if (dls_initialized())", process_manager)
         self.assertIn(
             "#ifndef CONFIG_SOC_T5AI\n  // DVT3 currently has no initialized AppDB",
             app_install_manager,
         )
-        self.assertIn(
-            "DVT3 does not initialize writable PFS or this service's mutex yet",
-            app_order_storage,
-        )
+        self.assertNotIn("#ifdef CONFIG_SOC_T5AI", app_order_storage)
         self.assertIn("T5AI_APP_STAGE(201u)", app_manager)
         self.assertIn("T5AI_APP_STAGE(205u)", app_manager)
         self.assertIn("T5AI_LAUNCHER_STAGE(211u)", launcher)
@@ -410,7 +404,9 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("t5ai_freertos_apply_systick_clock();", main)
         self.assertIn("t5ai_cp_mailbox_enable_rx_interrupt();", main)
         self.assertIn("void MAILBOX_IRQHandler(void)", mailbox)
-        self.assertIn("new_timer_add_work_callback_from_isr", mailbox)
+        self.assertIn("system_task_add_callback_from_isr", mailbox)
+        self.assertNotIn("new_timer_add_work_callback_from_isr", mailbox)
+        self.assertIn("T5AI_MBOX_CH1_CTRL |= T5AI_MBOX_INTERRUPT_ENABLE", mailbox)
         self.assertIn("T5AI_MAILBOX_SYSTEM_INTERRUPT_ENABLE", mailbox)
         self.assertIn(
             "T5AI_CP_LOG_RX_CHANNEL 0x4eu",
@@ -478,6 +474,12 @@ class TuyaKernelCheckTest(unittest.TestCase):
             '// entering the kernel event queue.\n', 1
         )[1].split("#ifndef CONFIG_SOC_T5AI", 1)[0]
         self.assertIn("debounced_button_init();", button_init)
+        button_debounce = (
+            ROOT / "src/fw/drivers/t5ai/debounced_button.c"
+        ).read_text()
+        self.assertIn("system_task_add_callback_from_isr", button_debounce)
+        self.assertIn("new_timer_stop(s_debounce_timer)", button_debounce)
+        self.assertNotIn("new_timer_add_work_callback_from_isr", button_debounce)
         self.assertIn("T5AI_SYSTEM_CPU1_INT_32_63_ENABLE", exti)
         self.assertIn("T5AI_GPIO_INTERRUPT_CLEAR (1u << 13)", exti)
         self.assertIn("*prv_pin_register(pin) |= T5AI_GPIO_INTERRUPT_CLEAR", exti)

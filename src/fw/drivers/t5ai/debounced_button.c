@@ -6,6 +6,7 @@
 #include "board/board.h"
 #include <pbl/drivers/button.h>
 #include <pbl/drivers/exti.h>
+#include <pbl/services/system_task.h>
 #include "kernel/events.h"
 #include "pbl/services/new_timer/new_timer.h"
 #include "system/bootbits.h"
@@ -93,8 +94,8 @@ static void prv_restart_debounce_timer(void *context) {
 }
 
 static void prv_button_interrupt_handler(bool *should_context_switch) {
-  *should_context_switch |= new_timer_add_work_callback_from_isr(
-      prv_restart_debounce_timer, NULL);
+  PBL_ASSERTN(system_task_add_callback_from_isr(
+      prv_restart_debounce_timer, NULL, should_context_switch));
 }
 
 void debounced_button_init(void) {
