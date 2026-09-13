@@ -59,6 +59,20 @@ PBL_LOG_MODULE_DEFINE(driver_display_co5300, CONFIG_DRIVER_DISPLAY_LOG_LEVEL);
 #define QSPI_CS_HIGH_WAIT (8u << 24)
 #define QSPI_DATA_APERTURE ((volatile uint32_t *)0x64000000u)
 
+#define DMA_BASE 0x45020000u
+#define DMA_GLOBAL_CTRL (*(volatile uint32_t *)(DMA_BASE + 0x08u))
+#define DMA_SECURE_ATTR (*(volatile uint32_t *)(DMA_BASE + 0x10u))
+#define DMA_PRIVILEGED_ATTR (*(volatile uint32_t *)(DMA_BASE + 0x14u))
+#define DMA_CTRL (*(volatile uint32_t *)(DMA_BASE + 0x40u))
+#define DMA_DEST (*(volatile uint32_t *)(DMA_BASE + 0x44u))
+#define DMA_SRC (*(volatile uint32_t *)(DMA_BASE + 0x48u))
+#define DMA_DEST_LOOP_END (*(volatile uint32_t *)(DMA_BASE + 0x4cu))
+#define DMA_DEST_LOOP_START (*(volatile uint32_t *)(DMA_BASE + 0x50u))
+#define DMA_SRC_LOOP_END (*(volatile uint32_t *)(DMA_BASE + 0x54u))
+#define DMA_SRC_LOOP_START (*(volatile uint32_t *)(DMA_BASE + 0x58u))
+#define DMA_REQ (*(volatile uint32_t *)(DMA_BASE + 0x5cu))
+#define DMA_STATUS (*(volatile uint32_t *)(DMA_BASE + 0x70u))
+
 #define SYSTEM_CLK_MODE2 (*(volatile uint32_t *)0x44010024u)
 #define SYSTEM_DEVICE_CLK_ENABLE (*(volatile uint32_t *)0x44010030u)
 #define SYSTEM_DEVICE_MEM_CTRL1 (*(volatile uint32_t *)0x44010038u)
@@ -76,11 +90,15 @@ static status_t s_qspi_power_status;
 static bool s_rotated;
 static uint8_t s_brightness = 0xffu;
 static bool s_brightness_dirty;
-static uint8_t s_panel_row[PANEL_WIDTH * 2u] __attribute__((aligned(4)));
+static uint8_t s_panel_row[PANEL_WIDTH * 2u] __attribute__((aligned(32)));
+static uint32_t s_dma_test_source[8] __attribute__((aligned(32)));
+static uint32_t s_dma_test_destination[8] __attribute__((aligned(32)));
 static uint16_t s_panel_source_x[PANEL_WIDTH];
 static uint16_t s_rgb565[64];
 static char s_trace_buffer[160];
 static uint32_t s_last_stream_words;
+static bool s_dma_display_enabled;
+static bool s_dma_display_failed;
 
 static void prv_trace(const char *format, ...) {
   va_list args;
@@ -98,6 +116,22 @@ static void prv_trace(const char *format, ...) {
 
 static volatile uint32_t *prv_qspi(uint32_t offset) {
   return (volatile uint32_t *)(QSPI_BASE + offset);
+}
+
+static void prv_dma_init(void) {
+  // GDMA resides in the backup power domain. PebbleOS leaves that domain
+  // powered down, whereas Tuya's platform power manager enables it before
+  // peripheral drivers run.
+  SYSTEM_POWER_SLEEP_WAKEUP &= ~(1u << 4);
+  SYSTEM_DEVICE_MEM_CTRL1 &= ~(1u << 30);
+  SYSTEM_DEVICE_MEM_CTRL2 &= ~(1u << 30);
+  delay_us(10);
+  DMA_GLOBAL_CTRL = (1u << 0) | (1u << 1);
+  // PebbleOS runs in the secure privileged AP world. Tuya's CONFIG_SPE DMA
+  // initialization marks allocated channels secure and privileged.
+  DMA_SECURE_ATTR |= 1u;
+  DMA_PRIVILEGED_ATTR |= 1u;
+  DMA_CTRL = 0u;
 }
 
 static void prv_power_up(void) {
@@ -241,14 +275,121 @@ static void prv_pixel_stream_end(void) {
   *prv_qspi(QSPI_CONFIG) &= ~QSPI_FORCE_CS_LOW;
 }
 
-static void __attribute__((section(".t5ai_ramfunc"), noinline, optimize("O3")))
-prv_pixel_stream_write(const uint8_t *data, size_t length, size_t *aperture_word) {
+static size_t __attribute__((section(".t5ai_ramfunc"), noinline, optimize("O3")))
+prv_pixel_stream_write(const uint8_t *data, size_t length, size_t aperture_word) {
   PBL_ASSERTN((length % sizeof(uint32_t)) == 0u);
+
   for (size_t offset = 0u; offset < length; offset += sizeof(uint32_t)) {
     uint32_t word;
     memcpy(&word, data + offset, sizeof(word));
-    QSPI_DATA_APERTURE[(*aperture_word)++] = word;
+    QSPI_DATA_APERTURE[aperture_word++] = word;
   }
+  return aperture_word;
+}
+
+static void prv_dcache_clean(const void *address, size_t size) {
+  const uintptr_t first = (uintptr_t)address & ~(uintptr_t)31u;
+  const uintptr_t end = ((uintptr_t)address + size + 31u) & ~(uintptr_t)31u;
+  __asm volatile("dsb 0xf" ::: "memory");
+  for (uintptr_t line = first; line < end; line += 32u) {
+    *(volatile uint32_t *)0xe000ef68u = (uint32_t)line;  // SCB DCCMVAC
+  }
+  __asm volatile("dsb 0xf\nisb 0xf" ::: "memory");
+}
+
+static void prv_dcache_invalidate(const void *address, size_t size) {
+  const uintptr_t first = (uintptr_t)address & ~(uintptr_t)31u;
+  const uintptr_t end = ((uintptr_t)address + size + 31u) & ~(uintptr_t)31u;
+  __asm volatile("dsb 0xf" ::: "memory");
+  for (uintptr_t line = first; line < end; line += 32u) {
+    *(volatile uint32_t *)0xe000ef5cu = (uint32_t)line;  // SCB DCIMVAC
+  }
+  __asm volatile("dsb 0xf\nisb 0xf" ::: "memory");
+}
+
+static uint32_t prv_dma_request_configuration(void) {
+  // CONFIG_SPE builds of TuyaOpen mark each channel's source and destination
+  // transactions secure in addition to the controller-wide channel security.
+  // PebbleOS executes from secure SRAM and accesses QSPI through its secure AP
+  // aperture, so omitting these bits silently targets the wrong bus aliases.
+  return (1u << 20) | (1u << 21) | (3u << 24) | (3u << 26);
+}
+
+static bool prv_dma_self_test(void) {
+  for (unsigned i = 0u; i < 8u; ++i) {
+    s_dma_test_source[i] = 0x5a000000u | (i * 0x010101u + 0x1234u);
+    s_dma_test_destination[i] = 0u;
+  }
+  prv_dcache_clean(s_dma_test_source, sizeof(s_dma_test_source));
+  prv_dcache_clean(s_dma_test_destination, sizeof(s_dma_test_destination));
+
+  const uint32_t source = (uint32_t)(uintptr_t)s_dma_test_source;
+  const uint32_t destination = (uint32_t)(uintptr_t)s_dma_test_destination;
+  DMA_CTRL = 0u;
+  DMA_STATUS = (1u << 18) | (1u << 19) | (1u << 20);
+  DMA_DEST = destination;
+  DMA_SRC = source;
+  DMA_DEST_LOOP_START = destination;
+  DMA_DEST_LOOP_END = destination + sizeof(s_dma_test_destination) + sizeof(uint32_t);
+  DMA_SRC_LOOP_START = source;
+  DMA_SRC_LOOP_END = source + sizeof(s_dma_test_source) + sizeof(uint32_t);
+  DMA_REQ = prv_dma_request_configuration();
+  DMA_CTRL = ((uint32_t)(sizeof(s_dma_test_source) - 1u) << 16) |
+             (2u << 4) | (2u << 6) | (1u << 8) | (1u << 9);
+  __asm volatile("dsb 0xf" ::: "memory");
+  DMA_CTRL |= 1u;
+
+  unsigned timeout = 1000000u;
+  while ((DMA_CTRL & 1u) && --timeout) {
+  }
+  const uint32_t status = DMA_STATUS;
+  const uint32_t final_source = DMA_SRC;
+  const uint32_t final_destination = DMA_DEST;
+  DMA_CTRL = 0u;
+  prv_dcache_invalidate(s_dma_test_destination, sizeof(s_dma_test_destination));
+  const bool matches = memcmp(s_dma_test_source, s_dma_test_destination,
+                              sizeof(s_dma_test_source)) == 0;
+  prv_trace("PBLDMATEST ok=%u timeout=%u status=%08lx req=%08lx src=%08lx/%08lx dst=%08lx/%08lx first=%08lx/%08lx\r\n",
+            (unsigned)matches, (unsigned)(timeout == 0u), (unsigned long)status,
+            (unsigned long)DMA_REQ, (unsigned long)source, (unsigned long)final_source,
+            (unsigned long)destination, (unsigned long)final_destination,
+            (unsigned long)s_dma_test_source[0],
+            (unsigned long)s_dma_test_destination[0]);
+  return matches && timeout != 0u && (status & (1u << 20)) == 0u;
+}
+
+static bool prv_pixel_stream_write_dma(const uint8_t *data, size_t length,
+                                       size_t *aperture_word) {
+  PBL_ASSERTN((length % sizeof(uint32_t)) == 0u);
+  const uint32_t source = (uint32_t)(uintptr_t)data;
+  const uint32_t destination = (uint32_t)(uintptr_t)&QSPI_DATA_APERTURE[*aperture_word];
+
+  prv_dcache_clean(data, length);
+  DMA_CTRL = 0u;
+  DMA_STATUS = (1u << 18) | (1u << 19) | (1u << 20);
+  DMA_DEST = destination;
+  DMA_SRC = source;
+  DMA_DEST_LOOP_START = destination;
+  DMA_DEST_LOOP_END = destination + length + sizeof(uint32_t);
+  DMA_SRC_LOOP_START = source;
+  DMA_SRC_LOOP_END = source + length + sizeof(uint32_t);
+  // DTCM is Tuya's generic memory request (mux zero). INC16 bursts match its
+  // production QSPI display path.
+  DMA_REQ = prv_dma_request_configuration();
+  DMA_CTRL = ((uint32_t)(length - 1u) << 16) | (2u << 4) | (2u << 6) |
+             (1u << 8) | (1u << 9);
+  __asm volatile("dsb 0xf" ::: "memory");
+  DMA_CTRL |= 1u;
+
+  unsigned timeout = 1000000u;
+  while ((DMA_CTRL & 1u) && --timeout) {
+  }
+  const bool complete = timeout != 0u && (DMA_STATUS & (1u << 20)) == 0u;
+  DMA_CTRL = 0u;
+  if (complete) {
+    *aperture_word += length / sizeof(uint32_t);
+  }
+  return complete;
 }
 
 static bool prv_send_panel_row(void) {
@@ -256,7 +397,7 @@ static bool prv_send_panel_row(void) {
     return false;
   }
   size_t aperture_word = 0u;
-  prv_pixel_stream_write(s_panel_row, sizeof(s_panel_row), &aperture_word);
+  aperture_word = prv_pixel_stream_write(s_panel_row, sizeof(s_panel_row), aperture_word);
   prv_pixel_stream_end();
   return true;
 }
@@ -278,16 +419,23 @@ static bool prv_send_logical_row(uint16_t logical_y, const uint8_t *data) {
   return true;
 }
 
-static void prv_stream_logical_row(uint16_t logical_y, const uint8_t *data,
-                                   size_t *aperture_word) {
+static bool prv_stream_logical_row(uint16_t logical_y, const uint8_t *data,
+                                   size_t *aperture_word, bool use_dma) {
   const uint16_t y0 =
       (logical_y * PANEL_HEIGHT + PBL_DISPLAY_HEIGHT - 1u) / PBL_DISPLAY_HEIGHT;
   const uint16_t y1 =
       ((logical_y + 1u) * PANEL_HEIGHT + PBL_DISPLAY_HEIGHT - 1u) / PBL_DISPLAY_HEIGHT - 1u;
   prv_convert_row(data, false);
   for (uint16_t y = y0; y <= y1; ++y) {
-    prv_pixel_stream_write(s_panel_row, sizeof(s_panel_row), aperture_word);
+    if (use_dma) {
+      if (!prv_pixel_stream_write_dma(s_panel_row, sizeof(s_panel_row), aperture_word)) {
+        return false;
+      }
+    } else {
+      *aperture_word = prv_pixel_stream_write(s_panel_row, sizeof(s_panel_row), *aperture_word);
+    }
   }
+  return true;
 }
 
 static uint16_t prv_panel_row_start(uint16_t logical_y) {
@@ -322,7 +470,7 @@ static bool prv_draw_diagnostic_pattern(void) {
       s_panel_row[x * 2u] = (uint8_t)(color >> 8);
       s_panel_row[x * 2u + 1u] = (uint8_t)color;
     }
-    prv_pixel_stream_write(s_panel_row, sizeof(s_panel_row), &aperture_word);
+    aperture_word = prv_pixel_stream_write(s_panel_row, sizeof(s_panel_row), aperture_word);
   }
 
   prv_pixel_stream_end();
@@ -526,6 +674,8 @@ void display_co5300_bitbang_probe(void) {
 }
 
 void display_init(void) {
+  prv_dma_init();
+  s_dma_display_enabled = prv_dma_self_test();
   prv_init_conversion_tables();
   s_initialized = prv_qspi_init() && prv_panel_init();
   s_enabled = s_initialized;
@@ -608,7 +758,7 @@ void display_clear(void) {
   }
   size_t aperture_word = 0u;
   for (uint16_t y = 0; y < PANEL_HEIGHT; ++y) {
-    prv_pixel_stream_write(s_panel_row, sizeof(s_panel_row), &aperture_word);
+    aperture_word = prv_pixel_stream_write(s_panel_row, sizeof(s_panel_row), aperture_word);
   }
   prv_pixel_stream_end();
 }
@@ -633,6 +783,7 @@ void display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
   bool full_stream = false;
   size_t aperture_word = 0u;
   uint16_t expected_row = 0u;
+  const bool use_dma = s_dma_display_enabled && !s_dma_display_failed;
 
   while (s_initialized && nrcb(&row)) {
     if (row.address >= PBL_DISPLAY_HEIGHT) {
@@ -651,7 +802,11 @@ void display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
       expected_row = row.address;
     }
     if (full_stream && row.address == expected_row) {
-      prv_stream_logical_row(row.address, row.data, &aperture_word);
+      if (!prv_stream_logical_row(row.address, row.data, &aperture_word, use_dma)) {
+        s_dma_display_failed = true;
+        s_dma_display_enabled = false;
+        break;
+      }
       expected_row++;
     } else {
       if (full_stream) {
@@ -686,7 +841,9 @@ void display_update_boot_frame(uint8_t *framebuffer) {
   }
   size_t aperture_word = 0u;
   for (uint16_t y = 0; y < PBL_DISPLAY_HEIGHT; ++y) {
-    prv_stream_logical_row(y, framebuffer + y * PBL_DISPLAY_WIDTH, &aperture_word);
+    if (!prv_stream_logical_row(y, framebuffer + y * PBL_DISPLAY_WIDTH, &aperture_word, false)) {
+      break;
+    }
   }
   prv_pixel_stream_end();
 }
