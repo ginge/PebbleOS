@@ -34,7 +34,16 @@ static status_t prv_write_allowed(FlashAddress address, size_t length) {
   }
 
   const FlashAddress end = address + length - 1;
-  if (address < FLASH_REGION_FILESYSTEM_BEGIN || end >= FLASH_REGION_FILESYSTEM_END) {
+  const bool in_filesystem =
+      address >= FLASH_REGION_FILESYSTEM_BEGIN && end < FLASH_REGION_FILESYSTEM_END;
+  const bool in_system_resources =
+      address >= FLASH_REGION_SYSTEM_RESOURCES_BANK_0_BEGIN &&
+      end < FLASH_REGION_SYSTEM_RESOURCES_BANK_0_END;
+  const bool in_core_dump = address >= FLASH_REGION_CD_BEGIN && end < FLASH_REGION_CD_END;
+  const bool in_debug_db = address >= FLASH_REGION_DEBUG_DB_BEGIN && end < FLASH_REGION_DEBUG_DB_END;
+  const bool in_shared_prf = address >= FLASH_REGION_SHARED_PRF_STORAGE_BEGIN &&
+                             end < FLASH_REGION_SHARED_PRF_STORAGE_END;
+  if (!(in_filesystem || in_system_resources || in_core_dump || in_debug_db || in_shared_prf)) {
     return E_INVALID_OPERATION;
   }
   if (s_protected && address <= s_protected_end && end >= s_protected_start) {

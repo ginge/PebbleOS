@@ -63,7 +63,9 @@
 #include "pbl/services/data_logging/data_logging_service.h"
 #include "pbl/services/compositor/compositor.h"
 #include "pbl/services/persist.h"
+#include "pbl/services/put_bytes/put_bytes.h"
 #include "pbl/services/process_management/app_order_storage.h"
+#include "pbl/services/shared_prf_storage/shared_prf_storage.h"
 #include "pbl/services/light.h"
 #include "pbl/services/regular_timer.h"
 #include "pbl/services/system_task.h"
@@ -207,7 +209,9 @@ static void prv_t5ai_bluetooth_init(void) {
    * mailbox ABI. */
   vTaskDelay(pdMS_TO_TICKS(2000));
 
+  shared_prf_storage_init();
   bt_persistent_storage_init();
+  put_bytes_init();
   bt_driver_init();
   bt_ctl_init();
   bt_ctl_set_enabled(true);
@@ -541,9 +545,8 @@ static NOINLINE void prv_main_task_init(void) {
   // Stop boot splash before initializing compositor
   boot_splash_stop();
 #ifdef CONFIG_SOC_T5AI
-  /* services_common_init() is still gated while persistent storage and OTA
-   * remain unsafe. Initialize the self-contained RAM/timer services required
-   * by the launcher and pairing UI without enabling writable storage. */
+  /* Initialize the subset of common services supported by the T5AI mailbox
+   * integration. Persistent services are initialized around Bluetooth below. */
   cron_service_init();
   light_init();
   accel_manager_init();

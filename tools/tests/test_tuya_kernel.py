@@ -17,6 +17,42 @@ spec.loader.exec_module(checker)
 
 
 class TuyaKernelCheckTest(unittest.TestCase):
+    def test_t5ai_flash_writes_are_limited_to_data_partitions(self):
+        flash = (ROOT / "src/fw/drivers/flash/t5ai.c").read_text()
+        for region in (
+            "FLASH_REGION_FILESYSTEM_BEGIN",
+            "FLASH_REGION_SYSTEM_RESOURCES_BANK_0_BEGIN",
+            "FLASH_REGION_CD_BEGIN",
+            "FLASH_REGION_DEBUG_DB_BEGIN",
+            "FLASH_REGION_SHARED_PRF_STORAGE_BEGIN",
+        ):
+            self.assertIn(region, flash)
+        self.assertNotIn("FLASH_REGION_FIRMWARE_SLOT_0_BEGIN", flash)
+        self.assertNotIn("FLASH_REGION_FIRMWARE_SLOT_1_BEGIN", flash)
+
+    def test_t5ai_persistent_data_features_are_enabled(self):
+        main = (ROOT / "src/fw/main.c").read_text()
+        bluetooth_build = (ROOT / "src/fw/services/bluetooth/wscript_build").read_text()
+        shared_prf = (
+            ROOT / "src/fw/services/shared_prf_storage/shared_prf_storage.c"
+        ).read_text()
+        put_bytes = (ROOT / "src/fw/services/put_bytes/put_bytes.c").read_text()
+        core_dump = (ROOT / "src/fw/kernel/core_dump.c").read_text()
+        debug_build = (ROOT / "src/fw/debug/wscript_build").read_text()
+        resources = (ROOT / "src/fw/resource/resource_storage_flash.c").read_text()
+
+        self.assertIn("shared_prf_storage_init();", main)
+        self.assertIn("bt_persistent_storage_init();", main)
+        self.assertIn("put_bytes_init();", main)
+        self.assertIn("bluetooth_persistent_storage_normal.c", bluetooth_build)
+        self.assertNotIn("bluetooth_persistent_storage_t5ai.c", bluetooth_build)
+        self.assertIn("flash_write_bytes(data, address, length);", shared_prf)
+        t5ai_types = put_bytes.split("#ifdef CONFIG_SOC_T5AI", 1)[1].split("#endif", 1)[0]
+        self.assertNotIn("ObjectSysResources", t5ai_types)
+        self.assertNotIn("Persistent core dumps unavailable on T5AI", core_dump)
+        self.assertEqual(debug_build.count("flash_logging_unavailable.c"), 1)
+        self.assertIn("#ifndef CONFIG_SOC_T5AI", resources)
+
     def test_t5ai_shared_i2c_bus_uses_cst92xx_qualified_standard_mode(self):
         board = (ROOT / "src/fw/board/boards/board_t5ai.c").read_text()
         self.assertIn(".frequency = 100000u", board)

@@ -20,10 +20,12 @@ static const SystemResourceBank s_resource_banks[] = {
     .begin = FLASH_REGION_SYSTEM_RESOURCES_BANK_0_BEGIN,
     .end = FLASH_REGION_SYSTEM_RESOURCES_BANK_0_END,
   },
+#ifndef CONFIG_SOC_T5AI
   {
     .begin = FLASH_REGION_SYSTEM_RESOURCES_BANK_1_BEGIN,
     .end = FLASH_REGION_SYSTEM_RESOURCES_BANK_1_END,
   },
+#endif
 };
 
 //! Index into s_resource_banks

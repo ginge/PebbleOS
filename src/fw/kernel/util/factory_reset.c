@@ -41,9 +41,7 @@ static void prv_factory_reset_non_pfs_data() {
   worker_manager_disable();
   event_service_clear_process_subscriptions(PebbleTask_App);
 
-#ifndef CONFIG_SOC_T5AI
   shared_prf_storage_wipe_all();
-#endif
 
   services_set_runlevel(RunLevel_BareMinimum);
   app_idle_timeout_stop();
