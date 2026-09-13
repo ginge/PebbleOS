@@ -58,14 +58,22 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn(".frequency = 100000u", board)
         self.assertNotIn(".frequency = 400000u", board)
 
-    def test_t5ai_i2c_reads_use_the_bk7258_receive_fifo_levels(self):
+    def test_t5ai_systick_tracks_the_elected_120mhz_cpu_clock(self):
+        kconfig = (ROOT / "soc/Kconfig").read_text()
+        systick = kconfig.split("config T5AI_SYSTICK_CLOCK_HZ", 1)[1].split(
+            "config SOC", 1
+        )[0]
+        self.assertIn("default 120000000", systick)
+
+    def test_t5ai_i2c_uses_stable_single_byte_interrupt_mode(self):
         i2c = (ROOT / "src/fw/drivers/i2c/t5ai.c").read_text()
-        self.assertIn("static uint32_t prv_read_interrupt_mode", i2c)
-        self.assertIn("static uint32_t prv_read_fifo_count", i2c)
-        self.assertIn("static uint32_t prv_write_fifo_space", i2c)
-        self.assertIn("for (uint32_t i = 0; i < available; ++i)", i2c)
-        self.assertIn("for (uint32_t i = 0; i < space; ++i)", i2c)
-        self.assertIn("prv_read_interrupt_mode(transfer->size - transfer->idx)", i2c)
+        self.assertNotIn("static uint32_t prv_read_fifo_count", i2c)
+        self.assertNotIn("static uint32_t prv_write_fifo_space", i2c)
+        self.assertIn("transfer->data[transfer->idx++] = (uint8_t)regs->data;", i2c)
+        self.assertIn("regs->data = transfer->data[transfer->idx++];", i2c)
+        self.assertIn(
+            "T5AI_I2C_STATUS_ACK | T5AI_I2C_STATUS_INT_MODE_MASK", i2c
+        )
 
     def test_t5ai_fpu_is_enabled_during_reset_initialization(self):
         initialization = (ROOT / "soc/t5ai/init.c").read_text()
@@ -204,15 +212,18 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("s_consecutive_read_failures >= 3u", poll)
         self.assertIn("i2c_bitbang_recovery(I2C_CST92XX)", poll)
         self.assertIn("prv_reset(true);", poll)
+        self.assertIn("psleep(1000);", poll)
+        self.assertIn("CST92XX_TASK_PRIORITY (configMAX_PRIORITIES - 2)", touch)
         read_report_start = touch.index("static bool prv_read_report")
         read_report = touch[
             read_report_start : touch.index("static int16_t prv_map_coordinate", read_report_start)
         ]
         self.assertNotIn("system_task_watchdog_feed();", read_report)
-        self.assertIn("CST92XX_REPORT_ACK", read_report)
-        self.assertIn("sizeof(acknowledge), acknowledge", read_report)
+        self.assertIn("CST92XX_REPORT_ACK", touch)
+        self.assertNotIn("acknowledge", read_report)
+        self.assertEqual(read_report.count("i2c_write_block"), 1)
         self.assertIn('xTaskCreate(prv_touch_task, "CST92xx"', touch)
-        self.assertIn("CST92XX_TASK_PRIORITY (configMAX_PRIORITIES - 1)", touch)
+        self.assertIn("CST92XX_TASK_PRIORITY (configMAX_PRIORITIES - 2)", touch)
         self.assertNotIn("system_task_add_callback(prv_poll", touch)
         touch_nav = (ROOT / "src/fw/applib/ui/recognizer/touch_nav.c").read_text()
         self.assertIn("state->counters.position_updates++", touch_nav)
@@ -426,7 +437,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("config T5AI_CORE_CLOCK_HZ", kconfig)
         self.assertIn("default 120000000", kconfig)
         self.assertIn("config T5AI_SYSTICK_CLOCK_HZ", kconfig)
-        self.assertIn("application CPU SysTick counter advances at 60 MHz", kconfig)
+        self.assertIn("a 60 MHz reload makes FreeRTOS run twice as fast", kconfig)
         self.assertIn(
             "SystemCoreClock = CONFIG_T5AI_CORE_CLOCK_HZ", initialization
         )
@@ -548,6 +559,12 @@ class TuyaKernelCheckTest(unittest.TestCase):
         )[0]
         self.assertNotIn("i2c_hal_abort_transfer", disable)
         self.assertIn("~T5AI_I2C_CONFIG_ENABLE", disable)
+        self.assertIn("NVIC_SetPriority(bus->hal->irqn, 6u)", i2c)
+        common_i2c = (ROOT / "src/fw/drivers/i2c/common.c").read_text()
+        self.assertIn("#define I2C_ERROR_TIMEOUT_MS (20)", common_i2c)
+        self.assertIn("#define I2C_NACK_COUNT_MAX (1)", common_i2c)
+        self.assertIn("prv_should_log_transfer_failure", common_i2c)
+        self.assertIn("mutex_lock(bus->state->bus_mutex);", common_i2c)
         self.assertIn("if (!prv_external_rtc_read_raw(&control, registers))", rtc)
         self.assertIn("prv_set_retained_time(external_time);", rtc)
         self.assertIn("prv_external_rtc_write(fallback_time)", rtc)

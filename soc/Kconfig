@@ -34,11 +34,11 @@ config T5AI_CORE_CLOCK_HZ
 config T5AI_SYSTICK_CLOCK_HZ
     int "T5AI application CPU SysTick clock"
     depends on SOC_T5AI
-    default 60000000
+    default 120000000
     help
-      Effective SysTick clock on the BK7258 application CPU. The core and
-      peripheral clock remains 120 MHz, but hardware validation shows that the
-      application CPU SysTick counter advances at 60 MHz.
+      Effective SysTick clock on the BK7258 application CPU after the CPU1
+      120 MHz DVFS vote. Hardware RTC comparison confirms that SysTick follows
+      the elected core clock; a 60 MHz reload makes FreeRTOS run twice as fast.
 
 config SOC
     string

@@ -28,9 +28,9 @@ PBL_LOG_MODULE_DEFINE(driver_touch_cst92xx, CONFIG_DRIVER_TOUCH_LOG_LEVEL);
 #define CST92XX_NATIVE_SIZE 466u
 #define CST92XX_POLL_MS 20u
 #define CST92XX_TASK_STACK_WORDS 768u
-// KernelMain remains continuously ready while dispatching the Pebble event loop. The hardware
-// sampler must run at the service priority or it is permanently starved once boot completes.
-#define CST92XX_TASK_PRIORITY (configMAX_PRIORITIES - 1)
+// Stay above KernelMain so polling remains responsive, but leave NewTimer at the sole maximum
+// priority. NewTimer owns watchdog and mailbox work that must be able to preempt I2C recovery.
+#define CST92XX_TASK_PRIORITY (configMAX_PRIORITIES - 2)
 
 static volatile bool s_enabled;
 static bool s_finger_down;
@@ -71,20 +71,10 @@ static bool prv_read_report(uint8_t report[CST92XX_REPORT_LENGTH]) {
       (uint8_t)(CST92XX_DATA_REGISTER >> 8),
       (uint8_t)CST92XX_DATA_REGISTER,
   };
-  const uint8_t acknowledge[] = {
-      (uint8_t)(CST92XX_DATA_REGISTER >> 8),
-      (uint8_t)CST92XX_DATA_REGISTER,
-      CST92XX_REPORT_ACK,
-  };
   i2c_use(I2C_CST92XX);
   bool result = i2c_write_block(I2C_CST92XX, sizeof(address), address);
   if (result) {
     result = i2c_read_block(I2C_CST92XX, CST92XX_REPORT_LENGTH, report);
-  }
-  // A report remains latched until the host writes 0xAB back to 0xD000. Acknowledge valid,
-  // empty, and malformed frames alike so a stale frame cannot suppress the next contact.
-  if (result) {
-    result = i2c_write_block(I2C_CST92XX, sizeof(acknowledge), acknowledge);
   }
   i2c_release(I2C_CST92XX);
   return result;
@@ -104,13 +94,21 @@ static void prv_poll(void) {
   if (!prv_read_report(report)) {
     ++s_read_failures;
     ++s_consecutive_read_failures;
-    PBL_LOG_ERR("CST92xx report read failed");
+    if (s_read_failures == 1u || (s_read_failures & 0x3fu) == 0u) {
+      PBL_LOG_ERR("CST92xx report read failed (%lu total)", (unsigned long)s_read_failures);
+    }
     if (s_consecutive_read_failures >= 3u) {
       i2c_use(I2C_CST92XX);
       (void)i2c_bitbang_recovery(I2C_CST92XX);
       i2c_release(I2C_CST92XX);
       prv_reset(true);
       s_consecutive_read_failures = 0u;
+      // A disconnected or latched controller must not turn the high-priority
+      // touch worker into a continuous I2C/logging load. Successful operation
+      // remains at 50 Hz; only the repeated-failure path is backed off.
+      psleep(1000);
+    } else if (s_consecutive_read_failures > 1u) {
+      psleep(80);
     }
     return;
   }
