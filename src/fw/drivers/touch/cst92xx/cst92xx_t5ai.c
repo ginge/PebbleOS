@@ -7,6 +7,7 @@
 #include <pbl/drivers/touch/touch_sensor.h>
 
 #include "board/board.h"
+#include <pbl/drivers/exti.h>
 #include <pbl/drivers/gpio.h>
 #include <pbl/drivers/i2c.h>
 #include <pbl/os/tick.h>
@@ -16,11 +17,13 @@
 #include <pbl/util/math.h>
 
 #include "FreeRTOS.h"
+#include "semphr.h"
 #include "task.h"
 
 PBL_LOG_MODULE_DEFINE(driver_touch_cst92xx, CONFIG_DRIVER_TOUCH_LOG_LEVEL);
 
-#define CST92XX_RESET_PIN 42u
+#define CST92XX_INTERRUPT_PIN 42u
+#define CST92XX_RESET_PIN 43u
 #define CST92XX_DATA_REGISTER 0xd000u
 #define CST92XX_REPORT_LENGTH 10u
 #define CST92XX_REPORT_ACK 0xabu
@@ -50,6 +53,14 @@ static int16_t s_min_y;
 static int16_t s_max_x;
 static int16_t s_max_y;
 static uint8_t s_last_report[CST92XX_REPORT_LENGTH];
+static SemaphoreHandle_t s_touch_wake;
+static const ExtiConfig s_interrupt = {
+    .pin = CST92XX_INTERRUPT_PIN,
+    .pull = GPIO_PuPd_NOPULL,
+};
+static const InputConfig s_interrupt_input = {
+    .pin = CST92XX_INTERRUPT_PIN,
+};
 static const OutputConfig s_reset = {
     .pin = CST92XX_RESET_PIN,
     .active_high = true,
@@ -84,9 +95,9 @@ static int16_t prv_map_coordinate(uint16_t coordinate, int16_t display_size) {
   return (int16_t)(coordinate * display_size / CST92XX_NATIVE_SIZE);
 }
 
-static void prv_poll(void) {
+static bool prv_poll(void) {
   if (!s_enabled) {
-    return;
+    return true;
   }
   ++s_polls;
 
@@ -98,19 +109,10 @@ static void prv_poll(void) {
       PBL_LOG_ERR("CST92xx report read failed (%lu total)", (unsigned long)s_read_failures);
     }
     if (s_consecutive_read_failures >= 3u) {
-      i2c_use(I2C_CST92XX);
-      (void)i2c_bitbang_recovery(I2C_CST92XX);
-      i2c_release(I2C_CST92XX);
       prv_reset(true);
       s_consecutive_read_failures = 0u;
-      // A disconnected or latched controller must not turn the high-priority
-      // touch worker into a continuous I2C/logging load. Successful operation
-      // remains at 50 Hz; only the repeated-failure path is backed off.
-      psleep(1000);
-    } else if (s_consecutive_read_failures > 1u) {
-      psleep(80);
     }
-    return;
+    return false;
   }
   s_consecutive_read_failures = 0u;
   for (size_t i = 0; i < CST92XX_REPORT_LENGTH; ++i) {
@@ -152,7 +154,7 @@ static void prv_poll(void) {
       s_last_y = y;
       touch_handle_update(TouchState_FingerDown, s_last_x, s_last_y);
       s_finger_down = true;
-      return;
+      return true;
     }
     PBL_LOG_WRN("CST92xx coordinate out of range: %u,%u", (unsigned)native_x, (unsigned)native_y);
   }
@@ -161,15 +163,49 @@ static void prv_poll(void) {
     touch_handle_update(TouchState_FingerUp, s_last_x, s_last_y);
     s_finger_down = false;
   }
+  return true;
+}
+
+static void prv_interrupt_handler(bool *should_context_switch) {
+  BaseType_t task_woken = pdFALSE;
+  (void)xSemaphoreGiveFromISR(s_touch_wake, &task_woken);
+  if (task_woken == pdTRUE) {
+    *should_context_switch = true;
+  }
 }
 
 static void prv_touch_task(void *context) {
   (void)context;
   while (true) {
-    if (s_enabled) {
-      prv_poll();
+    // Idle with no periodic wakeups. GPIO42's falling edge is the primary
+    // source of touch work; enabling also sends one notification so a level
+    // already asserted during reset cannot be missed.
+    (void)xSemaphoreTake(s_touch_wake, portMAX_DELAY);
+    while (s_enabled) {
+      const bool read_succeeded = prv_poll();
+      if (!s_enabled) {
+        break;
+      }
+
+      if (!read_succeeded) {
+        if (s_consecutive_read_failures == 0u) {
+          // The third failure reset the controller. Wait for its next IRQ
+          // rather than turning a disconnected panel into a polling loop.
+          break;
+        }
+        (void)xSemaphoreTake(s_touch_wake, milliseconds_to_ticks(80u));
+        continue;
+      }
+
+      if (!s_finger_down && gpio_input_read(&s_interrupt_input)) {
+        break;
+      }
+
+      // CST9217 normally interrupts for each fresh report. While a contact is
+      // active, use 20 ms only as a lost-edge fallback so motion and finger-up
+      // cannot become stranded behind an asserted interrupt line.
+      (void)xSemaphoreTake(s_touch_wake, milliseconds_to_ticks(CST92XX_POLL_MS));
     }
-    vTaskDelay(milliseconds_to_ticks(CST92XX_POLL_MS));
   }
 }
 
@@ -181,10 +217,13 @@ void touch_sensor_init(void) {
     PBL_LOG_ERR("CST92xx not detected at 0x5a");
   }
   prv_reset(false);
+  s_touch_wake = xSemaphoreCreateBinary();
+  PBL_ASSERTN(s_touch_wake != NULL);
   const BaseType_t created =
       xTaskCreate(prv_touch_task, "CST92xx", CST92XX_TASK_STACK_WORDS, NULL,
                   CST92XX_TASK_PRIORITY, NULL);
   PBL_ASSERTN(created == pdPASS);
+  exti_configure_pin(s_interrupt, ExtiTrigger_Falling, prv_interrupt_handler);
 }
 
 void touch_sensor_set_enabled(bool enabled) {
@@ -194,8 +233,12 @@ void touch_sensor_set_enabled(bool enabled) {
   if (enabled) {
     prv_reset(true);
     s_enabled = true;
+    exti_enable(s_interrupt);
+    (void)xSemaphoreGive(s_touch_wake);
   } else {
     s_enabled = false;
+    exti_disable(s_interrupt);
+    (void)xSemaphoreGive(s_touch_wake);
     if (s_finger_down) {
       touch_handle_update(TouchState_FingerUp, s_last_x, s_last_y);
       s_finger_down = false;

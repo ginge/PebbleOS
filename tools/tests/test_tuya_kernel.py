@@ -208,11 +208,10 @@ class TuyaKernelCheckTest(unittest.TestCase):
             "                        prv_map_coordinate(native_y, PBL_DISPLAY_HEIGHT)",
             touch,
         )
-        poll = touch[touch.index("static void prv_poll") : touch.index("static void prv_touch_task")]
+        poll = touch[touch.index("static bool prv_poll") : touch.index("static void prv_touch_task")]
         self.assertIn("s_consecutive_read_failures >= 3u", poll)
-        self.assertIn("i2c_bitbang_recovery(I2C_CST92XX)", poll)
+        self.assertNotIn("i2c_bitbang_recovery(I2C_CST92XX)", poll)
         self.assertIn("prv_reset(true);", poll)
-        self.assertIn("psleep(1000);", poll)
         self.assertIn("CST92XX_TASK_PRIORITY (configMAX_PRIORITIES - 2)", touch)
         read_report_start = touch.index("static bool prv_read_report")
         read_report = touch[
@@ -224,6 +223,12 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertEqual(read_report.count("i2c_write_block"), 1)
         self.assertIn('xTaskCreate(prv_touch_task, "CST92xx"', touch)
         self.assertIn("CST92XX_TASK_PRIORITY (configMAX_PRIORITIES - 2)", touch)
+        self.assertIn("#define CST92XX_INTERRUPT_PIN 42u", touch)
+        self.assertIn("#define CST92XX_RESET_PIN 43u", touch)
+        self.assertIn("ExtiTrigger_Falling, prv_interrupt_handler", touch)
+        self.assertIn("xSemaphoreGiveFromISR", touch)
+        self.assertIn("xSemaphoreTake(s_touch_wake, portMAX_DELAY)", touch)
+        self.assertNotIn("vTaskDelay(milliseconds_to_ticks(CST92XX_POLL_MS))", touch)
         self.assertNotIn("system_task_add_callback(prv_poll", touch)
         touch_nav = (ROOT / "src/fw/applib/ui/recognizer/touch_nav.c").read_text()
         self.assertIn("state->counters.position_updates++", touch_nav)
