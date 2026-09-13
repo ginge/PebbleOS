@@ -36,5 +36,9 @@
 #define FLASH_REGION_TZINFO_END FLASH_REGION_DEBUG_DB_BEGIN
 #define FLASH_REGION_MFG_INFO_BEGIN FLASH_REGION_DEBUG_DB_BEGIN
 #define FLASH_REGION_MFG_INFO_END FLASH_REGION_DEBUG_DB_BEGIN
-#define FLASH_REGION_SHARED_PRF_STORAGE_BEGIN 0x024a0000
-#define FLASH_REGION_SHARED_PRF_STORAGE_END 0x024b0000
+/* Reserve the first 64 KiB of the factory OTA data partition for Pebble's
+ * Shared PRF records. Unlike the CRC-protected application1 partition, this
+ * physical range is explicitly writable through the CP flash service. Pebble
+ * OTA is disabled on T5AI, so no enabled update path owns this space. */
+#define FLASH_REGION_SHARED_PRF_STORAGE_BEGIN 0x024ea000
+#define FLASH_REGION_SHARED_PRF_STORAGE_END 0x024fa000

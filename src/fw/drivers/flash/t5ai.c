@@ -39,7 +39,9 @@ static status_t prv_write_allowed(FlashAddress address, size_t length) {
   const bool in_system_resources =
       address >= FLASH_REGION_SYSTEM_RESOURCES_BANK_0_BEGIN &&
       end < FLASH_REGION_SYSTEM_RESOURCES_BANK_0_END;
-  if (!(in_filesystem || in_system_resources)) {
+  const bool in_shared_prf = address >= FLASH_REGION_SHARED_PRF_STORAGE_BEGIN &&
+                             end < FLASH_REGION_SHARED_PRF_STORAGE_END;
+  if (!(in_filesystem || in_system_resources || in_shared_prf)) {
     return E_INVALID_OPERATION;
   }
   if (s_protected && address <= s_protected_end && end >= s_protected_start) {

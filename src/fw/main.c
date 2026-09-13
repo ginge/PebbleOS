@@ -62,6 +62,7 @@
 #include "pbl/services/cron.h"
 #include "pbl/services/data_logging/data_logging_service.h"
 #include "pbl/services/compositor/compositor.h"
+#include "pbl/services/comm_session/default_kernel_sender.h"
 #include "pbl/services/persist.h"
 #include "pbl/services/put_bytes/put_bytes.h"
 #include "pbl/services/process_management/app_order_storage.h"
@@ -212,6 +213,7 @@ static void prv_t5ai_bluetooth_init(void) {
 
   shared_prf_storage_init();
   bt_persistent_storage_init();
+  comm_default_kernel_sender_init();
   put_bytes_init();
   bt_driver_init();
   bt_ctl_init();

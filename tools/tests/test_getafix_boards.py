@@ -550,14 +550,9 @@ class GetafixBoardsTest(unittest.TestCase):
             ROOT / "src/fw/kernel/util/factory_reset.c"
         ).read_text()
         non_pfs_wipe = factory_reset.index("shared_prf_storage_wipe_all();")
-        non_pfs_guard = factory_reset.rfind(
-            "#ifndef CONFIG_SOC_T5AI", 0, non_pfs_wipe
-        )
-        non_pfs_end = factory_reset.index("#endif", non_pfs_wipe)
-        self.assertGreaterEqual(non_pfs_guard, 0)
-        self.assertLess(non_pfs_wipe, non_pfs_end)
-
         reset_start = factory_reset.index("void factory_reset(bool should_shutdown)")
+        self.assertLess(non_pfs_wipe, reset_start)
+
         format_call = factory_reset.index("pfs_format(", reset_start)
         prf_bit = factory_reset.index("boot_bit_set(BOOT_BIT_FORCE_PRF)", reset_start)
         prf_guard = factory_reset.rfind(
@@ -579,31 +574,24 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertGreaterEqual(consumer_guard, consumer_mode)
         self.assertLess(consumer_bit, consumer_end)
 
-    def test_dvt3_shared_prf_storage_is_read_only(self):
+    def test_dvt3_shared_prf_storage_uses_reserved_writable_data_partition(self):
         shared_prf = (
             ROOT / "src/fw/services/shared_prf_storage/shared_prf_storage.c"
         ).read_text()
-        write_helper = shared_prf.index("static void prv_flash_write(")
-        t5ai_guard = shared_prf.index("#ifdef CONFIG_SOC_T5AI", write_helper)
-        real_write = shared_prf.index("flash_write_bytes(", t5ai_guard)
-        guard_else = shared_prf.index("#else", t5ai_guard)
-        guard_end = shared_prf.index("#endif", guard_else)
-        self.assertLess(t5ai_guard, guard_else)
-        self.assertLess(guard_else, real_write)
-        self.assertLess(real_write, guard_end)
-        self.assertEqual(shared_prf.count("flash_write_bytes("), 1)
+        regions = (ROOT / "src/fw/flash_region/flash_region_t5ai.h").read_text()
+        flash = (ROOT / "src/fw/drivers/flash/t5ai.c").read_text()
+        factory_reset = (
+            ROOT / "src/fw/kernel/util/factory_reset.c"
+        ).read_text()
 
-        erase_helper = shared_prf.index("static void prv_flash_erase_region(")
-        erase_guard = shared_prf.index("#ifndef CONFIG_SOC_T5AI", erase_helper)
-        real_erase = shared_prf.index(
-            "flash_region_erase_optimal_range_no_watchdog(", erase_guard
-        )
-        erase_end = shared_prf.index("#endif", real_erase)
-        self.assertLess(erase_guard, real_erase)
-        self.assertLess(real_erase, erase_end)
+        self.assertEqual(shared_prf.count("flash_write_bytes("), 1)
         self.assertEqual(
             shared_prf.count("flash_region_erase_optimal_range_no_watchdog("), 1
         )
+        self.assertIn("FLASH_REGION_SHARED_PRF_STORAGE_BEGIN 0x024ea000", regions)
+        self.assertIn("FLASH_REGION_SHARED_PRF_STORAGE_END 0x024fa000", regions)
+        self.assertIn("in_shared_prf", flash)
+        self.assertIn("shared_prf_storage_wipe_all();", factory_reset)
 
     def test_dvt3_persistent_coredumps_are_disabled(self):
         core_dump = (ROOT / "src/fw/kernel/core_dump.c").read_text()
@@ -686,7 +674,7 @@ class GetafixBoardsTest(unittest.TestCase):
         ).read_text()
         self.assertNotIn("vTaskDelay(pdMS_TO_TICKS(100))", transport)
 
-    def test_dvt3_uses_normal_bluetooth_control_with_fail_closed_storage(self):
+    def test_dvt3_uses_normal_bluetooth_control_with_shared_prf_storage(self):
         main = (ROOT / "src/fw/main.c").read_text()
         self.assertIn("static void prv_t5ai_bluetooth_init(void)", main)
         self.assertIn("bt_persistent_storage_init();", main)
@@ -706,8 +694,8 @@ class GetafixBoardsTest(unittest.TestCase):
         shared_prf = (
             ROOT / "src/fw/services/shared_prf_storage/shared_prf_storage.c"
         ).read_text()
-        self.assertIn("#ifdef CONFIG_SOC_T5AI", shared_prf)
-        self.assertIn("#ifndef CONFIG_SOC_T5AI", shared_prf)
+        self.assertIn("flash_write_bytes(data, address, length);", shared_prf)
+        self.assertNotIn("keep PRF-backed Bluetooth state volatile", shared_prf)
 
         board_source = (ROOT / "src/fw/board/boards/board_t5ai.c").read_text()
         self.assertIn("T5AI_GPIO_BASE + 19u * sizeof(uint32_t)", board_source)

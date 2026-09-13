@@ -22,20 +22,21 @@ class TuyaKernelCheckTest(unittest.TestCase):
         for region in (
             "FLASH_REGION_FILESYSTEM_BEGIN",
             "FLASH_REGION_SYSTEM_RESOURCES_BANK_0_BEGIN",
+            "FLASH_REGION_SHARED_PRF_STORAGE_BEGIN",
         ):
             self.assertIn(region, flash)
         for region in (
             "FLASH_REGION_CD_BEGIN",
             "FLASH_REGION_DEBUG_DB_BEGIN",
-            "FLASH_REGION_SHARED_PRF_STORAGE_BEGIN",
         ):
             self.assertNotIn(region, flash)
         self.assertNotIn("FLASH_REGION_FIRMWARE_SLOT_0_BEGIN", flash)
         self.assertNotIn("FLASH_REGION_FIRMWARE_SLOT_1_BEGIN", flash)
 
-    def test_t5ai_unsafe_persistent_data_features_are_suppressed(self):
+    def test_t5ai_bluetooth_persistence_uses_bounded_shared_prf_storage(self):
         main = (ROOT / "src/fw/main.c").read_text()
         bluetooth_build = (ROOT / "src/fw/services/bluetooth/wscript_build").read_text()
+        flash_regions = (ROOT / "src/fw/flash_region/flash_region_t5ai.h").read_text()
         shared_prf = (
             ROOT / "src/fw/services/shared_prf_storage/shared_prf_storage.c"
         ).read_text()
@@ -46,6 +47,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
 
         self.assertIn("shared_prf_storage_init();", main)
         self.assertIn("bt_persistent_storage_init();", main)
+        self.assertIn("comm_default_kernel_sender_init();", main)
         self.assertIn("put_bytes_init();", main)
         self.assertIn("not bld.env.CONFIG_SOC_T5AI", bluetooth_build)
         self.assertIn("bluetooth_persistent_storage_normal.c", bluetooth_build)
@@ -53,8 +55,13 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertNotIn("bluetooth_persistent_storage_t5ai.c", bluetooth_build)
         self.assertIn("flash_write_bytes(data, address, length);", shared_prf)
         write_helper = shared_prf.split("static void prv_flash_write(", 1)[1].split("}", 1)[0]
-        self.assertIn("#ifdef CONFIG_SOC_T5AI", write_helper)
-        self.assertIn("#else", write_helper)
+        self.assertNotIn("CONFIG_SOC_T5AI", write_helper)
+        self.assertIn(
+            "FLASH_REGION_SHARED_PRF_STORAGE_BEGIN 0x024ea000", flash_regions
+        )
+        self.assertIn(
+            "FLASH_REGION_SHARED_PRF_STORAGE_END 0x024fa000", flash_regions
+        )
         t5ai_types = put_bytes.split("#ifdef CONFIG_SOC_T5AI", 1)[1].split("#endif", 1)[0]
         self.assertIn("ObjectSysResources", t5ai_types)
         self.assertIn("Persistent core dumps unavailable on T5AI", core_dump)
@@ -127,6 +134,13 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertLess(initialize_soc, enable_cache)
         self.assertLess(announce, enable_irq)
         self.assertIn("< 3200u", initialization)
+        self.assertIn("prv_resynchronize_after_ap_reset();", mailbox)
+        resync = mailbox.split("static void prv_resynchronize_after_ap_reset(void)", 1)[1]
+        resync = resync.split("void t5ai_cp_mailbox_announce_power_up(void)", 1)[0]
+        self.assertIn("T5AI_MBOX_FIFO_NOT_EMPTY", resync)
+        self.assertIn("prv_frame_is_transport_ack(&frame)", resync)
+        self.assertIn("T5AI_CP_HEADER_ACK", resync)
+        self.assertIn("s_tx_pending = false", resync)
         self.assertIn("T5AI_CP_LOG_CHANNEL 0x1eu", mailbox)
         self.assertIn("T5AI_CP_LOG_ASSERT_OUT_COMMAND 4u", mailbox)
         self.assertIn("s_log_buffer[0] = 1u", mailbox)

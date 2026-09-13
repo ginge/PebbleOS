@@ -53,26 +53,15 @@ static PebbleMutex *s_sprf_mutex;
 //
 
 static void prv_flash_write(const void *data, uint32_t address, size_t length) {
-#ifdef CONFIG_SOC_T5AI
-  // T5AI flash is protected with interleaved CRC bytes.  The current CP flash
-  // service cannot safely perform the logical read/modify/write operation, so
-  // keep PRF-backed Bluetooth state volatile until that contract is complete.
-  (void)data;
-  (void)address;
-  (void)length;
-#else
   flash_write_bytes(data, address, length);
-#endif
 }
 
 static void prv_flash_erase_region(void) {
-#ifndef CONFIG_SOC_T5AI
   flash_region_erase_optimal_range_no_watchdog(
       FLASH_REGION_SHARED_PRF_STORAGE_BEGIN,
       FLASH_REGION_SHARED_PRF_STORAGE_BEGIN,
       FLASH_REGION_SHARED_PRF_STORAGE_END,
       FLASH_REGION_SHARED_PRF_STORAGE_END);
-#endif
 }
 
 static void prv_lock(void) {

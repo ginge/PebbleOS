@@ -536,7 +536,33 @@ static status_t prv_control_request(uint8_t command, const void *buffer, size_t 
   }
 }
 
+static void prv_resynchronize_after_ap_reset(void) {
+  /* CP0 remains alive across an application-processor reset.  If CPU1 resets
+   * while CP0 has an unacknowledged outbound frame, CP0 cannot send the reply
+   * to our next power-up request and reports BK_ERR_MAILBOX_TIMEOUT (-4107).
+   * Consume and transport-acknowledge every retained frame before opening a
+  * new control transaction.  No logical services are registered this early,
+  * so the payload itself is deliberately discarded. */
+  while ((T5AI_MBOX_CH1_CTRL & T5AI_MBOX_FIFO_NOT_EMPTY) != 0u) {
+    (void)T5AI_MBOX_CH1_RX_ID;
+    T5AICPMailboxFrame frame = {
+        .address = T5AI_MBOX_CH1_RX_DATA0,
+        .length = T5AI_MBOX_CH1_RX_DATA1,
+    };
+    if (!prv_frame_is_transport_ack(&frame) && frame.length >= sizeof(s_ack_message)) {
+      dcache_invalidate((void *)frame.address, sizeof(s_ack_message));
+      memcpy(&s_ack_message, (const void *)frame.address, sizeof(s_ack_message));
+      s_ack_message.header =
+          (s_ack_message.header & ~(0xfu << 8u)) | T5AI_CP_HEADER_ACK;
+      dcache_flush(&s_ack_message, sizeof(s_ack_message));
+      (void)prv_send(&s_ack_message, sizeof(s_ack_message), true);
+    }
+  }
+  s_tx_pending = false;
+}
+
 void t5ai_cp_mailbox_announce_power_up(void) {
+  prv_resynchronize_after_ap_reset();
   (void)prv_control_request(T5AI_CP_POWER_UP_COMMAND, NULL, 0u);
   s_last_heartbeat = prv_ticks();
 }
