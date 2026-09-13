@@ -22,6 +22,8 @@ PBL_LOG_MODULE_DEFINE(driver_display_co5300, CONFIG_DRIVER_DISPLAY_LOG_LEVEL);
 
 #define PANEL_WIDTH 466u
 #define PANEL_HEIGHT 466u
+#define PANEL_ROW_BYTES (PANEL_WIDTH * 2u)
+#define DMA_CHUNK_PANEL_ROWS 16u
 #define PANEL_X_OFFSET 6u
 #define PANEL_RESET_PIN 29u
 #define PANEL_QSPI_CLK_PIN 22u
@@ -90,7 +92,9 @@ static status_t s_qspi_power_status;
 static bool s_rotated;
 static uint8_t s_brightness = 0xffu;
 static bool s_brightness_dirty;
-static uint8_t s_panel_row[PANEL_WIDTH * 2u] __attribute__((aligned(32)));
+static uint8_t s_panel_row[PANEL_ROW_BYTES] __attribute__((aligned(32)));
+static uint8_t s_dma_chunk[PANEL_ROW_BYTES * DMA_CHUNK_PANEL_ROWS]
+    __attribute__((aligned(32)));
 static uint32_t s_dma_test_source[8] __attribute__((aligned(32)));
 static uint32_t s_dma_test_destination[8] __attribute__((aligned(32)));
 static uint16_t s_panel_source_x[PANEL_WIDTH];
@@ -237,7 +241,10 @@ static void prv_init_conversion_tables(void) {
     const uint16_t red = red_blue[(pixel >> 4) & 3u];
     const uint16_t green = ((pixel >> 2) & 3u) * 21u;
     const uint16_t blue = red_blue[pixel & 3u];
-    s_rgb565[pixel] = (red << 11) | (green << 5) | blue;
+    const uint16_t rgb565 = (red << 11) | (green << 5) | blue;
+    // Store in the byte order consumed by the panel so the conversion loop
+    // can emit one aligned halfword instead of two byte stores.
+    s_rgb565[pixel] = (uint16_t)((rgb565 >> 8) | (rgb565 << 8));
   }
   for (unsigned x = 0u; x < PANEL_WIDTH; ++x) {
     s_panel_source_x[x] = x * PBL_DISPLAY_WIDTH / PANEL_WIDTH;
@@ -245,16 +252,14 @@ static void prv_init_conversion_tables(void) {
 }
 
 static void __attribute__((section(".t5ai_ramfunc"), noinline, optimize("O3")))
-prv_convert_row(const uint8_t *source, bool reverse) {
-  for (unsigned x = 0; x < PANEL_WIDTH; ++x) {
+prv_convert_row(uint8_t *destination, const uint8_t *source, bool reverse) {
+  uint16_t *output = (uint16_t *)destination;
+  for (unsigned x = 0u; x < PANEL_WIDTH; ++x) {
     unsigned source_x = s_panel_source_x[x];
     if (reverse) {
       source_x = PBL_DISPLAY_WIDTH - 1u - source_x;
     }
-    const uint16_t pixel = s_rgb565[source[source_x] & 0x3fu];
-    // The panel consumes RGB565 most-significant byte first.
-    s_panel_row[x * 2u] = (uint8_t)(pixel >> 8);
-    s_panel_row[x * 2u + 1u] = (uint8_t)pixel;
+    output[x] = s_rgb565[source[source_x] & 0x3fu];
   }
 }
 
@@ -407,7 +412,7 @@ static bool prv_send_logical_row(uint16_t logical_y, const uint8_t *data) {
   const uint16_t y0 = (mapped_y * PANEL_HEIGHT + PBL_DISPLAY_HEIGHT - 1u) / PBL_DISPLAY_HEIGHT;
   const uint16_t y1 =
       ((mapped_y + 1u) * PANEL_HEIGHT + PBL_DISPLAY_HEIGHT - 1u) / PBL_DISPLAY_HEIGHT - 1u;
-  prv_convert_row(data, s_rotated);
+  prv_convert_row(s_panel_row, data, s_rotated);
   if (!prv_set_window(PANEL_X_OFFSET, y0, PANEL_X_OFFSET + PANEL_WIDTH - 1u, y1)) {
     return false;
   }
@@ -419,22 +424,44 @@ static bool prv_send_logical_row(uint16_t logical_y, const uint8_t *data) {
   return true;
 }
 
+static bool prv_flush_dma_chunk(size_t *chunk_bytes, size_t *aperture_word) {
+  if (*chunk_bytes == 0u) {
+    return true;
+  }
+  if (!prv_pixel_stream_write_dma(s_dma_chunk, *chunk_bytes, aperture_word)) {
+    return false;
+  }
+  *chunk_bytes = 0u;
+  return true;
+}
+
 static bool prv_stream_logical_row(uint16_t logical_y, const uint8_t *data,
-                                   size_t *aperture_word, bool use_dma) {
+                                   size_t *aperture_word, bool use_dma,
+                                   size_t *chunk_bytes) {
   const uint16_t y0 =
       (logical_y * PANEL_HEIGHT + PBL_DISPLAY_HEIGHT - 1u) / PBL_DISPLAY_HEIGHT;
   const uint16_t y1 =
       ((logical_y + 1u) * PANEL_HEIGHT + PBL_DISPLAY_HEIGHT - 1u) / PBL_DISPLAY_HEIGHT - 1u;
-  prv_convert_row(data, false);
-  for (uint16_t y = y0; y <= y1; ++y) {
-    if (use_dma) {
-      if (!prv_pixel_stream_write_dma(s_panel_row, sizeof(s_panel_row), aperture_word)) {
-        return false;
-      }
-    } else {
+  if (!use_dma) {
+    prv_convert_row(s_panel_row, data, false);
+    for (uint16_t y = y0; y <= y1; ++y) {
       *aperture_word = prv_pixel_stream_write(s_panel_row, sizeof(s_panel_row), *aperture_word);
     }
+    return true;
   }
+
+  const size_t panel_rows = (size_t)y1 - y0 + 1u;
+  const size_t required_bytes = panel_rows * PANEL_ROW_BYTES;
+  if (*chunk_bytes + required_bytes > sizeof(s_dma_chunk) &&
+      !prv_flush_dma_chunk(chunk_bytes, aperture_word)) {
+    return false;
+  }
+  uint8_t *destination = &s_dma_chunk[*chunk_bytes];
+  prv_convert_row(destination, data, false);
+  for (size_t row = 1u; row < panel_rows; ++row) {
+    memcpy(destination + row * PANEL_ROW_BYTES, destination, PANEL_ROW_BYTES);
+  }
+  *chunk_bytes += required_bytes;
   return true;
 }
 
@@ -782,6 +809,7 @@ void display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
   DisplayRow row;
   bool full_stream = false;
   size_t aperture_word = 0u;
+  size_t chunk_bytes = 0u;
   uint16_t expected_row = 0u;
   const bool use_dma = s_dma_display_enabled && !s_dma_display_failed;
 
@@ -802,7 +830,8 @@ void display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
       expected_row = row.address;
     }
     if (full_stream && row.address == expected_row) {
-      if (!prv_stream_logical_row(row.address, row.data, &aperture_word, use_dma)) {
+      if (!prv_stream_logical_row(row.address, row.data, &aperture_word, use_dma,
+                                  &chunk_bytes)) {
         s_dma_display_failed = true;
         s_dma_display_enabled = false;
         break;
@@ -810,6 +839,11 @@ void display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
       expected_row++;
     } else {
       if (full_stream) {
+        if (!prv_flush_dma_chunk(&chunk_bytes, &aperture_word)) {
+          s_dma_display_failed = true;
+          s_dma_display_enabled = false;
+          break;
+        }
         prv_pixel_stream_end();
         full_stream = false;
       }
@@ -819,6 +853,10 @@ void display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
     }
   }
   if (full_stream) {
+    if (!prv_flush_dma_chunk(&chunk_bytes, &aperture_word)) {
+      s_dma_display_failed = true;
+      s_dma_display_enabled = false;
+    }
     prv_pixel_stream_end();
   }
   s_updating = false;
@@ -840,8 +878,10 @@ void display_update_boot_frame(uint8_t *framebuffer) {
     return;
   }
   size_t aperture_word = 0u;
+  size_t chunk_bytes = 0u;
   for (uint16_t y = 0; y < PBL_DISPLAY_HEIGHT; ++y) {
-    if (!prv_stream_logical_row(y, framebuffer + y * PBL_DISPLAY_WIDTH, &aperture_word, false)) {
+    if (!prv_stream_logical_row(y, framebuffer + y * PBL_DISPLAY_WIDTH, &aperture_word, false,
+                                &chunk_bytes)) {
       break;
     }
   }
