@@ -22,15 +22,18 @@ class TuyaKernelCheckTest(unittest.TestCase):
         for region in (
             "FLASH_REGION_FILESYSTEM_BEGIN",
             "FLASH_REGION_SYSTEM_RESOURCES_BANK_0_BEGIN",
+        ):
+            self.assertIn(region, flash)
+        for region in (
             "FLASH_REGION_CD_BEGIN",
             "FLASH_REGION_DEBUG_DB_BEGIN",
             "FLASH_REGION_SHARED_PRF_STORAGE_BEGIN",
         ):
-            self.assertIn(region, flash)
+            self.assertNotIn(region, flash)
         self.assertNotIn("FLASH_REGION_FIRMWARE_SLOT_0_BEGIN", flash)
         self.assertNotIn("FLASH_REGION_FIRMWARE_SLOT_1_BEGIN", flash)
 
-    def test_t5ai_persistent_data_features_are_enabled(self):
+    def test_t5ai_unsafe_persistent_data_features_are_suppressed(self):
         main = (ROOT / "src/fw/main.c").read_text()
         bluetooth_build = (ROOT / "src/fw/services/bluetooth/wscript_build").read_text()
         shared_prf = (
@@ -44,12 +47,17 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("shared_prf_storage_init();", main)
         self.assertIn("bt_persistent_storage_init();", main)
         self.assertIn("put_bytes_init();", main)
+        self.assertIn("not bld.env.CONFIG_SOC_T5AI", bluetooth_build)
         self.assertIn("bluetooth_persistent_storage_normal.c", bluetooth_build)
+        self.assertIn("bluetooth_persistent_storage_prf.c", bluetooth_build)
         self.assertNotIn("bluetooth_persistent_storage_t5ai.c", bluetooth_build)
         self.assertIn("flash_write_bytes(data, address, length);", shared_prf)
+        write_helper = shared_prf.split("static void prv_flash_write(", 1)[1].split("}", 1)[0]
+        self.assertIn("#ifdef CONFIG_SOC_T5AI", write_helper)
+        self.assertIn("#else", write_helper)
         t5ai_types = put_bytes.split("#ifdef CONFIG_SOC_T5AI", 1)[1].split("#endif", 1)[0]
-        self.assertNotIn("ObjectSysResources", t5ai_types)
-        self.assertNotIn("Persistent core dumps unavailable on T5AI", core_dump)
+        self.assertIn("ObjectSysResources", t5ai_types)
+        self.assertIn("Persistent core dumps unavailable on T5AI", core_dump)
         self.assertEqual(debug_build.count("flash_logging_unavailable.c"), 1)
         self.assertIn("#ifndef CONFIG_SOC_T5AI", resources)
 

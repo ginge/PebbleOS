@@ -576,6 +576,7 @@ static bool prv_is_object_allowed(PutBytesObjectType type) {
   switch (type) {
     case ObjectFirmware:
     case ObjectRecovery:
+    case ObjectSysResources:
       PBL_LOG_WRN("Firmware object type %u is unavailable on T5AI", type);
       return false;
     default:

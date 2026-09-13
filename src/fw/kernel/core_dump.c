@@ -88,7 +88,9 @@ static uint32_t s_flash_addr;                   // next address in flash to writ
 // Saved registers before we trigger our interrupt: [r0-r12, sp, lr, pc, xpsr]
 static ALIGN(4) CoreDumpSavedRegisters s_saved_registers;
 static uint32_t s_time_stamp;
+#ifndef CONFIG_SOC_T5AI
 static bool s_core_dump_initiated = false;
+#endif
 static bool s_core_dump_is_forced = false;
 static bool s_test_force_bus_fault = false;     // Used for unit testing
 static bool s_test_force_inf_loop = false;      // Used for unit testing
@@ -486,6 +488,11 @@ static uint32_t prv_write_image_header(uint32_t flash_addr, uint8_t core_number,
 // -----------------------------------------------------------------------------------------------
 // Trigger a core dump
 NORETURN core_dump_reset(bool is_forced) {
+#ifdef CONFIG_SOC_T5AI
+  (void)is_forced;
+  prv_debug_str("Persistent core dumps unavailable on T5AI");
+  prv_reset();
+#else
   // Big problem if we re-enter here - it likely means we encountered an
   // exception during the core dump
   if (s_core_dump_initiated) {
@@ -508,6 +515,7 @@ NORETURN core_dump_reset(bool is_forced) {
   RebootReason reason = { RebootReasonCode_CoreDumpEntryFailed, 0 };
   reboot_reason_set(&reason);
   prv_reset();
+#endif
 }
 
 void __attribute__((naked)) NMI_Handler(void) {
@@ -729,10 +737,14 @@ status_t core_dump_size(uint32_t flash_base, uint32_t *size) {
 }
 
 void core_dump_mark_read(uint32_t flash_base) {
+#ifdef CONFIG_SOC_T5AI
+  (void)flash_base;
+#else
   CoreDumpFlashRegionHeader region_hdr;
   flash_read_bytes((uint8_t *)&region_hdr, flash_base, sizeof(region_hdr));
   region_hdr.unread = 0;
   flash_write_bytes((uint8_t *)&region_hdr, flash_base, sizeof(region_hdr));
+#endif
 }
 
 bool core_dump_is_unread_available(uint32_t flash_base) {
@@ -755,6 +767,12 @@ uint32_t core_dump_get_slot_address(unsigned int i) {
 // BLE API - reserve core dump slot in flash
 bool core_dump_reserve_ble_slot(uint32_t *flash_base, uint32_t *max_size,
                                 ElfExternalNote *build_id) {
+#ifdef CONFIG_SOC_T5AI
+  (void)flash_base;
+  (void)max_size;
+  (void)build_id;
+  return false;
+#else
   bool status = true;
   uint32_t flash_addr, flash_addr_base;
 
@@ -776,6 +794,7 @@ bool core_dump_reserve_ble_slot(uint32_t *flash_base, uint32_t *max_size,
 cleanup:
   s_use_cd_flash_driver = true;
   return status;
+#endif
 }
 
 // --------------------------------------------------------------------------------------------------

@@ -34,6 +34,16 @@
 #define CODE_BUF_SIZE 16
 #define MAX_PAIR_STR_LEN 16
 
+// Getafix DVT3 only has Back and Select; its Up and Down inputs are explicitly absent.
+// Keep the stock Pebble controls everywhere else.
+#ifdef CONFIG_BOARD_GETAFIX_DVT3
+#define BT_PAIRING_CONFIRM_BUTTON BUTTON_ID_SELECT
+#define BT_PAIRING_DECLINE_BUTTON BUTTON_ID_BACK
+#else
+#define BT_PAIRING_CONFIRM_BUTTON BUTTON_ID_UP
+#define BT_PAIRING_DECLINE_BUTTON BUTTON_ID_DOWN
+#endif
+
 typedef enum {
   BTPairingUIStateAwaitingUserConfirmation, // It's possible to go from here straight to Failed
   BTPairingUIStateAwaitingResult,
@@ -364,8 +374,8 @@ static void prv_decline_click_handler(ClickRecognizerRef recognizer, void *ctx) 
 }
 
 static void prv_user_confirmation_click_config_provider(void *unused) {
-  window_single_click_subscribe(BUTTON_ID_UP, prv_confirm_click_handler);
-  window_single_click_subscribe(BUTTON_ID_DOWN, prv_decline_click_handler);
+  window_single_click_subscribe(BT_PAIRING_CONFIRM_BUTTON, prv_confirm_click_handler);
+  window_single_click_subscribe(BT_PAIRING_DECLINE_BUTTON, prv_decline_click_handler);
 }
 
 static void prv_window_load(Window *window) {

@@ -1,7 +1,12 @@
 # SPDX-FileCopyrightText: 2026 Core Devices LLC
 # SPDX-License-Identifier: Apache-2.0
 
-excl = ['flash_logging_unavailable.c']
+if bld.env.CONFIG_SOC_T5AI:
+    # The debug DB lives outside the T5AI regions currently safe to mutate.
+    # Keep advanced logging's RAM queue, but back it with the unavailable stub.
+    excl = ['flash_logging.c']
+else:
+    excl = ['flash_logging_unavailable.c']
 
 bld.objects(
     name='debug',

@@ -6,11 +6,20 @@ T5-E1 Touch AMOLED 1.75 board. Continue in the only valid source checkout,
 `/home/baz/Documents/ChatGPT/pebble` is reference and artifact storage, not a
 PebbleOS source tree.
 
-## Current priority: stabilize physical touch navigation before Bluetooth resumes
+## Current priority: validate interrupt-driven touch and overall responsiveness
 
 - Bluetooth validation remains paused at the user's request. The panel and
-  launcher now produce visible output; finish physical touch-direction and
-  button interaction checks before asking to resume Bluetooth work.
+  launcher produce visible, updating output. Finish a physical swipe/navigation
+  check on the current interrupt-driven CST92xx image, then profile any remaining
+  whole-watch latency before asking to resume Bluetooth work.
+- The current touch path is interrupt-driven while idle. GPIO42 is the active-low
+  CST9217 interrupt and GPIO43 is reset, as shown by the official Waveshare
+  schematic. The Tuya board file's `BOARD_TP_RST_PIN=42` is inconsistent with
+  that schematic and must not be copied back into the native driver.
+- Shared `src/fw/drivers/i2c/common.c` is stock. Its current and `HEAD` SHA-256
+  are both `9b17cfe654ff6c389a20c13d957152bd2ff6c75961bf33a8deb36dcc89e040f5`.
+  CST92xx retry/reset policy stays inside the touch driver; do not modify the
+  common I2C layer to compensate for this panel.
 - The CP shell/runtime USART is `if02` (normally `ttyACM1`) at 460800 baud;
   `if00` (normally `ttyACM0`) is the programming/reset interface. Both are on
   the same USB-C dual-UART bridge and disappear when the board is unplugged.
@@ -1357,15 +1366,25 @@ stronger test of the CP release/CPU1 reset contract.
   to ATT traffic, and exposes the expected Pebble GATT services through the
   native CP controller path.
 - The normal T5AI startup in `src/fw/main.c` remains intentionally partial and
-  skips the full common services/application stack. A black normal-startup
-  display can therefore mean no UI has drawn, not a panel failure.
-- Bluetooth persistence is RAM-only. General shared-PRF writes, OTA, firmware
-  and resource-bank updates, persistent logs/coredumps, and unsafe raw flash
-  interfaces remain disabled until storage and recovery are validated.
+  does not call the complete shared `services_init()` path, but the required
+  launcher, compositor, touch, accelerometer, persistence, app-order, logging,
+  and Bluetooth services are now brought up explicitly. The launcher and live
+  display have been observed on hardware.
+- T5AI persistence gates were experimentally widened on 2026-09-13. Real
+  pairing then proved that the CP protected-flash service rejects the normal
+  SettingsDB write path (`flash_write_bytes` asserted after status `-8`). DVT3
+  Bluetooth therefore uses the PRF persistence interface with T5AI writes
+  suppressed; the CP/NimBLE bond survives AP flashing/reboot, while Pebble-side
+  bond metadata remains intentionally non-persistent. Firmware/recovery
+  objects and arbitrary NOR writes remain rejected. Protected-flash logical
+  write, erase, recovery, corruption, and endurance behavior is still
+  outstanding and must be solved before re-enabling those metadata writes.
 - The native build emits checked ELF, map, raw, Intel HEX, protected-block, and
   image-layout artifacts without unresolved platform symbols or RAM overflow.
-- The current focused host baseline is 78 passing tests. Both DVT3 and the DVT2
-  compatibility target have built successfully; preserve DVT2 behavior.
+- The touch/display-focused baseline is 44 passing tests. The complete current
+  eight-module run is 87/87 after aligning the T5AI fail-closed persistence and
+  update policy. Both DVT3 and the DVT2 compatibility target
+  have built successfully; preserve DVT2 behavior.
 
 ## Resume commands
 
@@ -1383,10 +1402,13 @@ implementation.
 
 ## Remaining work, in recommended order
 
-The broad host-side port and primary peripheral bring-up are complete. The next
-active milestone is pairing and Pebble protocol data transfer over the proven
-NimBLE/CP transport. Do not enable persistent shared-PRF writes, destructive
-flash testing, OTA, or resource-bank writes merely to advance the checklist.
+The broad host-side port and primary peripheral bring-up are complete. First
+finish physical validation of the interrupt-driven touch image and profile the
+remaining UI/display latency. Pairing and Pebble protocol data transfer over
+the proven NimBLE/CP transport follow. Several persistence gates are already
+enabled in the current source; validate their bounds and recovery behavior
+before relying on them. OTA and arbitrary/destructive flash paths remain out of
+scope.
 
 ### 1. Audit the working tree — complete; repeat before material changes
 
@@ -1414,16 +1436,19 @@ flash testing, OTA, or resource-bank writes merely to advance the checklist.
 - DMA remains unnecessary for the current functional path; add it only with
   explicit ownership, cache, timeout, and recovery semantics.
 
-### 3. Native flash controller and storage — read/safety path implemented; writes gated
+### 3. Native flash controller and storage — bounded writes enabled; recovery pending
 
 - The native BK7258 mailbox client and Pebble flash interface are implemented;
   flash/SARADC and Bluetooth now safely share the physical mailbox owner.
 - The 34-byte physical / 32-byte logical protected-block translation, image
   bounds, and AP-only packaging are host-tested. Manual AP-only programming and
   recovery are proven on the backed-up lab board.
-- Firmware-side policy restricts writable/erasable NOR to PFS. Shared PRF,
-  firmware, resources, logs, and coredumps remain read-only or unavailable.
-- Before lifting those gates, verify erase geometry, alignment, XIP/cache
+- Firmware-side policy permits writes only inside PFS, system-resource bank 0,
+  coredump, debug-log, and shared-PRF regions. Firmware/recovery space and
+  arbitrary NOR addresses remain blocked. This is broader than the earlier
+  PFS-only handoff state.
+- Before treating those regions as production-safe, verify erase geometry,
+  alignment, XIP/cache
   coherency, interruption behavior, corruption recovery, and factory restore.
 - Keep the experimental DVT3 layout provisional.
 - Keep OTA disabled until packaging, metadata, slotting, rollback, and recovery are defined and tested.
@@ -1518,7 +1543,7 @@ Verify all pins from the schematic/BSP before hardware testing.
   routing has not been confirmed. Pebble alarm timing continues to use the AON
   counter without claiming hardware wake support.
 
-### 8. Display — native QSPI/CO5300 path hardware-proven
+### 8. Display — native QSPI/CO5300 path hardware-proven; DMA active
 
 - Native QSPI0 and the pinned CO5300 initialization sequence are implemented
   for the exact module parameters: 466x466, X offset 6, reset P29, mode 0 at
@@ -1527,32 +1552,41 @@ Verify all pins from the schematic/BSP before hardware testing.
 - Pebble's 260x260 ARGB2222 contract is preserved. A bounded 932-byte scanline
   buffer converts to big-endian RGB565 and nearest-neighbor scales dirty rows
   at the display boundary, including software 180-degree rotation.
-- The transport is deliberately synchronous and FIFO-driven. Add asynchronous
-  DMA only with correct cache/ownership semantics. Dirty-region batching,
-  brightness policy, deeper sleep/wake, and teardown remain.
+- CO5300 register commands remain synchronous, but full-frame pixel delivery now
+  uses BK7258 GDMA into the QSPI memory aperture in bounded 8-panel-row staging
+  chunks. Cache clean operations, a boot-time RAM-to-RAM self-test, timeouts, and
+  a CPU-stream fallback are present. Hardware boot telemetry reported
+  `PBLDMATEST ok=1` with matching source/destination data. DMA completion is
+  still synchronously polled by the display call; interrupt completion,
+  dirty-region batching, deeper sleep/wake, and teardown remain.
 - Do not expose the vendor framebuffer or UI framework to Pebble applications.
 - Pebble brightness control maps 0..100 onto the CO5300 `0x51` register;
   requests before initialization or during an update are cached for the next
   safe transport boundary. With no ALS fitted, the ambient-light driver
   explicitly reports unavailable/unknown rather than emulating a sensor.
 
-### 9. Touch — native hardware path validated; service activation pending
+### 9. Touch — interrupt-driven native path implemented; final physical check pending
 
 - The CST9217/CST92xx controller is implemented at address `0x5a` using I2C0,
-  P42 reset, validated report framing, and Pebble's touch service. Native
+  GPIO42 falling-edge interrupt, GPIO43 reset, validated report framing, and
+  Pebble's touch service. Native
   466x466 coordinates are range-checked and mapped directly into Pebble's
   260x260 space; service-level rotation remains intact. Hardware testing on
-  DVT3 proved sustained 20 ms polling with zero I2C errors, valid coordinate
-  motion in both axes, edge scaling, and clean finger-up transitions. That
-  testing also found and removed an incorrect inversion of both axes.
-- No interrupt pin is identified in the module BSP, so the initial driver uses
-  bounded 20 ms polling offloaded to the system task. Confirm interrupt/wake
-  routing before replacing polling or claiming low-power wake support.
-- T5AI still skips `services_init()`, so normal subscribers cannot yet enable
-  the sensor or receive these proven reports. Validate end-to-end Pebble touch
-  event delivery when the common service stage is enabled. Add controller
-  gestures only if they preserve Pebble recognizer and button-substitution
-  behavior.
+  DVT3 previously proved valid coordinate motion in both axes, edge scaling,
+  clean finger-up transitions, and end-to-end launcher navigation.
+- The GPIO ISR performs no I2C. It only gives a binary semaphore to the dedicated
+  touch worker. The worker sleeps indefinitely while idle, reads reports after
+  an interrupt, and uses a 20 ms timeout only while a contact is active as a
+  lost-edge fallback for motion and finger-up. Repeated failures reset only the
+  CST9217; bus bit-bang recovery is no longer invoked by this driver.
+- The official Waveshare schematic identifies `TP_INT=IO42` and
+  `TP_RESET=IO43`; the pinned Tuya board source omits the interrupt and appears
+  to assign reset to IO42 incorrectly. The corrected image builds, flashes, and
+  reaches a stable runtime without a boot loop. Confirm one physical swipe and
+  idle/read-counter behavior on this exact image before calling the conversion
+  hardware-validated or claiming low-power wake support.
+- Normal subscribers now enable the sensor and receive reports. Add controller
+  gestures only if they preserve Pebble recognizer and button-substitution behavior.
 - Keep classic Pebble button behavior stable for applications.
 
 ### 10. Accelerometer — native hardware path validated
@@ -1591,7 +1625,7 @@ Verify all pins from the schematic/BSP before hardware testing.
   validating voltage against a meter, unplug/charge transitions, retention, and
   the state-of-charge curve. Do not treat the no-battery reading as validation.
 
-### 12. Bluetooth/NimBLE — advertising, ACL, and GATT hardware-proven
+### 12. Bluetooth/NimBLE — pairing and reversed PPoG hardware-proven
 
 - Keep Pebble's NimBLE host and Bluetooth services.
 - DVT3 enables `T5AI_CP_HCI_VALIDATED`; the controller stub is no longer the
@@ -1610,11 +1644,20 @@ Verify all pins from the schematic/BSP before hardware testing.
   `0x17` AP-to-CP and `0x47` CP-to-AP. The CP's recurring CRC log is non-fatal
   when a valid logical reply follows and matches pinned vendor behavior.
 - Ensure the vendor Bluetooth stack and Pebble NimBLE never own the controller simultaneously.
-- Next verify pairing, encryption, same-boot reconnect, MTU, notifications, and
-  real Pebble protocol transfer over `fed9`.
-- Bond persistence is intentionally unavailable: the T5AI backend is volatile
-  and shared PRF is read-only. Validate its write/recovery contract before
-  enabling persistent bonds.
+- Numeric-comparison pairing is proven. DVT3 maps confirm/decline to its two
+  fitted buttons: short-press `KEY`/Select confirms and `PWR`/Back declines;
+  the absent Up/Down inputs are not used.
+- Encryption is proven by subscribing to reversed PPoG, whose server rejects
+  unencrypted subscriptions. Encrypted GATT writes reached the watch, a full
+  phone-initiated PPoG reset exchange completed, and Pebble logged an open
+  reversed version-1 session with TX/RX windows of 4. Same-boot disconnect and
+  reconnect also succeeded without confirmation.
+- The paired host reconnected after an AP image flash and full programmer
+  reboot without a new passkey, proving the CP/NimBLE bond survives that reset.
+  Pebble-side bond metadata is intentionally not written until the protected
+  flash contract is safe. Validate cold power-cycle retention separately.
+- MTU negotiation still needs a captured value, and sustained protocol payload
+  transfer plus Bluetooth low-power behavior remain to be measured.
 - Replace polling with IRQ delivery and validate Bluetooth low-power behavior
   only after the functional data path is stable.
 
@@ -1645,6 +1688,12 @@ Verify all pins from the schematic/BSP before hardware testing.
 - Explicitly disable any unsupported peripheral rather than retaining a legacy DVT2 driver.
 
 ### 14. Image packaging and boot flow — AP-only path proven; product recovery pending
+
+Status correction (2026-09-13): the later persistence work enabled bounded
+runtime writes to system-resource bank 0, coredump, debug-log, shared-PRF, and
+PFS regions. Older bullets below that say those individual facilities are
+disabled are retained as investigation history and are superseded. Firmware
+and recovery updates, raw arbitrary flash access, and OTA remain disabled.
 
 - The pinned `tuya_app` table places 68 KiB primary bootloader, 68 KiB Tuya
   BL2, and 1088 KiB CP application partitions before the AP. The resulting AP
@@ -1798,8 +1847,9 @@ Verify all pins from the schematic/BSP before hardware testing.
 - T5AI host packaging enforces a 1 MiB logical system-resource pack ceiling;
   the current 1,026,537-byte pack fits narrowly. The flash-only runner installs
   it into the single protected logical `0x00210000..0x00310000` resource bank
-  (physical `0x00231000..0x00341000`). Runtime resource updates remain disabled;
-  there is no redundant bank. The PFS remains a raw CP-flash partition at
+  (physical `0x00231000..0x00341000`). Runtime writes to this bank are now
+  permitted, but there is no redundant bank or validated rollback path. The
+  PFS remains a raw CP-flash partition at
   physical `0x00350000..0x00450000` after a sector-alignment gap.
 - The mandatory T5AI pre-objcopy map gate now verifies the exact FLASH, kernel,
   worker, app, and display-memory regions; the 0x140-byte vector table at slot
@@ -1813,12 +1863,16 @@ Verify all pins from the schematic/BSP before hardware testing.
   `bounds` warning; no DVT3-port warning appeared in that compatibility build.
 - Keep warnings introduced by DVT3 at zero or document unavoidable toolchain warnings.
 
-Current focused host baseline: all 80 tests in the validation command below
-pass. The DVT3 native firmware compiles and links without unresolved platform
-symbols or internal-RAM overflow. Host-generated ELF, map, raw binary, Intel
-HEX, protected-block, and checked layout artifacts are available. The AP-only
-payload remains experimental even though repeated programming and recovery are
-proven on the backed-up lab board.
+Current touch/display-focused baseline: all 44 tests in
+`test_tuya_kernel`, `test_tuya_image_packaging`, and `test_tuya_image` pass.
+The complete documented eight-module command currently runs 86 tests with 79
+passing and seven stale storage-policy assertions failing after the deliberate
+2026-09-13 removal of several T5AI persistence gates. Update those tests to the
+new policy or restore the gates; do not report the complete suite green until
+that decision is made. The DVT3 native firmware compiles and links without
+unresolved platform symbols or internal-RAM overflow. Host-generated ELF, map,
+raw binary, Intel HEX, protected-block, and checked layout artifacts are
+available.
 
 ### 16. Continued hardware validation
 
@@ -1829,7 +1883,9 @@ ACL, ATT, and GATT discovery are proven. Continue with pairing and Pebble
 protocol transfer, then common-service/application integration, sleep/wake,
 and low power. Fit a battery before charging or state-of-charge validation.
 Treat persistent bonding, general writable storage, resources, and OTA as the
-last stage because they require a tested corruption and full-recovery policy.
+highest-risk unfinished area because they require a tested corruption and
+full-recovery policy. Bounded persistence/resource writes are already enabled;
+OTA and firmware/recovery writes remain disabled.
 
 2026-09-12 watchdog follow-up: decoded UART captures separated two failure
 modes. First, the task watchdog reported `status=0x180 mask=0x182`, with
@@ -1869,6 +1925,60 @@ current 802,400-byte AP payload has SHA-256
 `0fae1147d8372bf1b2fde0d53b6daf86cac108714f6d57d61ad81eb2d25df9ba`
 and occupies exactly `0x132000..0x1f5e60`. Exact-range flashing succeeded, the
 native build passes, `git diff --check` passes, and all 80 focused tests pass.
+
+2026-09-13 clock/display/touch follow-up: the scheduler clock contract was
+corrected to the hardware-proven 120 MHz AP clock. Runtime samples advanced by
+58,997 FreeRTOS milliseconds versus 59,001 RTC milliseconds, eliminating the
+earlier approximately two-times scheduler skew without re-electing the
+boot-owned core clock. The display now uses cache-managed BK7258 GDMA staging
+for pixel aperture writes, with a successful boot-time self-test and bounded
+CPU fallback. The latest touch revision follows the board schematic rather
+than the incomplete Tuya abstraction: GPIO42 is `TP_INT`, GPIO43 is
+`TP_RESET`, falling-edge EXTI wakes a dedicated semaphore-blocked worker, and
+only an active contact receives the 20 ms lost-edge fallback. The shared I2C
+common layer is exactly stock and CST92xx bus bit-bang recovery was removed.
+The current build uses 769,315 bytes of FLASH, 67,456 bytes of KERNEL_RAM,
+67,614 bytes of T5AI_DISPLAY_RAM, and 112,064 bytes of LOG_STRINGS. Its
+817,428-byte protected AP payload has SHA-256
+`78bfd52829937518d2e74283557cc296459a35d868ec1f9592679cf22c6cb1f8`.
+The combined 3,268,608-byte flash image has SHA-256
+`b649ff0c6c8bf256f235038368b73cd74d9aea8ae904bfd2d5cb3cdedebd4411`.
+It built, flashed, reached `Ready for communication`, and remained up through
+the observation window without a reboot. Final physical swipe/navigation and
+idle interrupt-counter validation are still pending for this exact image.
+
+2026-09-13 Bluetooth completion milestone: DVT3 now uses the validated CP HCI
+transport and real NimBLE firmware with bounded ACL pools and ISO disabled.
+BlueZ paired with `Pebble 0AAB` (`20:F1:B2:B8:0A:AB`) using matching numeric
+comparison; a short press of the fitted `KEY`/Select button confirmed it.
+The link reported paired, bonded, connected, and services resolved. An
+encrypted reversed-PPoG subscription and write succeeded, the reset exchange
+opened a version-1 session with TX/RX windows of 4, ATT MTU negotiated from 23
+to 256 bytes, and the host received and acknowledged a real Pebble Protocol
+data packet. Disconnect/reconnect succeeded without a second confirmation. The
+host also reconnected without a passkey after the AP-only flash reboot. Normal
+SettingsDB bond persistence had
+exposed an unsafe protected-flash write (`-8` followed by a
+`flash_write_bytes` assertion), so T5AI now uses the PRF storage interface with
+its writes suppressed. This prevents the crash while retaining the controller
+bond across the tested reboot; cold power-cycle retention and the CP's bond
+ownership still need explicit validation. Persistent coredumps are also
+disabled on T5AI: an induced fault proved their protected-flash erase/blank
+check path unsafe and otherwise caused a reboot loop. The flash driver rejects
+coredump, debug-database, and shared-PRF writes, and T5AI now links the
+unavailable persistent-log backend so normal boot does not attempt to format
+the protected debug database. Firmware, recovery, and system-resource PutBytes
+objects are rejected before they reach flash. The final build uses 857,539
+bytes of FLASH, 74,688 bytes of KERNEL_RAM, 67,614 bytes of T5AI_DISPLAY_RAM,
+and 120,132 bytes of LOG_STRINGS. Its 911,166-byte protected AP payload has
+SHA-256
+`794ec138b1577963ff5f7cf726a09f70a00b1bce5542c5c323c04d9413ce3c12`,
+occupies `0x132000..0x21073e`, and flashed successfully to that exact range.
+The board remained up after flashing, reconnected to the existing BlueZ bond
+without confirmation, resolved services, accepted an encrypted reversed-PPoG
+subscription, and returned ResetComplete. A deliberately unacknowledged first
+data packet timed out and disconnected cleanly without returning to the prior
+assertion/reset loop; a subsequent bonded reconnect succeeded.
 
 ## Validation commands
 

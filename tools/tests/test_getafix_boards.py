@@ -42,6 +42,23 @@ def load_config(revision, variant):
 
 
 class GetafixBoardsTest(unittest.TestCase):
+    def test_dvt3_pairing_uses_its_two_present_buttons(self):
+        board_source = (ROOT / "src/fw/board/boards/board_t5ai.c").read_text()
+        self.assertIn('[BUTTON_ID_UP] = {.name = "Up", .pin = UINT8_MAX}', board_source)
+        self.assertIn('[BUTTON_ID_DOWN] = {.name = "Down", .pin = UINT8_MAX}', board_source)
+
+        pairing_ui = (ROOT / "src/fw/popups/bluetooth_pairing_ui.c").read_text()
+        dvt3_controls = pairing_ui[
+            pairing_ui.index("#ifdef CONFIG_BOARD_GETAFIX_DVT3") :
+            pairing_ui.index("#endif", pairing_ui.index("#ifdef CONFIG_BOARD_GETAFIX_DVT3"))
+        ]
+        self.assertIn(
+            "#define BT_PAIRING_CONFIRM_BUTTON BUTTON_ID_SELECT", dvt3_controls
+        )
+        self.assertIn(
+            "#define BT_PAIRING_DECLINE_BUTTON BUTTON_ID_BACK", dvt3_controls
+        )
+
     def test_revision_discovery(self):
         choices = available_boards(str(ROOT))
         for revision in ("dvt", "dvt2", "dvt3"):
@@ -631,9 +648,9 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertEqual(dvt3["ACCEL_LIS2DW12"], "n")
         self.assertEqual(dvt3["BATTERY_T5AI"], "y")
         self.assertEqual(dvt3["BATTERY_PMIC"], "n")
-        self.assertEqual(dvt3["BT_FW_STUB"], "y")
-        self.assertEqual(dvt3["BT_FW_NIMBLE"], "n")
-        self.assertEqual(dvt3["T5AI_CP_HCI_VALIDATED"], "n")
+        self.assertEqual(dvt3["BT_FW_STUB"], "n")
+        self.assertEqual(dvt3["BT_FW_NIMBLE"], "y")
+        self.assertEqual(dvt3["T5AI_CP_HCI_VALIDATED"], "y")
         self.assertEqual(dvt3["PROMPT"], "n")
         self.assertEqual(dvt3["SPEAKER"], "n")
         self.assertEqual(dvt3["MIC"], "n")
@@ -643,6 +660,14 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertEqual(dvt3["TEMPERATURE"], "n")
 
     def test_dvt3_hci_callback_buffers_have_explicit_ownership(self):
+        nimble_build = (ROOT / "third_party/nimble/wscript_build").read_text()
+        self.assertIn(
+            "'MYNEWT_VAL_BLE_TRANSPORT_ACL_FROM_HS_COUNT=10'", nimble_build
+        )
+        self.assertIn(
+            "'MYNEWT_VAL_BLE_TRANSPORT_ISO_FROM_HS_COUNT=0'", nimble_build
+        )
+
         source = (
             ROOT / "third_party/nimble/transport/t5ai_hci_ipc.c"
         ).read_text()
@@ -673,9 +698,9 @@ class GetafixBoardsTest(unittest.TestCase):
         build = (
             ROOT / "src/fw/services/bluetooth/wscript_build"
         ).read_text()
-        self.assertIn("if bld.env.CONFIG_SOC_T5AI:", build)
+        self.assertIn("not bld.env.CONFIG_SOC_T5AI", build)
         self.assertIn(
-            "sources.append('bluetooth_persistent_storage_t5ai.c')", build
+            "sources.append('bluetooth_persistent_storage_prf.c')", build
         )
 
         shared_prf = (
