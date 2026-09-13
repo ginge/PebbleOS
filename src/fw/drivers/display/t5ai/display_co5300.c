@@ -77,6 +77,8 @@ static bool s_rotated;
 static uint8_t s_brightness = 0xffu;
 static bool s_brightness_dirty;
 static uint8_t s_panel_row[PANEL_WIDTH * 2u] __attribute__((aligned(4)));
+static uint16_t s_panel_source_x[PANEL_WIDTH];
+static uint16_t s_rgb565[64];
 static char s_trace_buffer[160];
 static uint32_t s_last_stream_words;
 
@@ -195,21 +197,27 @@ static bool prv_set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
   return prv_register(0x2au, columns, sizeof(columns)) && prv_register(0x2bu, rows, sizeof(rows));
 }
 
-static uint16_t prv_rgb565(uint8_t pixel) {
+static void prv_init_conversion_tables(void) {
   static const uint8_t red_blue[4] = {0u, 10u, 21u, 31u};
-  const uint16_t red = red_blue[(pixel >> 4) & 3u];
-  const uint16_t green = ((pixel >> 2) & 3u) * 21u;
-  const uint16_t blue = red_blue[pixel & 3u];
-  return (red << 11) | (green << 5) | blue;
+  for (unsigned pixel = 0u; pixel < 64u; ++pixel) {
+    const uint16_t red = red_blue[(pixel >> 4) & 3u];
+    const uint16_t green = ((pixel >> 2) & 3u) * 21u;
+    const uint16_t blue = red_blue[pixel & 3u];
+    s_rgb565[pixel] = (red << 11) | (green << 5) | blue;
+  }
+  for (unsigned x = 0u; x < PANEL_WIDTH; ++x) {
+    s_panel_source_x[x] = x * PBL_DISPLAY_WIDTH / PANEL_WIDTH;
+  }
 }
 
-static void prv_convert_row(const uint8_t *source, bool reverse) {
+static void __attribute__((section(".t5ai_ramfunc"), noinline, optimize("O3")))
+prv_convert_row(const uint8_t *source, bool reverse) {
   for (unsigned x = 0; x < PANEL_WIDTH; ++x) {
-    unsigned source_x = x * PBL_DISPLAY_WIDTH / PANEL_WIDTH;
+    unsigned source_x = s_panel_source_x[x];
     if (reverse) {
       source_x = PBL_DISPLAY_WIDTH - 1u - source_x;
     }
-    const uint16_t pixel = prv_rgb565(source[source_x]);
+    const uint16_t pixel = s_rgb565[source[source_x] & 0x3fu];
     // The panel consumes RGB565 most-significant byte first.
     s_panel_row[x * 2u] = (uint8_t)(pixel >> 8);
     s_panel_row[x * 2u + 1u] = (uint8_t)pixel;
@@ -233,7 +241,8 @@ static void prv_pixel_stream_end(void) {
   *prv_qspi(QSPI_CONFIG) &= ~QSPI_FORCE_CS_LOW;
 }
 
-static void prv_pixel_stream_write(const uint8_t *data, size_t length, size_t *aperture_word) {
+static void __attribute__((section(".t5ai_ramfunc"), noinline, optimize("O3")))
+prv_pixel_stream_write(const uint8_t *data, size_t length, size_t *aperture_word) {
   PBL_ASSERTN((length % sizeof(uint32_t)) == 0u);
   for (size_t offset = 0u; offset < length; offset += sizeof(uint32_t)) {
     uint32_t word;
@@ -279,6 +288,10 @@ static void prv_stream_logical_row(uint16_t logical_y, const uint8_t *data,
   for (uint16_t y = y0; y <= y1; ++y) {
     prv_pixel_stream_write(s_panel_row, sizeof(s_panel_row), aperture_word);
   }
+}
+
+static uint16_t prv_panel_row_start(uint16_t logical_y) {
+  return (logical_y * PANEL_HEIGHT + PBL_DISPLAY_HEIGHT - 1u) / PBL_DISPLAY_HEIGHT;
 }
 
 static bool prv_draw_diagnostic_pattern(void) {
@@ -513,6 +526,7 @@ void display_co5300_bitbang_probe(void) {
 }
 
 void display_init(void) {
+  prv_init_conversion_tables();
   s_initialized = prv_qspi_init() && prv_panel_init();
   s_enabled = s_initialized;
   s_brightness_dirty = false;
@@ -620,15 +634,21 @@ void display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
   size_t aperture_word = 0u;
   uint16_t expected_row = 0u;
 
-  if (s_initialized && !s_rotated) {
-    full_stream = prv_set_window(PANEL_X_OFFSET, 0u, PANEL_X_OFFSET + PANEL_WIDTH - 1u,
-                                 PANEL_HEIGHT - 1u) &&
-                  prv_pixel_stream_begin();
-  }
-
   while (s_initialized && nrcb(&row)) {
     if (row.address >= PBL_DISPLAY_HEIGHT) {
       break;
+    }
+
+    // Compositor updates commonly begin below row zero. Start one continuous
+    // stream at the first dirty row instead of paying three polled register
+    // commands and a separate pixel transaction for every logical row.
+    if (!s_rotated && !full_stream) {
+      const uint16_t panel_y = prv_panel_row_start(row.address);
+      full_stream = prv_set_window(PANEL_X_OFFSET, panel_y,
+                                   PANEL_X_OFFSET + PANEL_WIDTH - 1u,
+                                   PANEL_HEIGHT - 1u) &&
+                    prv_pixel_stream_begin();
+      expected_row = row.address;
     }
     if (full_stream && row.address == expected_row) {
       prv_stream_logical_row(row.address, row.data, &aperture_word);

@@ -3,6 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+    .t5ai_ramfunc : ALIGN(4) {
+        __t5ai_ramfunc_start = .;
+        *(.t5ai_ramfunc)
+        __t5ai_ramfunc_end = .;
+    } >KERNEL_RAM AT>FLASH
+    __t5ai_ramfunc_load_start = LOADADDR(.t5ai_ramfunc);
+
     .kernel_data : ALIGN(32) {
         __data_start = .; /* This is used by the startup in order to initialize the .data secion */
 

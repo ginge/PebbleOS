@@ -21,6 +21,12 @@ extern uint8_t __bss_start[];
 extern uint8_t __bss_end[];
 extern uint8_t _estack[];
 
+#if defined(CONFIG_SOC_T5AI)
+extern uint8_t __t5ai_ramfunc_load_start[];
+extern uint8_t __t5ai_ramfunc_start[];
+extern uint8_t __t5ai_ramfunc_end[];
+#endif
+
 //! Firmware main function, ResetHandler calls this
 extern int main(void);
 
@@ -48,6 +54,10 @@ NORETURN Reset_Handler(void) {
 
   // Copy data section from flash to RAM
   memcpy(__data_start, __data_load_start, __data_end - __data_start);
+#if defined(CONFIG_SOC_T5AI)
+  memcpy(__t5ai_ramfunc_start, __t5ai_ramfunc_load_start,
+         __t5ai_ramfunc_end - __t5ai_ramfunc_start);
+#endif
 
   // Clear the bss section, assumes .bss goes directly after .data
   memset(__bss_start, 0, __bss_end - __bss_start);
