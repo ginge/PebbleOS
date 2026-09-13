@@ -444,6 +444,15 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertNotIn("new_timer_add_work_callback_from_isr", mailbox)
         self.assertIn("T5AI_MBOX_CH1_CTRL |= T5AI_MBOX_INTERRUPT_ENABLE", mailbox)
         self.assertIn("T5AI_MAILBOX_SYSTEM_INTERRUPT_ENABLE", mailbox)
+        self.assertIn("T5AI_CP_PM_CPU_FREQUENCY_COMMAND 4u", mailbox)
+        self.assertIn("T5AI_CP_PM_CPU1_MODULE 38u", mailbox)
+        self.assertIn("T5AI_CP_PM_CPU_FREQUENCY_120MHZ 3u", mailbox)
+        self.assertIn("t5ai_cp_mailbox_vote_cpu1_120mhz", mailbox)
+        vote = main.index("t5ai_cp_mailbox_vote_cpu1_120mhz()")
+        self.assertLess(main.index("init_drivers();"), vote)
+        self.assertLess(vote, main.index("display_init();", vote))
+        self.assertIn('"PBLCLK vote=%ld mode1=%08lx', main)
+        self.assertIn('"PBLCLK apply mode1=%08lx', main)
         self.assertIn(
             "T5AI_CP_LOG_RX_CHANNEL 0x4eu",
             (ROOT / "src/fw/console/dbgserial_input.c").read_text(),

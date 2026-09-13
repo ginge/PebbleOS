@@ -26,9 +26,10 @@ config T5AI_CORE_CLOCK_HZ
     depends on SOC_T5AI
     default 120000000
     help
-      Application-core clock inherited from the BK7258 CP0 boot stage. Pebble
-      does not currently request a DVFS transition, so changing this value also
-      requires a validated clock-tree vote and matching peripheral timing.
+      Application-core clock requested from BK7258 CP0 after the serialized
+      mailbox transport is initialized. Pebble holds one CPU1 DVFS vote for
+      the AP firmware lifetime; changing this value also requires updating and
+      validating that vote and the matching peripheral timing.
 
 config T5AI_SYSTICK_CLOCK_HZ
     int "T5AI application CPU SysTick clock"

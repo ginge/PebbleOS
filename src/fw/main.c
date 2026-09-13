@@ -199,6 +199,7 @@ static void watchdog_timer_callback(void* data) {
 #include <pbl/services/bluetooth/bluetooth_persistent_storage.h>
 
 static char s_t5ai_timebase_response[480];
+#define T5AI_SYSTEM_CLK_MODE1 (*(volatile uint32_t *)0x44010020u)
 volatile uint32_t g_t5ai_boot_stage;
 volatile uint32_t g_t5ai_app_stage;
 
@@ -484,6 +485,16 @@ static NOINLINE void prv_main_task_init(void) {
   init_drivers();
 
 #ifdef CONFIG_SOC_T5AI
+  /* Flash initialization establishes the serialized CP mailbox transport.
+   * Hold one platform-owned CPU1 vote for the lifetime of the AP firmware;
+   * display updates must never race or repeatedly renegotiate the clock. */
+  const status_t cpu_clock_vote_status = t5ai_cp_mailbox_vote_cpu1_120mhz();
+  dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
+                       "PBLCLK vote=%ld mode1=%08lx core=%lu systick=%08lx/%lu/%lu",
+                       (long)cpu_clock_vote_status, (unsigned long)T5AI_SYSTEM_CLK_MODE1,
+                       (unsigned long)SystemCoreClock, (unsigned long)SysTick->CTRL,
+                       (unsigned long)SysTick->LOAD, (unsigned long)SysTick->VAL);
+
   /* Normal firmware's boot splash service is intentionally a no-op, so T5AI
    * must initialize its panel explicitly after the peripheral drivers. */
   display_init();
@@ -561,6 +572,11 @@ static NOINLINE void prv_main_task_init(void) {
 #ifdef CONFIG_SOC_T5AI
   g_t5ai_boot_stage = 3u;
   t5ai_freertos_apply_systick_clock();
+  dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
+                       "PBLCLK apply mode1=%08lx core=%lu systick=%08lx/%lu/%lu",
+                       (unsigned long)T5AI_SYSTEM_CLK_MODE1, (unsigned long)SystemCoreClock,
+                       (unsigned long)SysTick->CTRL, (unsigned long)SysTick->LOAD,
+                       (unsigned long)SysTick->VAL);
 
   /* CP0's shell fallback is interrupt-scale. Defer mailbox dispatch from IRQ
    * 63 to the high-priority NewTimer work queue after hardware bring-up. */
