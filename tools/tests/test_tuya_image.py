@@ -30,9 +30,9 @@ from tools.t5ai_image import (
 
 class TuyaImageMapTest(unittest.TestCase):
     LAYOUT = """\
-KERNEL_RAM       0x28010000         0x0001a800         xrw
-WORKER_RAM       0x2802a800         0x00003000         xrw
-APP_RAM          0x2802d800         0x00038800         xrw
+KERNEL_RAM       0x28010000         0x0001f000         xrw
+WORKER_RAM       0x2802f000         0x00003000         xrw
+APP_RAM          0x28032000         0x00034000         xrw
 T5AI_DISPLAY_RAM 0x60000000         0x00020000         rw
                 0x28011000 __isr_stack_start__ = .
                 0x28012000 __kernel_main_stack_start__ = .

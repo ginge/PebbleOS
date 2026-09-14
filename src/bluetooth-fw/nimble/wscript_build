@@ -1,4 +1,9 @@
 excludes = []
+if bld.env.CONFIG_SOC_T5AI:
+    excludes.append('gatt_client_discovery.c')
+else:
+    excludes.append('gatt_client_discovery_t5ai.c')
+
 if not bld.env.CONFIG_GH3X2X_TUNING_SERVICE_ENABLED:
     excludes.extend(['gh3x2x_tuning_service.c'])
 

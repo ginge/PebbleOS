@@ -98,7 +98,21 @@ static void prv_send_watch_versions(CommSession *session) {
   version_copy_running_fw_metadata(&versions_msg.running_fw_metadata);
   prv_fixup_running_firmware_metadata(&versions_msg.running_fw_metadata);
 
-  version_copy_recovery_fw_metadata(&versions_msg.recovery_fw_metadata);
+  const bool has_recovery_fw =
+      version_copy_recovery_fw_metadata(&versions_msg.recovery_fw_metadata);
+#if defined(CONFIG_BOARD_GETAFIX_DVT3)
+  if (!has_recovery_fw) {
+    // The T5AI factory image has an external recovery path, not a Pebble PRF
+    // partition. libpebble treats every BLE watch with no recovery metadata as
+    // running in factory mode, so provide a protocol-only compatibility record.
+    // Keep version_is_prf_installed() and all update paths truthful and
+    // fail-closed; this record must never be used for boot or flash decisions.
+    version_copy_running_fw_metadata(&versions_msg.recovery_fw_metadata);
+    versions_msg.recovery_fw_metadata.is_recovery_firmware = true;
+  }
+#else
+  (void)has_recovery_fw;
+#endif
   prv_fixup_firmware_metadata(&versions_msg.recovery_fw_metadata);
 
   // Note: Don't worry about the null terminator if it doesn't fit, the other side should deal with it.

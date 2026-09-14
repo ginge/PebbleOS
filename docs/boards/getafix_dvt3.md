@@ -3,7 +3,7 @@
 `getafix@dvt3` is the native PebbleOS port for the Waveshare
 [T5-E1-Touch-AMOLED-1.75](https://www.waveshare.com/wiki/T5-E1-Touch-AMOLED-1.75),
 which uses the Tuya T5AI/BK7258. This page is the operator handoff for the
-hardware currently under test. It reflects the state validated on 2026-09-12.
+hardware currently under test. It reflects the state validated on 2026-09-13.
 
 The only PebbleOS source of truth is:
 
@@ -39,14 +39,15 @@ runs Pebble's NimBLE host against the CP-owned Bluetooth controller.
 | Bluetooth HCI command/event and ACL transport | Proven |
 | Connectable advertising and BlueZ connection | Proven |
 | Pebble GATT service discovery | Proven |
-| Pairing, bonding, reconnect, and Pebble protocol transfer | Not yet validated |
+| Pairing, bonding, reconnect, and Pebble protocol transfer | Proven; phone reports `factory` / unknown platform |
 | Sleep/wake and low-power operation | Not yet validated |
 | OTA, recovery, and general writable flash | Deliberately disabled pending a safe storage/recovery contract |
 
-The normal T5AI path still performs a deliberately reduced service startup in
-`src/fw/main.c`, but it now runs the Pebble launcher/application stack. Native
+The normal T5AI path retains board-specific hardware sequencing in
+`src/fw/main.c`, then initializes the complete normal service set. Native
 startup has visibly progressed through the PebbleOS splash and charging
-animation into the launcher, and physical touch has moved its menu.
+animation into the launcher, physical touch has moved its menu, and the phone
+has opened an encrypted reversed-PPoG session without rebooting the watch.
 
 ## Device and USB ports
 
@@ -76,13 +77,19 @@ python pbl configure --board getafix@dvt3
 python ./waf build
 ```
 
-The last clean build on 2026-09-12 succeeded with these measurements:
+The diagnostics-free checkpoint build on 2026-09-13 succeeded with these
+measurements:
 
-- FLASH: 852,083 bytes of 1,984 KiB (41.94%).
-- KERNEL_RAM: 82,304 bytes of 106 KiB (75.83%).
+- FLASH: 873,075 bytes of 960 KiB (88.81%).
+- KERNEL_RAM: 81,536 bytes of 124 KiB (64.21%).
 - T5AI_DISPLAY_RAM: 67,614 bytes of 128 KiB (51.59%).
-- LOG_STRINGS: 119,239 bytes of 512 KiB (22.74%).
+- LOG_STRINGS: 120,177 bytes of 512 KiB (22.92%).
 - Resources: 1,026,537 bytes of 1,048,576 (97.90%).
+
+The 927,656-byte `build/pebbleos.t5ai-crc.bin` has SHA-256
+`ebd702307935cd5f04d21cc19e371bb8f83e6dd96bff2a5ca17715e5ba7b291e`
+and occupies physical range `0x132000..0x2147a8`. It was verified but not
+reflashed after the successful phone session.
 
 The build emits `build/pebbleos.t5ai-crc.bin`, an AP-only protected-block
 payload. It is not a complete QIO, UA, UG, factory, recovery, or OTA image.
@@ -116,7 +123,7 @@ imaging, and firmware/resource update paths remain disabled on T5AI.
 To monitor runtime output:
 
 ```sh
-picocom --baud 460800 /dev/ttyACM2
+picocom --baud 460800 /dev/ttyACM1
 ```
 
 ## Bluetooth handoff
@@ -150,9 +157,12 @@ BlueZ then:
   `40000000-328e-0fbb-c642-1aa6699bdada` services; and
 - disconnected cleanly, leaving the board advertising.
 
-The test connection was not paired or bonded. The next Bluetooth milestone is
-pairing, encrypted reconnect, and bidirectional Pebble protocol traffic over
-the `fed9` service, including MTU and notification behavior.
+The 2026-09-13 phone test paired and persisted the bond, reconnected after a
+watch reboot, completed encrypted GATT discovery, subscribed to reversed PPoG,
+opened the Pebble Protocol session, connected the music service, and entered
+normal connection parameters without a reboot. The Pebble app showed
+`connected(factory)` and an unknown platform; correcting device/platform
+identity is the next Bluetooth milestone.
 
 A 2026-09-12 follow-up build reached the Pebble numeric-comparison popup and
 BlueZ displayed the same six-digit value, proving the pairing UI and SMP
@@ -1195,14 +1205,22 @@ build, `git diff --check`, and all 80 focused tests pass.
 
 ## Bluetooth persistence
 
-The T5AI build currently uses a volatile Pebble Bluetooth persistence backend.
-It keeps identity, bond, and capability state in RAM and seeds per-boot root
-keys from the AP TRNG. A reboot loses bonds and restores the default name.
+The T5AI build uses Pebble's PRF Bluetooth persistence interface over the
+bounded shared-PRF partition. Writes are enabled, and the backend enumerates the
+saved BLE pairing so Bluetooth Settings shows the phone's name after reboot.
+A firmware-only AP flash does not overwrite the partition; the tested phone
+reconnected without a new pairing.
 
-Shared PRF remains read-only because its partition, compaction, corruption
-recovery, and factory-recovery policy are not validated. Persistent bonding
-must not be enabled merely to advance pairing tests. First define and test the
-safe writable-storage and recovery contract.
+This does not validate every storage failure mode. Cold power-cycle retention,
+compaction, corruption recovery, endurance, and full-board recovery still need
+explicit tests before expanding writable-flash scope. Firmware, recovery,
+persistent-coredump, and unsafe general write paths remain disabled.
+
+The reconnect-time ATT failure was not mbuf exhaustion. The CP reads HCI packets
+through a pointer nested in the mailbox request, so the T5AI IPC layer must clean
+the pointed-to payload from the AP data cache before publishing the descriptor.
+T5AI also uses a local streaming GATT discovery implementation to release each
+completed service while leaving shared NimBLE discovery unchanged.
 
 ## Other hardware notes
 
@@ -1217,8 +1235,9 @@ safe writable-storage and recovery contract.
 - Missing vibration, ambient light, temperature, magnetometer, microphone,
   PMIC, and OTP hardware are represented by explicit unavailable or safe
   fallback implementations rather than inherited DVT2 drivers.
-- Touch and accelerometer polling are proven, but full end-to-end application
-  delivery still depends on completing the normal common-service startup.
+- Touch and accelerometer delivery are proven. The board-specific startup now
+  calls the complete normal-service initializer after hardware bring-up, so
+  protocol endpoints do not reach uninitialized music, AppDB, or timer state.
 
 ## Validation
 
@@ -1237,7 +1256,7 @@ cd /home/baz/coredevices/pebbleos
   tools.tests.test_tuya_memory
 ```
 
-The latest 2026-09-12 run passed all 80 tests. Finish a handoff with:
+The latest 2026-09-13 run passed all 88 tests. Finish a handoff with:
 
 ```sh
 git diff --check
@@ -1248,22 +1267,16 @@ git status --short --branch
 
 Continue in this order:
 
-1. Validate physical Back/Select GPIOs and both touch Up/Down navigation
-   directions end to end, including repeated gestures rather than one sample.
-2. Remove temporary startup checkpoints and observation-only diagnostics once
-   repeated interaction and watchdog soaks remain stable.
-3. Pair from BlueZ, validate encryption and the security callbacks, then
-   disconnect and reconnect within the same boot.
-4. Exchange real Pebble protocol data over the `fed9` characteristics and
-   verify notifications, writes, MTU negotiation, and sustained ACL ordering.
-5. Design and validate persistent bonding storage only after shared-PRF write,
-   compaction, corruption recovery, and full-board recovery are safe.
-6. Enable the remaining common services and validate accelerometer and broader
-   Pebble application behavior together.
-7. Validate sleep/wake, Bluetooth low-power operation, and peripheral resume.
-8. Fit a battery and validate voltage calibration, charging transitions,
+1. Correct the identity metadata that makes the phone app report
+   `connected(factory)` and an unknown platform.
+2. Run longer reconnect, cold-power-cycle, sustained protocol-transfer, and
+   persistent-bond soaks.
+3. Validate shared-PRF compaction, corruption recovery, endurance, and
+   full-board recovery before expanding writable-flash scope.
+4. Validate sleep/wake, Bluetooth low-power operation, and peripheral resume.
+5. Fit a battery and validate voltage calibration, charging transitions,
    retention, and state of charge against external measurements.
-9. Leave OTA, resource-bank writes, and general flash mutation until the image,
+6. Leave OTA, resource-bank writes, and general flash mutation until the image,
    rollback, and recovery design is complete.
 
 ## Source and reference map
@@ -1273,10 +1286,12 @@ Key native files:
 - `src/fw/drivers/t5ai/cp_mailbox.c`: physical mailbox ownership and ACK
   serialization.
 - `third_party/nimble/transport/t5ai_hci_ipc.c`: MIPC/HCI framing, callback
-  ownership, and receive FIFO.
-- `src/fw/services/bluetooth/bluetooth_persistent_storage_t5ai.c`: volatile
-  T5AI Bluetooth persistence.
-- `src/fw/main.c`: partial T5AI startup path.
+  ownership, receive FIFO, controller lifecycle, and nested-payload cache clean.
+- `src/fw/services/bluetooth/bluetooth_persistent_storage_prf.c`: bounded
+  shared-PRF pairing persistence and enumeration.
+- `src/bluetooth-fw/nimble/gatt_client_discovery_t5ai.c`: T5AI-local streaming
+  GATT discovery.
+- `src/fw/main.c`: T5AI hardware sequencing and normal-service startup.
 - `boards/getafix/defconfig.dvt3`: DVT3 feature selection.
 - `boards/getafix/tuya/REMAINING_TASKS.md`: detailed chronological handoff and
   remaining checklist.

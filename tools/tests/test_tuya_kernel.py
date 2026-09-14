@@ -17,6 +17,12 @@ spec.loader.exec_module(checker)
 
 
 class TuyaKernelCheckTest(unittest.TestCase):
+    def test_t5ai_reclaims_only_measured_gabbro_runtime_headroom(self):
+        defaults = (ROOT / "soc/t5ai/Kconfig.defconfig").read_text()
+        self.assertIn("config APP_RAM_GABBRO_RUNTIME_SIZE", defaults)
+        self.assertIn("default 77824", defaults)
+        self.assertIn("measured\n# AppState is 73,936 bytes", defaults)
+
     def test_t5ai_flash_writes_are_limited_to_data_partitions(self):
         flash = (ROOT / "src/fw/drivers/flash/t5ai.c").read_text()
         for region in (
@@ -53,6 +59,28 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("bluetooth_persistent_storage_normal.c", bluetooth_build)
         self.assertIn("bluetooth_persistent_storage_prf.c", bluetooth_build)
         self.assertNotIn("bluetooth_persistent_storage_t5ai.c", bluetooth_build)
+        nimble_build = (ROOT / "src/bluetooth-fw/nimble/wscript_build").read_text()
+        self.assertIn("if bld.env.CONFIG_SOC_T5AI:", nimble_build)
+        self.assertIn("excludes.append('gatt_client_discovery.c')", nimble_build)
+        self.assertIn("excludes.append('gatt_client_discovery_t5ai.c')", nimble_build)
+        hci_ipc = (ROOT / "third_party/nimble/transport/t5ai_hci_ipc.c").read_text()
+        hci_exchange = hci_ipc.split("static status_t prv_exchange(", 1)[1].split(
+            "static status_t prv_locked_exchange(", 1
+        )[0]
+        self.assertIn("dcache_flush(payload, length);", hci_exchange)
+        hci_start = hci_ipc.split("int t5ai_hci_ipc_start(", 1)[1].split(
+            "int t5ai_hci_ipc_stop(", 1
+        )[0]
+        self.assertIn("prv_locked_exchange(T5AI_HCI_RESET, NULL, 0)", hci_start)
+        self.assertNotIn("prv_locked_exchange(T5AI_HCI_INIT, NULL, 0)", hci_start)
+        self.assertLess(
+            hci_start.index("prv_locked_exchange(T5AI_HCI_RESET, NULL, 0)"),
+            hci_start.index("prv_locked_exchange(T5AI_HCI_REGISTER_CALLBACKS, NULL, 0)"),
+        )
+        self.assertIn(
+            "cb(&pairing_info.identity, &pairing_info.irk, device_name, &bonding, context);",
+            (ROOT / "src/fw/services/bluetooth/bluetooth_persistent_storage_prf.c").read_text(),
+        )
         self.assertIn("flash_write_bytes(data, address, length);", shared_prf)
         write_helper = shared_prf.split("static void prv_flash_write(", 1)[1].split("}", 1)[0]
         self.assertNotIn("CONFIG_SOC_T5AI", write_helper)
@@ -323,11 +351,17 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("cron_service_init();", main)
         self.assertIn("accel_manager_init();", main)
         self.assertIn("touch_init();", main)
-        self.assertIn("persist_service_init();", main)
-        self.assertIn("dls_init();", main)
-        self.assertIn("app_order_storage_init();", main)
+        self.assertIn("services_normal_init();", main)
+        normal_services = (
+            ROOT / "src/fw/services/services_normal/service.c"
+        ).read_text()
+        self.assertIn("persist_service_init();", normal_services)
+        self.assertIn("dls_init();", normal_services)
+        self.assertIn("app_order_storage_init();", normal_services)
+        self.assertIn("music_init();", normal_services)
+        self.assertIn("blob_db_init_dbs();", normal_services)
         event_loop = (ROOT / "src/fw/kernel/event_loop.c").read_text()
-        self.assertIn("app_install_manager_init();", event_loop)
+        self.assertNotIn("app_install_manager_init();", event_loop)
         launcher_menu = (
             ROOT / "src/fw/apps/system/launcher/default/menu_layer.c"
         ).read_text()

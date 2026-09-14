@@ -622,10 +622,6 @@ static NOINLINE void prv_launcher_main_loop_init(void) {
   // but USART diagnostics and touch navigation still require the self-contained
   // RAM/timer input injector.
   remote_input_init();
-  // The launcher sorter consults the recent-app cache even when AppDB/PFS are
-  // disabled. Initialize its RAM-only cache and mutex after the event service
-  // is ready; T5AI enumeration remains restricted to built-in applications.
-  app_install_manager_init();
 #endif
   T5AI_BOOT_STAGE(16u);
   modal_manager_init();

@@ -109,6 +109,50 @@ class GetafixBoardsTest(unittest.TestCase):
         prf_update = (ROOT / "src/fw/services/prf_update/service.c").read_text()
         self.assertIn("Ignoring unsupported T5AI recovery firmware update", prf_update)
 
+    def test_dvt3_reports_round_2_identity_without_enabling_updates(self):
+        metadata = (ROOT / "include/pebbleos/firmware_metadata.h").read_text()
+        dvt3_identity = metadata[
+            metadata.index("#elif defined(CONFIG_BOARD_GETAFIX_DVT3)") : metadata.index(
+                "#elif defined(CONFIG_BOARD_QEMU_EMERY)"
+            )
+        ]
+        self.assertIn(
+            "FirmwareMetadataPlatformPebbleGetafixDVT2", dvt3_identity
+        )
+        self.assertNotIn("FirmwareMetadataPlatformUnknown", dvt3_identity)
+
+        versions = (ROOT / "src/fw/kernel/system_versions.c").read_text()
+        compatibility_start = versions.index(
+            "#if defined(CONFIG_BOARD_GETAFIX_DVT3)"
+        )
+        compatibility = versions[
+            compatibility_start : versions.index("#else", compatibility_start)
+        ]
+        self.assertIn("if (!has_recovery_fw)", compatibility)
+        self.assertIn(
+            "version_copy_running_fw_metadata(&versions_msg.recovery_fw_metadata)",
+            compatibility,
+        )
+        self.assertIn(
+            "versions_msg.recovery_fw_metadata.is_recovery_firmware = true",
+            compatibility,
+        )
+
+        # The compatibility record is phone-facing only. Real PRF detection and
+        # the fail-closed firmware transfer gates must remain in place.
+        version = (ROOT / "src/fw/system/version.c").read_text()
+        self.assertIn("bool version_is_prf_installed(void)", version)
+        firmware_update = (
+            ROOT / "src/fw/services/firmware_update/service.c"
+        ).read_text()
+        self.assertIn("Firmware update is unavailable on T5AI", firmware_update)
+        put_bytes = (ROOT / "src/fw/services/put_bytes/put_bytes.c").read_text()
+        rejection = put_bytes.index(
+            "Firmware object type %u is unavailable on T5AI"
+        )
+        for object_name in ("ObjectFirmware", "ObjectRecovery", "ObjectSysResources"):
+            self.assertIn(object_name, put_bytes[rejection - 250 : rejection])
+
     def test_dvt3_initializes_the_provisioned_filesystem(self):
         services = (
             ROOT / "src/fw/services/services_normal/service.c"

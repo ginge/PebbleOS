@@ -114,6 +114,11 @@ elif bld.env.CONFIG_SOC_T5AI:
     # transport serializes ACL sends and does not implement ISO packets, so do
     # not reserve SiFli's controller-sized 60-ACL/10-ISO transport pools.
     nimble_env.append_value('DEFINES', [
+        # The generated SF32LB52 host configuration provides only 12 shared
+        # mbufs. Pairing and reconnect can transiently consume all of them,
+        # leaving no buffer for the first GATT discovery request's L2CAP/HCI
+        # headers. Match the proven nRF52 host-side pool size on T5AI.
+        'MYNEWT_VAL_MSYS_1_BLOCK_COUNT=35',
         'MYNEWT_VAL_BLE_TRANSPORT_ACL_COUNT=10',
         'MYNEWT_VAL_BLE_TRANSPORT_ACL_FROM_HS_COUNT=10',
         'MYNEWT_VAL_BLE_TRANSPORT_ACL_FROM_LL_COUNT=10',

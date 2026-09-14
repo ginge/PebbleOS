@@ -6,12 +6,19 @@ T5-E1 Touch AMOLED 1.75 board. Continue in the only valid source checkout,
 `/home/baz/Documents/ChatGPT/pebble` is reference and artifact storage, not a
 PebbleOS source tree.
 
-## Current priority: validate interrupt-driven touch and overall responsiveness
+## Current priority: preserve the proven Bluetooth checkpoint
 
-- Bluetooth validation remains paused at the user's request. The panel and
-  launcher produce visible, updating output. Finish a physical swipe/navigation
-  check on the current interrupt-driven CST92xx image, then profile any remaining
-  whole-watch latency before asking to resume Bluetooth work.
+- Bluetooth pairing, encrypted GATT discovery, reversed PPoG, and reconnect are
+  now hardware-proven with persistent Pebble-side bond metadata. The phone app
+  reports the watch as `connected(factory)` with an unknown platform; resolving
+  the advertised/device platform identity is the next Bluetooth task.
+- The final successful run remained up through pairing, encryption, complete
+  GATT discovery, reversed-PPoG subscription/open, music-service connection,
+  and the transition to normal connection parameters. No temporary trace,
+  mutex, allocator, ATT, timer, or music diagnostics remain in production code.
+- The shared NimBLE GATT discovery implementation is stock. DVT3 selects a
+  T5AI-local streaming implementation that emits and frees each completed
+  service during discovery, avoiding a large transient kernel-heap peak.
 - The current touch path is interrupt-driven while idle. GPIO42 is the active-low
   CST9217 interrupt and GPIO43 is reset, as shown by the official Waveshare
   schematic. The Tuya board file's `BOARD_TP_RST_PIN=42` is inconsistent with
@@ -1000,9 +1007,9 @@ rendering on the normal blocking path with no event-loop polling workaround.
   advertising.
 - The resolved server includes Generic Access (`1800`), Generic Attribute
   (`1801`), Device Information (`180a`), Battery (`180f`), Pebble (`fed9`), and
-  Pebble vendor (`40000000-328e-0fbb-c642-1aa6699bdada`) services. The session
-  was deliberately unpaired and unbonded; pairing, reconnect, and real Pebble
-  protocol transfer are the next milestone.
+  Pebble vendor (`40000000-328e-0fbb-c642-1aa6699bdada`) services. This historical
+  session was deliberately unpaired and unbonded; the 2026-09-13 checkpoint
+  below supersedes it with pairing, reconnect, and real protocol transfer.
 - All legacy advertising commands complete successfully in the normal path:
   LE Set Advertising Data (`0x2008`), LE Set Scan Response Data (`0x2009`), LE
   Set Advertising Parameters (`0x2006`), and LE Set Advertise Enable (`0x200a`).
@@ -1019,12 +1026,12 @@ rendering on the normal blocking path with no event-loop polling workaround.
   MIPC object ACKs, and application replies. Asynchronous callback-response
   descriptors remain owned until their logical MIPC ACK. This removed the
   descriptor overwrite, double-ACK, and event-order failures.
-- The T5AI advertising-rotation timer bounces work to the system task because
-  the launcher task is not initialized by the current partial service startup.
-- The T5AI Bluetooth persistence backend is intentionally volatile. It holds
-  identity, bond, and capability state in RAM and seeds per-boot root keys from
-  the AP TRNG. Reboot loses bonds. Shared PRF remains read-only until its write,
-  compaction, corruption recovery, and factory-recovery rules are validated.
+- At this checkpoint, the T5AI advertising-rotation timer bounced work to the
+  system task because the launcher task was not initialized by the then-partial
+  service startup. The later normal-service initialization supersedes this.
+- At this checkpoint, Bluetooth persistence was intentionally volatile and
+  shared PRF remained read-only. The 2026-09-13 checkpoint below supersedes
+  this: bounded shared-PRF writes and BLE pairing enumeration are enabled.
 - The CP may continue to print non-fatal
   `bk_ipc_crc_check crc check failed` lines while transactions succeed. The
   native code mirrors the pinned vendor dispatch behavior because mutable
@@ -1365,24 +1372,24 @@ stronger test of the CP release/CPU1 reset contract.
 - Pebble's NimBLE host now advertises, accepts a BlueZ ACL connection, responds
   to ATT traffic, and exposes the expected Pebble GATT services through the
   native CP controller path.
-- The normal T5AI startup in `src/fw/main.c` remains intentionally partial and
-  does not call the complete shared `services_init()` path, but the required
-  launcher, compositor, touch, accelerometer, persistence, app-order, logging,
-  and Bluetooth services are now brought up explicitly. The launcher and live
-  display have been observed on hardware.
+- The normal T5AI startup in `src/fw/main.c` remains board-sequenced rather than
+  calling the complete shared `services_init()` path. After T5AI hardware-facing
+  initialization it now runs `services_normal_init()`, ensuring every shared
+  Pebble Protocol endpoint has its owning service, mutexes, and timers initialized.
+  The launcher and live display have been observed on hardware.
 - T5AI persistence gates were experimentally widened on 2026-09-13. Real
   pairing then proved that the CP protected-flash service rejects the normal
   SettingsDB write path (`flash_write_bytes` asserted after status `-8`). DVT3
-  Bluetooth therefore uses the PRF persistence interface with T5AI writes
-  suppressed; the CP/NimBLE bond survives AP flashing/reboot, while Pebble-side
-  bond metadata remains intentionally non-persistent. Firmware/recovery
+  Bluetooth therefore uses the PRF persistence interface. Bounded shared-PRF
+  writes and pairing enumeration are now enabled; the watch lists the saved
+  phone name after reboot and reconnects without a new pairing. Firmware/recovery
   objects and arbitrary NOR writes remain rejected. Protected-flash logical
   write, erase, recovery, corruption, and endurance behavior is still
   outstanding and must be solved before re-enabling those metadata writes.
 - The native build emits checked ELF, map, raw, Intel HEX, protected-block, and
   image-layout artifacts without unresolved platform symbols or RAM overflow.
 - The touch/display-focused baseline is 44 passing tests. The complete current
-  eight-module run is 87/87 after aligning the T5AI fail-closed persistence and
+  eight-module run is 88/88 after aligning the T5AI fail-closed persistence and
   update policy. Both DVT3 and the DVT2 compatibility target
   have built successfully; preserve DVT2 behavior.
 
@@ -1402,10 +1409,10 @@ implementation.
 
 ## Remaining work, in recommended order
 
-The broad host-side port and primary peripheral bring-up are complete. First
-finish physical validation of the interrupt-driven touch image and profile the
-remaining UI/display latency. Pairing and Pebble protocol data transfer over
-the proven NimBLE/CP transport follow. Several persistence gates are already
+The broad host-side port and primary peripheral bring-up are complete. Bluetooth
+pairing and Pebble protocol data transfer over the NimBLE/CP transport are now
+proven. Resolve the `factory`/unknown-platform identity reported by the phone,
+then perform longer reconnect and power-cycle soak testing. Several persistence gates are already
 enabled in the current source; validate their bounds and recovery behavior
 before relying on them. OTA and arbitrary/destructive flash paths remain out of
 scope.
@@ -1640,6 +1647,12 @@ Verify all pins from the schematic/BSP before hardware testing.
   An eight-entry receive FIFO preserves interleaved transport ACKs, MIPC ACKs,
   application replies, events, and ACL packets. Callback-response descriptors
   remain owned until their logical ACK.
+- HCI command and ACL request descriptors contain pointers to separate packet
+  buffers. The transport now cleans those nested payload bytes from the AP data
+  cache before CPU0 dereferences them. This fixed the reconnect-time HCI memory
+  error that surfaced as an ATT transmit assertion despite all host mbufs being
+  free. Reset precedes callback registration when the transport is restarted,
+  matching the controller lifecycle.
 - The vendor-compatible MIPC ABI uses fixed 32-bit shared pointers and channels
   `0x17` AP-to-CP and `0x47` CP-to-AP. The CP's recurring CRC log is non-fatal
   when a valid logical reply follows and matches pinned vendor behavior.
@@ -1652,12 +1665,23 @@ Verify all pins from the schematic/BSP before hardware testing.
   phone-initiated PPoG reset exchange completed, and Pebble logged an open
   reversed version-1 session with TX/RX windows of 4. Same-boot disconnect and
   reconnect also succeeded without confirmation.
-- The paired host reconnected after an AP image flash and full programmer
-  reboot without a new passkey, proving the CP/NimBLE bond survives that reset.
-  Pebble-side bond metadata is intentionally not written until the protected
-  flash contract is safe. Validate cold power-cycle retention separately.
-- MTU negotiation still needs a captured value, and sustained protocol payload
-  transfer plus Bluetooth low-power behavior remain to be measured.
+- Shared-PRF persistence writes are enabled within the validated partition and
+  the PRF backend enumerates the saved BLE pairing. After reboot, Bluetooth
+  Settings displays the phone's correct name and reconnects without a new
+  pairing. Firmware-only AP flashing preserves this partition and the bond.
+- T5AI initializes the complete normal service set after its board-specific
+  hardware sequence. This removed crashes from protocol endpoints reaching
+  uninitialized music, AppDB, and timer state. The common service initializer
+  itself is unchanged.
+- GATT discovery is streamed only on T5AI so completed services are handed to
+  Pebble and freed as discovery proceeds. The shared discovery implementation
+  remains stock. The T5AI host mbuf pool is 35 blocks, matching the established
+  nRF52 configuration and providing pairing/discovery headroom.
+- The phone app reaches a stable connected state but identifies the watch as
+  `connected(factory)` and reports an unknown platform. Device/platform identity
+  metadata is the next functional issue. Longer reconnect cycling, cold
+  power-cycle retention, sustained payload transfer, and Bluetooth low-power
+  behavior remain to be measured.
 - Replace polling with IRQ delivery and validate Bluetooth low-power behavior
   only after the functional data path is stable.
 
@@ -1865,27 +1889,25 @@ and recovery updates, raw arbitrary flash access, and OTA remain disabled.
 
 Current touch/display-focused baseline: all 44 tests in
 `test_tuya_kernel`, `test_tuya_image_packaging`, and `test_tuya_image` pass.
-The complete documented eight-module command currently runs 86 tests with 79
-passing and seven stale storage-policy assertions failing after the deliberate
-2026-09-13 removal of several T5AI persistence gates. Update those tests to the
-new policy or restore the gates; do not report the complete suite green until
-that decision is made. The DVT3 native firmware compiles and links without
-unresolved platform symbols or internal-RAM overflow. Host-generated ELF, map,
-raw binary, Intel HEX, protected-block, and checked layout artifacts are
-available.
+The complete documented eight-module command runs 88 tests and all pass. The
+DVT3 native firmware compiles and links without unresolved platform symbols or
+internal-RAM overflow. Host-generated ELF, map, raw binary, Intel HEX,
+protected-block, and checked layout artifacts are available.
 
 ### 16. Continued hardware validation
 
 The factory image is preserved and AP-only programming/recovery are proven.
 CPU1 startup, the CP handshake, dual USB roles, scheduler/timebases, buttons,
 I2C/RTC, display, touch, accelerometer, SARADC, and normal NimBLE advertising,
-ACL, ATT, and GATT discovery are proven. Continue with pairing and Pebble
-protocol transfer, then common-service/application integration, sleep/wake,
-and low power. Fit a battery before charging or state-of-charge validation.
-Treat persistent bonding, general writable storage, resources, and OTA as the
-highest-risk unfinished area because they require a tested corruption and
-full-recovery policy. Bounded persistence/resource writes are already enabled;
-OTA and firmware/recovery writes remain disabled.
+ACL, ATT, GATT discovery, pairing, persistent bond enumeration, reconnect, and
+reversed Pebble Protocol are proven. The next Bluetooth work is correcting the
+`factory`/unknown-platform identity, followed by longer reconnect and
+power-cycle soak testing. Common protocol-backed services now initialize before
+the connection can reach them. Fit a battery before charging or state-of-charge
+validation. General writable storage, resources, and OTA remain high-risk
+because they require a tested corruption and full-recovery policy. Bounded
+persistence/resource writes are enabled; OTA and firmware/recovery writes
+remain disabled.
 
 2026-09-12 watchdog follow-up: decoded UART captures separated two failure
 modes. First, the task watchdog reported `status=0x180 mask=0x182`, with
@@ -1947,38 +1969,42 @@ It built, flashed, reached `Ready for communication`, and remained up through
 the observation window without a reboot. Final physical swipe/navigation and
 idle interrupt-counter validation are still pending for this exact image.
 
-2026-09-13 Bluetooth completion milestone: DVT3 now uses the validated CP HCI
-transport and real NimBLE firmware with bounded ACL pools and ISO disabled.
-BlueZ paired with `Pebble 0AAB` (`20:F1:B2:B8:0A:AB`) using matching numeric
-comparison; a short press of the fitted `KEY`/Select button confirmed it.
-The link reported paired, bonded, connected, and services resolved. An
-encrypted reversed-PPoG subscription and write succeeded, the reset exchange
-opened a version-1 session with TX/RX windows of 4, ATT MTU negotiated from 23
-to 256 bytes, and the host received and acknowledged a real Pebble Protocol
-data packet. Disconnect/reconnect succeeded without a second confirmation. The
-host also reconnected without a passkey after the AP-only flash reboot. Normal
-SettingsDB bond persistence had
-exposed an unsafe protected-flash write (`-8` followed by a
-`flash_write_bytes` assertion), so T5AI now uses the PRF storage interface with
-its writes suppressed. This prevents the crash while retaining the controller
-bond across the tested reboot; cold power-cycle retention and the CP's bond
-ownership still need explicit validation. Persistent coredumps are also
-disabled on T5AI: an induced fault proved their protected-flash erase/blank
-check path unsafe and otherwise caused a reboot loop. The flash driver rejects
-coredump, debug-database, and shared-PRF writes, and T5AI now links the
-unavailable persistent-log backend so normal boot does not attempt to format
-the protected debug database. Firmware, recovery, and system-resource PutBytes
-objects are rejected before they reach flash. The final build uses 857,539
-bytes of FLASH, 74,688 bytes of KERNEL_RAM, 67,614 bytes of T5AI_DISPLAY_RAM,
-and 120,132 bytes of LOG_STRINGS. Its 911,166-byte protected AP payload has
-SHA-256
-`794ec138b1577963ff5f7cf726a09f70a00b1bce5542c5c323c04d9413ce3c12`,
-occupies `0x132000..0x21073e`, and flashed successfully to that exact range.
-The board remained up after flashing, reconnected to the existing BlueZ bond
-without confirmation, resolved services, accepted an encrypted reversed-PPoG
-subscription, and returned ResetComplete. A deliberately unacknowledged first
-data packet timed out and disconnected cleanly without returning to the prior
-assertion/reset loop; a subsequent bonded reconnect succeeded.
+2026-09-13 Bluetooth checkpoint: DVT3 now pairs with a phone, persists and
+enumerates the BLE bond, reconnects after reboot, completes encrypted GATT
+discovery, subscribes to reversed PPoG, opens the Pebble Protocol session, and
+appears connected in the Pebble phone app. The successful trace continued
+through music-service connection and the switch to normal connection parameters
+without a reboot. The phone currently labels it `connected(factory)` and reports
+an unknown platform; that identity mismatch is the next Bluetooth issue.
+
+The final reboot fault had two independent causes. First, the T5AI CP mailbox
+request publishes a descriptor containing a pointer to the HCI packet. Cleaning
+only the descriptor left CPU0 reading stale ACL bytes and returning HCI memory
+capacity, which NimBLE surfaced as an ATT transmit assertion. The T5AI IPC layer
+now cleans the pointed-to packet before publishing the request. Second, the
+board-specific startup exposed the common protocol endpoint table without
+initializing all endpoint owners. It now initializes the safe common transport
+pieces in the T5AI Bluetooth sequence and calls `services_normal_init()` after
+writable PFS is available. This supplies the missing music, AppDB, timer, and
+other normal-service state without adding board-specific initialization to
+shared service code.
+
+Persistent shared-PRF writes are now enabled within their bounded partition,
+and the PRF Bluetooth backend reports the saved pairing during enumeration. A
+firmware-only AP flash leaves that partition intact. T5AI uses a local streaming
+GATT discovery implementation to release completed service allocations while
+preserving the stock shared implementation for other boards, and its NimBLE
+host mbuf pool is sized to 35 blocks. Temporary allocator, mutex, ATT, timer,
+music, transport, and serial-trace diagnostics have been removed. Persistent
+coredumps and unsafe firmware/recovery writes remain disabled. Cold power-cycle
+retention, long reconnect soak, sustained payload transfer, and Bluetooth
+low-power behavior remain to be validated. The diagnostics-free checkpoint
+build uses 873,075 bytes of FLASH, 81,536 bytes of KERNEL_RAM, 67,614 bytes of
+T5AI_DISPLAY_RAM, and 120,177 bytes of LOG_STRINGS. Its 927,656-byte protected
+AP payload has SHA-256
+`ebd702307935cd5f04d21cc19e371bb8f83e6dd96bff2a5ca17715e5ba7b291e`
+and occupies `0x132000..0x2147a8`; it was built and checked but deliberately
+not reflashed after the successful phone session.
 
 ## Validation commands
 

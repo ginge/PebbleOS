@@ -23,4 +23,10 @@ config SRAM_BASE
 config SRAM_SIZE
     default 0x00056000
 
+# Gabbro reserves 96,256 bytes for AppState on other boards. T5AI's measured
+# AppState is 73,936 bytes with Moddable disabled, so retain 3,888 bytes of
+# headroom and return the remaining 18 KiB to the kernel heap.
+config APP_RAM_GABBRO_RUNTIME_SIZE
+    default 77824
+
 endif

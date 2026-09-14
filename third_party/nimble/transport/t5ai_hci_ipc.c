@@ -322,6 +322,11 @@ static status_t prv_exchange(uint8_t subtype, const void *payload, size_t length
     return E_RANGE;
   }
   s_message.request_length = (uint32_t)length;
+  // The IPC descriptor contains a pointer rather than an inline HCI packet.
+  // Publish the pointed-to bytes before CPU0 dereferences that pointer.
+  if (payload != NULL && length != 0u) {
+    dcache_flush(payload, length);
+  }
   status = prv_prepare_outbound(&s_request, &s_message, sizeof(s_message), false);
   if (FAILED(status)) {
     return status;
@@ -383,9 +388,11 @@ int t5ai_hci_ipc_start(const T5AIHCICallbacks *callbacks) {
     memset(&s_callbacks, 0, sizeof(s_callbacks));
     return status;
   }
-  status = prv_locked_exchange(T5AI_HCI_REGISTER_CALLBACKS, NULL, 0);
+  /* Reset first: Tuya's reset path deinitializes and reinitializes Bluetooth,
+   * which clears the controller's HCI receive callbacks. */
+  status = prv_locked_exchange(T5AI_HCI_RESET, NULL, 0);
   if (PASSED(status)) {
-    status = prv_locked_exchange(T5AI_HCI_INIT, NULL, 0);
+    status = prv_locked_exchange(T5AI_HCI_REGISTER_CALLBACKS, NULL, 0);
   }
   s_started = PASSED(status);
   if (!s_started) {

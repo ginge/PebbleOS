@@ -62,10 +62,13 @@
 #include "pbl/services/cron.h"
 #include "pbl/services/data_logging/data_logging_service.h"
 #include "pbl/services/compositor/compositor.h"
+#include "pbl/services/comm_session/app_session_capabilities.h"
 #include "pbl/services/comm_session/default_kernel_sender.h"
-#include "pbl/services/persist.h"
+#include "pbl/services/comm_session/session.h"
+#include "pbl/services/firmware_update.h"
+#include "pbl/services/poll_remote.h"
 #include "pbl/services/put_bytes/put_bytes.h"
-#include "pbl/services/process_management/app_order_storage.h"
+#include "pbl/services/services_normal.h"
 #include "pbl/services/shared_prf_storage/shared_prf_storage.h"
 #include "pbl/services/light.h"
 #include "pbl/services/regular_timer.h"
@@ -211,10 +214,14 @@ static void prv_t5ai_bluetooth_init(void) {
    * mailbox ABI. */
   vTaskDelay(pdMS_TO_TICKS(2000));
 
+  firmware_update_init();
+  put_bytes_init();
+  poll_remote_init();
   shared_prf_storage_init();
   bt_persistent_storage_init();
   comm_default_kernel_sender_init();
-  put_bytes_init();
+  comm_session_app_session_capabilities_init();
+  comm_session_init();
   bt_driver_init();
   bt_ctl_init();
   bt_ctl_set_enabled(true);
@@ -595,11 +602,10 @@ static NOINLINE void prv_main_task_init(void) {
 #ifndef CONFIG_SOC_T5AI
   services_init();
 #else
-  // T5AI's PFS is initialized by services_early_init(). Bring up the persistent
-  // services whose storage is confined to that validated writable partition.
-  persist_service_init();
-  dls_init();
-  app_order_storage_init();
+  // T5AI initializes hardware-facing common services in its board-specific
+  // sequence above. Its writable PFS is now available, so initialize the full
+  // set of normal services required by the shared protocol endpoint table.
+  services_normal_init();
 #endif
 
   // The RTC needs be calibrated after the mfg registry service has been initialized so we can

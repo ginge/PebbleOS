@@ -203,7 +203,18 @@ bool bt_persistent_storage_has_active_ble_gateway_bonding(void) {
 }
 
 void bt_persistent_storage_for_each_ble_pairing(BtPersistBondingDBEachBLE cb, void *context) {
-  return;
+  if (!cb) {
+    return;
+  }
+
+  SMPairingInfo pairing_info;
+  char device_name[BT_DEVICE_NAME_BUFFER_SIZE];
+  if (!shared_prf_storage_get_ble_pairing_data(&pairing_info, device_name, NULL, NULL)) {
+    return;
+  }
+
+  BTBondingID bonding = BLE_BONDING_ID;
+  cb(&pairing_info.identity, &pairing_info.irk, device_name, &bonding, context);
 }
 
 void bt_persistent_storage_register_existing_ble_bondings(void) {
