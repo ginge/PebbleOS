@@ -227,6 +227,8 @@ static status_t prv_wait_for_event_response_ack(void) {
   return S_SUCCESS;
 }
 
+static status_t prv_handle_command(T5AIMIPCFrame *frame, uint8_t expected, bool *matched);
+
 static void prv_route_frame(uint8_t logical_channel, const T5AICPMailboxFrame *frame,
                             void *context) {
   (void)logical_channel;
@@ -238,8 +240,22 @@ static void prv_route_frame(uint8_t logical_channel, const T5AICPMailboxFrame *f
   T5AIMIPCFrame pending;
   dcache_invalidate((void *)frame->address, sizeof(pending));
   memcpy(&pending, (const void *)frame->address, sizeof(pending));
-  if ((pending.header & (0xfu << 12)) == 0u && FAILED(prv_physical_ack(&pending))) {
-    return;
+  if ((pending.header & (0xfu << 12)) == 0u) {
+    if (FAILED(prv_physical_ack(&pending))) {
+      return;
+    }
+
+    /* CP sends HCI events synchronously and cannot service the flash socket
+     * until AP returns the logical MIPC response. This route runs when another
+     * mailbox client (notably flash) owns the shared lock, so merely queueing
+     * the HCI frame deadlocks both services. Complete the event transaction
+     * inline; the transport callback only copies into NimBLE's host queue. */
+    if ((uint8_t)pending.header ==
+        t5ai_mipc_header(T5AI_MIPC_CPU_CP, T5AI_MIPC_TYPE_COMMAND)) {
+      bool ignored = false;
+      (void)prv_handle_command(&pending, UINT8_MAX, &ignored);
+      return;
+    }
   }
   (void)prv_queue_pending_frame(&pending, true);
 }

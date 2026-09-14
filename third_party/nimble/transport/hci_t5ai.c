@@ -24,11 +24,89 @@
 #define T5AI_HCI_MAX_COMMAND_SIZE 258u
 #define T5AI_HCI_MAX_EVENT_SIZE 257u
 #define T5AI_HCI_MAX_ACL_SIZE 1028u
+#define T5AI_HCI_ACL_SEND_ATTEMPTS 3u
+
+#define T5AI_L2CAP_CID_ATT 0x0004u
+#define T5AI_ATT_OP_HANDLE_VALUE_NOTIFICATION 0x1bu
+#define T5AI_ATT_OP_WRITE_COMMAND 0x52u
+#define T5AI_PPOG_PACKET_TYPE_MASK 0x07u
+#define T5AI_PPOG_PACKET_TYPE_DATA 0u
+#define T5AI_PPOG_PACKET_TYPE_ACK 1u
+#define T5AI_PPOG_SEQUENCE_SHIFT 3u
 
 static bool s_started;
-static bool s_failed;
 static uint8_t s_acl_tx[T5AI_HCI_MAX_ACL_SIZE];
 static TaskHandle_t s_hci_task;
+static uint32_t s_pp_rx_remaining;
+static uint32_t s_pp_rx_packets;
+
+static uint16_t prv_read_le16(const uint8_t *data) {
+  return (uint16_t)data[0] | ((uint16_t)data[1] << 8);
+}
+
+static uint16_t prv_read_be16(const uint8_t *data) {
+  return ((uint16_t)data[0] << 8) | (uint16_t)data[1];
+}
+
+static void prv_trace_ppog_rx(const uint8_t *data, size_t length) {
+  /* HCI ACL (4), L2CAP (4), ATT Write Command (3), then PPoG. */
+  if (length < 12u || prv_read_le16(&data[6]) != T5AI_L2CAP_CID_ATT ||
+      data[8] != T5AI_ATT_OP_WRITE_COMMAND) {
+    return;
+  }
+
+  const uint8_t header = data[11];
+  const unsigned type = header & T5AI_PPOG_PACKET_TYPE_MASK;
+  const unsigned sequence = header >> T5AI_PPOG_SEQUENCE_SHIFT;
+  const uint8_t *payload = &data[12];
+  const size_t payload_length = length - 12u;
+
+  if (type != T5AI_PPOG_PACKET_TYPE_DATA) {
+    PBL_LOG_D_INFO(LOG_DOMAIN_BT_STACK,
+              "T5AI PPoG RX control type=%u sn=%u len=%u", type, sequence,
+              (unsigned)payload_length);
+    if (type != T5AI_PPOG_PACKET_TYPE_ACK) {
+      s_pp_rx_remaining = 0;
+    }
+    return;
+  }
+
+  ++s_pp_rx_packets;
+  if (s_pp_rx_remaining == 0 && payload_length >= 4u) {
+    const uint16_t pp_length = prv_read_be16(payload);
+    const uint16_t endpoint = prv_read_be16(&payload[2]);
+    s_pp_rx_remaining = (uint32_t)pp_length + 4u;
+    PBL_LOG_D_INFO(LOG_DOMAIN_BT_STACK,
+              "T5AI PP RX start ep=0x%04x len=%u sn=%u packet=%lu", endpoint,
+              pp_length, sequence, (unsigned long)s_pp_rx_packets);
+  } else if ((s_pp_rx_packets & 31u) == 0u) {
+    PBL_LOG_D_INFO(LOG_DOMAIN_BT_STACK,
+              "T5AI PPoG RX progress packet=%lu remaining=%lu sn=%u",
+              (unsigned long)s_pp_rx_packets, (unsigned long)s_pp_rx_remaining, sequence);
+  }
+
+  if (payload_length >= s_pp_rx_remaining) {
+    s_pp_rx_remaining = 0;
+  } else {
+    s_pp_rx_remaining -= payload_length;
+  }
+}
+
+static void prv_trace_ppog_tx(const uint8_t *data, size_t length) {
+  /* HCI ACL (4), L2CAP (4), ATT Handle Value Notification (3), then PPoG. */
+  if (length < 12u || prv_read_le16(&data[6]) != T5AI_L2CAP_CID_ATT ||
+      data[8] != T5AI_ATT_OP_HANDLE_VALUE_NOTIFICATION) {
+    return;
+  }
+
+  const uint8_t header = data[11];
+  const unsigned type = header & T5AI_PPOG_PACKET_TYPE_MASK;
+  if (type != T5AI_PPOG_PACKET_TYPE_DATA) {
+    PBL_LOG_D_INFO(LOG_DOMAIN_BT_STACK,
+              "T5AI PPoG TX control type=%u sn=%u", type,
+              header >> T5AI_PPOG_SEQUENCE_SHIFT);
+  }
+}
 
 static void prv_hci_task(void *unused) {
   (void)unused;
@@ -50,40 +128,48 @@ static bool prv_acl_valid(const uint8_t *data, size_t length) {
 }
 
 static void prv_receive_event(const uint8_t *data, size_t length) {
-  if (!s_started || s_failed || !prv_event_valid(data, length)) {
-    s_failed = true;
+  if (!s_started || !prv_event_valid(data, length)) {
+    PBL_LOG_D_ERR(LOG_DOMAIN_BT_STACK, "Dropping invalid T5AI HCI event (%u bytes)",
+                  (unsigned)length);
     return;
   }
 
   void *event = ble_transport_alloc_evt(0);
   if (event == NULL) {
-    s_failed = true;
     PBL_LOG_D_ERR(LOG_DOMAIN_BT_STACK, "T5AI HCI event pool exhausted");
     return;
   }
   memcpy(event, data, length);
-  if (ble_transport_to_hs_evt(event) != 0) {
-    s_failed = true;
+  const int result = ble_transport_to_hs_evt(event);
+  if (result != 0) {
+    /* NimBLE consumes the event on both success and failure. A malformed or
+     * stale controller event must not permanently disable unrelated outbound
+     * ACL traffic; doing so makes the next ATT response hit rc == 0 asserts. */
+    PBL_LOG_D_ERR(LOG_DOMAIN_BT_STACK, "T5AI HCI event delivery failed: %d", result);
   }
 }
 
 static void prv_receive_acl(const uint8_t *data, size_t length) {
-  if (!s_started || s_failed || !prv_acl_valid(data, length)) {
-    s_failed = true;
+  if (!s_started || !prv_acl_valid(data, length)) {
+    PBL_LOG_D_ERR(LOG_DOMAIN_BT_STACK, "Dropping invalid T5AI HCI ACL packet (%u bytes)",
+                  (unsigned)length);
     return;
   }
+
+  prv_trace_ppog_rx(data, length);
 
   struct os_mbuf *acl = ble_transport_alloc_acl_from_ll();
   if (acl == NULL || os_mbuf_append(acl, data, length) != 0) {
     if (acl != NULL) {
       os_mbuf_free_chain(acl);
     }
-    s_failed = true;
     PBL_LOG_D_ERR(LOG_DOMAIN_BT_STACK, "T5AI HCI ACL pool exhausted");
     return;
   }
-  if (ble_transport_to_hs_acl(acl) != 0) {
-    s_failed = true;
+  const int result = ble_transport_to_hs_acl(acl);
+  if (result != 0) {
+    /* ble_transport_to_hs_acl() consumes acl regardless of outcome. */
+    PBL_LOG_D_ERR(LOG_DOMAIN_BT_STACK, "T5AI HCI ACL delivery failed: %d", result);
   }
 }
 
@@ -93,11 +179,9 @@ void ble_transport_ll_reinit(void) {
       .acl = prv_receive_acl,
   };
 
-  s_failed = false;
   s_started = true;
   if (t5ai_hci_ipc_start(&callbacks) != 0) {
     s_started = false;
-    s_failed = true;
     PBL_LOG_D_ERR(LOG_DOMAIN_BT_STACK, "T5AI controller start failed");
   }
 }
@@ -113,7 +197,8 @@ void ble_transport_ll_init(void) {
     };
     pebble_task_create(PebbleTask_BTHCI, &parameters, &s_hci_task);
     if (s_hci_task == NULL) {
-      s_failed = true;
+      s_started = false;
+      PBL_LOG_D_ERR(LOG_DOMAIN_BT_STACK, "T5AI HCI polling task creation failed");
     }
   }
 }
@@ -121,7 +206,7 @@ void ble_transport_ll_init(void) {
 void ble_transport_ll_deinit(void) {
   s_started = false;
   if (t5ai_hci_ipc_stop() != 0) {
-    s_failed = true;
+    PBL_LOG_D_ERR(LOG_DOMAIN_BT_STACK, "T5AI controller stop failed");
   }
 }
 
@@ -130,11 +215,12 @@ int ble_transport_to_ll_cmd_impl(void *buf) {
   const size_t length = sizeof(*command) + command->length;
   int result = BLE_ERR_MEM_CAPACITY;
 
-  if (s_started && !s_failed && length <= T5AI_HCI_MAX_COMMAND_SIZE &&
+  if (s_started && length <= T5AI_HCI_MAX_COMMAND_SIZE &&
       t5ai_hci_ipc_send_command(buf, length) == 0) {
     result = 0;
   } else {
-    s_failed = true;
+    PBL_LOG_D_ERR(LOG_DOMAIN_BT_STACK, "T5AI HCI command transmit failed (%u bytes)",
+                  (unsigned)length);
   }
   ble_transport_free(buf);
   return result;
@@ -143,13 +229,34 @@ int ble_transport_to_ll_cmd_impl(void *buf) {
 int ble_transport_to_ll_acl_impl(struct os_mbuf *acl) {
   const size_t length = OS_MBUF_PKTLEN(acl);
   int result = BLE_ERR_MEM_CAPACITY;
+  int ipc_result = -1;
+  unsigned attempt = 0;
 
-  if (s_started && !s_failed && length <= sizeof(s_acl_tx) &&
-      os_mbuf_copydata(acl, 0, length, s_acl_tx) == 0 && prv_acl_valid(s_acl_tx, length) &&
-      t5ai_hci_ipc_send_acl(s_acl_tx, length) == 0) {
-    result = 0;
-  } else {
-    s_failed = true;
+  if (s_started && length <= sizeof(s_acl_tx) &&
+      os_mbuf_copydata(acl, 0, length, s_acl_tx) == 0 && prv_acl_valid(s_acl_tx, length)) {
+    prv_trace_ppog_tx(s_acl_tx, length);
+    for (; attempt < T5AI_HCI_ACL_SEND_ATTEMPTS; ++attempt) {
+      ipc_result = t5ai_hci_ipc_send_acl(s_acl_tx, length);
+      if (ipc_result == 0) {
+        result = 0;
+        break;
+      }
+      if (attempt + 1u < T5AI_HCI_ACL_SEND_ATTEMPTS) {
+        /* The CP's controller ingress can briefly reject a packet even while
+         * NimBLE still owns an HCI ACL credit. Give the other core one RTOS
+         * tick to drain its queue, then retry the same unaccepted packet. */
+        vTaskDelay(1);
+      }
+    }
+  }
+  if (result == 0 && attempt != 0u) {
+    PBL_LOG_D_INFO(LOG_DOMAIN_BT_STACK,
+              "T5AI HCI ACL transmit recovered on attempt %u", attempt + 1u);
+  }
+  if (result != 0) {
+    PBL_LOG_D_ERR(LOG_DOMAIN_BT_STACK,
+                  "T5AI HCI ACL transmit failed: status=%d len=%u attempts=%u", ipc_result,
+                  (unsigned)length, attempt);
   }
   os_mbuf_free_chain(acl);
   return result;

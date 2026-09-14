@@ -12,10 +12,18 @@
 #include <FreeRTOS.h>
 #include <semphr.h>
 
+#include "comm/bt_conn_mgr.h"
 #include "nimble_gattc_op_queue.h"
 #include "nimble_type_conversions.h"
 
 PBL_LOG_MODULE_DECLARE(bt, CONFIG_BT_LOG_LEVEL);
+
+// Android gateways can expose enough services for the sequential NimBLE
+// service/characteristic/descriptor walk to exceed the common 30-second
+// response-time lease. Keep this T5AI link at the already-proven 15 ms
+// parameters until discovery finishes; the common completion path replaces
+// this lease with its normal 10-second tail.
+#define T5AI_GATT_DISCOVERY_LEASE_SECONDS 120u
 
 static bool s_discovery_in_progress;
 static bool s_stop_discovery_requested;
@@ -552,6 +560,11 @@ static int prv_discovery_op_start(void *ctx) {
 
 BTErrno bt_driver_gatt_start_discovery_range(const GAPLEConnection *connection,
                                              const ATTHandleRange *data) {
+  conn_mgr_set_ble_conn_response_time((GAPLEConnection *)connection,
+                                      BtConsumerLeServiceDiscovery,
+                                      ResponseTimeMin,
+                                      T5AI_GATT_DISCOVERY_LEASE_SECONDS);
+
   DiscoveryOp *op = kernel_zalloc_check(sizeof(*op));
   op->connection = (GAPLEConnection *)connection;
   op->range = *data;

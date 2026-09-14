@@ -77,6 +77,26 @@ class TuyaKernelCheckTest(unittest.TestCase):
             hci_start.index("prv_locked_exchange(T5AI_HCI_RESET, NULL, 0)"),
             hci_start.index("prv_locked_exchange(T5AI_HCI_REGISTER_CALLBACKS, NULL, 0)"),
         )
+        hci_route = hci_ipc.split("static void prv_route_frame(", 1)[1].split(
+            "static status_t prv_decode_remote(", 1
+        )[0]
+        self.assertIn("prv_physical_ack(&pending)", hci_route)
+        self.assertIn("prv_handle_command(&pending, UINT8_MAX, &ignored)", hci_route)
+        self.assertLess(
+            hci_route.index("prv_physical_ack(&pending)"),
+            hci_route.index("prv_handle_command(&pending, UINT8_MAX, &ignored)"),
+        )
+        self.assertIn("cannot service the flash socket", hci_route)
+        hci_transport = (
+            ROOT / "third_party/nimble/transport/hci_t5ai.c"
+        ).read_text()
+        self.assertNotIn("s_failed", hci_transport)
+        self.assertIn("T5AI HCI event delivery failed", hci_transport)
+        self.assertIn("T5AI HCI ACL delivery failed", hci_transport)
+        self.assertIn("T5AI HCI ACL transmit failed", hci_transport)
+        self.assertIn("T5AI_HCI_ACL_SEND_ATTEMPTS 3u", hci_transport)
+        self.assertIn("vTaskDelay(1);", hci_transport)
+        self.assertIn("status=%d len=%u attempts=%u", hci_transport)
         self.assertIn(
             "cb(&pairing_info.identity, &pairing_info.irk, device_name, &bonding, context);",
             (ROOT / "src/fw/services/bluetooth/bluetooth_persistent_storage_prf.c").read_text(),
@@ -382,11 +402,8 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("(const void *)(uintptr_t)(BANK.begin + offset)", flash_storage)
         self.assertIn("T5AI_BOOT_STAGE(7u)", event_loop)
         self.assertIn("T5AI_BOOT_STAGE(22u)", event_loop)
-        self.assertIn(
-            "normal blocking receive does not provide a scheduling window",
-            event_loop,
-        )
         self.assertIn("vTaskDelay(10u);", event_loop)
+        self.assertNotIn("taskYIELD();", event_loop)
         self.assertIn(
             "#ifndef CONFIG_SOC_T5AI\n  // emulate a button press-and-release",
             event_loop,
@@ -429,8 +446,9 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("persist_service_client_open", process_manager)
         self.assertIn("persist_service_client_close", process_manager)
         self.assertNotIn("if (dls_initialized())", process_manager)
+        self.assertNotIn("DVT3 currently has no initialized AppDB", app_install_manager)
         self.assertIn(
-            "#ifndef CONFIG_SOC_T5AI\n  // DVT3 currently has no initialized AppDB",
+            "app_db_enumerate_entries(prv_app_install_enumerate_app_db, &cb_data);",
             app_install_manager,
         )
         self.assertNotIn("#ifdef CONFIG_SOC_T5AI", app_order_storage)
@@ -572,6 +590,16 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("#ifdef CONFIG_SOC_T5AI", app_manager)
         self.assertIn("const UBaseType_t app_task_priority = tskIDLE_PRIORITY + 1", app_manager)
         self.assertIn(".uxPriority = app_task_priority | portPRIVILEGE_BIT", app_manager)
+        board_t5ai = (ROOT / "src/fw/board/boards/board_t5ai.c").read_text()
+        self.assertNotIn("T5AI_APP_PRIORITY", board_t5ai)
+        self.assertNotIn("T5AISched", board_t5ai)
+        self.assertNotIn("vTaskPrioritySet", board_t5ai)
+        t5ai_discovery = (
+            ROOT / "src/bluetooth-fw/nimble/gatt_client_discovery_t5ai.c"
+        ).read_text()
+        self.assertIn("GATTService *gatt_service = kernel_zalloc_check(size_bytes);", t5ai_discovery)
+        self.assertNotIn("pvPortMalloc(size_bytes)", t5ai_discovery)
+        self.assertNotIn("Skipping remote GATT service", t5ai_discovery)
         task = service.split("static void system_task_main", 1)[1]
         task = task.split("void system_task_init", 1)[0]
         self.assertIn("#ifdef CONFIG_SOC_T5AI", task)

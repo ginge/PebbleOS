@@ -12,3 +12,5 @@ ASSERT(LENGTH(T5AI_DISPLAY_RAM) <= 0x00020000,
        "Display reservation exceeds the first T5AI PSRAM slab")
 ASSERT(__t5ai_framebuffer_end__ <= ORIGIN(T5AI_DISPLAY_RAM) + LENGTH(T5AI_DISPLAY_RAM),
        "T5AI framebuffer exceeds its PSRAM reservation")
+ASSERT(__t5ai_board_cache_end__ <= ORIGIN(T5AI_DISPLAY_RAM) + LENGTH(T5AI_DISPLAY_RAM),
+       "T5AI board cache exceeds its PSRAM reservation")

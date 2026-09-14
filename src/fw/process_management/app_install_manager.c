@@ -250,7 +250,6 @@ static void app_install_invoke_callbacks(InstallEventType event_type, AppInstall
   }
 }
 
-#ifndef CONFIG_SOC_T5AI
 typedef struct {
   AppInstallEnumerateCb cb;
   void *data;
@@ -264,7 +263,6 @@ static void prv_app_install_enumerate_app_db(AppInstallId install_id, AppDBEntry
   prv_app_install_entry_from_app_db_entry(install_id, db_entry, cb_data->entry_buf);
   cb_data->cb(cb_data->entry_buf, cb_data->data);
 }
-#endif
 
 void app_install_enumerate_entries(AppInstallEnumerateCb cb, void *data) {
   // Keep this off of the stack. This function presses the limits of our stack.
@@ -282,16 +280,12 @@ void app_install_enumerate_entries(AppInstallEnumerateCb cb, void *data) {
   }
 
   // Iterate over AppDB applications
-#ifndef CONFIG_SOC_T5AI
-  // DVT3 currently has no initialized AppDB storage. The built-in registry
-  // above is sufficient for bringing up the native launcher without flash IO.
   EnumerateData cb_data = {
     .cb = cb,
     .data = data,
     .entry_buf = entry,
   };
   app_db_enumerate_entries(prv_app_install_enumerate_app_db, &cb_data);
-#endif
 
   kernel_free(entry);
 }

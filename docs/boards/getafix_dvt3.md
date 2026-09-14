@@ -94,6 +94,27 @@ reflashed after the successful phone session.
 The build emits `build/pebbleos.t5ai-crc.bin`, an AP-only protected-block
 payload. It is not a complete QIO, UA, UG, factory, recovery, or OTA image.
 
+To validate or flash firmware without modifying resources, the filesystem,
+Tuya bootloader, or CP image, use the dedicated guard script. It verifies every
+34:32 CRC block, decodes the protected artifact and compares it byte-for-byte
+with `pebbleos.bin`, checks erased padding and Cortex-M vectors, enforces the AP
+slot bound, and derives the exclusive physical end address from the protected
+file. Validation is the default; an actual write requires `--flash`:
+
+```sh
+.venv/bin/python tools/flash_t5ai_firmware.py \
+  --tyutool /path/to/tyutool_cli \
+  --port /dev/serial/by-id/usb-1a86_USB_Dual_Serial_5C75025844-if00
+
+.venv/bin/python tools/flash_t5ai_firmware.py \
+  --tyutool /path/to/tyutool_cli \
+  --port /dev/serial/by-id/usb-1a86_USB_Dual_Serial_5C75025844-if00 \
+  --flash
+```
+
+Never pass `build/pebbleos.bin` directly to tyutool: it is the logical image,
+not the CRC-protected physical-flash representation.
+
 ## AP-only lab flashing
 
 The pinned partition places the AP at physical flash offset `0x132000`, mapped
@@ -120,7 +141,27 @@ The runner derives `--end` from `build/pebbleos.t5ai-flash.bin`. Do not use the
 image with a factory or OTA programming mode. Reset, bulk erase, recovery
 imaging, and firmware/resource update paths remain disabled on T5AI.
 
-To monitor runtime output:
+For a persistent, decoded trace suitable for pairing, BlobDB, AppFetch, and
+PutBytes diagnosis, run from the PebbleOS checkout:
+
+```sh
+.venv/bin/python tools/t5ai_trace.py --wait 0 --command "app list"
+```
+
+The utility waits for the stable `if02` by-id device, overrides PULSE's generic
+1 Mbaud default with DVT3's 460800-baud runtime setting, dehashes messages using
+the current build dictionary, prints them live, and stores a timestamped copy
+under `build/traces/`. `--wait 0` waits through a USB reconnect; omit
+`--command` for a passive trace. Use `--duration SECONDS`, `--output PATH`, or
+`--tty PATH` when a bounded capture, fixed artifact name, or explicit serial
+device is required. A quiet PULSE session is reopened after 10 seconds by
+default, which recovers tracing when the AP resets but the dual-UART bridge
+never disconnects; use `--reconnect-idle 0` to disable this. The trace remains
+active if the optional bidirectional console command is unavailable. Run the
+command with host-level device access when a sandbox does not expose
+`/dev/serial`.
+
+For an undecoded raw UART view:
 
 ```sh
 picocom --baud 460800 /dev/ttyACM1

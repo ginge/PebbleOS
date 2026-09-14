@@ -13,6 +13,7 @@ class TuyaFlashTest(unittest.TestCase):
     def test_mipc_wire_format(self):
         source = r'''
 #include <assert.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 #include <pbl/soc/t5ai/mipc.h>
@@ -160,22 +161,30 @@ int main(void) {
     def test_flash_backend_bounds_chunking_and_protection(self):
         source = r'''
 #include <assert.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 #include "system/status_codes.h"
 
 static uint8_t storage[0x800000];
 static unsigned reads, writes, erases;
+static bool fail_next_read, fail_next_write, fail_next_erase;
 
 status_t t5ai_flash_ipc_init(void) { memset(storage, 0xff, sizeof(storage)); return S_SUCCESS; }
 status_t t5ai_flash_ipc_read(uint32_t offset, void *buffer, size_t length) {
-  assert(length <= 0x200); reads++; memcpy(buffer, storage + offset, length); return S_SUCCESS;
+  assert(length <= 0x200); reads++;
+  if (fail_next_read) { fail_next_read = false; return E_ERROR; }
+  memcpy(buffer, storage + offset, length); return S_SUCCESS;
 }
 status_t t5ai_flash_ipc_write(uint32_t offset, const void *buffer, size_t length) {
-  assert(length <= 0x100); writes++; memcpy(storage + offset, buffer, length); return S_SUCCESS;
+  assert(length <= 0x100); writes++; memcpy(storage + offset, buffer, length);
+  if (fail_next_write) { fail_next_write = false; return E_ERROR; }
+  return S_SUCCESS;
 }
 status_t t5ai_flash_ipc_erase_4k(uint32_t offset) {
-  assert((offset & 0xfff) == 0); erases++; memset(storage + offset, 0xff, 0x1000); return S_SUCCESS;
+  assert((offset & 0xfff) == 0); erases++; memset(storage + offset, 0xff, 0x1000);
+  if (fail_next_erase) { fail_next_erase = false; return E_ERROR; }
+  return S_SUCCESS;
 }
 
 #include "src/fw/drivers/flash/t5ai.c"
@@ -186,6 +195,8 @@ int main(void) {
   memset(input, 0x5a, sizeof(input));
   assert(flash_impl_init(false) == S_SUCCESS);
   assert(flash_impl_read_sync(output, base, sizeof(output)) == S_SUCCESS && reads == 2);
+  fail_next_read = true;
+  assert(flash_impl_read_sync(output, base, 1) == S_SUCCESS && reads == 4);
   assert(flash_impl_write_page_begin(input, FLASH_REGION_FIRMWARE_SLOT_0_BEGIN - 1, 1) == E_INVALID_OPERATION);
   assert(flash_impl_write_page_begin(input, FLASH_REGION_FIRMWARE_SLOT_0_BEGIN, 1) == E_INVALID_OPERATION);
   assert(flash_impl_write_page_begin(input, FLASH_REGION_FILESYSTEM_BEGIN - 1, 1) == E_INVALID_OPERATION);
@@ -193,31 +204,53 @@ int main(void) {
   assert(flash_impl_write_page_begin(input, FLASH_REGION_FIRMWARE_SLOT_1_BEGIN, 1) == E_INVALID_OPERATION);
   assert(flash_impl_write_page_begin(input, FLASH_REGION_DEBUG_DB_BEGIN, 1) == E_INVALID_OPERATION);
   assert(flash_impl_write_page_begin(input, FLASH_REGION_SHARED_PRF_STORAGE_BEGIN - 1, 1) == E_INVALID_OPERATION);
+  fail_next_write = true;
   assert(flash_impl_write_page_begin(input, FLASH_REGION_SHARED_PRF_STORAGE_BEGIN, 1) == 1);
-  assert(writes == 1 && flash_impl_get_write_status() == S_SUCCESS);
+  assert(writes == 2 && flash_impl_get_write_status() == S_SUCCESS);
   assert(flash_impl_write_page_begin(input, FLASH_REGION_SHARED_PRF_STORAGE_END, 1) == E_INVALID_OPERATION);
   assert(flash_impl_write_page_begin(input, FLASH_REGION_FILESYSTEM_BEGIN + 250, sizeof(input)) == 6);
-  assert(writes == 2 && flash_impl_get_write_status() == S_SUCCESS);
+  assert(writes == 3 && flash_impl_get_write_status() == S_SUCCESS);
   assert(flash_impl_write_protect(FLASH_REGION_FILESYSTEM_BEGIN, FLASH_REGION_FILESYSTEM_BEGIN + 0xfff) == S_SUCCESS);
   assert(flash_impl_write_page_begin(input, FLASH_REGION_FILESYSTEM_BEGIN, 1) == E_INVALID_OPERATION);
   assert(flash_impl_unprotect() == S_SUCCESS);
   assert(flash_impl_write_page_begin(input, FLASH_REGION_FILESYSTEM_END - 1, 2) == 1);
-  assert(writes == 3 && flash_impl_get_write_status() == S_SUCCESS);
+  assert(writes == 4 && flash_impl_get_write_status() == S_SUCCESS);
   assert(flash_impl_write_page_begin(input, FLASH_REGION_FILESYSTEM_END, 1) == E_INVALID_OPERATION);
   assert(flash_impl_erase_subsector_begin(FLASH_REGION_FIRMWARE_SLOT_0_BEGIN) == E_INVALID_OPERATION);
   assert(flash_impl_erase_subsector_begin(FLASH_REGION_CD_BEGIN) == E_INVALID_OPERATION);
   assert(flash_impl_erase_subsector_begin(FLASH_REGION_FIRMWARE_SLOT_1_BEGIN) == E_INVALID_OPERATION);
   assert(flash_impl_erase_subsector_begin(FLASH_REGION_DEBUG_DB_BEGIN) == E_INVALID_OPERATION);
+  fail_next_erase = true;
   assert(flash_impl_erase_subsector_begin(FLASH_REGION_SHARED_PRF_STORAGE_BEGIN) == S_SUCCESS);
-  assert(erases == 1 && flash_impl_get_erase_status() == S_SUCCESS);
+  assert(erases == 2 && flash_impl_get_erase_status() == S_SUCCESS);
   assert(flash_impl_erase_subsector_begin(FLASH_REGION_SHARED_PRF_STORAGE_END) == E_INVALID_OPERATION);
-  assert(flash_impl_erase_subsector_begin(FLASH_REGION_FILESYSTEM_BEGIN + 1) == S_SUCCESS && erases == 2);
+  assert(flash_impl_erase_subsector_begin(FLASH_REGION_FILESYSTEM_BEGIN + 1) == S_SUCCESS && erases == 3);
   assert(flash_impl_erase_suspend(FLASH_REGION_FILESYSTEM_BEGIN) == S_NO_ACTION_REQUIRED);
-  assert(flash_impl_erase_sector_begin(FLASH_REGION_FILESYSTEM_BEGIN) == S_SUCCESS && erases == 18);
+  assert(flash_impl_erase_sector_begin(FLASH_REGION_FILESYSTEM_BEGIN) == S_SUCCESS && erases == 19);
   assert(flash_impl_get_erase_status() == S_SUCCESS);
   assert(flash_impl_erase_subsector_begin(FLASH_REGION_FILESYSTEM_END) == E_INVALID_OPERATION);
   assert(flash_impl_read_sync(output, base - 1, 1) == E_INVALID_ARGUMENT);
   assert(flash_impl_read_sync(output, base + BOARD_NOR_FLASH_SIZE, 1) == E_INVALID_ARGUMENT);
+
+  const uint32_t cached_page = FLASH_REGION_FILESYSTEM_BEGIN + 0x20000;
+  const uint32_t cached_offset = cached_page - FLASH_REGION_BASE_ADDRESS;
+  memset(storage + cached_offset, 0xa5, 32);
+  unsigned reads_before_cache = reads;
+  assert(flash_impl_read_sync(output, cached_page + 3, 4) == S_SUCCESS);
+  assert(reads == reads_before_cache + 1 && output[0] == 0xa5 && output[3] == 0xa5);
+  assert(flash_impl_read_sync(output, cached_page + 3, 4) == S_SUCCESS);
+  assert(reads == reads_before_cache + 1);
+
+  uint8_t header_update = 0x33;
+  assert(flash_impl_write_page_begin(&header_update, cached_page + 3, 1) == 1);
+  assert(flash_impl_get_write_status() == S_SUCCESS);
+  assert(flash_impl_read_sync(output, cached_page + 3, 1) == S_SUCCESS);
+  assert(reads == reads_before_cache + 1 && output[0] == header_update);
+
+  assert(flash_impl_erase_subsector_begin(cached_page) == S_SUCCESS);
+  assert(flash_impl_get_erase_status() == S_SUCCESS);
+  assert(flash_impl_read_sync(output, cached_page, 1) == S_SUCCESS);
+  assert(reads == reads_before_cache + 1 && output[0] == 0xff);
   return 0;
 }
 '''
