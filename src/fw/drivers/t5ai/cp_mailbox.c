@@ -56,7 +56,6 @@
 #define T5AI_CP_PM_POWER_ON 0u
 #define T5AI_CP_PM_PSRAM_APP_MODULE 9u
 #define T5AI_CP_PM_CPU1_MODULE 38u
-#define T5AI_CP_PM_CPU_FREQUENCY_120MHZ 3u
 #define T5AI_CP_PM_SETTLE_TICKS (T5AI_AON_RTC_HZ / 10u)
 #define T5AI_CP_HEADER_ACK (1u << 12u)
 #define T5AI_CP_ACK_COMPLETE 2u
@@ -676,13 +675,16 @@ status_t t5ai_cp_mailbox_enable_psram(void) {
                         T5AI_CP_PM_POWER_ON);
 }
 
-status_t t5ai_cp_mailbox_vote_cpu1_120mhz(void) {
+status_t t5ai_cp_mailbox_vote_cpu1_frequency(T5AICpuFrequency frequency) {
+  if (frequency > T5AICpuFrequency_480MHz) {
+    return E_INVALID_ARGUMENT;
+  }
   status_t status = t5ai_cp_mailbox_lock();
   if (FAILED(status)) {
     return status;
   }
   status = prv_pm_request(T5AI_CP_PM_CPU_FREQUENCY_COMMAND, T5AI_CP_PM_CPU1_MODULE,
-                          T5AI_CP_PM_CPU_FREQUENCY_120MHZ);
+                          (uint32_t)frequency);
   t5ai_cp_mailbox_unlock();
   return status;
 }

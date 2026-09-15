@@ -17,6 +17,12 @@ spec.loader.exec_module(checker)
 
 
 class TuyaKernelCheckTest(unittest.TestCase):
+    def test_t5ai_cacheable_mpu_regions_are_non_shareable(self):
+        mpu = (ROOT / "src/fw/drivers/mpu/mpu_armv8m.c").read_text()
+        self.assertIn("#ifdef CONFIG_SOC_T5AI", mpu)
+        self.assertIn("region->cache_policy != MpuCachePolicy_NotCacheable", mpu)
+        self.assertIn("shareability = ARM_MPU_SH_NON", mpu)
+
     def test_t5ai_reclaims_only_measured_gabbro_runtime_headroom(self):
         defaults = (ROOT / "soc/t5ai/Kconfig.defconfig").read_text()
         self.assertIn("config APP_RAM_GABBRO_RUNTIME_SIZE", defaults)
@@ -421,6 +427,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         flash_storage = (ROOT / "src/fw/resource/resource_storage_flash.c").read_text()
         flash_driver = (ROOT / "src/fw/drivers/flash/t5ai.c").read_text()
         display_driver = (ROOT / "src/fw/drivers/display/t5ai/display_co5300.c").read_text()
+        animation = (ROOT / "src/fw/applib/ui/animation.h").read_text()
         board = (ROOT / "src/fw/board/boards/board_t5ai.c").read_text()
         mpu = (ROOT / "src/fw/drivers/mpu.c").read_text()
         t5ai_memory = (ROOT / "include/pbl/soc/t5ai/memory.h").read_text()
@@ -434,13 +441,22 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertNotIn("vTaskDelay(5u);", event_loop)
         self.assertNotIn("vTaskDelay(10u);", event_loop)
         self.assertNotIn("taskYIELD();", event_loop)
-        self.assertIn("prv_read_pfs_cached(address, output, length, &chunk)", flash_driver)
-        self.assertIn("T5AI_PFS_READ_CACHE_LINES 4u", flash_driver)
-        self.assertEqual(flash_driver.count("prv_invalidate_pfs_read_cache("), 3)
-        self.assertIn("#define DMA_CHUNK_PANEL_ROWS 32u", display_driver)
-        self.assertIn('s_dma_chunk[PANEL_ROW_BYTES * DMA_CHUNK_PANEL_ROWS]\n    __attribute__((section(".t5ai_board_cache"), aligned(32)))', display_driver)
+        self.assertIn("prv_read_cached(address, output, length, &chunk)", flash_driver)
+        self.assertIn("T5AI_FLASH_READ_CACHE_LINES 4u", flash_driver)
+        self.assertIn("cache complete\n// IPC-sized lines for every flash region", flash_driver)
+        self.assertEqual(flash_driver.count("prv_invalidate_read_cache("), 3)
+        self.assertIn("prv_pixel_stream_write_dma", display_driver)
+        self.assertIn("prv_dcache_clean(s_panel_row, sizeof(s_panel_row));", display_driver)
         self.assertIn("if (source_x != previous_source_x)", display_driver)
         self.assertIn("converted_pixel = s_rgb565[source[source_x] & 0x3fu]", display_driver)
+        self.assertIn(
+            "#if defined(CONFIG_PLATFORM_GABBRO) && !defined(CONFIG_SOC_T5AI)",
+            animation,
+        )
+        self.assertIn(
+            "#define ANIMATION_RENDER_FRAME_INTERVAL_MS ANIMATION_TARGET_FRAME_INTERVAL_MS",
+            animation,
+        )
         self.assertIn("#define T5AI_DISPLAY_PSRAM_MPU_REGION 10u", t5ai_memory)
         self.assertIn("MpuCachePolicy_WriteBackWriteAllocate", board)
         self.assertIn("mpu_set_region(&s_display_psram_region);", board)
@@ -565,12 +581,10 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn(
             "SystemCoreClock = CONFIG_T5AI_CORE_CLOCK_HZ", initialization
         )
-        self.assertIn(
-            "CONFIG_T5AI_SYSTICK_CLOCK_HZ % RTC_TICKS_HZ == 0u", port
-        )
-        self.assertIn("T5AI_SYSTICK_RELOAD <= SysTick_LOAD_RELOAD_Msk", port)
+        self.assertIn("SystemCoreClock % RTC_TICKS_HZ", port)
+        self.assertIn("reload <= SysTick_LOAD_RELOAD_Msk", port)
         self.assertIn("t5ai_freertos_apply_systick_clock", port)
-        self.assertIn("SysTick->LOAD = T5AI_SYSTICK_RELOAD", port)
+        self.assertIn("SysTick->LOAD = reload", port)
         self.assertIn("return false;", port)
         self.assertIn("t5ai_freertos_apply_systick_clock();", main)
         self.assertIn("t5ai_cp_mailbox_enable_rx_interrupt();", main)
@@ -581,9 +595,9 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("T5AI_MAILBOX_SYSTEM_INTERRUPT_ENABLE", mailbox)
         self.assertIn("T5AI_CP_PM_CPU_FREQUENCY_COMMAND 4u", mailbox)
         self.assertIn("T5AI_CP_PM_CPU1_MODULE 38u", mailbox)
-        self.assertIn("T5AI_CP_PM_CPU_FREQUENCY_120MHZ 3u", mailbox)
-        self.assertIn("t5ai_cp_mailbox_vote_cpu1_120mhz", mailbox)
-        vote = main.index("t5ai_cp_mailbox_vote_cpu1_120mhz()")
+        self.assertIn("t5ai_cp_mailbox_vote_cpu1_frequency", mailbox)
+        self.assertIn("T5AICpuFrequency_480MHz", main)
+        vote = main.index("t5ai_cp_mailbox_vote_cpu1_frequency")
         self.assertLess(main.index("init_drivers();"), vote)
         self.assertLess(vote, main.index("display_init();", vote))
         self.assertIn('"PBLCLK vote=%ld mode1=%08lx', main)

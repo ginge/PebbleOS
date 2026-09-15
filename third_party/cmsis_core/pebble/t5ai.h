@@ -8,6 +8,11 @@
 #define __FPU_PRESENT 1U
 #define __DSP_PRESENT 1U
 #define __SAUREGION_PRESENT 0U
+// BK7258's STAR-MC1 application core has an L1 instruction cache. The AP
+// vendor startup enables it during SystemInit, before the MPU and D-cache are
+// configured. Keep D-cache disabled until all shared-memory and DMA regions
+// have an explicit coherency policy.
+#define __ICACHE_PRESENT 1U
 
 typedef enum IRQn {
   NonMaskableInt_IRQn = -14,
@@ -86,6 +91,10 @@ typedef enum IRQn {
   MAILBOX_IRQn = 63,
 } IRQn_Type;
 #include "core_cm33.h"
+// core_cm33.h describes the compatible system-control register layout but
+// does not expose the optional L1 cache helpers. STAR-MC1 uses the same CMSIS
+// L1 cache operations, as confirmed by the BK7258 vendor core header.
+#include "cachel1_armv7.h"
 #ifndef SCB_CCR_STKALIGN_Msk
 #define SCB_CCR_STKALIGN_Msk (1UL << 9)
 #endif

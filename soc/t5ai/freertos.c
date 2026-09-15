@@ -12,13 +12,6 @@
 #include <inttypes.h>
 #include <stdio.h>
 
-#define T5AI_SYSTICK_RELOAD (CONFIG_T5AI_SYSTICK_CLOCK_HZ / RTC_TICKS_HZ - 1u)
-
-_Static_assert(CONFIG_T5AI_SYSTICK_CLOCK_HZ % RTC_TICKS_HZ == 0u,
-               "T5AI SysTick clock must produce an exact FreeRTOS tick");
-_Static_assert(T5AI_SYSTICK_RELOAD <= SysTick_LOAD_RELOAD_Msk,
-               "T5AI FreeRTOS tick does not fit the SysTick reload register");
-
 static RtcTicks s_wfi_ticks;
 static RtcTicks s_last_stats_ticks;
 
@@ -53,10 +46,12 @@ bool vPortEnableTimer(void) {
 }
 
 void t5ai_freertos_apply_systick_clock(void) {
-  /* Keep the vendor-retained timer state through scheduler startup. Updating
-   * LOAD after platform initialization avoids exposing early drivers to the
-   * corrected tick rate; the new period takes effect at the next wrap. */
-  SysTick->LOAD = T5AI_SYSTICK_RELOAD;
+  /* SysTick follows CPU1 DVFS. Recalculate its period whenever the elected
+   * core clock changes so FreeRTOS time remains at Pebble's 1 kHz cadence. */
+  PBL_ASSERTN((SystemCoreClock % RTC_TICKS_HZ) == 0u);
+  const uint32_t reload = SystemCoreClock / RTC_TICKS_HZ - 1u;
+  PBL_ASSERTN(reload <= SysTick_LOAD_RELOAD_Msk);
+  SysTick->LOAD = reload;
 }
 
 void dump_current_runtime_stats(void) {

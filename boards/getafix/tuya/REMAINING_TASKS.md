@@ -2090,6 +2090,36 @@ fault, or unexplained reset is grounds to revert the region installation and
 the matching cacheability-query entry while retaining the independent display
 DMA batching and scaler optimizations.
 
+### 2026-09-15 QSPI lane-width follow-up
+
+Confirm on hardware that CO5300 pixel data is actually transmitted over all
+four QSPI data lanes. Do not treat the `0x32` pixel prefix, the command-C
+`data_line` field, enabled IO2/IO3 pins, or command-A register contents as proof
+of physical quad-lane operation. Capture CLK, CS, and IO0 through IO3 with a
+logic analyser during a full-frame update, decode the `32 00 2c 00` preamble,
+and verify that subsequent RGB565 data advances four bits per clock on all four
+lanes.
+
+Cycle-counter profiling at a 120 MHz AP clock measured a representative
+434,312-byte full-frame update at approximately 116 ms: 38--40 ms in software
+conversion/scaling, 34--35 ms cleaning the cached PSRAM staging data, 17--18 ms
+waiting for GDMA/QSPI, and the remainder in row callbacks, duplication, and
+command overhead. The isolated 17--18 ms hardware-transfer bucket corresponds
+to roughly 25 MB/s, below the ideal 40 MB/s payload rate for 80 MHz quad QSPI
+but above an 80 MHz single-lane ceiling. Account for GDMA setup, aperture
+back-pressure, command gaps, and measurement boundaries before attributing the
+difference to lane width.
+
+As a software cross-check, Tuya's BK7258 LCD-QSPI driver programs command A as
+`L=0x00002c00`, `H=0x10000100`, `CFG1=0x0000eaaa`, and
+`CFG2=0x80008000`. Temporarily applying those exact values in PebbleOS did not
+improve the measured frame time or transfer bucket, so that experiment was
+reverted. Later review should compare the complete live QSPI register set and
+pin mux against the vendor firmware, then use physical IO0--IO3 activity as the
+deciding evidence. Retain 80 MHz unless signal-integrity measurements justify
+another supported clock; raising the AP core clock is not a substitute for
+correct lane configuration.
+
 ## Validation commands
 
 ```sh

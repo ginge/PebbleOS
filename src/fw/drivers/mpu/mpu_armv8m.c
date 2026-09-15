@@ -98,8 +98,18 @@ void mpu_get_register_settings(const MpuRegion* region, uint32_t *base_address_r
   PBL_ASSERTN((region->cache_policy < ARRAY_LENGTH(s_cache_settings)));
   PBL_ASSERTN((region->size & 0x1f) == 0);
 
+  uint32_t shareability = ARM_MPU_SH_INNER;
+#ifdef CONFIG_SOC_T5AI
+  // STAR-MC1 only caches Normal memory when it is non-shareable. This matches
+  // BK7258's vendor MPU table: cacheable SRAM/PSRAM is SH_NON, while
+  // non-cacheable and device ranges remain SH_INNER.
+  if (region->cache_policy != MpuCachePolicy_NotCacheable) {
+    shareability = ARM_MPU_SH_NON;
+  }
+#endif
+
   *base_address_reg = ((region->base_address & MPU_RBAR_BASE_Msk) |
-                       ((ARM_MPU_SH_INNER << MPU_RBAR_SH_Pos) & MPU_RBAR_SH_Msk) |
+                       ((shareability << MPU_RBAR_SH_Pos) & MPU_RBAR_SH_Msk) |
                        ((get_permission_value(region) << MPU_RBAR_AP_Pos) & MPU_RBAR_AP_Msk) |
                        ((region->executable ? 0u : 1u) << MPU_RBAR_XN_Pos));
   *attributes_reg = (((region->base_address + region->size - 1U) & MPU_RLAR_LIMIT_Msk) |

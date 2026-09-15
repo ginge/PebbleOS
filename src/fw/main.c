@@ -39,6 +39,7 @@
 #ifdef CONFIG_SOC_T5AI
 #include <pbl/drivers/display/t5ai.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
+#include <pbl/soc/t5ai/clock.h>
 #include <pbl/soc/t5ai/freertos.h>
 #include <pbl/soc/t5ai/rtc.h>
 #endif
@@ -204,6 +205,7 @@ static void watchdog_timer_callback(void* data) {
 
 static char s_t5ai_timebase_response[480];
 #define T5AI_SYSTEM_CLK_MODE1 (*(volatile uint32_t *)0x44010020u)
+static T5AIClockDiagnostics s_t5ai_clock_diagnostics;
 volatile uint32_t g_t5ai_boot_stage;
 volatile uint32_t g_t5ai_app_stage;
 
@@ -493,13 +495,22 @@ static NOINLINE void prv_main_task_init(void) {
   init_drivers();
 
 #ifdef CONFIG_SOC_T5AI
-  /* Flash initialization establishes the serialized CP mailbox transport.
-   * Hold one platform-owned CPU1 vote for the lifetime of the AP firmware;
-   * display updates must never race or repeatedly renegotiate the clock. */
-  const status_t cpu_clock_vote_status = t5ai_cp_mailbox_vote_cpu1_120mhz();
+  /* Diagnostic: Tuya's AP startup and display driver vote for 480 MHz while
+   * active. Match that platform policy temporarily to establish whether the
+   * 120 MHz CPU/bus vote is the source of the global slowdown. */
+  const status_t cpu_clock_vote_status =
+      t5ai_cp_mailbox_vote_cpu1_frequency(T5AICpuFrequency_480MHz);
+  if (cpu_clock_vote_status == S_SUCCESS) {
+    SystemCoreClock = 480000000u;
+    t5ai_freertos_apply_systick_clock();
+  }
+  s_t5ai_clock_diagnostics = t5ai_clock_get_diagnostics();
   dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
-                       "PBLCLK vote=%ld mode1=%08lx core=%lu systick=%08lx/%lu/%lu",
-                       (long)cpu_clock_vote_status, (unsigned long)T5AI_SYSTEM_CLK_MODE1,
+                       "PBLCLK vote=%ld mode1=%08lx cpu1=%08lx measured=%lu core=%lu "
+                       "systick=%08lx/%lu/%lu",
+                       (long)cpu_clock_vote_status, (unsigned long)s_t5ai_clock_diagnostics.mode1,
+                       (unsigned long)s_t5ai_clock_diagnostics.cpu1_control,
+                       (unsigned long)s_t5ai_clock_diagnostics.measured_hz,
                        (unsigned long)SystemCoreClock, (unsigned long)SysTick->CTRL,
                        (unsigned long)SysTick->LOAD, (unsigned long)SysTick->VAL);
 
@@ -523,6 +534,14 @@ static NOINLINE void prv_main_task_init(void) {
 #endif
 
   debug_init(s_mcu_reboot_reason);
+
+#ifdef CONFIG_SOC_T5AI
+  PBL_LOG_ERR("T5AI clock mode1=%08lx cpu1=%08lx measured=%lu configured=%lu",
+              (unsigned long)s_t5ai_clock_diagnostics.mode1,
+              (unsigned long)s_t5ai_clock_diagnostics.cpu1_control,
+              (unsigned long)s_t5ai_clock_diagnostics.measured_hz,
+              (unsigned long)SystemCoreClock);
+#endif
 
   services_early_init();
 

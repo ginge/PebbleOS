@@ -15,6 +15,16 @@ typedef struct {
 typedef void (*T5AICPMailboxReceiveCallback)(uint8_t logical_channel,
                                              const T5AICPMailboxFrame *frame, void *context);
 
+typedef enum {
+  T5AICpuFrequency_26MHz = 0,
+  T5AICpuFrequency_60MHz = 1,
+  T5AICpuFrequency_80MHz = 2,
+  T5AICpuFrequency_120MHz = 3,
+  T5AICpuFrequency_240MHz = 4,
+  T5AICpuFrequency_320MHz = 5,
+  T5AICpuFrequency_480MHz = 6,
+} T5AICpuFrequency;
+
 /* One owner for the AP<->CP physical mailbox FIFO. Callers hold the lock for
  * an entire logical transaction, not merely an individual frame. */
 status_t t5ai_cp_mailbox_lock(void);
@@ -35,5 +45,5 @@ void t5ai_cp_mailbox_heartbeat(void);
 status_t t5ai_cp_mailbox_enable_uart0_clock(void);
 status_t t5ai_cp_mailbox_enable_qspi0(void);
 status_t t5ai_cp_mailbox_enable_psram(void);
-status_t t5ai_cp_mailbox_vote_cpu1_120mhz(void);
+status_t t5ai_cp_mailbox_vote_cpu1_frequency(T5AICpuFrequency frequency);
 status_t t5ai_cp_mailbox_log(const void *data, size_t length);
