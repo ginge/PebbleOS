@@ -7,7 +7,6 @@
 #include "applib/ui/app_window_stack.h"
 #include "applib/ui/window_stack.h"
 #include "applib/ui/window_private.h"
-#include "pbl/drivers/rtc.h"
 #include "pbl/mcu/fpu.h"
 #include "process_management/app_manager.h"
 #include "process_state/app_state/app_state.h"
@@ -16,10 +15,6 @@
 #include "system/profiler.h"
 
 static void prv_render_app(void) {
-#ifdef CONFIG_SOC_T5AI
-  const RtcTicks render_start = rtc_get_ticks();
-  PBL_LOG_ERR("BTNROUTE render-start rtc=%lu", (unsigned long)render_start);
-#endif
   WindowStack *stack = app_state_get_window_stack();
   GContext *ctx = app_state_get_graphics_context();
   if (!window_stack_is_animating(stack)) {
@@ -35,21 +30,12 @@ static void prv_render_app(void) {
     }
   }
 
-#ifdef CONFIG_SOC_T5AI
-  PBL_LOG_ERR("BTNROUTE draw-end rtc=%lu elapsed=%lu", (unsigned long)rtc_get_ticks(),
-              (unsigned long)(rtc_get_ticks() - render_start));
-#endif
-
   *app_state_get_framebuffer_render_pending() = true;
 
   PebbleEvent event = {
     .type = PEBBLE_RENDER_READY_EVENT,
   };
   sys_send_pebble_event_to_kernel(&event);
-#ifdef CONFIG_SOC_T5AI
-  PBL_LOG_ERR("BTNROUTE render-end rtc=%lu elapsed=%lu", (unsigned long)rtc_get_ticks(),
-              (unsigned long)(rtc_get_ticks() - render_start));
-#endif
 }
 
 static bool prv_window_is_render_scheduled(Window *window) {
@@ -117,10 +103,6 @@ static void prv_app_will_focus_handler(PebbleEvent *e, void *context) {
 }
 
 static void prv_app_button_down_handler(PebbleEvent *e, void *context) {
-#ifdef CONFIG_SOC_T5AI
-  PBL_LOG_ERR("BTNROUTE app id=%u down=1 rtc=%lu", (unsigned)e->button.button_id,
-              (unsigned long)rtc_get_ticks());
-#endif
   WindowStack *app_window_stack = app_state_get_window_stack();
   if (window_stack_is_animating(app_window_stack)) {
     return;
@@ -138,10 +120,6 @@ static void prv_app_button_down_handler(PebbleEvent *e, void *context) {
 }
 
 static void prv_app_button_up_handler(PebbleEvent *e, void *context) {
-#ifdef CONFIG_SOC_T5AI
-  PBL_LOG_ERR("BTNROUTE app id=%u down=0 rtc=%lu", (unsigned)e->button.button_id,
-              (unsigned long)rtc_get_ticks());
-#endif
   if (window_stack_is_animating(app_state_get_window_stack())) {
     return;
   }

@@ -6,8 +6,6 @@
 #include "board/board.h"
 #include <pbl/drivers/button.h>
 #include <pbl/drivers/exti.h>
-#include <pbl/drivers/rtc.h>
-#include <pbl/logging/logging.h>
 #include <pbl/services/system_task.h>
 #include "kernel/events.h"
 #include "pbl/services/new_timer/new_timer.h"
@@ -16,13 +14,8 @@
 #include "system/reset.h"
 #include "util/bitset.h"
 
-#include "FreeRTOS.h"
-#include "task.h"
-
 #include <stdint.h>
 #include <stdlib.h>
-
-PBL_LOG_MODULE_DEFINE(driver_debounced_button_t5ai, LOG_LEVEL_INFO);
 
 #define DEBOUNCE_PERIOD_MS 2u
 #define NUM_DEBOUNCE_SAMPLES 20u
@@ -34,17 +27,6 @@ static uint32_t s_sample_counts[NUM_BUTTONS];
 static uint32_t s_debounced_state;
 static uint32_t s_hard_reset_samples;
 
-// Temporary T5AI latency probe. Keep all measurement at this driver boundary:
-// no shared input, event-loop, or compositor code is changed by the experiment.
-static volatile bool s_trace_active;
-static volatile RtcTicks s_trace_irq_rtc;
-static volatile TickType_t s_trace_irq_freertos;
-static RtcTicks s_trace_callback_rtc;
-static TickType_t s_trace_callback_freertos;
-static RtcTicks s_trace_first_sample_rtc;
-static bool s_trace_callback_seen;
-static bool s_trace_first_sample_seen;
-
 static bool prv_button_present(ButtonId id) {
   return BOARD_CONFIG_BUTTON.buttons[id].pin != UINT8_MAX;
 }
@@ -52,11 +34,6 @@ static bool prv_button_present(ButtonId id) {
 static void prv_sample_buttons(void *context) {
   (void)context;
   bool sampling_required = false;
-
-  if (s_trace_active && !s_trace_first_sample_seen) {
-    s_trace_first_sample_rtc = rtc_get_ticks();
-    s_trace_first_sample_seen = true;
-  }
 
   for (ButtonId id = BUTTON_ID_BACK; id < NUM_BUTTONS; ++id) {
     if (!prv_button_present(id)) {
@@ -82,24 +59,6 @@ static void prv_sample_buttons(void *context) {
       .button.button_id = id,
     };
 
-    if (s_trace_active) {
-      const RtcTicks event_rtc = rtc_get_ticks();
-      const TickType_t event_freertos = xTaskGetTickCount();
-      const uint32_t callback_rtc_ms = s_trace_callback_seen ?
-          (uint32_t)(s_trace_callback_rtc - s_trace_irq_rtc) : UINT32_MAX;
-      const uint32_t callback_freertos_ticks = s_trace_callback_seen ?
-          (uint32_t)(s_trace_callback_freertos - s_trace_irq_freertos) : UINT32_MAX;
-      const uint32_t first_sample_ms = s_trace_first_sample_seen ?
-          (uint32_t)(s_trace_first_sample_rtc - s_trace_irq_rtc) : UINT32_MAX;
-      PBL_LOG_ERR(
-          "BTNPERF id=%u down=%u cb_rtc=%lu cb_ft=%lu first=%lu event_rtc=%lu event_ft=%lu",
-          (unsigned)id, (unsigned)pressed,
-          (unsigned long)callback_rtc_ms, (unsigned long)callback_freertos_ticks,
-          (unsigned long)first_sample_ms,
-          (unsigned long)(event_rtc - s_trace_irq_rtc),
-          (unsigned long)(event_freertos - s_trace_irq_freertos));
-      s_trace_active = false;
-    }
     event_put(&event);
   }
 
@@ -130,24 +89,12 @@ static void prv_sample_buttons(void *context) {
 
 static void prv_restart_debounce_timer(void *context) {
   (void)context;
-  if (s_trace_active && !s_trace_callback_seen) {
-    s_trace_callback_rtc = rtc_get_ticks();
-    s_trace_callback_freertos = xTaskGetTickCount();
-    s_trace_callback_seen = true;
-  }
   PBL_ASSERTN(new_timer_start(s_debounce_timer, DEBOUNCE_PERIOD_MS,
                               prv_sample_buttons, NULL,
                               TIMER_START_FLAG_REPEATING));
 }
 
 static void prv_button_interrupt_handler(bool *should_context_switch) {
-  if (!s_trace_active) {
-    s_trace_irq_rtc = rtc_get_ticks();
-    s_trace_irq_freertos = xTaskGetTickCountFromISR();
-    s_trace_callback_seen = false;
-    s_trace_first_sample_seen = false;
-    s_trace_active = true;
-  }
   PBL_ASSERTN(system_task_add_callback_from_isr(
       prv_restart_debounce_timer, NULL, should_context_switch));
 }

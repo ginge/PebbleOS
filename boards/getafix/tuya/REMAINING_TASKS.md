@@ -2120,6 +2120,56 @@ deciding evidence. Retain 80 MHz unless signal-integrity measurements justify
 another supported clock; raising the AP core clock is not a substitute for
 correct lane configuration.
 
+### 2026-09-15 performance root cause and low-clock decision
+
+The global UI, button, Bluetooth, flash, scrolling, and redraw slowdown was
+not primarily caused by the 120 MHz CPU1 clock. The ARMv8-M MPU encoder marked
+every Pebble normal-memory region `SH_INNER`, including regions whose MAIR
+policy requested write-back caching. On the BK7258 STAR-MC1, cacheable normal
+memory must be non-shareable. The pinned vendor MPU table confirms this: its
+cached SRAM and PSRAM entries use `SH_NON`, while non-cacheable and device
+ranges use `SH_INNER`. The T5AI-gated branch in `mpu_armv8m.c` now emits
+`SH_NON` for cacheable policies and retains the existing encoding everywhere
+else. This narrowly scoped shared-code correction is required because the
+incorrect RBAR value is produced by the common ARMv8-M encoder; duplicating an
+MPU implementation in board code would leave task and application regions
+wrong.
+
+This supersedes the earlier conclusion above that generic ARMv8-M region
+encoding could remain unchanged. The dedicated PSRAM mapping was useful for
+isolating the symptom, but the decisive fix is correct shareability for every
+T5AI cacheable MPU region. Features and animations remain enabled.
+
+Controlled instrumentation showed the scale of the correction. At 480 MHz,
+the cacheability fix reduced a cold launcher render from approximately 327 ms
+to 58 ms, warm renders from approximately 344 ms to 12--19 ms, a representative
+full display update to 27.1 ms (6.1 ms conversion, 0.65 ms cache clean, and
+16.4 ms DMA/QSPI), and 32 CP flash-cache misses from 139.5 ms to 13.6 ms. The
+operator described this build as "buttery smooth".
+
+CPU1 was then returned to 120 MHz without changing the MPU fix or disabling
+any feature. Hardware measurement against the 32 kHz AON counter reported
+119,767,500 Hz with `SystemCoreClock=120000000` and the matching dynamic
+SysTick reload. Warm frames were typically 81--105 ms, full panel updates were
+38--40 ms, and physical button debounce remained approximately 40--54 ms. The
+operator reported that this build remained smooth and accepted 120 MHz as the
+current battery-conscious active clock. Therefore do not restore a lifetime
+480 MHz vote as a performance workaround. A future active/idle governor may
+elect a higher rate only if a measured workload demonstrates a need.
+
+An attempt to declare and globally initialize the inherited BK7258 D-cache was
+also rejected. Although early startup ordering was corrected, CP flash writes
+then failed because all shared-buffer ownership transitions had not been made
+coherent. That experiment was fully reverted. The platform currently retains
+the proven I-cache declaration and the targeted MPU shareability correction;
+any future global D-cache ownership change requires a complete AP/CP and DMA
+buffer audit first.
+
+The temporary `BTNROUTE`, `BTNPERF`, flash-cache, and per-frame display timing
+logs were removed after these measurements. The functional 2 ms by 20-sample
+button debounce, four-line flash read cache, display batching/GDMA path,
+dynamic SysTick update, and MPU correction remain.
+
 ## Validation commands
 
 ```sh

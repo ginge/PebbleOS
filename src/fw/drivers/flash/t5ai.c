@@ -1,18 +1,13 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <pbl/drivers/flash/flash_impl.h>
-#include <pbl/logging/logging.h>
 #include <pbl/soc/t5ai/flash_ipc.h>
-
-#include <cmsis_core.h>
 
 #include <stdint.h>
 #include <string.h>
 
 #include "flash_region/flash_region.h"
 #include "system/status_codes.h"
-
-PBL_LOG_MODULE_DEFINE(driver_flash_t5ai, LOG_LEVEL_INFO);
 
 #define T5AI_FLASH_IPC_MAX_TRANSFER 0x200u
 #define T5AI_FLASH_IPC_ATTEMPTS 2u
@@ -44,10 +39,6 @@ static uint8_t s_flash_read_cache[T5AI_FLASH_READ_CACHE_LINES][T5AI_FLASH_READ_C
 static FlashAddress s_flash_read_cache_address[T5AI_FLASH_READ_CACHE_LINES];
 static bool s_flash_read_cache_valid[T5AI_FLASH_READ_CACHE_LINES];
 static unsigned s_flash_read_cache_next;
-static uint32_t s_read_cache_hits;
-static uint32_t s_read_cache_misses;
-static uint32_t s_read_ipc_cycles;
-static uint32_t s_read_ipc_bytes;
 
 static bool prv_range_valid(FlashAddress address, size_t length) {
   const uint32_t offset = address - FLASH_REGION_BASE_ADDRESS;
@@ -104,7 +95,6 @@ static void prv_pfs_header_mark_cached(size_t page) {
 }
 
 static status_t prv_read_with_retry(uint32_t offset, void *buffer, size_t length) {
-  const uint32_t start_cycles = DWT->CYCCNT;
   status_t status = E_ERROR;
   for (unsigned attempt = 0; attempt < T5AI_FLASH_IPC_ATTEMPTS; ++attempt) {
     status = t5ai_flash_ipc_read(offset, buffer, length);
@@ -112,8 +102,6 @@ static status_t prv_read_with_retry(uint32_t offset, void *buffer, size_t length
       break;
     }
   }
-  s_read_ipc_cycles += DWT->CYCCNT - start_cycles;
-  s_read_ipc_bytes += length;
   return status;
 }
 
@@ -125,13 +113,11 @@ static status_t prv_read_cached(FlashAddress address, void *buffer, size_t lengt
   for (unsigned i = 0; i < T5AI_FLASH_READ_CACHE_LINES; ++i) {
     if (s_flash_read_cache_valid[i] && s_flash_read_cache_address[i] == line_address) {
       line = i;
-      ++s_read_cache_hits;
       break;
     }
   }
 
   if (line == T5AI_FLASH_READ_CACHE_LINES) {
-    ++s_read_cache_misses;
     line = s_flash_read_cache_next;
     s_flash_read_cache_next = (s_flash_read_cache_next + 1u) % T5AI_FLASH_READ_CACHE_LINES;
     status_t status = prv_read_with_retry(prv_offset(line_address), s_flash_read_cache[line],
@@ -142,17 +128,6 @@ static status_t prv_read_cached(FlashAddress address, void *buffer, size_t lengt
     }
     s_flash_read_cache_address[line] = line_address;
     s_flash_read_cache_valid[line] = true;
-    if ((s_read_cache_misses & 31u) == 0u) {
-      const uint32_t cycles_per_us = SystemCoreClock / 1000000u;
-      PBL_LOG_ERR("PERF reads hit=%lu miss=%lu ipc=%luus bytes=%lu",
-                  (unsigned long)s_read_cache_hits, (unsigned long)s_read_cache_misses,
-                  (unsigned long)(s_read_ipc_cycles / cycles_per_us),
-                  (unsigned long)s_read_ipc_bytes);
-      s_read_cache_hits = 0u;
-      s_read_cache_misses = 0u;
-      s_read_ipc_cycles = 0u;
-      s_read_ipc_bytes = 0u;
-    }
   }
 
   const size_t line_offset = address - line_address;
@@ -262,10 +237,6 @@ status_t flash_impl_init(bool coredump_mode) {
   memset(s_pfs_header_valid, 0, sizeof(s_pfs_header_valid));
   memset(s_flash_read_cache_valid, 0, sizeof(s_flash_read_cache_valid));
   s_flash_read_cache_next = 0;
-  s_read_cache_hits = 0u;
-  s_read_cache_misses = 0u;
-  s_read_ipc_cycles = 0u;
-  s_read_ipc_bytes = 0u;
   return t5ai_flash_ipc_init();
 }
 

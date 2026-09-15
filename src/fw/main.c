@@ -495,13 +495,13 @@ static NOINLINE void prv_main_task_init(void) {
   init_drivers();
 
 #ifdef CONFIG_SOC_T5AI
-  /* Diagnostic: Tuya's AP startup and display driver vote for 480 MHz while
-   * active. Match that platform policy temporarily to establish whether the
-   * 120 MHz CPU/bus vote is the source of the global slowdown. */
+  /* Diagnostic: retain the corrected MPU cacheability policy while returning
+   * CPU1 to its lowest normal active frequency. This isolates the cache fix
+   * from the earlier 480 MHz performance experiment. */
   const status_t cpu_clock_vote_status =
-      t5ai_cp_mailbox_vote_cpu1_frequency(T5AICpuFrequency_480MHz);
+      t5ai_cp_mailbox_vote_cpu1_frequency(T5AICpuFrequency_120MHz);
   if (cpu_clock_vote_status == S_SUCCESS) {
-    SystemCoreClock = 480000000u;
+    SystemCoreClock = 120000000u;
     t5ai_freertos_apply_systick_clock();
   }
   s_t5ai_clock_diagnostics = t5ai_clock_get_diagnostics();

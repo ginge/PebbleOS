@@ -102,11 +102,6 @@ static char s_trace_buffer[160];
 static uint32_t s_last_stream_words;
 static bool s_dma_display_enabled;
 static bool s_dma_display_failed;
-static uint32_t s_timing_conversion_cycles;
-static uint32_t s_timing_cache_cycles;
-static uint32_t s_timing_dma_cycles;
-static size_t s_timing_dma_bytes;
-static uint32_t s_timing_update_count;
 
 static void prv_trace(const char *format, ...) {
   va_list args;
@@ -255,17 +250,8 @@ static void prv_init_conversion_tables(void) {
   }
 }
 
-static void prv_enable_cycle_counter(void) {
-  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
-  *(volatile uint32_t *)0xe0001fb0u = 0xc5acce55u;  // DWT LAR
-  DWT->CYCCNT = 0u;
-  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
-  __asm volatile("dsb 0xf\nisb 0xf" ::: "memory");
-}
-
 static void __attribute__((section(".t5ai_ramfunc"), noinline, optimize("O3")))
 prv_convert_row(uint8_t *destination, const uint8_t *source, bool reverse) {
-  const uint32_t start_cycles = DWT->CYCCNT;
   uint16_t *output = (uint16_t *)destination;
   unsigned previous_source_x = PBL_DISPLAY_WIDTH;
   uint16_t converted_pixel = 0u;
@@ -283,7 +269,6 @@ prv_convert_row(uint8_t *destination, const uint8_t *source, bool reverse) {
     }
     output[x] = converted_pixel;
   }
-  s_timing_conversion_cycles += DWT->CYCCNT - start_cycles;
 }
 
 static bool prv_pixel_stream_begin(void) {
@@ -412,7 +397,6 @@ static bool prv_pixel_stream_write_dma(const uint8_t *data, size_t length,
   DMA_CTRL = ((uint32_t)(length - 1u) << 16) | (2u << 4) | (2u << 6) |
              (1u << 8) | (1u << 9);
   __asm volatile("dsb 0xf" ::: "memory");
-  const uint32_t dma_start_cycles = DWT->CYCCNT;
   DMA_CTRL |= 1u;
 
   unsigned timeout = 1000000u;
@@ -420,8 +404,6 @@ static bool prv_pixel_stream_write_dma(const uint8_t *data, size_t length,
   }
   const bool complete = timeout != 0u && (DMA_STATUS & (1u << 20)) == 0u;
   DMA_CTRL = 0u;
-  s_timing_dma_cycles += DWT->CYCCNT - dma_start_cycles;
-  s_timing_dma_bytes += length;
   if (complete) {
     *aperture_word += length / sizeof(uint32_t);
   }
@@ -470,9 +452,7 @@ static bool prv_stream_logical_row(uint16_t logical_y, const uint8_t *data,
   }
 
   prv_convert_row(s_panel_row, data, false);
-  const uint32_t cache_start_cycles = DWT->CYCCNT;
   prv_dcache_clean(s_panel_row, sizeof(s_panel_row));
-  s_timing_cache_cycles += DWT->CYCCNT - cache_start_cycles;
   for (uint16_t y = y0; y <= y1; ++y) {
     if (!prv_pixel_stream_write_dma(s_panel_row, sizeof(s_panel_row), aperture_word)) {
       return false;
@@ -717,7 +697,6 @@ void display_co5300_bitbang_probe(void) {
 }
 
 void display_init(void) {
-  prv_enable_cycle_counter();
   prv_dma_init();
   s_dma_display_enabled = prv_dma_self_test();
   prv_init_conversion_tables();
@@ -822,11 +801,6 @@ void display_set_rotated(bool rotated) {
 
 void display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
   PBL_ASSERTN(!s_updating);
-  const uint32_t update_start_cycles = DWT->CYCCNT;
-  s_timing_conversion_cycles = 0u;
-  s_timing_cache_cycles = 0u;
-  s_timing_dma_cycles = 0u;
-  s_timing_dma_bytes = 0u;
   s_updating = true;
   DisplayRow row;
   bool full_stream = false;
@@ -872,17 +846,6 @@ void display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
   }
   s_updating = false;
   prv_apply_brightness();
-  const uint32_t total_cycles = DWT->CYCCNT - update_start_cycles;
-  if ((s_timing_update_count++ & 7u) == 0u) {
-    const uint32_t cycles_per_us = SystemCoreClock / 1000000u;
-    PBL_LOG_ERR("PERF frame=%lu total=%luus convert=%luus clean=%luus dma=%luus bytes=%lu",
-                (unsigned long)s_timing_update_count,
-                (unsigned long)(total_cycles / cycles_per_us),
-                (unsigned long)(s_timing_conversion_cycles / cycles_per_us),
-                (unsigned long)(s_timing_cache_cycles / cycles_per_us),
-                (unsigned long)(s_timing_dma_cycles / cycles_per_us),
-                (unsigned long)s_timing_dma_bytes);
-  }
   uccb();
 }
 

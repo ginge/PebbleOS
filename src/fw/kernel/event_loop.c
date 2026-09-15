@@ -193,12 +193,6 @@ static void back_button_force_quit_handler(void *data) {
 static void launcher_handle_button_event(PebbleEvent* e) {
   ButtonId button_id = e->button.button_id;
   const bool watchface_running = app_manager_is_watchface_running();
-#ifdef CONFIG_SOC_T5AI
-  PBL_LOG_ERR("BTNROUTE kernel id=%u down=%u rtc=%lu wf=%u anim=%u mask=%lx",
-              (unsigned)button_id, (unsigned)(e->type == PEBBLE_BUTTON_DOWN_EVENT),
-              (unsigned long)rtc_get_ticks(), (unsigned)watchface_running,
-              (unsigned)compositor_is_animating(), (unsigned long)e->task_mask);
-#endif
 
   // trigger the backlight on any button down event
   if (e->type == PEBBLE_BUTTON_DOWN_EVENT) {
