@@ -15,7 +15,10 @@
 #define T5AI_AON_RTC_COUNT_LOW (*(volatile uint32_t *)(T5AI_AON_RTC_BASE + 0x0cu))
 #define T5AI_AON_RTC_COUNT_HIGH (*(volatile uint32_t *)(T5AI_AON_RTC_BASE + 0x28u))
 #define T5AI_AON_RTC_HZ 32000u
-#define T5AI_RTC_MIN_VALID_TIME 1262304000u
+// Match services_normal's activity threshold so an empty/invalid external RTC
+// initializes Activity during boot, before T5AI starts advertising. The phone's
+// later SetTime then remains a lightweight clock-change event.
+#define T5AI_RTC_MIN_VALID_TIME 1577836800u
 #define T5AI_RTC_MAX_VALID_TIME 2145916799u
 
 _Static_assert(T5AI_AON_RTC_HZ % RTC_TICKS_HZ == 0u,

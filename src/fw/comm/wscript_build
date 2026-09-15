@@ -2,6 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 excl = []
+if bld.env.CONFIG_SOC_T5AI:
+    excl.append('ble/gap_le_connect_params.c')
+else:
+    excl.append('ble/gap_le_connect_params_t5ai.c')
 if not bld.env.CONFIG_BT_ANCS_CLIENT:
     excl.append('ble/kernel_le_client/ancs/*.c')
 if not bld.env.CONFIG_BT_AMS_CLIENT:

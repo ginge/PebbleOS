@@ -3,7 +3,8 @@
 `getafix@dvt3` is the native PebbleOS port for the Waveshare
 [T5-E1-Touch-AMOLED-1.75](https://www.waveshare.com/wiki/T5-E1-Touch-AMOLED-1.75),
 which uses the Tuya T5AI/BK7258. This page is the operator handoff for the
-hardware currently under test. It reflects the state validated on 2026-09-13.
+hardware currently under test. It reflects the state observed through
+2026-09-14.
 
 The only PebbleOS source of truth is:
 
@@ -39,15 +40,22 @@ runs Pebble's NimBLE host against the CP-owned Bluetooth controller.
 | Bluetooth HCI command/event and ACL transport | Proven |
 | Connectable advertising and BlueZ connection | Proven |
 | Pebble GATT service discovery | Proven |
-| Pairing, bonding, reconnect, and Pebble protocol transfer | Proven; phone reports `factory` / unknown platform |
+| Pairing, bonding, reconnect, and Pebble protocol session setup | Proven |
+| Device identity | Phone recognizes the watch as Round 2; further compatibility remains under test |
+| Sustained phone sync and watchface transfer | Failing: PPoG retransmissions followed by flash/IPC failure during BlobDB/PFS writes |
 | Sleep/wake and low-power operation | Not yet validated |
+| Writable PFS | Unsafe under concurrent phone sync; final test entered a flash assertion/reboot loop |
 | OTA, recovery, and general writable flash | Deliberately disabled pending a safe storage/recovery contract |
 
 The normal T5AI path retains board-specific hardware sequencing in
 `src/fw/main.c`, then initializes the complete normal service set. Native
 startup has visibly progressed through the PebbleOS splash and charging
 animation into the launcher, physical touch has moved its menu, and the phone
-has opened an encrypted reversed-PPoG session without rebooting the watch.
+has opened an encrypted reversed-PPoG session. Sustained sync is not yet safe.
+The 2026-09-14 watchface attempt reached BlobDB and a 914-byte protocol packet,
+then failed a CP flash write and entered a repeated erase-assertion loop. See
+the [phone-sync incident handoff](getafix_dvt3_phone_sync_incident.md) before
+doing more Bluetooth or writable-storage work.
 
 ## Device and USB ports
 
@@ -65,6 +73,8 @@ ACM numbers can change. Prefer the stable by-id paths containing
 If the CP becomes wedged after a failed mailbox or Bluetooth sequence, an AP
 reset or reflash may not recover it. Disconnect the shared USB-C cable for five
 seconds and reconnect it to power-cycle both cores and the dual-UART bridge.
+After the 2026-09-14 incident this is mandatory before the next session; do not
+attempt another phone sync until the mailbox/flash architecture is corrected.
 
 ## Build
 
@@ -173,18 +183,61 @@ picocom --baud 460800 /dev/ttyACM1
 the sole AP-side Bluetooth host; the vendor Bluetooth host must not be started
 alongside it.
 
-The central transport rule discovered on hardware is that the physical
-AP-to-CP mailbox permits only one non-transport-ACK message in flight. This is
-the same serialization expressed by the vendor `bk_ipc` semaphore. The native
-mailbox now waits for physical completion before sending another ordinary
-frame, while physical ACK frames bypass that wait.
+### TODO: restore low-power BLE connection parameters
+
+The T5AI NimBLE backend currently keeps an established phone connection at
+the active 15 ms, zero-slave-latency parameters. It deliberately declines the
+stock transition to the 30--45 ms, three-event-slave-latency idle state. This
+is a temporary reliability workaround in
+`src/bluetooth-fw/nimble/responsiveness_t5ai.c`; the shared Pebble connection
+manager and protocol services remain unchanged.
+
+Hardware traces on 2026-09-14 showed two related failures after entering the
+idle state:
+
+- AppFetch requested the active parameters before a watchface transfer, the
+  BK7258 controller reported HCI Connection Timeout (`0x08`, surfaced by
+  NimBLE as `0x0208`), and the link disconnected before PutBytes endpoint
+  `0xBEEF` began.
+- A reconnected link later timed out under sustained full Blob DB traffic
+  while using the idle parameters.
+
+Keeping the active parameters preserves the complete AppFetch, PutBytes,
+Blob DB, and large-object paths. It is not a payload-dropping workaround. The
+known cost is increased Bluetooth radio duty cycle and therefore reduced
+battery life for as long as a phone is connected. Battery impact has not yet
+been measured, and the board under current test has no battery fitted.
+
+The same T5AI-local backend raises the active-link supervision timeout from
+the stock 6 seconds to 20 seconds. Hardware also lost otherwise healthy active
+links after a roughly six-second controller stall while preparing AppFetch.
+This setting does not increase radio duty cycle, but it delays detection of a
+genuinely lost phone by up to 14 additional seconds. Revert it separately once
+the controller/mailbox stall is fixed and six-second supervision survives the
+same sustained transfer tests.
+
+Remove this workaround only after the T5 controller path can repeatedly move
+from 15 ms/latency 0 to the stock idle state and back without a disconnect,
+then complete sustained Blob DB and watchface PutBytes transfers. Follow that
+with connected-idle current and battery-life measurements comparing active
+and stock parameter policies. Keep the change T5AI-local unless evidence
+shows a defect in shared Pebble code.
+
+The physical AP-to-CP mailbox permits only one ordinary frame in its hardware
+send slot at a time. The native transmit queue now owns copies until physical
+completion, while physical ACK frames bypass ordinary backpressure.
 
 HCI callbacks immediately copy and physically acknowledge the borrowed CP
 frame. An eight-entry FIFO then preserves interleaved physical ACKs, HCI
 events, ACL data, MIPC object ACKs, and application replies. Asynchronous
 callback-response descriptors remain owned until their logical MIPC ACK. These
-ownership rules fixed the descriptor overwrite, double-ACK, and command-order
-failures found during bring-up.
+ownership rules fixed descriptor overwrite, double-ACK, and several
+command-order failures found during bring-up. They are not a complete logical
+IPC concurrency design: flash and HCI still share one transaction-wide global
+mailbox mutex. The final phone-sync trace failed a flash write during BlobDB
+activity, then inherited a wedged CP across AP resets. The incident handoff
+documents the required per-channel dispatcher and per-client transaction
+ownership model.
 
 The final diagnostics-free image completed all legacy advertising commands:
 LE Set Advertising Data (`0x2008`), LE Set Scan Response Data (`0x2009`), LE
@@ -198,12 +251,13 @@ BlueZ then:
   `40000000-328e-0fbb-c642-1aa6699bdada` services; and
 - disconnected cleanly, leaving the board advertising.
 
-The 2026-09-13 phone test paired and persisted the bond, reconnected after a
+The historical 2026-09-13 phone test paired and persisted the bond, reconnected after a
 watch reboot, completed encrypted GATT discovery, subscribed to reversed PPoG,
 opened the Pebble Protocol session, connected the music service, and entered
 normal connection parameters without a reboot. The Pebble app showed
 `connected(factory)` and an unknown platform; correcting device/platform
-identity is the next Bluetooth milestone.
+identity was completed later. This paragraph records that earlier checkpoint,
+not the current Round 2 identity or sustained-sync status.
 
 A 2026-09-12 follow-up build reached the Pebble numeric-comparison popup and
 BlueZ displayed the same six-digit value, proving the pairing UI and SMP
@@ -1297,7 +1351,9 @@ cd /home/baz/coredevices/pebbleos
   tools.tests.test_tuya_memory
 ```
 
-The latest 2026-09-13 run passed all 88 tests. Finish a handoff with:
+The latest pre-flash 2026-09-14 run passed all 89 tests. Those tests do not yet
+model concurrent HCI/flash mailbox clients or CP recovery. Finish a handoff
+with:
 
 ```sh
 git diff --check
@@ -1308,16 +1364,21 @@ git status --short --branch
 
 Continue in this order:
 
-1. Correct the identity metadata that makes the phone app report
-   `connected(factory)` and an unknown platform.
-2. Run longer reconnect, cold-power-cycle, sustained protocol-transfer, and
-   persistent-bond soaks.
-3. Validate shared-PRF compaction, corruption recovery, endurance, and
-   full-board recovery before expanding writable-flash scope.
-4. Validate sleep/wake, Bluetooth low-power operation, and peripheral resume.
-5. Fit a battery and validate voltage calibration, charging transitions,
+1. Physically power-cycle both AP and CP before reconnecting the board.
+2. Replace the transaction-wide T5AI mailbox lock with the per-channel,
+   owned-object dispatcher described in the phone-sync incident handoff.
+3. Add a T5AI flash fault/read-only state so a CP error cannot cause an
+   assertion/reboot loop.
+4. With explicit approval, reformat only the corrupted PFS after verifying its
+   exact range; do not erase firmware, resources, CP, bootloader, or PRF data.
+5. Run interleaved HCI/flash tests and repeated large watchface sync soaks.
+6. Repair the trace tool's idle-reconnect receive-thread shutdown race.
+7. Restore and measure stock low-power BLE parameters only after sync is
+   reliable.
+8. Validate sleep/wake, Bluetooth low-power operation, and peripheral resume.
+9. Fit a battery and validate voltage calibration, charging transitions,
    retention, and state of charge against external measurements.
-6. Leave OTA, resource-bank writes, and general flash mutation until the image,
+10. Leave OTA, resource-bank writes, and general flash mutation until the image,
    rollback, and recovery design is complete.
 
 ## Source and reference map
@@ -1336,6 +1397,8 @@ Key native files:
 - `boards/getafix/defconfig.dvt3`: DVT3 feature selection.
 - `boards/getafix/tuya/REMAINING_TASKS.md`: detailed chronological handoff and
   remaining checklist.
+- `docs/boards/getafix_dvt3_phone_sync_incident.md`: final 2026-09-14 crash
+  evidence, mailbox/flash diagnosis, recovery guardrails, and next-session plan.
 
 Pinned vendor references are under
 `/home/baz/Documents/ChatGPT/pebble/.vendor/tuyaopen`; revisions are recorded in

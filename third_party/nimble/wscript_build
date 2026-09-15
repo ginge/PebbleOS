@@ -111,8 +111,7 @@ elif bld.env.CONFIG_SOC_T5AI:
 
     # T5AI is an external-controller, host-only NimBLE target and currently
     # shares the same generated host configuration as SF32LB52. Its mailbox
-    # transport serializes ACL sends and does not implement ISO packets, so do
-    # not reserve SiFli's controller-sized 60-ACL/10-ISO transport pools.
+    # transport serializes ACL sends and does not implement ISO packets.
     nimble_env.append_value('DEFINES', [
         # The generated SF32LB52 host configuration provides only 12 shared
         # mbufs. Pairing and reconnect can transiently consume all of them,
@@ -121,7 +120,11 @@ elif bld.env.CONFIG_SOC_T5AI:
         'MYNEWT_VAL_MSYS_1_BLOCK_COUNT=35',
         'MYNEWT_VAL_BLE_TRANSPORT_ACL_COUNT=10',
         'MYNEWT_VAL_BLE_TRANSPORT_ACL_FROM_HS_COUNT=10',
-        'MYNEWT_VAL_BLE_TRANSPORT_ACL_FROM_LL_COUNT=10',
+        # AppFetch can deliver more than ten controller-to-host ACL packets
+        # while the host is committing a PFS page. Dropping any packet breaks
+        # PPoG rollback and eventually loses the link, so absorb the measured
+        # burst without inflating the independently serialized outbound pool.
+        'MYNEWT_VAL_BLE_TRANSPORT_ACL_FROM_LL_COUNT=32',
         'MYNEWT_VAL_BLE_TRANSPORT_ISO_COUNT=0',
         'MYNEWT_VAL_BLE_TRANSPORT_ISO_FROM_HS_COUNT=0',
         'MYNEWT_VAL_BLE_TRANSPORT_ISO_FROM_LL_COUNT=0',

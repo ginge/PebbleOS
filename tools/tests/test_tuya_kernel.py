@@ -63,6 +63,16 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("if bld.env.CONFIG_SOC_T5AI:", nimble_build)
         self.assertIn("excludes.append('gatt_client_discovery.c')", nimble_build)
         self.assertIn("excludes.append('gatt_client_discovery_t5ai.c')", nimble_build)
+        self.assertIn("excludes.append('responsiveness.c')", nimble_build)
+        self.assertIn("excludes.append('responsiveness_t5ai.c')", nimble_build)
+        responsiveness = (
+            ROOT / "src/bluetooth-fw/nimble/responsiveness_t5ai.c"
+        ).read_text()
+        self.assertIn("if (req->slave_latency_events != 0u)", responsiveness)
+        self.assertIn("skipped latency=%u update", responsiveness)
+        self.assertIn("T5AI_ACTIVE_SUPERVISION_TIMEOUT_10MS 2000u", responsiveness)
+        self.assertIn("effective_req.supervision_timeout_10ms", responsiveness)
+        self.assertIn("ble_gap_update_params", responsiveness)
         hci_ipc = (ROOT / "third_party/nimble/transport/t5ai_hci_ipc.c").read_text()
         hci_exchange = hci_ipc.split("static status_t prv_exchange(", 1)[1].split(
             "static status_t prv_locked_exchange(", 1
@@ -93,10 +103,16 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertNotIn("s_failed", hci_transport)
         self.assertIn("T5AI HCI event delivery failed", hci_transport)
         self.assertIn("T5AI HCI ACL delivery failed", hci_transport)
-        self.assertIn("T5AI HCI ACL transmit failed", hci_transport)
-        self.assertIn("T5AI_HCI_ACL_SEND_ATTEMPTS 3u", hci_transport)
-        self.assertIn("vTaskDelay(1);", hci_transport)
-        self.assertIn("status=%d len=%u attempts=%u", hci_transport)
+        self.assertIn("T5AI HCI ACL transmit deferred", hci_transport)
+        self.assertIn("xQueueSend(s_acl_tx_queue, &acl, 0)", hci_transport)
+        self.assertIn("T5AI PP RX start ep=0x%04x", hci_transport)
+        self.assertNotIn("LOG_DOMAIN_BT_STACK", hci_transport)
+        self.assertIn("PBL_LOG_D_INFO(LOG_DOMAIN_COMM", hci_transport)
+        self.assertIn("T5AI_HCI_ACL_TX_QUEUE_CAPACITY", hci_transport)
+        self.assertIn("prv_send_queued_acl", hci_transport)
+        self.assertNotIn("T5AI_HCI_ACL_SEND_ATTEMPTS", hci_transport)
+        self.assertIn("int result = BLE_ERR_MEM_CAPACITY;", hci_transport)
+        self.assertIn("status=%d len=%u", hci_transport)
         self.assertIn(
             "cb(&pairing_info.identity, &pairing_info.irk, device_name, &bonding, context);",
             (ROOT / "src/fw/services/bluetooth/bluetooth_persistent_storage_prf.c").read_text(),
@@ -372,6 +388,11 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("accel_manager_init();", main)
         self.assertIn("touch_init();", main)
         self.assertIn("services_normal_init();", main)
+        self.assertEqual(main.count("bt_ctl_set_enabled(true);"), 1)
+        self.assertLess(
+            main.index("services_normal_init();"),
+            main.index("bt_ctl_set_enabled(true);"),
+        )
         normal_services = (
             ROOT / "src/fw/services/services_normal/service.c"
         ).read_text()
@@ -437,9 +458,12 @@ class TuyaKernelCheckTest(unittest.TestCase):
         ).read_text()
         app_state = (ROOT / "src/fw/process_state/app_state/app_state.c").read_text()
         self.assertIn(
-            "#if !defined(CONFIG_RECOVERY_FW) && !defined(CONFIG_SOC_T5AI)\n"
+            "#ifndef CONFIG_RECOVERY_FW\n"
             "  services_normal_set_runlevel(runlevel);",
             services,
+        )
+        self.assertNotIn(
+            "!defined(CONFIG_RECOVERY_FW) && !defined(CONFIG_SOC_T5AI)", services
         )
         self.assertIn("#ifndef CONFIG_SOC_T5AI\n  {\n    .set_enable_fn = accel_manager_enable", services_common)
         self.assertIn("#ifndef CONFIG_SOC_T5AI\n  {\n    .set_enable_fn = light_allow", services_common)
@@ -658,6 +682,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("prv_set_retained_time(external_time);", rtc)
         self.assertIn("prv_external_rtc_write(fallback_time)", rtc)
         self.assertIn("T5AI_RTC_MIN_VALID_TIME", rtc)
+        self.assertIn("#define T5AI_RTC_MIN_VALID_TIME 1577836800u", rtc)
         self.assertIn("if (base_ticks > ticks", rtc)
 
     def test_cmsis_priorities_do_not_use_raw_freertos_bytes(self):

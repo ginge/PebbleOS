@@ -18,6 +18,8 @@
 #define T5AI_HCI_MAX_EVENT_SIZE 257u
 #define T5AI_HCI_MAX_ACL_SIZE 1028u
 #define T5AI_HCI_PENDING_FRAME_CAPACITY 8u
+#define T5AI_HCI_EVENT_RESPONSE_CAPACITY 8u
+#define T5AI_HCI_REQUEST_CAPACITY 8u
 
 enum {
   T5AI_HCI_INIT = 0,
@@ -53,14 +55,14 @@ typedef struct {
 } T5AIHCIPendingFrame;
 
 static const char s_channel_name[] = "__tkl_ipc_handle";
-static T5AIHCIOutbound s_request;
-static T5AIHCIOutbound s_event_response;
+static T5AIHCIOutbound s_requests[T5AI_HCI_REQUEST_CAPACITY];
+static bool s_request_in_use[T5AI_HCI_REQUEST_CAPACITY];
+static T5AIHCIOutbound s_event_responses[T5AI_HCI_EVENT_RESPONSE_CAPACITY];
+static bool s_event_response_in_use[T5AI_HCI_EVENT_RESPONSE_CAPACITY];
 static T5AIHCIMessage s_message __attribute__((aligned(32)));
 static T5AIHCICallbacks s_callbacks;
 static uint8_t s_sequence;
 static bool s_started;
-static bool s_request_transport_ack;
-static bool s_event_response_transport_ack;
 static T5AIHCIPendingFrame s_pending_frames[T5AI_HCI_PENDING_FRAME_CAPACITY]
     __attribute__((aligned(32)));
 static uint8_t s_pending_frame_head;
@@ -99,7 +101,8 @@ static status_t prv_mipc_ack(T5AIMIPCFrame *received, T5AIMIPCData *remote_data)
       .object = received->object,
       .result = t5ai_mipc_data_crc(remote_data),
   };
-  return prv_send_frame(&ack);
+  dcache_flush(&ack, sizeof(ack));
+  return t5ai_cp_mailbox_send(&ack, sizeof(ack));
 }
 
 static status_t prv_prepare_outbound(T5AIHCIOutbound *outbound, const void *payload, size_t length,
@@ -185,46 +188,35 @@ static status_t prv_queue_pending_frame(const T5AIMIPCFrame *frame, bool physica
   return S_SUCCESS;
 }
 
-static status_t prv_wait_for_event_response_ack(void) {
-  for (uint8_t offset = 0; offset < s_pending_frame_count; ++offset) {
-    const uint8_t index =
-        (uint8_t)((s_pending_frame_head + offset) % T5AI_HCI_PENDING_FRAME_CAPACITY);
-    if (prv_is_transport_ack(&s_pending_frames[index].frame, &s_event_response.data)) {
-      for (; offset + 1u < s_pending_frame_count; ++offset) {
-        const uint8_t to =
-            (uint8_t)((s_pending_frame_head + offset) % T5AI_HCI_PENDING_FRAME_CAPACITY);
-        const uint8_t from =
-            (uint8_t)((s_pending_frame_head + offset + 1u) % T5AI_HCI_PENDING_FRAME_CAPACITY);
-        s_pending_frames[to] = s_pending_frames[from];
-      }
-      --s_pending_frame_count;
-      s_event_response_transport_ack = false;
-      break;
+static bool prv_retire_event_response(const T5AIMIPCFrame *frame) {
+  for (size_t i = 0; i < T5AI_HCI_EVENT_RESPONSE_CAPACITY; ++i) {
+    if (s_event_response_in_use[i] &&
+        prv_is_transport_ack(frame, &s_event_responses[i].data)) {
+      s_event_response_in_use[i] = false;
+      return true;
     }
   }
-  while (s_event_response_transport_ack) {
-    T5AIMIPCFrame received;
-    status_t status = prv_read_mailbox_frame(&received, true);
-    if (FAILED(status)) {
-      return status;
-    }
-    if ((received.header & (0xfu << 12)) != 0) {
-      continue;
-    }
-    status = prv_physical_ack(&received);
-    if (FAILED(status)) {
-      return status;
-    }
-    if (prv_is_transport_ack(&received, &s_event_response.data)) {
-      s_event_response_transport_ack = false;
-    } else {
-      status = prv_queue_pending_frame(&received, true);
-      if (FAILED(status)) {
-        return status;
-      }
+  return false;
+}
+
+static bool prv_retire_request(const T5AIMIPCFrame *frame) {
+  for (size_t i = 0; i < T5AI_HCI_REQUEST_CAPACITY; ++i) {
+    if (s_request_in_use[i] && prv_is_transport_ack(frame, &s_requests[i].data)) {
+      s_request_in_use[i] = false;
+      return true;
     }
   }
-  return S_SUCCESS;
+  return false;
+}
+
+static T5AIHCIOutbound *prv_allocate_request(void) {
+  for (size_t i = 0; i < T5AI_HCI_REQUEST_CAPACITY; ++i) {
+    if (!s_request_in_use[i]) {
+      s_request_in_use[i] = true;
+      return &s_requests[i];
+    }
+  }
+  return NULL;
 }
 
 static status_t prv_handle_command(T5AIMIPCFrame *frame, uint8_t expected, bool *matched);
@@ -280,19 +272,18 @@ static status_t prv_decode_remote(T5AIMIPCFrame *frame, T5AIMIPCData **remote_da
 }
 
 static status_t prv_respond_to_event(T5AIHCIMessage *message) {
-  /* This mirrors tuya_ipc_send_no_sync() in tkl_hci_1.c.  The CP is blocked in
-   * tuya_ipc_send_sync() waiting for this echoed message. Retire the preceding
-   * asynchronous response before reusing its shared descriptor, then enqueue
-   * this response without waiting for its ACK in the callback path. */
-  status_t status = prv_wait_for_event_response_ack();
-  if (FAILED(status)) {
-    return status;
+  for (size_t i = 0; i < T5AI_HCI_EVENT_RESPONSE_CAPACITY; ++i) {
+    if (!s_event_response_in_use[i]) {
+      s_event_response_in_use[i] = true;
+      status_t status =
+          prv_prepare_outbound(&s_event_responses[i], message, sizeof(*message), false);
+      if (FAILED(status)) {
+        s_event_response_in_use[i] = false;
+      }
+      return status;
+    }
   }
-  status = prv_prepare_outbound(&s_event_response, message, sizeof(*message), false);
-  if (PASSED(status)) {
-    s_event_response_transport_ack = true;
-  }
-  return status;
+  return E_OUT_OF_RESOURCES;
 }
 
 static status_t prv_handle_command(T5AIMIPCFrame *frame, uint8_t expected, bool *matched) {
@@ -304,20 +295,26 @@ static status_t prv_handle_command(T5AIMIPCFrame *frame, uint8_t expected, bool 
   }
 
   if (message->subtype == T5AI_HCI_EVENT_TO_HOST || message->subtype == T5AI_HCI_ACL_TO_HOST) {
-    uint8_t *payload = message->subtype == T5AI_HCI_EVENT_TO_HOST ? s_event_payload : s_acl_payload;
-    const size_t capacity = message->subtype == T5AI_HCI_EVENT_TO_HOST ? sizeof(s_event_payload)
-                                                                       : sizeof(s_acl_payload);
-    if (message->request == 0 || message->request_length > capacity) {
+    /* CP owns and reuses message as soon as prv_respond_to_event() publishes
+     * our reply. Snapshot every field needed by the callback before replying;
+     * rereading the remote descriptor afterwards races that reuse. */
+    const uint8_t subtype = message->subtype;
+    const uint32_t request = message->request;
+    const size_t request_length = message->request_length;
+    uint8_t *payload = subtype == T5AI_HCI_EVENT_TO_HOST ? s_event_payload : s_acl_payload;
+    const size_t capacity = subtype == T5AI_HCI_EVENT_TO_HOST ? sizeof(s_event_payload)
+                                                              : sizeof(s_acl_payload);
+    if (request == 0 || request_length > capacity) {
       return E_ERROR;
     }
-    dcache_invalidate((void *)(uintptr_t)message->request, message->request_length);
-    memcpy(payload, (const void *)(uintptr_t)message->request, message->request_length);
+    dcache_invalidate((void *)(uintptr_t)request, request_length);
+    memcpy(payload, (const void *)(uintptr_t)request, request_length);
     status = prv_respond_to_event(message);
     if (PASSED(status)) {
       T5AIHCIReceiveCallback callback =
-          message->subtype == T5AI_HCI_EVENT_TO_HOST ? s_callbacks.event : s_callbacks.acl;
+          subtype == T5AI_HCI_EVENT_TO_HOST ? s_callbacks.event : s_callbacks.acl;
       if (callback != NULL) {
-        callback(payload, message->request_length);
+        callback(payload, request_length);
       }
     }
   } else if (message->subtype == expected) {
@@ -329,12 +326,13 @@ static status_t prv_handle_command(T5AIMIPCFrame *frame, uint8_t expected, bool 
 }
 
 static status_t prv_exchange(uint8_t subtype, const void *payload, size_t length) {
-  status_t status = prv_wait_for_event_response_ack();
-  if (FAILED(status)) {
-    return status;
+  T5AIHCIOutbound *request = prv_allocate_request();
+  if (request == NULL) {
+    return E_OUT_OF_RESOURCES;
   }
   s_message = (T5AIHCIMessage){.type = T5AI_HCI_TYPE, .subtype = subtype};
   if (payload != NULL && (!prv_pointer(payload, &s_message.request) || length > UINT32_MAX)) {
+    s_request_in_use[request - s_requests] = false;
     return E_RANGE;
   }
   s_message.request_length = (uint32_t)length;
@@ -343,14 +341,14 @@ static status_t prv_exchange(uint8_t subtype, const void *payload, size_t length
   if (payload != NULL && length != 0u) {
     dcache_flush(payload, length);
   }
-  status = prv_prepare_outbound(&s_request, &s_message, sizeof(s_message), false);
+  status_t status = prv_prepare_outbound(request, &s_message, sizeof(s_message), false);
   if (FAILED(status)) {
+    s_request_in_use[request - s_requests] = false;
     return status;
   }
 
-  s_request_transport_ack = false;
   bool matched = false;
-  while (!s_request_transport_ack || !matched) {
+  while (!matched) {
     T5AIMIPCFrame received;
     bool physically_acknowledged;
     status = prv_read_frame(&received, &physically_acknowledged, true);
@@ -367,10 +365,7 @@ static status_t prv_exchange(uint8_t subtype, const void *payload, size_t length
       }
     }
     const uint8_t command = (uint8_t)received.header;
-    if (prv_is_transport_ack(&received, &s_request.data)) {
-      s_request_transport_ack = true;
-    } else if (prv_is_transport_ack(&received, &s_event_response.data)) {
-      s_event_response_transport_ack = false;
+    if (prv_retire_request(&received) || prv_retire_event_response(&received)) {
     } else if (command == t5ai_mipc_header(T5AI_MIPC_CPU_CP, T5AI_MIPC_TYPE_COMMAND)) {
       status = prv_handle_command(&received, subtype, &matched);
       if (FAILED(status)) {
@@ -398,7 +393,8 @@ int t5ai_hci_ipc_start(const T5AIHCICallbacks *callbacks) {
   s_callbacks = *callbacks;
   s_pending_frame_head = 0u;
   s_pending_frame_count = 0u;
-  s_event_response_transport_ack = false;
+  memset(s_request_in_use, 0, sizeof(s_request_in_use));
+  memset(s_event_response_in_use, 0, sizeof(s_event_response_in_use));
   status_t status = t5ai_cp_mailbox_register(T5AI_MIPC_RX_LOGICAL_CHANNEL, prv_route_frame, NULL);
   if (FAILED(status)) {
     memset(&s_callbacks, 0, sizeof(s_callbacks));
@@ -426,7 +422,8 @@ int t5ai_hci_ipc_stop(void) {
   s_started = false;
   s_pending_frame_head = 0u;
   s_pending_frame_count = 0u;
-  s_event_response_transport_ack = false;
+  memset(s_request_in_use, 0, sizeof(s_request_in_use));
+  memset(s_event_response_in_use, 0, sizeof(s_event_response_in_use));
   t5ai_cp_mailbox_unregister(T5AI_MIPC_RX_LOGICAL_CHANNEL);
   memset(&s_callbacks, 0, sizeof(s_callbacks));
   return status;
@@ -453,8 +450,7 @@ void t5ai_hci_ipc_poll(void) {
     if (!physically_acknowledged) {
       (void)prv_physical_ack(&received);
     }
-    if (prv_is_transport_ack(&received, &s_event_response.data)) {
-      s_event_response_transport_ack = false;
+    if (prv_retire_request(&received) || prv_retire_event_response(&received)) {
     } else if ((uint8_t)received.header ==
                t5ai_mipc_header(T5AI_MIPC_CPU_CP, T5AI_MIPC_TYPE_COMMAND)) {
       bool ignored = false;

@@ -697,26 +697,61 @@ class GetafixBoardsTest(unittest.TestCase):
             "'MYNEWT_VAL_BLE_TRANSPORT_ACL_FROM_HS_COUNT=10'", nimble_build
         )
         self.assertIn(
+            "'MYNEWT_VAL_BLE_TRANSPORT_ACL_FROM_LL_COUNT=32'", nimble_build
+        )
+        self.assertIn(
             "'MYNEWT_VAL_BLE_TRANSPORT_ISO_FROM_HS_COUNT=0'", nimble_build
         )
 
         source = (
             ROOT / "third_party/nimble/transport/t5ai_hci_ipc.c"
         ).read_text()
+        snapshot = source.index("const uint8_t subtype = message->subtype")
+        length_snapshot = source.index(
+            "const size_t request_length = message->request_length", snapshot
+        )
         copy = source.index(
-            "memcpy(payload, (const void *)(uintptr_t)message->request"
+            "memcpy(payload, (const void *)(uintptr_t)request, request_length)",
+            length_snapshot,
         )
         response = source.index("status = prv_respond_to_event(message)", copy)
-        callback = source.index("callback(payload, message->request_length)", response)
+        callback = source.index("callback(payload, request_length)", response)
+        self.assertLess(snapshot, length_snapshot)
+        self.assertLess(length_snapshot, copy)
         self.assertLess(copy, response)
         self.assertLess(response, callback)
-        self.assertIn("s_event_response_transport_ack = true;", source)
-        self.assertIn("prv_wait_for_event_response_ack()", source)
+        callback_path = source[response:callback]
+        self.assertNotIn("message->subtype", callback_path)
+        self.assertNotIn("message->request_length", callback_path)
+        self.assertIn("s_event_responses[T5AI_HCI_EVENT_RESPONSE_CAPACITY]", source)
+        self.assertIn("prv_retire_event_response", source)
+        self.assertIn("s_requests[T5AI_HCI_REQUEST_CAPACITY]", source)
+        self.assertIn("while (!matched)", source)
+        self.assertNotIn("s_request_transport_ack", source)
+        self.assertNotIn("prv_wait_for_event_response_ack", source)
+
+        mailbox = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
+        self.assertIn("s_tx_queue[T5AI_MBOX_TX_QUEUE_CAPACITY]", mailbox)
+        self.assertIn("prv_complete_queued_tx", mailbox)
+        self.assertNotIn("prv_wait_for_tx_complete", mailbox)
+        mipc_ack = source[source.index("static status_t prv_mipc_ack"):]
+        mipc_ack = mipc_ack[:mipc_ack.index("static status_t prv_prepare_outbound")]
+        self.assertIn("t5ai_cp_mailbox_send(&ack, sizeof(ack))", mipc_ack)
 
         transport = (
             ROOT / "third_party/nimble/transport/hci_t5ai.c"
         ).read_text()
         self.assertNotIn("vTaskDelay(pdMS_TO_TICKS(100))", transport)
+        self.assertIn("T5AI_HCI_ACL_TX_QUEUE_CAPACITY 16u", transport)
+        self.assertIn("xQueueSend(s_acl_tx_queue, &acl, 0)", transport)
+        self.assertIn("prv_send_queued_acl(acl)", transport)
+        self.assertNotIn("T5AI_HCI_ACL_SEND_ATTEMPTS", transport)
+
+        flash_driver = (ROOT / "src/fw/drivers/flash/t5ai.c").read_text()
+        blank_check = flash_driver.split("static status_t prv_blank_check", 1)[1]
+        blank_check = blank_check.split("status_t flash_impl_blank_check_subsector", 1)[0]
+        self.assertIn("if (FAILED(status))", blank_check)
+        self.assertIn("return S_FALSE;", blank_check)
 
     def test_dvt3_uses_normal_bluetooth_control_with_shared_prf_storage(self):
         main = (ROOT / "src/fw/main.c").read_text()
@@ -726,6 +761,15 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertIn("bt_ctl_set_enabled(true);", main)
         self.assertNotIn("prv_t5ai_nimble_probe_start", main)
         self.assertNotIn("ble_gap_adv_start(", main)
+
+        comm_build = (ROOT / "src/fw/comm/wscript_build").read_text()
+        self.assertIn("excl.append('ble/gap_le_connect_params.c')", comm_build)
+        t5_params = (
+            ROOT / "src/fw/comm/ble/gap_le_connect_params_t5ai.c"
+        ).read_text()
+        self.assertNotIn("bt_driver_le_connection_parameter_update", t5_params)
+        self.assertNotIn("prv_watchdog", t5_params)
+        self.assertIn("conn_mgr_handle_desired_state_granted", t5_params)
 
         build = (
             ROOT / "src/fw/services/bluetooth/wscript_build"

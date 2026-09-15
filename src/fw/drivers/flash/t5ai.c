@@ -276,7 +276,11 @@ static status_t prv_blank_check(FlashAddress address, size_t length) {
     const size_t chunk = length > sizeof(buffer) ? sizeof(buffer) : length;
     status_t status = flash_impl_read_sync(buffer, address, chunk);
     if (FAILED(status)) {
-      return status;
+      /* Shared flash code asserts on a blank-check transport error before it
+       * can report the erase failure asynchronously. The CP can retain a
+       * wedged flash transaction across an AP reset, so conservatively report
+       * "not blank" and let the T5 erase path return the recoverable error. */
+      return S_FALSE;
     }
     for (size_t i = 0; i < chunk; ++i) {
       if (buffer[i] != 0xff) {

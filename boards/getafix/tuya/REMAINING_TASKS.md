@@ -6,7 +6,29 @@ T5-E1 Touch AMOLED 1.75 board. Continue in the only valid source checkout,
 `/home/baz/Documents/ChatGPT/pebble` is reference and artifact storage, not a
 PebbleOS source tree.
 
-## Current priority: preserve the proven Bluetooth checkpoint
+## Current priority: stop unsafe phone sync and replace mailbox serialization
+
+The 2026-09-14 watchface-sync session ended in a CP flash-write failure and a
+dangerous AP reboot loop. Pairing, encryption, MTU 256, reversed PPoG, and
+session setup are proven, and the phone now recognizes the identity as Round 2,
+but sustained BlobDB/PFS sync is not proven. The final trace reached a 914-byte
+endpoint packet before `flash_impl_write_page_begin` returned `E_ERROR`; each
+restart then failed filesystem recovery erase with `E_INVALID_OPERATION` while
+the CP rejected a QSPI power/clock request with `E_AGAIN`.
+
+Stop using the older priority statement below as the active plan. Physically
+power-cycle both cores before the next session, then implement the T5AI-local
+per-channel mailbox dispatcher and flash fault state described in
+`docs/boards/getafix_dvt3_phone_sync_incident.md`. Do not rebuild, flash, sync,
+or reformat PFS until that plan is reviewed. PFS reformat is destructive and
+requires explicit operator approval after the exact partition range is checked.
+
+The shared event loop and app manager are stock, the app is priority 1, and no
+T5AI scheduler guard exists in the current tree. Do not reintroduce an app
+priority-3 or polling-task workaround. Preserve large protocol objects and
+normal OS endpoints.
+
+## Superseded Bluetooth checkpoint history
 
 - Bluetooth pairing, encrypted GATT discovery, reversed PPoG, and reconnect are
   now hardware-proven with persistent Pebble-side bond metadata. The phone app

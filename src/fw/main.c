@@ -224,7 +224,6 @@ static void prv_t5ai_bluetooth_init(void) {
   comm_session_init();
   bt_driver_init();
   bt_ctl_init();
-  bt_ctl_set_enabled(true);
 }
 
 static void cp_heartbeat_timer_callback(void* data) {
@@ -606,6 +605,11 @@ static NOINLINE void prv_main_task_init(void) {
   // sequence above. Its writable PFS is now available, so initialize the full
   // set of normal services required by the shared protocol endpoint table.
   services_normal_init();
+  // Keep the controller initialized but unavailable to phones until persistent
+  // services (especially Activity on a fallback RTC) have finished their
+  // synchronous PFS startup. Otherwise an early SetTime can block KernelMain
+  // while PPoG callbacks fill its event queue.
+  bt_ctl_set_enabled(true);
 #endif
 
   // The RTC needs be calibrated after the mfg registry service has been initialized so we can
