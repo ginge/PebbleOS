@@ -2028,6 +2028,68 @@ AP payload has SHA-256
 and occupies `0x132000..0x2147a8`; it was built and checked but deliberately
 not reflashed after the successful phone session.
 
+### 2026-09-15 display PSRAM cache decision
+
+Interactive profiling by physical use showed that removing the T5AI-only
+KernelMain event-loop delay and reducing CO5300 transfer overhead improved
+responsiveness, but scrolling and full redraws remained visibly slow. The
+260x260 ARGB2222 system framebuffer cannot fit in the available kernel SRAM and
+therefore remains in the dedicated PSRAM reservation at `0x60000000`. App
+rendering normally targets internal App RAM, after which the compositor writes
+the dirty area into this system framebuffer and the display driver reads it
+again while expanding it to the 466x466 RGB565 panel stream. PSRAM latency thus
+affects both the compositor-copy and panel-conversion sides of every frame.
+
+The selected experiment explicitly maps only the 128 KiB
+`T5AI_DISPLAY_RAM` reservation as privileged, execute-never,
+write-back/write-allocate memory. The mapping uses fixed MPU region 10 and the
+existing Pebble `MpuRegion`/ARMv8-M MAIR policy rather than programming raw MPU
+register encodings in the display driver. Region 10 was selected after checking
+the objects in the actual native build: Pebble's linked ARM_CM33 FreeRTOS port
+uses per-task regions 4 through 7, Pebble's global memory layout uses regions 0
+through 3, and the inherited boot map can retain fixed regions 8 and 9. The
+Tuya FreeRTOS bridge under `boards/getafix/tuya/kernel` is reference and test
+material and is not linked into `pebbleos.elf`; its different MAIR and region
+rules must not be used to infer the native image's live MPU ownership.
+
+The range and region number are centralized in
+`include/pbl/soc/t5ai/memory.h`. `board_t5ai.c` installs the fixed mapping from
+`board_early_init()`, after Pebble's global MPU initialization and before the
+compositor first accesses its `NOLOAD` framebuffer. The only shared-code change
+is a `CONFIG_SOC_T5AI`-guarded extension to `mpu_memory_is_cachable()` so shared
+cache-aware callers report the display reservation accurately. Generic MAIR
+indexing, permissions, and task-region encoding were deliberately left
+unchanged after the linked-port audit showed that they already own the native
+configuration.
+
+The reservation currently contains the 67,614-byte compositor framebuffer and
+T5AI-local display/flash caches; the linked total is 107,680 of 131,072 bytes.
+CPU code owns the framebuffer. BK7258 GDMA reads the CO5300 staging buffer from
+the same reservation, so the display driver must continue cleaning the exact
+staging range before every DMA launch. Any future DMA engine, CP-side access,
+framebuffer capture, or external writer touching this reservation must define
+the corresponding clean/invalidate ownership transition before the cached
+mapping can be considered production-safe. Moving another shared buffer into
+this linker region without such an audit is prohibited.
+
+The first cached build used 874,035 bytes of FLASH, 83,072 bytes of KERNEL_RAM,
+and 107,680 bytes of T5AI_DISPLAY_RAM. All 26 `test_tuya_kernel` checks passed;
+the image built, flashed, reached runlevel 4 and `Ready for communication`, and
+showed no MPU fault, assertion, watchdog reset, or display-DMA failure during
+the captured observation window. Boot-to-runlevel was approximately 1.8
+seconds shorter than the immediately preceding trace, but that comparison was
+not controlled and is evidence for follow-up rather than a performance claim.
+The AP core clock remains 120 MHz.
+
+Before accepting this mapping permanently, measure `render`,
+`framebuffer_prepare`, and `framebuffer_send` with the FPS test; exercise full
+redraws, scrolling, rotation, screenshots, and repeated suspend/wake; inspect
+region 10 and its MAIR attribute on target; and complete a longer idle and
+interactive soak. Any stale rows, intermittent corruption, DMA mismatch, MPU
+fault, or unexplained reset is grounds to revert the region installation and
+the matching cacheability-query entry while retaining the independent display
+DMA batching and scaler optimizations.
+
 ## Validation commands
 
 ```sh

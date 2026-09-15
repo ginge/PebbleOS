@@ -13,6 +13,8 @@
 #define T5AI_FLASH_IPC_ATTEMPTS 2u
 #define T5AI_PFS_PAGE_SIZE 0x1000u
 #define T5AI_PFS_HEADER_SIZE 32u
+#define T5AI_PFS_READ_CACHE_LINE_SIZE T5AI_FLASH_IPC_MAX_TRANSFER
+#define T5AI_PFS_READ_CACHE_LINES 4u
 #define T5AI_PFS_PAGE_COUNT \
   ((FLASH_REGION_FILESYSTEM_END - FLASH_REGION_FILESYSTEM_BEGIN) / T5AI_PFS_PAGE_SIZE)
 
@@ -29,6 +31,11 @@ static FlashAddress s_protected_end;
 static uint8_t s_pfs_header_cache[T5AI_PFS_PAGE_COUNT][T5AI_PFS_HEADER_SIZE]
     __attribute__((section(".t5ai_board_cache"), aligned(32)));
 static uint32_t s_pfs_header_valid[(T5AI_PFS_PAGE_COUNT + 31u) / 32u];
+static uint8_t s_pfs_read_cache[T5AI_PFS_READ_CACHE_LINES][T5AI_PFS_READ_CACHE_LINE_SIZE]
+    __attribute__((section(".t5ai_board_cache"), aligned(32)));
+static FlashAddress s_pfs_read_cache_address[T5AI_PFS_READ_CACHE_LINES];
+static bool s_pfs_read_cache_valid[T5AI_PFS_READ_CACHE_LINES];
+static unsigned s_pfs_read_cache_next;
 
 static bool prv_range_valid(FlashAddress address, size_t length) {
   const uint32_t offset = address - FLASH_REGION_BASE_ADDRESS;
@@ -93,6 +100,54 @@ static status_t prv_read_with_retry(uint32_t offset, void *buffer, size_t length
     }
   }
   return status;
+}
+
+static status_t prv_read_pfs_cached(FlashAddress address, void *buffer, size_t length,
+                                    size_t *bytes_read) {
+  if (address < FLASH_REGION_FILESYSTEM_BEGIN || address >= FLASH_REGION_FILESYSTEM_END) {
+    return S_NO_ACTION_REQUIRED;
+  }
+
+  const FlashAddress line_address =
+      address & ~(FlashAddress)(T5AI_PFS_READ_CACHE_LINE_SIZE - 1u);
+  unsigned line = T5AI_PFS_READ_CACHE_LINES;
+  for (unsigned i = 0; i < T5AI_PFS_READ_CACHE_LINES; ++i) {
+    if (s_pfs_read_cache_valid[i] && s_pfs_read_cache_address[i] == line_address) {
+      line = i;
+      break;
+    }
+  }
+
+  if (line == T5AI_PFS_READ_CACHE_LINES) {
+    line = s_pfs_read_cache_next;
+    s_pfs_read_cache_next = (s_pfs_read_cache_next + 1u) % T5AI_PFS_READ_CACHE_LINES;
+    status_t status = prv_read_with_retry(prv_offset(line_address), s_pfs_read_cache[line],
+                                          T5AI_PFS_READ_CACHE_LINE_SIZE);
+    if (FAILED(status)) {
+      s_pfs_read_cache_valid[line] = false;
+      return status;
+    }
+    s_pfs_read_cache_address[line] = line_address;
+    s_pfs_read_cache_valid[line] = true;
+  }
+
+  const size_t line_offset = address - line_address;
+  *bytes_read = length < T5AI_PFS_READ_CACHE_LINE_SIZE - line_offset
+                    ? length
+                    : T5AI_PFS_READ_CACHE_LINE_SIZE - line_offset;
+  memcpy(buffer, &s_pfs_read_cache[line][line_offset], *bytes_read);
+  return S_SUCCESS;
+}
+
+static void prv_invalidate_pfs_read_cache(FlashAddress address, size_t length) {
+  const FlashAddress end = address + length;
+  for (unsigned i = 0; i < T5AI_PFS_READ_CACHE_LINES; ++i) {
+    const FlashAddress line_begin = s_pfs_read_cache_address[i];
+    const FlashAddress line_end = line_begin + T5AI_PFS_READ_CACHE_LINE_SIZE;
+    if (s_pfs_read_cache_valid[i] && address < line_end && line_begin < end) {
+      s_pfs_read_cache_valid[i] = false;
+    }
+  }
 }
 
 static status_t prv_write_with_retry(uint32_t offset, const void *buffer, size_t length) {
@@ -181,6 +236,8 @@ status_t flash_impl_init(bool coredump_mode) {
   (void)coredump_mode;
   s_operation = T5AI_FLASH_IDLE;
   memset(s_pfs_header_valid, 0, sizeof(s_pfs_header_valid));
+  memset(s_pfs_read_cache_valid, 0, sizeof(s_pfs_read_cache_valid));
+  s_pfs_read_cache_next = 0;
   return t5ai_flash_ipc_init();
 }
 
@@ -194,8 +251,11 @@ status_t flash_impl_read_sync(void *buffer, FlashAddress address, size_t length)
     size_t chunk = 0;
     status_t status = prv_read_pfs_header(address, output, length, &chunk);
     if (status == S_NO_ACTION_REQUIRED) {
-      chunk = length > T5AI_FLASH_IPC_MAX_TRANSFER ? T5AI_FLASH_IPC_MAX_TRANSFER : length;
-      status = prv_read_with_retry(prv_offset(address), output, chunk);
+      status = prv_read_pfs_cached(address, output, length, &chunk);
+      if (status == S_NO_ACTION_REQUIRED) {
+        chunk = length > T5AI_FLASH_IPC_MAX_TRANSFER ? T5AI_FLASH_IPC_MAX_TRANSFER : length;
+        status = prv_read_with_retry(prv_offset(address), output, chunk);
+      }
     }
     if (FAILED(status)) {
       return status;
@@ -222,6 +282,7 @@ int flash_impl_write_page_begin(const void *buffer, FlashAddress address, size_t
   if (FAILED(status)) {
     return status;
   }
+  prv_invalidate_pfs_read_cache(address, written);
   prv_update_pfs_header_cache(address, buffer, written);
   s_operation = T5AI_FLASH_WRITE_COMPLETE;
   return (int)written;
@@ -248,6 +309,7 @@ static status_t prv_erase(FlashAddress address, size_t length) {
     if (FAILED(status)) {
       return status;
     }
+    prv_invalidate_pfs_read_cache(address + offset, SUBSECTOR_SIZE_BYTES);
     prv_cache_erased_pfs_page(address + offset);
   }
   s_operation = T5AI_FLASH_ERASE_COMPLETE;

@@ -705,16 +705,6 @@ void launcher_main_loop(void) {
       mcu_fpu_cleanup();
       event_loop_upkeep();
     }
-#ifdef CONFIG_SOC_T5AI
-    // KernelMain is priority 3 and the T5AI app task is lower priority. The partial
-    // DVT3 service set currently keeps the kernel queue selectable, so the
-    // normal blocking receive does not provide a scheduling window for the
-    // ready app task. A bounded 10-tick pause keeps the kernel responsive
-    // while giving app initialization and compositor rendering useful CPU
-    // time; one tick was proven insufficient on hardware (a 67 KiB clear took
-    // tens of seconds).
-    vTaskDelay(10u);
-#endif
   }
 
   __builtin_unreachable();

@@ -1,9 +1,11 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "board/board.h"
 #include <cmsis_core.h>
+#include <pbl/drivers/mpu.h>
 #include <pbl/drivers/watchdog.h>
 #include <pbl/drivers/i2c.h>
 #include <pbl/drivers/gpio.h>
+#include <pbl/soc/t5ai/memory.h>
 
 #define T5AI_GPIO_BASE 0x44000400u
 #define T5AI_GPIO_OUTPUT (1u << 1)
@@ -12,6 +14,26 @@
 #define T5AI_GPIO_PULL_ENABLE (1u << 5)
 #define T5AI_GPIO_SECOND_FUNCTION (1u << 6)
 #define T5AI_GPIO_DRIVE_STRENGTH_1 (1u << 8)
+
+static const MpuRegion s_display_psram_region = {
+    .region_num = T5AI_DISPLAY_PSRAM_MPU_REGION,
+    .enabled = true,
+    .executable = false,
+    .base_address = T5AI_DISPLAY_PSRAM_BASE,
+    .size = T5AI_DISPLAY_PSRAM_SIZE,
+    .cache_policy = MpuCachePolicy_WriteBackWriteAllocate,
+    .permissions = MpuPermissions_PrivRW,
+};
+
+static void prv_enable_display_psram_cache(void) {
+  // This slab contains only the compositor framebuffer and board-local DMA
+  // staging. It has not been accessed yet, so there are no old cache lines to
+  // reconcile when its explicit write-back mapping replaces the background
+  // memory attributes. Display GDMA cleans its staging range before transfer.
+  mpu_set_region(&s_display_psram_region);
+  __DSB();
+  __ISB();
+}
 
 static void prv_assert_power_latch(void) {
   volatile uint32_t *reg = (volatile uint32_t *)(T5AI_GPIO_BASE + 19u * sizeof(uint32_t));
@@ -95,6 +117,7 @@ const BoardConfigButton BOARD_CONFIG_BUTTON = {
 const BoardConfigPower BOARD_CONFIG_POWER = {.low_power_threshold = 5};
 const BoardConfigActuator BOARD_CONFIG_VIBE = {.ctl = {.pin = UINT8_MAX}};
 void board_early_init(void) {
+  prv_enable_display_psram_cache();
   // P19 holds the module power rail on. Preload HIGH in the same write that
   // enables output so initialization cannot glitch the rail low.
   prv_assert_power_latch();

@@ -23,7 +23,7 @@ PBL_LOG_MODULE_DEFINE(driver_display_co5300, CONFIG_DRIVER_DISPLAY_LOG_LEVEL);
 #define PANEL_WIDTH 466u
 #define PANEL_HEIGHT 466u
 #define PANEL_ROW_BYTES (PANEL_WIDTH * 2u)
-#define DMA_CHUNK_PANEL_ROWS 8u
+#define DMA_CHUNK_PANEL_ROWS 32u
 #define PANEL_X_OFFSET 6u
 #define PANEL_RESET_PIN 29u
 #define PANEL_QSPI_CLK_PIN 22u
@@ -94,7 +94,7 @@ static uint8_t s_brightness = 0xffu;
 static bool s_brightness_dirty;
 static uint8_t s_panel_row[PANEL_ROW_BYTES] __attribute__((aligned(32)));
 static uint8_t s_dma_chunk[PANEL_ROW_BYTES * DMA_CHUNK_PANEL_ROWS]
-    __attribute__((aligned(32)));
+    __attribute__((section(".t5ai_board_cache"), aligned(32)));
 static uint32_t s_dma_test_source[8] __attribute__((aligned(32)));
 static uint32_t s_dma_test_destination[8] __attribute__((aligned(32)));
 static uint16_t s_panel_source_x[PANEL_WIDTH];
@@ -254,12 +254,21 @@ static void prv_init_conversion_tables(void) {
 static void __attribute__((section(".t5ai_ramfunc"), noinline, optimize("O3")))
 prv_convert_row(uint8_t *destination, const uint8_t *source, bool reverse) {
   uint16_t *output = (uint16_t *)destination;
+  unsigned previous_source_x = PBL_DISPLAY_WIDTH;
+  uint16_t converted_pixel = 0u;
   for (unsigned x = 0u; x < PANEL_WIDTH; ++x) {
     unsigned source_x = s_panel_source_x[x];
     if (reverse) {
       source_x = PBL_DISPLAY_WIDTH - 1u - source_x;
     }
-    output[x] = s_rgb565[source[source_x] & 0x3fu];
+    // Scaling 260 pixels to 466 means most logical pixels are emitted twice.
+    // The framebuffer is in PSRAM, so avoid rereading and reconverting a pixel
+    // while the nearest-neighbour mapping still selects the same source x.
+    if (source_x != previous_source_x) {
+      converted_pixel = s_rgb565[source[source_x] & 0x3fu];
+      previous_source_x = source_x;
+    }
+    output[x] = converted_pixel;
   }
 }
 

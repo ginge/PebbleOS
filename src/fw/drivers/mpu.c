@@ -12,6 +12,10 @@
 
 #include <cmsis_core.h>
 
+#ifdef CONFIG_SOC_T5AI
+#include <pbl/soc/t5ai/memory.h>
+#endif
+
 extern const uint32_t __SRAM_size__[];
 #if !defined(SRAM_BASE)
 #if defined(CONFIG_SOC_NRF52)
@@ -77,6 +81,13 @@ bool mpu_memory_is_cachable(const void *addr) {
   if (!dcache_is_enabled()) {
     return false;
   }
+#ifdef CONFIG_SOC_T5AI
+  const uintptr_t address = (uintptr_t)addr;
+  if (address >= T5AI_DISPLAY_PSRAM_BASE &&
+      address < T5AI_DISPLAY_PSRAM_BASE + T5AI_DISPLAY_PSRAM_SIZE) {
+    return true;
+  }
+#endif
   // TODO PBL-37601: We're assuming only SRAM is cachable for now for simplicity sake. We should
   // account for MPU configuration and also the fact that memory-mapped QSPI access goes through the
   // cache.
