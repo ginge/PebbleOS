@@ -57,8 +57,11 @@ if bld.env.CONFIG_SOC_T5AI:
     bld.objects(
         name='driver_t5ai_mailbox',
         source=[
+            't5ai/mailbox_channel.c',
             't5ai/cp_mailbox.c',
+            't5ai/mb_ipc.c',
             't5ai/mipc.c',
+            't5ai/put_bytes_job_buffer.c',
             '../../../third_party/nimble/transport/t5ai_hci_ipc.c',
         ],
         use=['freertos', 'fw_includes', 'pbl_includes'],

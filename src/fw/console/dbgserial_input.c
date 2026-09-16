@@ -26,6 +26,7 @@ typedef struct {
 static const uint8_t s_mailbox_rx_probe_request[] = {'P', 'B', 'L', 'R', 'X', '\r', '\n'};
 static const uint8_t s_mailbox_timebase_probe_request[] = {'P', 'B', 'L',  'T',
                                                            'I', 'M', '\r', '\n'};
+static const uint8_t s_mailbox_diagnostics_request[] = {'P', 'B', 'L', 'I', 'P', 'C', '\r', '\n'};
 static const uint8_t s_mailbox_display_probe_request[] = {'P', 'B', 'L', 'D', 'S', 'P', '\r', '\n'};
 static const uint8_t s_mailbox_display_bitbang_request[] = {'P', 'B', 'L', 'B', 'I', 'T', '\r', '\n'};
 static const uint8_t s_mailbox_splash_request[] = {'P', 'B', 'L', 'S', 'P', 'L', '\r', '\n'};
@@ -46,16 +47,10 @@ static void prv_log_mailbox_receive(uint8_t logical_channel, const T5AICPMailbox
   (void)context;
 
   bool handled = false;
-  uint32_t header = 0u;
-  uint32_t parameter1 = 0u;
-  uint32_t parameter2 = 0u;
   if (frame->length == sizeof(T5AILogMailboxMessage)) {
     T5AILogMailboxMessage message;
     dcache_invalidate((void *)frame->address, sizeof(message));
     memcpy(&message, (const void *)frame->address, sizeof(message));
-    header = message.header;
-    parameter1 = message.buffer;
-    parameter2 = message.length;
     if ((uint8_t)message.header == T5AI_CP_LOG_USER_INPUT_COMMAND && message.buffer != 0u) {
       const void *request = (const void *)(uintptr_t)message.buffer;
       const uint16_t request_length = (uint16_t)message.length;
@@ -86,6 +81,9 @@ static void prv_log_mailbox_receive(uint8_t logical_channel, const T5AICPMailbox
         if (memcmp(request, s_mailbox_timebase_probe_request,
                    sizeof(s_mailbox_timebase_probe_request)) == 0) {
           probe = DbgSerialMailboxProbe_Timebase;
+        } else if (memcmp(request, s_mailbox_diagnostics_request,
+                          sizeof(s_mailbox_diagnostics_request)) == 0) {
+          probe = DbgSerialMailboxProbe_Mailbox;
         } else if (memcmp(request, s_mailbox_display_probe_request,
                           sizeof(s_mailbox_display_probe_request)) == 0) {
           probe = DbgSerialMailboxProbe_Display;
@@ -103,7 +101,7 @@ static void prv_log_mailbox_receive(uint8_t logical_channel, const T5AICPMailbox
       }
     }
   }
-  (void)t5ai_cp_mailbox_acknowledge(header, parameter1, parameter2, handled);
+  (void)t5ai_cp_mailbox_acknowledge_frame(frame, handled);
 }
 
 void dbgserial_input_init(void) {

@@ -84,6 +84,17 @@ class TuyaKernelCheckTest(unittest.TestCase):
             "static status_t prv_locked_exchange(", 1
         )[0]
         self.assertIn("dcache_flush(payload, length);", hci_exchange)
+        self.assertIn("request->message", hci_exchange)
+        self.assertIn("s_sync_mutex", hci_ipc)
+        self.assertIn("s_async_mutex", hci_ipc)
+        self.assertIn("(void)t5ai_mipc_frame_valid(frame, data)", hci_ipc)
+        self.assertIn("prv_mark_faulted()", hci_ipc)
+        self.assertIn("static void prv_worker", hci_ipc)
+        self.assertIn('section(".t5ai_board_cache")', hci_ipc)
+        self.assertIn("xTaskGenericCreate(prv_worker", hci_ipc)
+        self.assertIn("xSemaphoreGive(s_exchange_ready)", hci_ipc)
+        self.assertIn("Timed-out request objects stay quarantined", hci_ipc)
+        self.assertNotIn("t5ai_cp_mailbox_lock()", hci_ipc)
         hci_start = hci_ipc.split("int t5ai_hci_ipc_start(", 1)[1].split(
             "int t5ai_hci_ipc_stop(", 1
         )[0]
@@ -96,13 +107,36 @@ class TuyaKernelCheckTest(unittest.TestCase):
         hci_route = hci_ipc.split("static void prv_route_frame(", 1)[1].split(
             "static status_t prv_decode_remote(", 1
         )[0]
-        self.assertIn("prv_physical_ack(&pending)", hci_route)
-        self.assertIn("prv_handle_command(&pending, UINT8_MAX, &ignored)", hci_route)
-        self.assertLess(
-            hci_route.index("prv_physical_ack(&pending)"),
-            hci_route.index("prv_handle_command(&pending, UINT8_MAX, &ignored)"),
-        )
-        self.assertIn("cannot service the flash socket", hci_route)
+        self.assertIn("t5ai_cp_mailbox_acknowledge_frame(frame, true)", hci_route)
+        self.assertIn("logical_channel != T5AI_MIPC_RX_LOGICAL_CHANNEL", hci_route)
+        self.assertIn("prv_queue_pending_frame(&pending)", hci_route)
+        self.assertNotIn("prv_handle_command", hci_route)
+        hci_decode = hci_ipc.split("static status_t prv_decode_remote(", 1)[1].split(
+            "static status_t prv_respond_to_event(", 1
+        )[0]
+        self.assertNotIn("frame->header >> 24", hci_decode)
+        flash_ipc = (ROOT / "src/fw/drivers/flash/t5ai_flash_ipc.c").read_text()
+        self.assertIn("T5AIMbIpcSocket *s_flash_socket", flash_ipc)
+        self.assertIn("t5ai_mb_ipc_discard(s_flash_socket)", flash_ipc)
+        self.assertIn("prv_flash_transaction(FLASH_READ_DONE)", flash_ipc)
+        self.assertIn("t5ai_mb_ipc_poison(s_flash_socket)", flash_ipc)
+        self.assertNotIn("t5ai_cp_mailbox_lock()", flash_ipc)
+        mailbox = (ROOT / "src/fw/drivers/t5ai/mailbox_channel.c").read_text()
+        self.assertIn("static TxChannel s_tx[T5AI_MAILBOX_CHANNEL_COUNT]", mailbox)
+        self.assertNotIn('section(".t5ai_board_cache")', mailbox)
+        self.assertIn("xTaskCreate(prv_mailbox_task", mailbox)
+        self.assertIn("before the CP powers PSRAM", mailbox)
+        self.assertIn("#define MAILBOX_TASK_STACK_WORDS 512u", mailbox)
+        put_bytes = (ROOT / "src/fw/services/put_bytes/put_bytes.c").read_text()
+        put_bytes_buffers = (
+            ROOT / "src/fw/drivers/t5ai/put_bytes_job_buffer.c"
+        ).read_text()
+        self.assertIn("put_bytes_job_buffer_alloc(i, PUT_BYTES_PP_BUFFER_SIZE)", put_bytes)
+        self.assertIn('section(".t5ai_board_cache")', put_bytes_buffers)
+        self.assertIn("T5AI_PUT_BYTES_JOB_COUNT 3u", put_bytes_buffers)
+        self.assertIn("s_active_channel", mailbox)
+        self.assertIn("MailboxOwnedSlot s_ack_slots[2]", mailbox)
+        self.assertIn("configMAX_PRIORITIES - 1u", mailbox)
         hci_transport = (
             ROOT / "third_party/nimble/transport/hci_t5ai.c"
         ).read_text()
@@ -110,6 +144,10 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("T5AI HCI event delivery failed", hci_transport)
         self.assertIn("T5AI HCI ACL delivery failed", hci_transport)
         self.assertIn("T5AI HCI ACL transmit deferred", hci_transport)
+        self.assertIn("ble_hs_sched_reset(BLE_HS_ECONTROLLER)", hci_transport)
+        self.assertIn("s_reset_scheduled", hci_transport)
+        self.assertIn("prv_schedule_reset();", hci_transport)
+        self.assertIn("t5ai_hci_ipc_faulted()", hci_transport)
         self.assertIn("xQueueSend(s_acl_tx_queue, &acl, 0)", hci_transport)
         self.assertIn("T5AI PP RX start ep=0x%04x", hci_transport)
         self.assertNotIn("LOG_DOMAIN_BT_STACK", hci_transport)
@@ -194,6 +232,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         backlight = (ROOT / "src/fw/drivers/backlight/t5ai.c").read_text()
         touch = (ROOT / "src/fw/drivers/touch/cst92xx/cst92xx_t5ai.c").read_text()
         mailbox = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
+        transport = (ROOT / "src/fw/drivers/t5ai/mailbox_channel.c").read_text()
         port = (ROOT / "soc/t5ai/freertos.c").read_text()
         marker = startup.index("uart0[7] = 'A'")
         initialize_soc = startup.index("SystemInit()")
@@ -204,17 +243,23 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertLess(initialize_soc, enable_cache)
         self.assertLess(announce, enable_irq)
         self.assertIn("< 3200u", initialization)
-        self.assertIn("prv_resynchronize_after_ap_reset();", mailbox)
-        resync = mailbox.split("static void prv_resynchronize_after_ap_reset(void)", 1)[1]
-        resync = resync.split("void t5ai_cp_mailbox_announce_power_up(void)", 1)[0]
-        self.assertIn("T5AI_MBOX_FIFO_NOT_EMPTY", resync)
-        self.assertIn("prv_frame_is_transport_ack(&frame)", resync)
-        self.assertIn("T5AI_CP_HEADER_ACK", resync)
-        self.assertIn("s_tx_pending = false", resync)
-        self.assertIn("T5AI_CP_LOG_CHANNEL 0x1eu", mailbox)
-        self.assertIn("T5AI_CP_LOG_ASSERT_OUT_COMMAND 4u", mailbox)
+        self.assertIn("t5ai_mailbox_channel_bootstrap_send", mailbox)
+        self.assertIn("static void prv_send_reset", transport)
+        self.assertIn("MBOX_RESET", transport)
+        self.assertIn("dcache_invalidate((void *)address", transport)
+        self.assertNotIn("dcache_flush((void *)address", transport)
+        self.assertIn("CP_LOG_CHANNEL 0x1eu", mailbox)
+        self.assertIn("CP_LOG_ASSERT_OUT_COMMAND 4u", mailbox)
         self.assertIn("s_log_buffer[0] = 1u", mailbox)
-        self.assertIn("dcache_invalidate(s_log_buffer, 1u)", mailbox)
+        self.assertIn("t5ai_mailbox_channel_send(CP_LOG_CHANNEL", mailbox)
+        self.assertIn("xTaskGetSchedulerState() == taskSCHEDULER_RUNNING", mailbox)
+        self.assertIn("t5ai_mailbox_channel_bootstrap_send(CP_LOG_CHANNEL", mailbox)
+        self.assertIn("prv_wait_for_log_buffer_release(scheduler_running)", mailbox)
+        log_release = mailbox.split(
+            "static status_t prv_wait_for_log_buffer_release", 1
+        )[1].split("status_t t5ai_cp_mailbox_log", 1)[0]
+        self.assertIn("dcache_invalidate(s_log_buffer, 1u)", log_release)
+        self.assertIn("s_log_buffer[0] == 0u", log_release)
         dbgserial = (ROOT / "src/fw/console/dbgserial.c").read_text()
         dbgserial_input = (ROOT / "src/fw/console/dbgserial_input.c").read_text()
         serial_console = (ROOT / "src/fw/console/serial_console.c").read_text()
@@ -223,11 +268,17 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("T5AI_CP_LOG_USER_INPUT_COMMAND 3u", dbgserial_input)
         self.assertIn("prv_log_mailbox_receive", dbgserial_input)
         self.assertIn(
-            "t5ai_cp_mailbox_acknowledge(header, parameter1, parameter2, handled)",
+            "t5ai_cp_mailbox_acknowledge_frame(frame, handled)",
             dbgserial_input,
         )
-        self.assertIn(".parameter1 = parameter1", mailbox)
-        self.assertIn(".parameter2 = parameter2", mailbox)
+        self.assertIn("frame->address", mailbox)
+        self.assertIn("CP_QUEUE_DEPTH 4u", mailbox)
+        receive_wait = mailbox.split("status_t t5ai_cp_mailbox_receive", 1)[1].split(
+            "status_t t5ai_cp_mailbox_try_receive", 1
+        )[0]
+        self.assertNotIn("taskYIELD", receive_wait)
+        self.assertIn("xSemaphoreTake(s_pm_queue.ready", receive_wait)
+        self.assertNotIn("s_queues[", mailbox)
         self.assertIn("t5ai_cp_mailbox_process_pending();", main)
         self.assertIn("dbgserial_input_consume_mailbox_probe()", main)
         self.assertIn('dbgserial_putstr("PBLRX-OK: T5AI USB mailbox RX passed")', main)
@@ -526,13 +577,14 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("(unsigned long)SysTick->LOAD", main)
         self.assertNotIn("s_character_callback", dbgserial_input.split("#elif", 1)[0])
         self.assertIn("dbgserial_putchar_lazy(*(msg++))", serial_console)
-        self.assertIn("T5AI_CP_CONTROL_CHANNEL 0x10u", mailbox)
-        self.assertIn("T5AI_CP_POWER_UP_COMMAND 1u", mailbox)
-        self.assertIn("T5AI_CP_HEARTBEAT_COMMAND 2u", mailbox)
-        self.assertIn("((uint32_t)s_control_sequence << 16)", mailbox)
-        self.assertIn("message->parameter1 == 0u", mailbox)
-        self.assertIn("T5AI_CP_PM_TX_CHANNEL 0x12u", mailbox)
-        self.assertIn("T5AI_CP_PM_RX_CHANNEL 0x42u", mailbox)
+        self.assertIn("CP_CONTROL_CHANNEL 0x10u", mailbox)
+        self.assertIn("CP_POWER_UP_COMMAND 1u", mailbox)
+        self.assertIn("CP_HEARTBEAT_COMMAND 2u", mailbox)
+        self.assertIn("CP_STARTUP_TIMEOUT_MS 2000u", mailbox)
+        self.assertIn("((uint32_t)s_control_sequence << 16u)", mailbox)
+        self.assertIn("response->parameter1 == 0u", mailbox)
+        self.assertIn("CP_PM_TX_CHANNEL 0x12u", mailbox)
+        self.assertIn("CP_PM_RX_CHANNEL 0x42u", mailbox)
         self.assertNotIn(
             "message->header >> 16u) == s_control_sequence", mailbox
         )
@@ -542,8 +594,8 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("regular_timer_add_seconds_callback(&cp_heartbeat_timer)", main)
         heartbeat = mailbox.split("void t5ai_cp_mailbox_heartbeat(void)", 1)[1]
         heartbeat = heartbeat.split("static status_t prv_pm_request", 1)[0]
-        self.assertIn("mutex_lock_with_timeout(mutex, 0u)", heartbeat)
-        self.assertIn("sizeof(s_heartbeat_parameter), false", heartbeat)
+        self.assertIn("t5ai_cp_mailbox_send(&s_control_message", heartbeat)
+        self.assertIn("sizeof(s_heartbeat_parameter)", heartbeat)
         self.assertNotIn("prv_control_request", heartbeat)
         self.assertIn(
             "pdMS_TO_TICKS(TASK_WATCHDOG_FEED_PERIOD_MS)", port
@@ -562,8 +614,8 @@ class TuyaKernelCheckTest(unittest.TestCase):
             ROOT / "src/fw/services/compositor/compositor.c"
         ).read_text()
         self.assertNotIn("0x2809f700u", initialization)
-        self.assertIn("T5AI_CP_PM_PSRAM_POWER_COMMAND 7u", mailbox)
-        self.assertIn("T5AI_CP_PM_PSRAM_APP_MODULE 9u", mailbox)
+        self.assertIn("CP_PM_PSRAM_POWER_COMMAND 7u", mailbox)
+        self.assertIn("CP_PM_PSRAM_APP_MODULE 9u", mailbox)
         vote = compositor.index("t5ai_cp_mailbox_enable_psram()")
         validate = compositor.index("prv_validate_t5ai_framebuffer_ram()", vote)
         self.assertLess(vote, validate)
@@ -574,6 +626,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         port = (ROOT / "soc/t5ai/freertos.c").read_text()
         main = (ROOT / "src/fw/main.c").read_text()
         mailbox = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
+        transport = (ROOT / "src/fw/drivers/t5ai/mailbox_channel.c").read_text()
         self.assertIn("config T5AI_CORE_CLOCK_HZ", kconfig)
         self.assertIn("default 120000000", kconfig)
         self.assertIn("config T5AI_SYSTICK_CLOCK_HZ", kconfig)
@@ -588,13 +641,13 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("return false;", port)
         self.assertIn("t5ai_freertos_apply_systick_clock();", main)
         self.assertIn("t5ai_cp_mailbox_enable_rx_interrupt();", main)
-        self.assertIn("void MAILBOX_IRQHandler(void)", mailbox)
-        self.assertIn("system_task_add_callback_from_isr", mailbox)
-        self.assertNotIn("new_timer_add_work_callback_from_isr", mailbox)
-        self.assertIn("T5AI_MBOX_CH1_CTRL |= T5AI_MBOX_INTERRUPT_ENABLE", mailbox)
-        self.assertIn("T5AI_MAILBOX_SYSTEM_INTERRUPT_ENABLE", mailbox)
-        self.assertIn("T5AI_CP_PM_CPU_FREQUENCY_COMMAND 4u", mailbox)
-        self.assertIn("T5AI_CP_PM_CPU1_MODULE 38u", mailbox)
+        self.assertIn("void MAILBOX_IRQHandler(void)", transport)
+        self.assertIn("xSemaphoreGiveFromISR", transport)
+        self.assertNotIn("system_task_add_callback_from_isr", transport)
+        self.assertIn("MBOX_CH1_CTRL |= MBOX_INTERRUPT_ENABLE", transport)
+        self.assertIn("MAILBOX_SYSTEM_INTERRUPT_ENABLE", transport)
+        self.assertIn("CP_PM_CPU_FREQUENCY_COMMAND 4u", mailbox)
+        self.assertIn("CP_PM_CPU1_MODULE 38u", mailbox)
         self.assertIn("t5ai_cp_mailbox_vote_cpu1_frequency", mailbox)
         self.assertIn("T5AICpuFrequency_120MHz", main)
         self.assertIn("SystemCoreClock = 120000000u", main)

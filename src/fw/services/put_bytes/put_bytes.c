@@ -2,6 +2,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "pbl/services/put_bytes/put_bytes.h"
+#include "pbl/services/put_bytes/put_bytes_job_buffer.h"
 #include "pbl/services/put_bytes/put_bytes_storage.h"
 
 #include "comm/bluetooth_analytics.h"
@@ -272,7 +273,7 @@ static void prv_pre_ack_if_space_in_put_job_queue(void) {
 static void prv_deinit_put_job_queue(void) {
   PutBytesPendingJobs *put_jobs = &s_pb_state.pb_pending_jobs;
   for (int i = 0; i < MAX_BATCHED_PB_PUT_OPS; i++) {
-    kernel_free(put_jobs->job[i].buffer);
+    put_bytes_job_buffer_free(i, put_jobs->job[i].buffer);
     put_jobs->job[i].buffer = NULL;
   }
 }
@@ -291,7 +292,7 @@ static bool prv_init_put_job_queue_if_necessary(void) {
   for (i = 0; i < MAX_BATCHED_PB_PUT_OPS; i++) {
     // Note: If heap pressure becomes an issue, we could also consider only
     // using pre-acking if there is a certain amount of space free in the heap
-    uint8_t *buffer = (uint8_t *) kernel_zalloc(PUT_BYTES_PP_BUFFER_SIZE);
+    uint8_t *buffer = put_bytes_job_buffer_alloc(i, PUT_BYTES_PP_BUFFER_SIZE);
     if (!buffer) {
       if (i == 0) {
         PBL_LOG_ERR("Not enough memory to service PB request, abort!");

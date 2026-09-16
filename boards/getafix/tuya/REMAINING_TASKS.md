@@ -16,12 +16,14 @@ endpoint packet before `flash_impl_write_page_begin` returned `E_ERROR`; each
 restart then failed filesystem recovery erase with `E_INVALID_OPERATION` while
 the CP rejected a QSPI power/clock request with `E_AGAIN`.
 
-Stop using the older priority statement below as the active plan. Physically
-power-cycle both cores before the next session, then implement the T5AI-local
-per-channel mailbox dispatcher and flash fault state described in
-`docs/boards/getafix_dvt3_phone_sync_incident.md`. Do not rebuild, flash, sync,
-or reformat PFS until that plan is reviewed. PFS reformat is destructive and
-requires explicit operator approval after the exact partition range is checked.
+Stop using the older priority statement below as the active plan. A Tuya
+source audit on 2026-09-16 identified in-place ACK/cache-line corruption in the
+native AP implementation and led to a clean T5AI-local transport, socket IPC,
+flash client, and HCI worker. The replacement builds successfully and its
+protocol-focused tests and source review are complete, but it has not yet been
+hardware validated. Before that first validation, physically
+power-cycle both cores. Do not reformat PFS: it is destructive and requires
+explicit operator approval after the exact partition range is checked.
 
 The shared event loop and app manager are stock, the app is priority 1, and no
 T5AI scheduler guard exists in the current tree. Do not reintroduce an app

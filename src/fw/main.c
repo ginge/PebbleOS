@@ -204,10 +204,55 @@ static void watchdog_timer_callback(void* data) {
 #include <pbl/services/bluetooth/bluetooth_persistent_storage.h>
 
 static char s_t5ai_timebase_response[480];
+static T5AICPMailboxDiagnostics s_t5ai_mailbox_diagnostics;
+static T5AICPMailboxFailureDiagnostics s_t5ai_mailbox_failure_diagnostics;
 #define T5AI_SYSTEM_CLK_MODE1 (*(volatile uint32_t *)0x44010020u)
 static T5AIClockDiagnostics s_t5ai_clock_diagnostics;
 volatile uint32_t g_t5ai_boot_stage;
 volatile uint32_t g_t5ai_app_stage;
+
+static void prv_t5ai_print_retained_mailbox_failure(void) {
+  if (!t5ai_cp_mailbox_get_failure_diagnostics(&s_t5ai_mailbox_failure_diagnostics)) {
+    return;
+  }
+  const T5AICPMailboxFailureDiagnostics *failure = &s_t5ai_mailbox_failure_diagnostics;
+  const uint32_t last = failure->trace_count == 0u ? 0u :
+      MIN(failure->trace_count, T5AI_CP_MAILBOX_FAILURE_TRACE_CAPACITY) - 1u;
+  const T5AICPMailboxTraceEntry *entry = &failure->trace[last];
+  dbgserial_putstr_fmt(
+      s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
+      "PBLIPCBOOT ctx=%08lx s=%ld tx=%lu/%lu/%lu bypass=%lu depth=%u high=%u "
+      "rx=%lu ack=%lu route=%lu unroute=%lu senderr=%lu rxto=%lu ackmis=%lu "
+      "head=%08lx/%08lx pending=%u rxpend=%u hw=%08lx/%08lx "
+      "trace=%lu last=%lu/%u/%08lx/%08lx/%u/%ld",
+      (unsigned long)failure->context, (long)failure->status,
+      (unsigned long)failure->tx_queued, (unsigned long)failure->tx_published,
+      (unsigned long)failure->tx_retired, (unsigned long)failure->tx_ack_bypass,
+      (unsigned)failure->tx_depth, (unsigned)failure->tx_high_water,
+      (unsigned long)failure->rx_frames, (unsigned long)failure->rx_transport_acks,
+      (unsigned long)failure->rx_routed, (unsigned long)failure->rx_unrouted,
+      (unsigned long)failure->send_failures, (unsigned long)failure->receive_timeouts,
+      (unsigned long)failure->tx_ack_mismatches,
+      (unsigned long)failure->tx_head_header, (unsigned long)failure->tx_head_parameter,
+      (unsigned)failure->tx_pending, (unsigned)failure->rx_pending,
+      (unsigned long)failure->mailbox_control, (unsigned long)failure->tx_fifo_status,
+      (unsigned long)failure->trace_count,
+      (unsigned long)entry->ticks, (unsigned)entry->event,
+      (unsigned long)entry->header, (unsigned long)entry->parameter,
+      (unsigned)entry->tx_depth, (long)entry->status);
+  const uint32_t available =
+      MIN(failure->trace_count, T5AI_CP_MAILBOX_FAILURE_TRACE_CAPACITY);
+  for (uint32_t i = 0u; i < available; ++i) {
+    entry = &failure->trace[i];
+    dbgserial_putstr_fmt(
+        s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
+        "PBLIPCBE n=%lu t=%lu e=%u h=%08lx p=%08lx d=%u s=%ld",
+        (unsigned long)i, (unsigned long)entry->ticks, (unsigned)entry->event,
+        (unsigned long)entry->header, (unsigned long)entry->parameter,
+        (unsigned)entry->tx_depth, (long)entry->status);
+  }
+  t5ai_cp_mailbox_clear_failure_diagnostics();
+}
 
 static void prv_t5ai_bluetooth_init(void) {
   /* The CP shell is ready before its flash and HCI services. Normal service
@@ -279,6 +324,69 @@ static void cp_heartbeat_timer_callback(void* data) {
                          (unsigned long)queue_diagnostics.current_event,
                          (unsigned long)SCB->ICSR, (unsigned long)__get_BASEPRI(),
                          (unsigned long)__get_PRIMASK());
+  } else if (probe == DbgSerialMailboxProbe_Mailbox) {
+    t5ai_cp_mailbox_get_diagnostics(&s_t5ai_mailbox_diagnostics);
+    dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
+                         "PBLIPC tx=%lu/%lu/%lu ack=%lu depth=%u high=%u rx=%lu ack=%lu route=%lu "
+                         "unroute=%lu senderr=%lu rxto=%lu ackmis=%lu trace=%lu",
+                         (unsigned long)s_t5ai_mailbox_diagnostics.tx_queued,
+                         (unsigned long)s_t5ai_mailbox_diagnostics.tx_published,
+                         (unsigned long)s_t5ai_mailbox_diagnostics.tx_retired,
+                         (unsigned long)s_t5ai_mailbox_diagnostics.tx_ack_bypass,
+                         (unsigned)s_t5ai_mailbox_diagnostics.tx_depth,
+                         (unsigned)s_t5ai_mailbox_diagnostics.tx_high_water,
+                         (unsigned long)s_t5ai_mailbox_diagnostics.rx_frames,
+                         (unsigned long)s_t5ai_mailbox_diagnostics.rx_transport_acks,
+                         (unsigned long)s_t5ai_mailbox_diagnostics.rx_routed,
+                         (unsigned long)s_t5ai_mailbox_diagnostics.rx_unrouted,
+                         (unsigned long)s_t5ai_mailbox_diagnostics.send_failures,
+                         (unsigned long)s_t5ai_mailbox_diagnostics.receive_timeouts,
+                         (unsigned long)s_t5ai_mailbox_diagnostics.tx_ack_mismatches,
+                         (unsigned long)s_t5ai_mailbox_diagnostics.trace_count);
+    const uint32_t available =
+        MIN(s_t5ai_mailbox_diagnostics.trace_count, T5AI_CP_MAILBOX_TRACE_CAPACITY);
+    const uint32_t first = s_t5ai_mailbox_diagnostics.trace_count - available;
+    for (uint32_t i = first; i < s_t5ai_mailbox_diagnostics.trace_count; ++i) {
+      const T5AICPMailboxTraceEntry *entry =
+          &s_t5ai_mailbox_diagnostics.trace[i % T5AI_CP_MAILBOX_TRACE_CAPACITY];
+      dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
+                           "PBLIPCE n=%lu t=%lu e=%u h=%08lx p=%08lx d=%u s=%ld", (unsigned long)i,
+                           (unsigned long)entry->ticks, (unsigned)entry->event,
+                           (unsigned long)entry->header, (unsigned long)entry->parameter,
+                           (unsigned)entry->tx_depth, (long)entry->status);
+    }
+    if (t5ai_cp_mailbox_get_failure_diagnostics(&s_t5ai_mailbox_failure_diagnostics)) {
+      dbgserial_putstr_fmt(
+          s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
+          "PBLIPCF ctx=%08lx s=%ld t=%lu tx=%lu/%lu/%lu ack=%lu depth=%u high=%u "
+          "rx=%lu ack=%lu route=%lu unroute=%lu senderr=%lu rxto=%lu ackmis=%lu trace=%lu",
+          (unsigned long)s_t5ai_mailbox_failure_diagnostics.context,
+          (long)s_t5ai_mailbox_failure_diagnostics.status,
+          (unsigned long)s_t5ai_mailbox_failure_diagnostics.ticks,
+          (unsigned long)s_t5ai_mailbox_failure_diagnostics.tx_queued,
+          (unsigned long)s_t5ai_mailbox_failure_diagnostics.tx_published,
+          (unsigned long)s_t5ai_mailbox_failure_diagnostics.tx_retired,
+          (unsigned long)s_t5ai_mailbox_failure_diagnostics.tx_ack_bypass,
+          (unsigned)s_t5ai_mailbox_failure_diagnostics.tx_depth,
+          (unsigned)s_t5ai_mailbox_failure_diagnostics.tx_high_water,
+          (unsigned long)s_t5ai_mailbox_failure_diagnostics.rx_frames,
+          (unsigned long)s_t5ai_mailbox_failure_diagnostics.rx_transport_acks,
+          (unsigned long)s_t5ai_mailbox_failure_diagnostics.rx_routed,
+          (unsigned long)s_t5ai_mailbox_failure_diagnostics.rx_unrouted,
+          (unsigned long)s_t5ai_mailbox_failure_diagnostics.send_failures,
+          (unsigned long)s_t5ai_mailbox_failure_diagnostics.receive_timeouts,
+          (unsigned long)s_t5ai_mailbox_failure_diagnostics.tx_ack_mismatches,
+          (unsigned long)s_t5ai_mailbox_failure_diagnostics.trace_count);
+      for (uint32_t i = 0; i < T5AI_CP_MAILBOX_FAILURE_TRACE_CAPACITY; ++i) {
+        const T5AICPMailboxTraceEntry *entry = &s_t5ai_mailbox_failure_diagnostics.trace[i];
+        dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
+                             "PBLIPCFE n=%lu t=%lu e=%u h=%08lx p=%08lx d=%u s=%ld",
+                             (unsigned long)i, (unsigned long)entry->ticks,
+                             (unsigned)entry->event, (unsigned long)entry->header,
+                             (unsigned long)entry->parameter, (unsigned)entry->tx_depth,
+                             (long)entry->status);
+      }
+    }
   } else if (probe == DbgSerialMailboxProbe_Display) {
     display_co5300_log_diagnostics();
   } else if (probe == DbgSerialMailboxProbe_DisplayBitbang) {
@@ -513,6 +621,7 @@ static NOINLINE void prv_main_task_init(void) {
                        (unsigned long)s_t5ai_clock_diagnostics.measured_hz,
                        (unsigned long)SystemCoreClock, (unsigned long)SysTick->CTRL,
                        (unsigned long)SysTick->LOAD, (unsigned long)SysTick->VAL);
+  prv_t5ai_print_retained_mailbox_failure();
 
   /* Normal firmware's boot splash service is intentionally a no-op, so T5AI
    * must initialize its panel explicitly after the peripheral drivers. */

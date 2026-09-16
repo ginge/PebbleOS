@@ -726,17 +726,37 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertIn("s_event_responses[T5AI_HCI_EVENT_RESPONSE_CAPACITY]", source)
         self.assertIn("prv_retire_event_response", source)
         self.assertIn("s_requests[T5AI_HCI_REQUEST_CAPACITY]", source)
-        self.assertIn("while (!matched)", source)
+        self.assertIn("static void prv_worker", source)
+        self.assertIn("xSemaphoreGive(s_exchange_ready)", source)
         self.assertNotIn("s_request_transport_ack", source)
         self.assertNotIn("prv_wait_for_event_response_ack", source)
 
-        mailbox = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
-        self.assertIn("s_tx_queue[T5AI_MBOX_TX_QUEUE_CAPACITY]", mailbox)
-        self.assertIn("prv_complete_queued_tx", mailbox)
-        self.assertNotIn("prv_wait_for_tx_complete", mailbox)
+        mailbox = (ROOT / "src/fw/drivers/t5ai/mailbox_channel.c").read_text()
+        self.assertIn("static TxChannel s_tx[T5AI_MAILBOX_CHANNEL_COUNT]", mailbox)
+        self.assertIn("s_active_channel", mailbox)
+        self.assertIn("sequence != s_sequence", mailbox)
+        self.assertIn("MailboxOwnedSlot s_ack_slots[2]", mailbox)
+        self.assertIn("dcache_invalidate((void *)address", mailbox)
+        self.assertNotIn("dcache_flush((void *)address", mailbox)
+        self.assertIn("prv_bootstrap_resynchronize(poll_ms)", mailbox)
+        reset = mailbox[mailbox.index("static void prv_send_reset"):]
+        reset = reset[:reset.index("static bool prv_bootstrap_publish")]
+        self.assertIn("if (prv_publish(&s_reset_slot) == S_SUCCESS)", reset)
+        self.assertNotIn("while (prv_publish(&s_reset_slot)", reset)
+        bootstrap = mailbox[mailbox.index("static void prv_bootstrap_resynchronize"):]
+        bootstrap = bootstrap[:bootstrap.index("status_t t5ai_mailbox_channel_init")]
+        self.assertIn("*ack = message", bootstrap)
+        self.assertIn("MAILBOX_BOOTSTRAP_DRAIN_LIMIT", bootstrap)
+        self.assertIn("drained < MAILBOX_BOOTSTRAP_DRAIN_LIMIT", bootstrap)
+        self.assertIn("AON_RTC_LOW - start", bootstrap)
+        self.assertNotIn(
+            "while ((MBOX_CH1_CTRL & MBOX_FIFO_NOT_EMPTY) != 0u)", bootstrap
+        )
+        self.assertNotIn("MBOX_RESET", bootstrap)
+        self.assertNotIn("prv_publish((const T5AIMailboxMessage *)(uintptr_t)", bootstrap)
         mipc_ack = source[source.index("static status_t prv_mipc_ack"):]
         mipc_ack = mipc_ack[:mipc_ack.index("static status_t prv_prepare_outbound")]
-        self.assertIn("t5ai_cp_mailbox_send(&ack, sizeof(ack))", mipc_ack)
+        self.assertIn("return prv_send_frame(&ack)", mipc_ack)
 
         transport = (
             ROOT / "third_party/nimble/transport/hci_t5ai.c"
@@ -767,7 +787,18 @@ class GetafixBoardsTest(unittest.TestCase):
         t5_params = (
             ROOT / "src/fw/comm/ble/gap_le_connect_params_t5ai.c"
         ).read_text()
-        self.assertNotIn("bt_driver_le_connection_parameter_update", t5_params)
+        self.assertIn("bt_driver_le_connection_parameter_update", t5_params)
+        self.assertIn("desired_state == ResponseTimeMin", t5_params)
+        self.assertIn(".interval_min_1_25ms = 12u", t5_params)
+        self.assertIn(".slave_latency_events = 0u", t5_params)
+        self.assertIn("T5AI conn param request", t5_params)
+        self.assertIn("T5AI conn param result", t5_params)
+        update_handler = t5_params.index("bt_driver_handle_le_conn_params_update_event")
+        self.assertLess(
+            t5_params.index("connection->param_update_info.is_request_pending = false;",
+                            update_handler),
+            t5_params.index("event->status == HciStatusCode_Success", update_handler),
+        )
         self.assertNotIn("prv_watchdog", t5_params)
         self.assertIn("conn_mgr_handle_desired_state_granted", t5_params)
 

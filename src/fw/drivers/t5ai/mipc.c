@@ -39,8 +39,9 @@ bool t5ai_mipc_frame_valid(const T5AIMIPCFrame *frame, const T5AIMIPCData *data)
   if (frame == NULL || data == NULL || frame->object == 0) {
     return false;
   }
-  if ((uint8_t)(frame->header >> 24) != T5AI_MIPC_RX_LOGICAL_CHANNEL) {
-    return false;
-  }
+  /* The mailbox-channel driver removes its physical channel, sequence, and
+   * control fields before delivering the logical 16-byte payload. Channel
+   * validation therefore belongs at the route callback, not in this MIPC
+   * payload helper. */
   return (uint8_t)frame->result == t5ai_mipc_data_crc(data);
 }

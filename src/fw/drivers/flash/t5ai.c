@@ -149,28 +149,6 @@ static void prv_invalidate_read_cache(FlashAddress address, size_t length) {
   }
 }
 
-static status_t prv_write_with_retry(uint32_t offset, const void *buffer, size_t length) {
-  status_t status = E_ERROR;
-  for (unsigned attempt = 0; attempt < T5AI_FLASH_IPC_ATTEMPTS; ++attempt) {
-    status = t5ai_flash_ipc_write(offset, buffer, length);
-    if (PASSED(status)) {
-      break;
-    }
-  }
-  return status;
-}
-
-static status_t prv_erase_with_retry(uint32_t offset) {
-  status_t status = E_ERROR;
-  for (unsigned attempt = 0; attempt < T5AI_FLASH_IPC_ATTEMPTS; ++attempt) {
-    status = t5ai_flash_ipc_erase_4k(offset);
-    if (PASSED(status)) {
-      break;
-    }
-  }
-  return status;
-}
-
 static status_t prv_read_pfs_header(FlashAddress address, void *buffer, size_t length,
                                     size_t *bytes_read) {
   size_t page;
@@ -273,7 +251,9 @@ int flash_impl_write_page_begin(const void *buffer, FlashAddress address, size_t
   if (FAILED(status)) {
     return status;
   }
-  status = prv_write_with_retry(prv_offset(address), buffer, written);
+  /* A timeout does not prove that the CP failed to program the page. Retrying
+   * a mutation can duplicate or overlap an operation, so only reads retry. */
+  status = t5ai_flash_ipc_write(prv_offset(address), buffer, written);
   if (FAILED(status)) {
     return status;
   }
@@ -300,7 +280,7 @@ static status_t prv_erase(FlashAddress address, size_t length) {
     return status;
   }
   for (size_t offset = 0; offset < length; offset += SUBSECTOR_SIZE_BYTES) {
-    status = prv_erase_with_retry(prv_offset(address + offset));
+    status = t5ai_flash_ipc_erase_4k(prv_offset(address + offset));
     if (FAILED(status)) {
       return status;
     }

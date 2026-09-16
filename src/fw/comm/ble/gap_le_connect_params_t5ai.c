@@ -7,22 +7,42 @@
 #include "comm/bluetooth_analytics.h"
 #include "comm/bt_conn_mgr.h"
 #include "comm/bt_lock.h"
+#include "bluetooth/responsiveness.h"
+#include "pbl/logging/logging.h"
 #include "pbl/services/analytics/analytics.h"
 #include "pbl/services/new_timer/new_timer.h"
 
 extern void conn_mgr_handle_desired_state_granted(GAPLEConnection *hdl,
                                                   ResponseTimeState granted_state);
 
-/* The BK7258 controller owns the link policy. Android already establishes the
- * link at latency zero, and issuing an LE update while service discovery and
- * flash traffic share the CP transport can stall the host command path. Treat
- * the controller's established parameters as satisfying Pebble's logical
- * responsiveness request until CP link-policy support is available. */
+/* Keep the unstable low-power transition disabled, but do request Pebble's
+ * active 15 ms interval. Android can establish this board at 30 ms, which made
+ * service discovery and initial sync consume most of the phone's timeout. */
 void gap_le_connect_params_request(GAPLEConnection *connection,
                                    ResponseTimeState desired_state) {
   new_timer_stop(connection->param_update_info.watchdog_timer);
   connection->param_update_info.attempts = 0;
   connection->param_update_info.is_request_pending = false;
+
+  if (desired_state == ResponseTimeMin &&
+      connection->conn_params.conn_interval_1_25ms > 12u) {
+    const BleConnectionParamsUpdateReq request = {
+        .interval_min_1_25ms = 12u,
+        .interval_max_1_25ms = 12u,
+        .slave_latency_events = 0u,
+        .supervision_timeout_10ms = 2000u,
+    };
+    const bool accepted =
+        bt_driver_le_connection_parameter_update(&connection->device, &request);
+    PBL_LOG_INFO("T5AI conn param request: current=%u latency=%u target=12 accepted=%u",
+                 connection->conn_params.conn_interval_1_25ms,
+                 connection->conn_params.slave_latency_events, accepted);
+    if (accepted) {
+      connection->param_update_info.is_request_pending = true;
+      return;
+    }
+  }
+
   conn_mgr_handle_desired_state_granted(connection, desired_state);
 }
 
@@ -45,21 +65,28 @@ void gap_le_connect_params_re_evaluate(GAPLEConnection *connection) {
 
 void bt_driver_handle_le_conn_params_update_event(const BleConnectionUpdateCompleteEvent *event) {
   bt_lock();
-  if (event->status != HciStatusCode_Success) {
+  GAPLEConnection *connection = gap_le_connection_by_addr(&event->dev_address);
+  PBL_LOG_INFO("T5AI conn param result: status=0x%02x interval=%u latency=%u timeout=%u",
+               event->status, event->conn_params.conn_interval_1_25ms,
+               event->conn_params.slave_latency_events,
+               event->conn_params.supervision_timeout_10ms);
+  if (connection == NULL) {
     bt_unlock();
     return;
   }
 
-  GAPLEConnection *connection = gap_le_connection_by_addr(&event->dev_address);
-  if (connection != NULL) {
+  connection->param_update_info.is_request_pending = false;
+  if (event->status == HciStatusCode_Success) {
     connection->conn_params = event->conn_params;
-    connection->param_update_info.is_request_pending = false;
     if (!connection->local_is_master) {
       bluetooth_analytics_handle_connection_params_update(&event->conn_params);
       PBL_ANALYTICS_ADD(ble_conn_param_update_count, 1);
     }
-    conn_mgr_handle_desired_state_granted(
-        connection, conn_mgr_get_latency_for_le_connection(connection, NULL));
   }
+  /* A rejected controller request must not leave the response-time state
+   * pending forever. Keep using the established latency-zero link and let the
+   * caller proceed; a later request can try the active interval again. */
+  conn_mgr_handle_desired_state_granted(
+      connection, conn_mgr_get_latency_for_le_connection(connection, NULL));
   bt_unlock();
 }

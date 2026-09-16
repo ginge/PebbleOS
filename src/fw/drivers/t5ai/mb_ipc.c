@@ -1,0 +1,343 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
+#include <pbl/mcu/cache.h>
+#include <pbl/os/mutex.h>
+#include <pbl/soc/t5ai/cp_mailbox.h>
+#include <pbl/soc/t5ai/mailbox_channel.h>
+#include <pbl/soc/t5ai/mb_ipc.h>
+
+#include "FreeRTOS.h"
+#include "semphr.h"
+
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
+
+#define MB_IPC_TX_CHANNEL 0x11u
+#define MB_IPC_RX_CHANNEL 0x41u
+#define MB_IPC_CPU_AP 1u
+#define MB_IPC_CPU_CP 0u
+#define MB_IPC_COMMAND_CONNECT 0u
+#define MB_IPC_COMMAND_SEND 2u
+#define MB_IPC_RESPONSE_FLAG 0x80u
+#define MB_IPC_ROUTE_OK 0u
+#define MB_IPC_ROUTE_UNREACHABLE 2u
+#define MB_IPC_ROUTE_UNSOLICITED 3u
+#define MB_IPC_ROUTE_UNMATCHED 4u
+#define MB_IPC_ROUTE_RX_BUSY 5u
+#define MB_IPC_SOCKET_COUNT 2u
+#define MB_IPC_PHYSICAL_TIMEOUT_MS 2000u
+
+struct T5AIMbIpcSocket {
+  uint8_t client_port;
+  uint8_t server_port;
+  uint8_t tx_tag;
+  uint8_t tx_command;
+  uint32_t generation;
+  bool allocated;
+  bool connected;
+  bool tx_in_process;
+  bool rx_in_process;
+  T5AIMailboxMessage tx_message __attribute__((aligned(32)));
+  T5AIMailboxMessage rx_message;
+  status_t tx_status;
+  PebbleMutex *mutex;
+  SemaphoreHandle_t tx_ready;
+  SemaphoreHandle_t rx_ready;
+};
+
+static T5AIMbIpcSocket s_sockets[MB_IPC_SOCKET_COUNT];
+static bool s_initialized;
+
+static uint8_t prv_crc8(const void *data, size_t length) {
+  const uint8_t *bytes = data;
+  uint8_t crc = 0u;
+  while (length-- != 0u) {
+    crc ^= *bytes++;
+    for (unsigned bit = 0; bit < 8u; ++bit) {
+      crc = (crc & 0x80u) != 0u ? (uint8_t)((crc << 1u) ^ 0x31u) : (uint8_t)(crc << 1u);
+    }
+  }
+  return crc;
+}
+
+static uint32_t prv_address(uint8_t destination_cpu, uint8_t destination_port,
+                            uint8_t source_cpu, uint8_t source_port, uint8_t tag) {
+  return (destination_port & 0x3fu) | ((uint32_t)(destination_cpu & 3u) << 6u) |
+         ((uint32_t)(source_port & 0x3fu) << 8u) | ((uint32_t)(source_cpu & 3u) << 14u) |
+         ((uint32_t)tag << 16u);
+}
+
+static uint8_t prv_destination_cpu(const T5AIMailboxMessage *message) {
+  return (uint8_t)(message->parameter1 >> 6u) & 3u;
+}
+
+static uint8_t prv_destination_port(const T5AIMailboxMessage *message) {
+  return (uint8_t)message->parameter1 & 0x3fu;
+}
+
+static uint8_t prv_source_cpu(const T5AIMailboxMessage *message) {
+  return (uint8_t)(message->parameter1 >> 14u) & 3u;
+}
+
+static uint8_t prv_source_port(const T5AIMailboxMessage *message) {
+  return (uint8_t)(message->parameter1 >> 8u) & 0x3fu;
+}
+
+static uint8_t prv_tag(const T5AIMailboxMessage *message) {
+  return (uint8_t)(message->parameter1 >> 16u);
+}
+
+static uint8_t prv_route_status(const T5AIMailboxMessage *message) {
+  return (uint8_t)(message->parameter1 >> 28u);
+}
+
+static uint8_t prv_api_status(const T5AIMailboxMessage *message) {
+  return (uint8_t)(message->parameter1 >> 24u) & 0x0fu;
+}
+
+static void prv_set_route_status(T5AIMailboxMessage *message, uint8_t route_status) {
+  message->parameter1 = (message->parameter1 & 0x0fffffffu) |
+                        ((uint32_t)(route_status & 0x0fu) << 28u);
+}
+
+static T5AIMbIpcSocket *prv_find_receiver(const T5AIMailboxMessage *message) {
+  for (size_t i = 0; i < MB_IPC_SOCKET_COUNT; ++i) {
+    T5AIMbIpcSocket *socket = &s_sockets[i];
+    if (socket->allocated && prv_destination_cpu(message) == MB_IPC_CPU_AP &&
+        prv_source_cpu(message) == MB_IPC_CPU_CP &&
+        prv_destination_port(message) == socket->client_port &&
+        prv_source_port(message) == socket->server_port) {
+      return socket;
+    }
+  }
+  return NULL;
+}
+
+static void prv_receive_callback(uint8_t channel, const T5AICPMailboxFrame *frame, void *context) {
+  (void)channel;
+  (void)context;
+  if (frame->length != sizeof(T5AIMailboxMessage)) {
+    (void)t5ai_cp_mailbox_acknowledge_frame(frame, false);
+    return;
+  }
+  T5AIMailboxMessage *message = (T5AIMailboxMessage *)(uintptr_t)frame->address;
+  T5AIMbIpcSocket *socket = prv_find_receiver(message);
+  if (socket == NULL) {
+    prv_set_route_status(message, MB_IPC_ROUTE_UNREACHABLE);
+    return;
+  }
+
+  const uint8_t command = (uint8_t)message->header;
+  if ((command & MB_IPC_RESPONSE_FLAG) != 0u) {
+    if (!socket->tx_in_process) {
+      prv_set_route_status(message, MB_IPC_ROUTE_UNSOLICITED);
+      return;
+    }
+    if (prv_tag(message) != socket->tx_tag ||
+        (command & ~MB_IPC_RESPONSE_FLAG) != socket->tx_command) {
+      prv_set_route_status(message, MB_IPC_ROUTE_UNMATCHED);
+      return;
+    }
+    socket->tx_status = prv_api_status(message) == 0u ? S_SUCCESS : E_ERROR;
+    socket->tx_in_process = false;
+    (void)xSemaphoreGive(socket->tx_ready);
+    prv_set_route_status(message, MB_IPC_ROUTE_OK);
+    return;
+  }
+
+  if (socket->rx_in_process) {
+    prv_set_route_status(message, MB_IPC_ROUTE_RX_BUSY);
+    return;
+  }
+  socket->rx_message = *message;
+  socket->rx_in_process = true;
+  (void)xSemaphoreGive(socket->rx_ready);
+  prv_set_route_status(message, MB_IPC_ROUTE_OK);
+}
+
+status_t t5ai_mb_ipc_init(void) {
+  if (s_initialized) {
+    return S_SUCCESS;
+  }
+  for (size_t i = 0; i < MB_IPC_SOCKET_COUNT; ++i) {
+    s_sockets[i].mutex = mutex_create();
+    s_sockets[i].tx_ready = xSemaphoreCreateBinary();
+    s_sockets[i].rx_ready = xSemaphoreCreateBinary();
+    if (s_sockets[i].mutex == NULL || s_sockets[i].tx_ready == NULL ||
+        s_sockets[i].rx_ready == NULL) {
+      return E_OUT_OF_MEMORY;
+    }
+  }
+  status_t status = t5ai_cp_mailbox_register(MB_IPC_RX_CHANNEL, prv_receive_callback, NULL);
+  if (FAILED(status) && status != E_INVALID_OPERATION) {
+    return status;
+  }
+  s_initialized = true;
+  return S_SUCCESS;
+}
+
+static status_t prv_wait_for_logical_response(T5AIMbIpcSocket *socket, uint32_t timeout_ms) {
+  if (xSemaphoreTake(socket->tx_ready, pdMS_TO_TICKS(timeout_ms)) != pdPASS) {
+    socket->tx_in_process = false;
+    socket->connected = false;
+    ++socket->generation;
+    return E_AGAIN;
+  }
+  return socket->tx_status;
+}
+
+static status_t prv_transmit(T5AIMbIpcSocket *socket, uint8_t command, uint8_t user_command,
+                             const void *data, size_t length, uint32_t timeout_ms) {
+  while (xSemaphoreTake(socket->tx_ready, 0u) == pdPASS) {
+  }
+  ++socket->tx_tag;
+  socket->tx_command = command;
+  socket->tx_status = E_AGAIN;
+  socket->tx_in_process = true;
+  socket->tx_message = (T5AIMailboxMessage){
+      .header = command,
+      .parameter1 = prv_address(MB_IPC_CPU_CP, socket->server_port, MB_IPC_CPU_AP,
+                                socket->client_port, socket->tx_tag),
+      .parameter2 = (uint32_t)length | ((uint32_t)prv_crc8(data, length) << 16u) |
+                    ((uint32_t)user_command << 24u),
+      .parameter3 = (uint32_t)(uintptr_t)data,
+  };
+  if (data != NULL && length != 0u) {
+    dcache_flush((void *)data, length);
+  }
+  T5AIMailboxMessage ack;
+  status_t status = t5ai_mailbox_channel_send(MB_IPC_TX_CHANNEL, &socket->tx_message, &ack,
+                                              MB_IPC_PHYSICAL_TIMEOUT_MS);
+  if (FAILED(status) || prv_route_status(&ack) != MB_IPC_ROUTE_OK) {
+    socket->tx_in_process = false;
+    return FAILED(status) ? status : E_INVALID_OPERATION;
+  }
+  return prv_wait_for_logical_response(socket, timeout_ms);
+}
+
+status_t t5ai_mb_ipc_open(uint8_t client_port, uint8_t server_port,
+                          T5AIMbIpcSocket **socket_out) {
+  if (client_port < 16u || client_port > 63u || server_port == 0u || server_port > 15u ||
+      socket_out == NULL) {
+    return E_INVALID_ARGUMENT;
+  }
+  status_t status = t5ai_mb_ipc_init();
+  if (FAILED(status)) {
+    return status;
+  }
+  T5AIMbIpcSocket *socket = NULL;
+  for (size_t i = 0; i < MB_IPC_SOCKET_COUNT; ++i) {
+    if (s_sockets[i].allocated && s_sockets[i].client_port == client_port) {
+      socket = &s_sockets[i];
+      break;
+    }
+    if (socket == NULL && !s_sockets[i].allocated) {
+      socket = &s_sockets[i];
+    }
+  }
+  if (socket == NULL) {
+    return E_OUT_OF_RESOURCES;
+  }
+  mutex_lock(socket->mutex);
+  socket->allocated = true;
+  socket->connected = false;
+  socket->client_port = client_port;
+  socket->server_port = server_port;
+  socket->rx_in_process = false;
+  status = prv_transmit(socket, MB_IPC_COMMAND_CONNECT, 0u, NULL, 0u, 500u);
+  socket->connected = PASSED(status);
+  mutex_unlock(socket->mutex);
+  if (FAILED(status)) {
+    return status;
+  }
+  *socket_out = socket;
+  return S_SUCCESS;
+}
+
+status_t t5ai_mb_ipc_send(T5AIMbIpcSocket *socket, uint8_t command, const void *data,
+                          size_t length, uint32_t timeout_ms) {
+  if (socket == NULL || data == NULL || length == 0u || length > 0xffffu) {
+    return E_INVALID_ARGUMENT;
+  }
+  mutex_lock(socket->mutex);
+  status_t status = socket->connected
+                        ? prv_transmit(socket, MB_IPC_COMMAND_SEND, command, data, length,
+                                       timeout_ms)
+                        : E_INVALID_OPERATION;
+  mutex_unlock(socket->mutex);
+  return status;
+}
+
+static status_t prv_respond(T5AIMbIpcSocket *socket, T5AIMailboxMessage *request) {
+  T5AIMailboxMessage response = *request;
+  response.header = ((uint8_t)request->header) | MB_IPC_RESPONSE_FLAG;
+  response.parameter1 =
+      prv_address(MB_IPC_CPU_CP, socket->server_port, MB_IPC_CPU_AP, socket->client_port,
+                  prv_tag(request));
+  T5AIMailboxMessage ack;
+  status_t status = t5ai_mailbox_channel_send(MB_IPC_TX_CHANNEL, &response, &ack,
+                                              MB_IPC_PHYSICAL_TIMEOUT_MS);
+  if (PASSED(status) && prv_route_status(&ack) != MB_IPC_ROUTE_OK) {
+    status = E_INVALID_OPERATION;
+  }
+  return status;
+}
+
+status_t t5ai_mb_ipc_receive(T5AIMbIpcSocket *socket, uint8_t *command, void *data,
+                             size_t length, uint32_t timeout_ms) {
+  if (socket == NULL) {
+    return E_INVALID_ARGUMENT;
+  }
+  if (socket->rx_in_process) {
+    (void)xSemaphoreTake(socket->rx_ready, 0u);
+  } else if (xSemaphoreTake(socket->rx_ready, pdMS_TO_TICKS(timeout_ms)) != pdPASS) {
+    return E_AGAIN;
+  }
+  if (!socket->rx_in_process) {
+    return E_AGAIN;
+  }
+  T5AIMailboxMessage request = socket->rx_message;
+  const size_t received_length = (uint16_t)request.parameter2;
+  status_t status = S_SUCCESS;
+  if ((uint8_t)request.header != MB_IPC_COMMAND_SEND || request.parameter3 == 0u ||
+      (data != NULL && received_length != length)) {
+    status = E_ERROR;
+  } else if (data != NULL && length != 0u) {
+    const void *source = (const void *)(uintptr_t)request.parameter3;
+    dcache_invalidate((void *)source, received_length);
+    if (prv_crc8(source, received_length) != (uint8_t)(request.parameter2 >> 16u)) {
+      status = E_ERROR;
+    } else {
+      memcpy(data, source, received_length);
+    }
+  }
+  if (command != NULL) {
+    *command = (uint8_t)(request.parameter2 >> 24u);
+  }
+  const status_t response_status = prv_respond(socket, &request);
+  socket->rx_in_process = false;
+  return FAILED(status) ? status : response_status;
+}
+
+void t5ai_mb_ipc_discard(T5AIMbIpcSocket *socket) {
+  if (socket == NULL) {
+    return;
+  }
+  if (socket->rx_in_process) {
+    T5AIMailboxMessage request = socket->rx_message;
+    (void)prv_respond(socket, &request);
+    socket->rx_in_process = false;
+  }
+  while (xSemaphoreTake(socket->rx_ready, 0u) == pdPASS) {
+  }
+}
+
+void t5ai_mb_ipc_poison(T5AIMbIpcSocket *socket) {
+  if (socket != NULL) {
+    socket->connected = false;
+    socket->tx_in_process = false;
+    socket->rx_in_process = false;
+    ++socket->generation;
+  }
+}

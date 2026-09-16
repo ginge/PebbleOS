@@ -8,6 +8,9 @@ sources = [
     'put_bytes_storage_raw.c',
 ]
 
+if not bld.env.CONFIG_SOC_T5AI:
+    sources.append('put_bytes_job_buffer.c')
+
 bld.stlib(
     use=['fw_includes'],
     source=sources,

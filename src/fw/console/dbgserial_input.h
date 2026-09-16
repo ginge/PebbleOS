@@ -25,6 +25,7 @@ typedef enum {
   DbgSerialMailboxProbe_None,
   DbgSerialMailboxProbe_Rx,
   DbgSerialMailboxProbe_Timebase,
+  DbgSerialMailboxProbe_Mailbox,
   DbgSerialMailboxProbe_Display,
   DbgSerialMailboxProbe_DisplayBitbang,
   DbgSerialMailboxProbe_Splash,

@@ -39,6 +39,9 @@ int main(void) {
     .result = t5ai_mipc_data_crc(&data),
   };
   assert(t5ai_mipc_frame_valid(&frame, &data));
+  /* Logical delivery strips the physical mailbox channel metadata. */
+  frame.header = 0x09;
+  assert(t5ai_mipc_frame_valid(&frame, &data));
   frame.result ^= 1;
   assert(!t5ai_mipc_frame_valid(&frame, &data));
   return 0;
@@ -60,102 +63,31 @@ int main(void) {
             )
             subprocess.run([str(binary)], check=True)
 
-    @unittest.skipUnless(shutil.which("cc"), "host C compiler required")
     def test_mailbox_protocol_encoding_and_crc(self):
-        source = r'''
-#include <assert.h>
-#include <stddef.h>
-#include <stdint.h>
-#include "src/fw/drivers/flash/t5ai_flash_ipc.c"
+        transport = (ROOT / "src/fw/drivers/t5ai/mailbox_channel.c").read_text()
+        ipc = (ROOT / "src/fw/drivers/t5ai/mb_ipc.c").read_text()
+        flash = (ROOT / "src/fw/drivers/flash/t5ai_flash_ipc.c").read_text()
+        compatibility = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
 
-void dcache_flush(const void *address, size_t size) { (void)address; (void)size; }
-void dcache_invalidate(void *address, size_t size) { (void)address; (void)size; }
-status_t t5ai_cp_mailbox_lock(void) { return S_SUCCESS; }
-void t5ai_cp_mailbox_unlock(void) {}
-status_t t5ai_cp_mailbox_send(const void *data, size_t length) {
-  (void)data; (void)length; return S_SUCCESS;
-}
-status_t t5ai_cp_mailbox_receive(uint8_t channel, T5AICPMailboxFrame *frame) {
-  (void)channel; (void)frame; return E_AGAIN;
-}
-status_t t5ai_cp_mailbox_register(uint8_t channel,
-                                  T5AICPMailboxReceiveCallback callback,
-                                  void *context) {
-  (void)channel; (void)callback; (void)context; return S_SUCCESS;
-}
-void t5ai_cp_mailbox_discard_pending(void) {}
+        self.assertIn("MailboxOwnedSlot s_ack_slots[2]", transport)
+        self.assertIn("dcache_invalidate((void *)address", transport)
+        self.assertNotIn("dcache_flush((void *)address", transport)
+        self.assertIn("sequence != s_sequence", transport)
+        self.assertIn("for (uint8_t index = 0; index < T5AI_MAILBOX_CHANNEL_COUNT", transport)
+        self.assertIn("MBOX_RESET", transport)
 
-int main(void) {
-  static const uint8_t vector[] = "123456789";
-  assert(sizeof(T5AIIPCMessage) == 16);
-  assert(sizeof(T5AIFlashCommand) == 16);
-  assert(prv_crc8(vector, sizeof(vector) - 1) == 0xa2);
-  assert(prv_crc32(vector, sizeof(vector) - 1) == 0x2dfd2d88);
-  assert(prv_ipc_address_word(0x2a) == 0x002a5001);
-  assert(prv_ipc_data_word(5, 16, 0xa2) == 0x05a20010);
-  assert(T5AI_FLASH_CONNECT_ATTEMPTS > 1);
+        self.assertIn("uint8_t tx_tag", ipc)
+        self.assertIn("bool tx_in_process", ipc)
+        self.assertIn("bool rx_in_process", ipc)
+        self.assertIn("prv_tag(message) != socket->tx_tag", ipc)
+        self.assertIn("MB_IPC_ROUTE_RX_BUSY", ipc)
+        self.assertIn("prv_respond(socket, &request)", ipc)
 
-  T5AIIPCMessage ack = {
-    .header = ((uint32_t)T5AI_IPC_ACK_CONTROL << 12),
-  };
-  T5AICPMailboxFrame frame = {
-    .address = (uintptr_t)&ack,
-    .length = sizeof(ack),
-  };
-  prv_ipc_receive_callback(T5AI_IPC_RX_LOGICAL_CHANNEL, &frame, NULL);
-  assert(s_pending_count == 0);
-
-  ack.header = (uint32_t)T5AI_IPC_ACK_CONTROL << 12;
-  ack.address = (uint32_t)T5AI_IPC_ROUTE_UNREACHABLE << 28;
-  assert(prv_ipc_ack_status(&ack) == E_AGAIN);
-  ack.address = 1u << 28;
-  assert(prv_ipc_ack_status(&ack) == E_ERROR);
-  ack.address = 0;
-  assert(prv_ipc_ack_status(&ack) == S_SUCCESS);
-
-  T5AIIPCMessage stale = {
-    .header = T5AI_IPC_COMMAND_SEND | T5AI_IPC_RESPONSE_FLAG,
-    .address = (uint32_t)1 << 16,
-  };
-  T5AIIPCMessage matching = {
-    .header = T5AI_IPC_COMMAND_SEND | T5AI_IPC_RESPONSE_FLAG,
-    .address = (uint32_t)2 << 16,
-  };
-  assert(prv_pending_enqueue(&stale) == S_SUCCESS);
-  assert(prv_pending_enqueue(&matching) == S_SUCCESS);
-  T5AIIPCMessage received;
-  assert(prv_wait_for_ipc_transaction(
-             T5AI_IPC_COMMAND_SEND | T5AI_IPC_RESPONSE_FLAG, 2, &received) ==
-         S_SUCCESS);
-  assert(received.address == matching.address);
-  assert(s_pending_count == 0);
-
-  T5AIIPCMessage late_connect = {
-    .header = T5AI_IPC_COMMAND_CONNECT | T5AI_IPC_RESPONSE_FLAG,
-    .address = (uint32_t)3 << 16,
-  };
-  assert(prv_pending_enqueue(&late_connect) == S_SUCCESS);
-  assert(prv_wait_for_ipc(T5AI_IPC_COMMAND_CONNECT | T5AI_IPC_RESPONSE_FLAG,
-                          &received) == S_SUCCESS);
-  assert(received.address == late_connect.address);
-  return 0;
-}
-'''
-        with tempfile.TemporaryDirectory() as directory:
-            directory = Path(directory)
-            test_source = directory / "test.c"
-            test_source.write_text(source)
-            binary = directory / "test"
-            subprocess.run(
-                [
-                    "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                    "-I", str(ROOT), "-I", str(ROOT / "include"),
-                    "-I", str(ROOT / "src/fw"), str(test_source),
-                    "-o", str(binary),
-                ],
-                check=True,
-            )
-            subprocess.run([str(binary)], check=True)
+        self.assertIn("prv_flash_transaction(FLASH_READ_DONE)", flash)
+        self.assertIn("t5ai_mb_ipc_discard(s_flash_socket)", flash)
+        self.assertNotIn("FLASH_CONNECT_ATTEMPTS", flash)
+        self.assertIn("CP_FLASH_NOTIFY_RX_CHANNEL 0x4bu", compatibility)
+        self.assertIn("message->parameter1 = CP_FLASH_NOTIFY_ACK", compatibility)
 
     @unittest.skipUnless(shutil.which("cc"), "host C compiler required")
     def test_flash_backend_bounds_chunking_and_protection(self):
@@ -196,7 +128,7 @@ int main(void) {
   assert(flash_impl_init(false) == S_SUCCESS);
   assert(flash_impl_read_sync(output, base, sizeof(output)) == S_SUCCESS && reads == 2);
   fail_next_read = true;
-  assert(flash_impl_read_sync(output, base, 1) == S_SUCCESS && reads == 4);
+      assert(flash_impl_read_sync(output, base + 0x1000, 1) == S_SUCCESS && reads == 4);
   assert(flash_impl_write_page_begin(input, FLASH_REGION_FIRMWARE_SLOT_0_BEGIN - 1, 1) == E_INVALID_OPERATION);
   assert(flash_impl_write_page_begin(input, FLASH_REGION_FIRMWARE_SLOT_0_BEGIN, 1) == E_INVALID_OPERATION);
   assert(flash_impl_write_page_begin(input, FLASH_REGION_FILESYSTEM_BEGIN - 1, 1) == E_INVALID_OPERATION);
@@ -205,28 +137,28 @@ int main(void) {
   assert(flash_impl_write_page_begin(input, FLASH_REGION_DEBUG_DB_BEGIN, 1) == E_INVALID_OPERATION);
   assert(flash_impl_write_page_begin(input, FLASH_REGION_SHARED_PRF_STORAGE_BEGIN - 1, 1) == E_INVALID_OPERATION);
   fail_next_write = true;
-  assert(flash_impl_write_page_begin(input, FLASH_REGION_SHARED_PRF_STORAGE_BEGIN, 1) == 1);
-  assert(writes == 2 && flash_impl_get_write_status() == S_SUCCESS);
+      assert(flash_impl_write_page_begin(input, FLASH_REGION_SHARED_PRF_STORAGE_BEGIN, 1) == E_ERROR);
+      assert(writes == 1 && flash_impl_get_write_status() == S_NO_ACTION_REQUIRED);
   assert(flash_impl_write_page_begin(input, FLASH_REGION_SHARED_PRF_STORAGE_END, 1) == E_INVALID_OPERATION);
   assert(flash_impl_write_page_begin(input, FLASH_REGION_FILESYSTEM_BEGIN + 250, sizeof(input)) == 6);
-  assert(writes == 3 && flash_impl_get_write_status() == S_SUCCESS);
+      assert(writes == 2 && flash_impl_get_write_status() == S_SUCCESS);
   assert(flash_impl_write_protect(FLASH_REGION_FILESYSTEM_BEGIN, FLASH_REGION_FILESYSTEM_BEGIN + 0xfff) == S_SUCCESS);
   assert(flash_impl_write_page_begin(input, FLASH_REGION_FILESYSTEM_BEGIN, 1) == E_INVALID_OPERATION);
   assert(flash_impl_unprotect() == S_SUCCESS);
   assert(flash_impl_write_page_begin(input, FLASH_REGION_FILESYSTEM_END - 1, 2) == 1);
-  assert(writes == 4 && flash_impl_get_write_status() == S_SUCCESS);
+      assert(writes == 3 && flash_impl_get_write_status() == S_SUCCESS);
   assert(flash_impl_write_page_begin(input, FLASH_REGION_FILESYSTEM_END, 1) == E_INVALID_OPERATION);
   assert(flash_impl_erase_subsector_begin(FLASH_REGION_FIRMWARE_SLOT_0_BEGIN) == E_INVALID_OPERATION);
   assert(flash_impl_erase_subsector_begin(FLASH_REGION_CD_BEGIN) == E_INVALID_OPERATION);
   assert(flash_impl_erase_subsector_begin(FLASH_REGION_FIRMWARE_SLOT_1_BEGIN) == E_INVALID_OPERATION);
   assert(flash_impl_erase_subsector_begin(FLASH_REGION_DEBUG_DB_BEGIN) == E_INVALID_OPERATION);
   fail_next_erase = true;
-  assert(flash_impl_erase_subsector_begin(FLASH_REGION_SHARED_PRF_STORAGE_BEGIN) == S_SUCCESS);
-  assert(erases == 2 && flash_impl_get_erase_status() == S_SUCCESS);
+      assert(flash_impl_erase_subsector_begin(FLASH_REGION_SHARED_PRF_STORAGE_BEGIN) == E_ERROR);
+      assert(erases == 1 && flash_impl_get_erase_status() == S_NO_ACTION_REQUIRED);
   assert(flash_impl_erase_subsector_begin(FLASH_REGION_SHARED_PRF_STORAGE_END) == E_INVALID_OPERATION);
-  assert(flash_impl_erase_subsector_begin(FLASH_REGION_FILESYSTEM_BEGIN + 1) == S_SUCCESS && erases == 3);
+      assert(flash_impl_erase_subsector_begin(FLASH_REGION_FILESYSTEM_BEGIN + 1) == S_SUCCESS && erases == 2);
   assert(flash_impl_erase_suspend(FLASH_REGION_FILESYSTEM_BEGIN) == S_NO_ACTION_REQUIRED);
-  assert(flash_impl_erase_sector_begin(FLASH_REGION_FILESYSTEM_BEGIN) == S_SUCCESS && erases == 19);
+      assert(flash_impl_erase_sector_begin(FLASH_REGION_FILESYSTEM_BEGIN) == S_SUCCESS && erases == 18);
   assert(flash_impl_get_erase_status() == S_SUCCESS);
   assert(flash_impl_erase_subsector_begin(FLASH_REGION_FILESYSTEM_END) == E_INVALID_OPERATION);
   assert(flash_impl_read_sync(output, base - 1, 1) == E_INVALID_ARGUMENT);

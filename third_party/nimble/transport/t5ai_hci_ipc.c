@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <pbl/mcu/cache.h>
+#include <pbl/logging/logging.h>
+#include <pbl/os/mutex.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/hci_ipc.h>
 #include <pbl/soc/t5ai/mipc.h>
@@ -10,9 +12,12 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "FreeRTOS.h"
+#include "semphr.h"
+#include "task.h"
+
 #define T5AI_MIPC_CPU_AP 1u
 #define T5AI_MIPC_CPU_CP 0u
-#define T5AI_MIPC_CONTROL_ACK 1u
 #define T5AI_MIPC_SEND_FLAG_SYNC 1u
 #define T5AI_HCI_TYPE 0u
 #define T5AI_HCI_MAX_EVENT_SIZE 257u
@@ -20,6 +25,8 @@
 #define T5AI_HCI_PENDING_FRAME_CAPACITY 8u
 #define T5AI_HCI_EVENT_RESPONSE_CAPACITY 8u
 #define T5AI_HCI_REQUEST_CAPACITY 8u
+#define T5AI_HCI_WORKER_STACK_WORDS 768u
+#define T5AI_HCI_SEND_TIMEOUT_MS 2000u
 
 enum {
   T5AI_HCI_INIT = 0,
@@ -47,11 +54,11 @@ typedef struct {
   T5AIMIPCHandle handle;
   T5AIMIPCData data __attribute__((aligned(32)));
   T5AIMIPCFrame frame __attribute__((aligned(32)));
+  T5AIHCIMessage message __attribute__((aligned(32)));
 } T5AIHCIOutbound;
 
 typedef struct {
   T5AIMIPCFrame frame;
-  bool physically_acknowledged;
 } T5AIHCIPendingFrame;
 
 static const char s_channel_name[] = "__tkl_ipc_handle";
@@ -59,10 +66,19 @@ static T5AIHCIOutbound s_requests[T5AI_HCI_REQUEST_CAPACITY];
 static bool s_request_in_use[T5AI_HCI_REQUEST_CAPACITY];
 static T5AIHCIOutbound s_event_responses[T5AI_HCI_EVENT_RESPONSE_CAPACITY];
 static bool s_event_response_in_use[T5AI_HCI_EVENT_RESPONSE_CAPACITY];
-static T5AIHCIMessage s_message __attribute__((aligned(32)));
 static T5AIHCICallbacks s_callbacks;
 static uint8_t s_sequence;
+static uint16_t s_exchange_result;
 static bool s_started;
+static bool s_faulted;
+static PebbleMutex *s_sync_mutex;
+static PebbleMutex *s_async_mutex;
+static SemaphoreHandle_t s_worker_wake;
+static SemaphoreHandle_t s_exchange_ready;
+static TaskHandle_t s_worker_task;
+static StackType_t s_worker_stack[T5AI_HCI_WORKER_STACK_WORDS]
+    __attribute__((section(".t5ai_board_cache"), aligned(32)));
+static volatile uint8_t s_expected_subtype = UINT8_MAX;
 static T5AIHCIPendingFrame s_pending_frames[T5AI_HCI_PENDING_FRAME_CAPACITY]
     __attribute__((aligned(32)));
 static uint8_t s_pending_frame_head;
@@ -71,6 +87,27 @@ static uint8_t s_event_payload[T5AI_HCI_MAX_EVENT_SIZE] __attribute__((aligned(3
 static uint8_t s_acl_payload[T5AI_HCI_MAX_ACL_SIZE] __attribute__((aligned(32)));
 
 _Static_assert(sizeof(T5AIHCIMessage) == 20u, "T5AI HCI IPC ABI changed");
+
+static bool prv_started(void) {
+  return __atomic_load_n(&s_started, __ATOMIC_ACQUIRE);
+}
+
+static bool prv_faulted(void) {
+  return __atomic_load_n(&s_faulted, __ATOMIC_ACQUIRE);
+}
+
+static void prv_set_started(bool started) {
+  __atomic_store_n(&s_started, started, __ATOMIC_RELEASE);
+}
+
+static void prv_mark_faulted(void) {
+  __atomic_store_n(&s_faulted, true, __ATOMIC_RELEASE);
+  prv_set_started(false);
+}
+
+static uint8_t prv_next_sequence(void) {
+  return __atomic_add_fetch(&s_sequence, 1u, __ATOMIC_RELAXED);
+}
 
 static bool prv_pointer(const void *pointer, uint32_t *wire_pointer) {
   const uintptr_t value = (uintptr_t)pointer;
@@ -83,13 +120,16 @@ static bool prv_pointer(const void *pointer, uint32_t *wire_pointer) {
 
 static status_t prv_send_frame(T5AIMIPCFrame *frame) {
   dcache_flush(frame, sizeof(*frame));
-  return t5ai_cp_mailbox_send(frame, sizeof(*frame));
-}
-
-static status_t prv_physical_ack(const T5AIMIPCFrame *received) {
-  T5AIMIPCFrame ack = *received;
-  ack.header |= (uint32_t)T5AI_MIPC_CONTROL_ACK << 12;
-  return prv_send_frame(&ack);
+  const TickType_t start = xTaskGetTickCount();
+  status_t status;
+  do {
+    status = t5ai_cp_mailbox_send(frame, sizeof(*frame));
+    if (status != E_BUSY) {
+      return status;
+    }
+    vTaskDelay(pdMS_TO_TICKS(1u));
+  } while (xTaskGetTickCount() - start < pdMS_TO_TICKS(T5AI_HCI_SEND_TIMEOUT_MS));
+  return E_AGAIN;
 }
 
 static status_t prv_mipc_ack(T5AIMIPCFrame *received, T5AIMIPCData *remote_data) {
@@ -97,12 +137,11 @@ static status_t prv_mipc_ack(T5AIMIPCFrame *received, T5AIMIPCData *remote_data)
   dcache_flush(remote_data, sizeof(*remote_data));
   T5AIMIPCFrame ack = {
       .header = t5ai_mipc_frame_header(t5ai_mipc_header(T5AI_MIPC_CPU_AP, T5AI_MIPC_TYPE_ACK), 0, 0,
-                                       ++s_sequence, T5AI_MIPC_TX_LOGICAL_CHANNEL),
+                                       prv_next_sequence(), T5AI_MIPC_TX_LOGICAL_CHANNEL),
       .object = received->object,
       .result = t5ai_mipc_data_crc(remote_data),
   };
-  dcache_flush(&ack, sizeof(ack));
-  return t5ai_cp_mailbox_send(&ack, sizeof(ack));
+  return prv_send_frame(&ack);
 }
 
 static status_t prv_prepare_outbound(T5AIHCIOutbound *outbound, const void *payload, size_t length,
@@ -129,7 +168,7 @@ static status_t prv_prepare_outbound(T5AIHCIOutbound *outbound, const void *payl
   };
   outbound->frame = (T5AIMIPCFrame){
       .header = t5ai_mipc_frame_header(t5ai_mipc_header(T5AI_MIPC_CPU_AP, T5AI_MIPC_TYPE_COMMAND),
-                                       0, 0, ++s_sequence, T5AI_MIPC_TX_LOGICAL_CHANNEL),
+                                       0, 0, prv_next_sequence(), T5AI_MIPC_TX_LOGICAL_CHANNEL),
       .object = data_pointer,
       .result = t5ai_mipc_data_crc(&outbound->data),
   };
@@ -140,116 +179,135 @@ static status_t prv_prepare_outbound(T5AIHCIOutbound *outbound, const void *payl
   return prv_send_frame(&outbound->frame);
 }
 
-static status_t prv_read_mailbox_channel_frame(uint8_t logical_channel, T5AIMIPCFrame *frame,
-                                               bool blocking) {
-  T5AICPMailboxFrame mailbox_frame;
-  status_t status = blocking ? t5ai_cp_mailbox_receive(logical_channel, &mailbox_frame)
-                             : t5ai_cp_mailbox_try_receive(logical_channel, &mailbox_frame);
-  if (FAILED(status) || mailbox_frame.length != sizeof(*frame)) {
-    return status;
+static bool prv_is_transport_ack(const T5AIMIPCFrame *frame, T5AIMIPCData *data) {
+  if ((uint8_t)frame->header != t5ai_mipc_header(T5AI_MIPC_CPU_CP, T5AI_MIPC_TYPE_ACK) ||
+      frame->object != (uint32_t)(uintptr_t)data) {
+    return false;
   }
-  dcache_invalidate((void *)mailbox_frame.address, sizeof(*frame));
-  memcpy(frame, (const void *)mailbox_frame.address, sizeof(*frame));
-  return S_SUCCESS;
+  /* Tuya treats the MIPC CRC as diagnostic: list links and the result field
+   * are mutable across CPUs, so a mismatch must not strand the descriptor. */
+  dcache_invalidate(data, sizeof(*data));
+  (void)t5ai_mipc_frame_valid(frame, data);
+  return true;
 }
 
-static status_t prv_read_mailbox_frame(T5AIMIPCFrame *frame, bool blocking) {
-  return prv_read_mailbox_channel_frame(T5AI_MIPC_RX_LOGICAL_CHANNEL, frame, blocking);
-}
-
-static status_t prv_read_frame(T5AIMIPCFrame *frame, bool *physically_acknowledged, bool blocking) {
-  if (s_pending_frame_count != 0u) {
-    *frame = s_pending_frames[s_pending_frame_head].frame;
-    *physically_acknowledged = s_pending_frames[s_pending_frame_head].physically_acknowledged;
-    s_pending_frame_head = (uint8_t)((s_pending_frame_head + 1u) % T5AI_HCI_PENDING_FRAME_CAPACITY);
-    --s_pending_frame_count;
-    return S_SUCCESS;
-  }
-  *physically_acknowledged = false;
-  return prv_read_mailbox_frame(frame, blocking);
-}
-
-static bool prv_is_transport_ack(const T5AIMIPCFrame *frame, const T5AIMIPCData *data) {
-  return (uint8_t)frame->header == t5ai_mipc_header(T5AI_MIPC_CPU_CP, T5AI_MIPC_TYPE_ACK) &&
-         frame->object == (uint32_t)(uintptr_t)data;
-}
-
-static status_t prv_queue_pending_frame(const T5AIMIPCFrame *frame, bool physically_acknowledged) {
+static status_t prv_queue_pending_frame(const T5AIMIPCFrame *frame) {
+  taskENTER_CRITICAL();
   if (s_pending_frame_count == T5AI_HCI_PENDING_FRAME_CAPACITY) {
+    taskEXIT_CRITICAL();
     return E_OUT_OF_RESOURCES;
   }
   const uint8_t tail =
       (uint8_t)((s_pending_frame_head + s_pending_frame_count) % T5AI_HCI_PENDING_FRAME_CAPACITY);
-  s_pending_frames[tail] = (T5AIHCIPendingFrame){
-      .frame = *frame,
-      .physically_acknowledged = physically_acknowledged,
-  };
+  s_pending_frames[tail] = (T5AIHCIPendingFrame){.frame = *frame};
   ++s_pending_frame_count;
+  taskEXIT_CRITICAL();
   return S_SUCCESS;
 }
 
 static bool prv_retire_event_response(const T5AIMIPCFrame *frame) {
+  bool retired = false;
+  taskENTER_CRITICAL();
   for (size_t i = 0; i < T5AI_HCI_EVENT_RESPONSE_CAPACITY; ++i) {
     if (s_event_response_in_use[i] &&
         prv_is_transport_ack(frame, &s_event_responses[i].data)) {
       s_event_response_in_use[i] = false;
-      return true;
+      retired = true;
+      break;
     }
   }
-  return false;
+  taskEXIT_CRITICAL();
+  return retired;
 }
 
 static bool prv_retire_request(const T5AIMIPCFrame *frame) {
+  bool retired = false;
+  taskENTER_CRITICAL();
   for (size_t i = 0; i < T5AI_HCI_REQUEST_CAPACITY; ++i) {
     if (s_request_in_use[i] && prv_is_transport_ack(frame, &s_requests[i].data)) {
       s_request_in_use[i] = false;
-      return true;
+      retired = true;
+      break;
     }
   }
-  return false;
+  taskEXIT_CRITICAL();
+  return retired;
 }
 
 static T5AIHCIOutbound *prv_allocate_request(void) {
+  T5AIHCIOutbound *request = NULL;
+  taskENTER_CRITICAL();
   for (size_t i = 0; i < T5AI_HCI_REQUEST_CAPACITY; ++i) {
     if (!s_request_in_use[i]) {
       s_request_in_use[i] = true;
-      return &s_requests[i];
+      request = &s_requests[i];
+      break;
     }
   }
-  return NULL;
+  taskEXIT_CRITICAL();
+  return request;
 }
 
 static status_t prv_handle_command(T5AIMIPCFrame *frame, uint8_t expected, bool *matched);
 
+static bool prv_dequeue_pending_frame(T5AIMIPCFrame *frame) {
+  bool available = false;
+  taskENTER_CRITICAL();
+  if (s_pending_frame_count != 0u) {
+    *frame = s_pending_frames[s_pending_frame_head].frame;
+    s_pending_frame_head = (uint8_t)((s_pending_frame_head + 1u) % T5AI_HCI_PENDING_FRAME_CAPACITY);
+    --s_pending_frame_count;
+    available = true;
+  }
+  taskEXIT_CRITICAL();
+  return available;
+}
+
+static void prv_worker(void *context) {
+  (void)context;
+  while (true) {
+    (void)xSemaphoreTake(s_worker_wake, portMAX_DELAY);
+    T5AIMIPCFrame frame;
+    while (prv_dequeue_pending_frame(&frame)) {
+      if (prv_retire_request(&frame) || prv_retire_event_response(&frame)) {
+        continue;
+      }
+      if ((uint8_t)frame.header !=
+          t5ai_mipc_header(T5AI_MIPC_CPU_CP, T5AI_MIPC_TYPE_COMMAND)) {
+        continue;
+      }
+      mutex_lock(s_async_mutex);
+      bool matched = false;
+      const status_t status = prv_handle_command(
+          &frame, __atomic_load_n(&s_expected_subtype, __ATOMIC_ACQUIRE), &matched);
+      mutex_unlock(s_async_mutex);
+      if (FAILED(status)) {
+        prv_mark_faulted();
+      }
+      if (matched) {
+        (void)xSemaphoreGive(s_exchange_ready);
+      }
+    }
+  }
+}
+
 static void prv_route_frame(uint8_t logical_channel, const T5AICPMailboxFrame *frame,
                             void *context) {
-  (void)logical_channel;
   (void)context;
-  if (frame->length != sizeof(T5AIMIPCFrame) ||
-      s_pending_frame_count == T5AI_HCI_PENDING_FRAME_CAPACITY) {
+  if (logical_channel != T5AI_MIPC_RX_LOGICAL_CHANNEL ||
+      frame->length != sizeof(T5AIMIPCFrame)) {
+    (void)t5ai_cp_mailbox_acknowledge_frame(frame, false);
     return;
   }
   T5AIMIPCFrame pending;
-  dcache_invalidate((void *)frame->address, sizeof(pending));
   memcpy(&pending, (const void *)frame->address, sizeof(pending));
-  if ((pending.header & (0xfu << 12)) == 0u) {
-    if (FAILED(prv_physical_ack(&pending))) {
-      return;
-    }
-
-    /* CP sends HCI events synchronously and cannot service the flash socket
-     * until AP returns the logical MIPC response. This route runs when another
-     * mailbox client (notably flash) owns the shared lock, so merely queueing
-     * the HCI frame deadlocks both services. Complete the event transaction
-     * inline; the transport callback only copies into NimBLE's host queue. */
-    if ((uint8_t)pending.header ==
-        t5ai_mipc_header(T5AI_MIPC_CPU_CP, T5AI_MIPC_TYPE_COMMAND)) {
-      bool ignored = false;
-      (void)prv_handle_command(&pending, UINT8_MAX, &ignored);
-      return;
-    }
+  (void)t5ai_cp_mailbox_acknowledge_frame(frame, true);
+  if (FAILED(prv_queue_pending_frame(&pending))) {
+    PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "T5AI HCI pending frame queue exhausted");
+    prv_mark_faulted();
+  } else {
+    (void)xSemaphoreGive(s_worker_wake);
   }
-  (void)prv_queue_pending_frame(&pending, true);
 }
 
 static status_t prv_decode_remote(T5AIMIPCFrame *frame, T5AIMIPCData **remote_data,
@@ -262,8 +320,7 @@ static status_t prv_decode_remote(T5AIMIPCFrame *frame, T5AIMIPCData **remote_da
   /* The pinned BK7258 MIPC receiver reports CRC mismatches but deliberately
    * continues dispatching the object. Mirror that ABI here: mutable list and
    * result fields can race the diagnostic CRC across CPUs. */
-  if ((uint8_t)(frame->header >> 24) != T5AI_MIPC_RX_LOGICAL_CHANNEL || (*remote_data)->data == 0 ||
-      (*remote_data)->size != sizeof(T5AIHCIMessage)) {
+  if ((*remote_data)->data == 0 || (*remote_data)->size != sizeof(T5AIHCIMessage)) {
     return E_ERROR;
   }
   *message = (T5AIHCIMessage *)(uintptr_t)(*remote_data)->data;
@@ -272,18 +329,23 @@ static status_t prv_decode_remote(T5AIMIPCFrame *frame, T5AIMIPCData **remote_da
 }
 
 static status_t prv_respond_to_event(T5AIHCIMessage *message) {
+  status_t result = E_OUT_OF_RESOURCES;
+  taskENTER_CRITICAL();
   for (size_t i = 0; i < T5AI_HCI_EVENT_RESPONSE_CAPACITY; ++i) {
     if (!s_event_response_in_use[i]) {
       s_event_response_in_use[i] = true;
-      status_t status =
-          prv_prepare_outbound(&s_event_responses[i], message, sizeof(*message), false);
-      if (FAILED(status)) {
+      taskEXIT_CRITICAL();
+      result = prv_prepare_outbound(&s_event_responses[i], message, sizeof(*message), false);
+      if (FAILED(result)) {
+        taskENTER_CRITICAL();
         s_event_response_in_use[i] = false;
+        taskEXIT_CRITICAL();
       }
-      return status;
+      return result;
     }
   }
-  return E_OUT_OF_RESOURCES;
+  taskEXIT_CRITICAL();
+  return result;
 }
 
 static status_t prv_handle_command(T5AIMIPCFrame *frame, uint8_t expected, bool *matched) {
@@ -318,7 +380,7 @@ static status_t prv_handle_command(T5AIMIPCFrame *frame, uint8_t expected, bool 
       }
     }
   } else if (message->subtype == expected) {
-    s_message.result = message->result;
+    s_exchange_result = message->result;
     *matched = true;
   }
   status_t ack_status = prv_mipc_ack(frame, remote_data);
@@ -326,71 +388,90 @@ static status_t prv_handle_command(T5AIMIPCFrame *frame, uint8_t expected, bool 
 }
 
 static status_t prv_exchange(uint8_t subtype, const void *payload, size_t length) {
+  const bool runtime_exchange = prv_started();
   T5AIHCIOutbound *request = prv_allocate_request();
   if (request == NULL) {
+    if (runtime_exchange) {
+      prv_mark_faulted();
+    }
     return E_OUT_OF_RESOURCES;
   }
-  s_message = (T5AIHCIMessage){.type = T5AI_HCI_TYPE, .subtype = subtype};
-  if (payload != NULL && (!prv_pointer(payload, &s_message.request) || length > UINT32_MAX)) {
+  request->message = (T5AIHCIMessage){.type = T5AI_HCI_TYPE, .subtype = subtype};
+  if (payload != NULL && (!prv_pointer(payload, &request->message.request) || length > UINT32_MAX)) {
     s_request_in_use[request - s_requests] = false;
     return E_RANGE;
   }
-  s_message.request_length = (uint32_t)length;
+  request->message.request_length = (uint32_t)length;
   // The IPC descriptor contains a pointer rather than an inline HCI packet.
   // Publish the pointed-to bytes before CPU0 dereferences that pointer.
   if (payload != NULL && length != 0u) {
     dcache_flush(payload, length);
   }
-  status_t status = prv_prepare_outbound(request, &s_message, sizeof(s_message), false);
+  while (xSemaphoreTake(s_exchange_ready, 0u) == pdPASS) {
+  }
+  __atomic_store_n(&s_expected_subtype, subtype, __ATOMIC_RELEASE);
+  status_t status =
+      prv_prepare_outbound(request, &request->message, sizeof(request->message), false);
   if (FAILED(status)) {
+    __atomic_store_n(&s_expected_subtype, UINT8_MAX, __ATOMIC_RELEASE);
     s_request_in_use[request - s_requests] = false;
     return status;
   }
 
-  bool matched = false;
-  while (!matched) {
-    T5AIMIPCFrame received;
-    bool physically_acknowledged;
-    status = prv_read_frame(&received, &physically_acknowledged, true);
-    if (FAILED(status)) {
-      return status;
+  if (xSemaphoreTake(s_exchange_ready, pdMS_TO_TICKS(T5AI_HCI_SEND_TIMEOUT_MS)) != pdPASS) {
+    __atomic_store_n(&s_expected_subtype, UINT8_MAX, __ATOMIC_RELEASE);
+    if (runtime_exchange) {
+      prv_mark_faulted();
     }
-    if ((received.header & (0xfu << 12)) != 0) {
-      continue;
-    }
-    if (!physically_acknowledged) {
-      status = prv_physical_ack(&received);
-      if (FAILED(status)) {
-        return status;
-      }
-    }
-    const uint8_t command = (uint8_t)received.header;
-    if (prv_retire_request(&received) || prv_retire_event_response(&received)) {
-    } else if (command == t5ai_mipc_header(T5AI_MIPC_CPU_CP, T5AI_MIPC_TYPE_COMMAND)) {
-      status = prv_handle_command(&received, subtype, &matched);
-      if (FAILED(status)) {
-        return status;
-      }
-    }
+    return E_AGAIN;
   }
-  return s_message.result == 0 ? S_SUCCESS : E_ERROR;
+  __atomic_store_n(&s_expected_subtype, UINT8_MAX, __ATOMIC_RELEASE);
+  return s_exchange_result == 0 ? S_SUCCESS : E_ERROR;
 }
 
 static status_t prv_locked_exchange(uint8_t subtype, const void *payload, size_t length) {
-  status_t status = t5ai_cp_mailbox_lock();
-  if (FAILED(status)) {
-    return status;
-  }
-  status = prv_exchange(subtype, payload, length);
-  t5ai_cp_mailbox_unlock();
+  mutex_lock(s_sync_mutex);
+  status_t status = prv_exchange(subtype, payload, length);
+  mutex_unlock(s_sync_mutex);
   return status;
 }
 
 int t5ai_hci_ipc_start(const T5AIHCICallbacks *callbacks) {
-  if (callbacks == NULL || callbacks->event == NULL || callbacks->acl == NULL || s_started) {
+  if (callbacks == NULL || callbacks->event == NULL || callbacks->acl == NULL || prv_started()) {
     return E_INVALID_ARGUMENT;
   }
   s_callbacks = *callbacks;
+  if (s_sync_mutex == NULL) {
+    s_sync_mutex = mutex_create();
+  }
+  if (s_async_mutex == NULL) {
+    s_async_mutex = mutex_create();
+  }
+  if (s_worker_wake == NULL) {
+    s_worker_wake = xSemaphoreCreateBinary();
+  }
+  if (s_exchange_ready == NULL) {
+    s_exchange_ready = xSemaphoreCreateBinary();
+  }
+  if (s_worker_task == NULL && s_worker_wake != NULL && s_exchange_ready != NULL) {
+    if (xTaskGenericCreate(prv_worker, "T5AI HCI IPC", T5AI_HCI_WORKER_STACK_WORDS, NULL,
+                           configMAX_PRIORITIES - 2u, &s_worker_task, s_worker_stack,
+                           NULL) != pdPASS) {
+      s_worker_task = NULL;
+    }
+  }
+  if (s_sync_mutex == NULL || s_async_mutex == NULL || s_worker_wake == NULL ||
+      s_exchange_ready == NULL || s_worker_task == NULL) {
+    memset(&s_callbacks, 0, sizeof(s_callbacks));
+    return E_OUT_OF_MEMORY;
+  }
+  if (prv_faulted()) {
+    /* Timed-out request objects stay quarantined until the controller reset
+     * path starts a fresh transport generation. Never reuse them while a late
+     * logical ACK or response can still arrive. */
+    t5ai_cp_mailbox_unregister(T5AI_MIPC_RX_LOGICAL_CHANNEL);
+    __atomic_store_n(&s_faulted, false, __ATOMIC_RELEASE);
+  }
   s_pending_frame_head = 0u;
   s_pending_frame_count = 0u;
   memset(s_request_in_use, 0, sizeof(s_request_in_use));
@@ -406,8 +487,8 @@ int t5ai_hci_ipc_start(const T5AIHCICallbacks *callbacks) {
   if (PASSED(status)) {
     status = prv_locked_exchange(T5AI_HCI_REGISTER_CALLBACKS, NULL, 0);
   }
-  s_started = PASSED(status);
-  if (!s_started) {
+  prv_set_started(PASSED(status));
+  if (!prv_started()) {
     t5ai_cp_mailbox_unregister(T5AI_MIPC_RX_LOGICAL_CHANNEL);
     memset(&s_callbacks, 0, sizeof(s_callbacks));
   }
@@ -415,11 +496,11 @@ int t5ai_hci_ipc_start(const T5AIHCICallbacks *callbacks) {
 }
 
 int t5ai_hci_ipc_stop(void) {
-  if (!s_started) {
+  if (!prv_started()) {
     return E_INVALID_OPERATION;
   }
   status_t status = prv_locked_exchange(T5AI_HCI_DEINIT, NULL, 0);
-  s_started = false;
+  prv_set_started(false);
   s_pending_frame_head = 0u;
   s_pending_frame_count = 0u;
   memset(s_request_in_use, 0, sizeof(s_request_in_use));
@@ -430,32 +511,21 @@ int t5ai_hci_ipc_stop(void) {
 }
 
 int t5ai_hci_ipc_send_command(const uint8_t *data, size_t length) {
-  return !s_started || data == NULL ? E_INVALID_OPERATION
+  return !prv_started() || prv_faulted() || data == NULL ? E_INVALID_OPERATION
                                     : prv_locked_exchange(T5AI_HCI_COMMAND, data, length);
 }
 
 int t5ai_hci_ipc_send_acl(const uint8_t *data, size_t length) {
-  return !s_started || data == NULL ? E_INVALID_OPERATION
+  return !prv_started() || prv_faulted() || data == NULL ? E_INVALID_OPERATION
                                     : prv_locked_exchange(T5AI_HCI_ACL, data, length);
 }
 
+bool t5ai_hci_ipc_faulted(void) {
+  return prv_faulted();
+}
+
 void t5ai_hci_ipc_poll(void) {
-  if (!s_started || FAILED(t5ai_cp_mailbox_lock())) {
-    return;
+  if (prv_started() && s_worker_wake != NULL) {
+    (void)xSemaphoreGive(s_worker_wake);
   }
-  T5AIMIPCFrame received;
-  bool physically_acknowledged;
-  if (PASSED(prv_read_frame(&received, &physically_acknowledged, false)) &&
-      (received.header & (0xfu << 12)) == 0) {
-    if (!physically_acknowledged) {
-      (void)prv_physical_ack(&received);
-    }
-    if (prv_retire_request(&received) || prv_retire_event_response(&received)) {
-    } else if ((uint8_t)received.header ==
-               t5ai_mipc_header(T5AI_MIPC_CPU_CP, T5AI_MIPC_TYPE_COMMAND)) {
-      bool ignored = false;
-      (void)prv_handle_command(&received, UINT8_MAX, &ignored);
-    }
-  }
-  t5ai_cp_mailbox_unlock();
 }

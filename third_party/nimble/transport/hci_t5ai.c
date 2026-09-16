@@ -18,6 +18,7 @@
 #include <os/os_mbuf.h>
 #include <nimble/hci_common.h>
 #include <nimble/transport.h>
+#include <host/ble_hs.h>
 
 #define T5AI_HCI_COMMAND_HEADER_SIZE 3u
 #define T5AI_HCI_EVENT_HEADER_SIZE 2u
@@ -35,11 +36,35 @@
 #define T5AI_PPOG_SEQUENCE_SHIFT 3u
 
 static bool s_started;
+static bool s_reset_scheduled;
 static uint8_t s_acl_tx[T5AI_HCI_MAX_ACL_SIZE];
 static TaskHandle_t s_hci_task;
 static QueueHandle_t s_acl_tx_queue;
 static uint32_t s_pp_rx_remaining;
 static uint32_t s_pp_rx_packets;
+static uint32_t s_pp_rx_discontinuities;
+static uint32_t s_pp_tx_discontinuities;
+static uint8_t s_pp_rx_expected_sequence;
+static uint8_t s_pp_tx_expected_sequence;
+static bool s_pp_rx_sequence_valid;
+static bool s_pp_tx_sequence_valid;
+
+static bool prv_started(void) {
+  return __atomic_load_n(&s_started, __ATOMIC_ACQUIRE);
+}
+
+static void prv_set_started(bool started) {
+  __atomic_store_n(&s_started, started, __ATOMIC_RELEASE);
+}
+
+static void prv_schedule_reset(void) {
+  bool expected = false;
+  prv_set_started(false);
+  if (__atomic_compare_exchange_n(&s_reset_scheduled, &expected, true, false,
+                                  __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+    ble_hs_sched_reset(BLE_HS_ECONTROLLER);
+  }
+}
 
 static uint16_t prv_read_le16(const uint8_t *data) {
   return (uint16_t)data[0] | ((uint16_t)data[1] << 8);
@@ -68,11 +93,21 @@ static void prv_trace_ppog_rx(const uint8_t *data, size_t length) {
               (unsigned)payload_length);
     if (type != T5AI_PPOG_PACKET_TYPE_ACK) {
       s_pp_rx_remaining = 0;
+      s_pp_rx_sequence_valid = false;
     }
     return;
   }
 
   ++s_pp_rx_packets;
+  if (s_pp_rx_sequence_valid && sequence != s_pp_rx_expected_sequence) {
+    ++s_pp_rx_discontinuities;
+    PBL_LOG_D_WRN(LOG_DOMAIN_COMM,
+                  "T5AI PPoG RX sequence discontinuity expected=%u got=%u packet=%lu count=%lu",
+                  (unsigned)s_pp_rx_expected_sequence, sequence, (unsigned long)s_pp_rx_packets,
+                  (unsigned long)s_pp_rx_discontinuities);
+  }
+  s_pp_rx_expected_sequence = (uint8_t)((sequence + 1u) & 0x1fu);
+  s_pp_rx_sequence_valid = true;
   if (s_pp_rx_remaining == 0 && payload_length >= 4u) {
     const uint16_t pp_length = prv_read_be16(payload);
     const uint16_t endpoint = prv_read_be16(&payload[2]);
@@ -102,10 +137,35 @@ static void prv_trace_ppog_tx(const uint8_t *data, size_t length) {
 
   const uint8_t header = data[11];
   const unsigned type = header & T5AI_PPOG_PACKET_TYPE_MASK;
-  if (type != T5AI_PPOG_PACKET_TYPE_DATA) {
+  const unsigned sequence = header >> T5AI_PPOG_SEQUENCE_SHIFT;
+  const unsigned att_handle = prv_read_le16(&data[9]);
+  if (type >= 4u) {
+    /* The transport also carries notifications for non-PPoG GATT
+     * characteristics. Do not report their first payload byte as a corrupt
+     * PPoG control header; retaining the handle makes those distinguishable in
+     * a raw link trace. */
     PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
-              "T5AI PPoG TX control type=%u sn=%u", type,
-              header >> T5AI_PPOG_SEQUENCE_SHIFT);
+                   "T5AI ATT notification handle=0x%04x first=0x%02x len=%u",
+                   att_handle, header, (unsigned)(length - 11u));
+    return;
+  }
+  if (type == T5AI_PPOG_PACKET_TYPE_DATA) {
+    if (s_pp_tx_sequence_valid && sequence != s_pp_tx_expected_sequence) {
+      ++s_pp_tx_discontinuities;
+      PBL_LOG_D_WRN(LOG_DOMAIN_COMM,
+                    "T5AI PPoG TX sequence discontinuity expected=%u got=%u count=%lu",
+                    (unsigned)s_pp_tx_expected_sequence, sequence,
+                    (unsigned long)s_pp_tx_discontinuities);
+    }
+    s_pp_tx_expected_sequence = (uint8_t)((sequence + 1u) & 0x1fu);
+    s_pp_tx_sequence_valid = true;
+  } else {
+    PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
+                   "T5AI PPoG TX control type=%u sn=%u handle=0x%04x",
+                   type, sequence, att_handle);
+    if (type != T5AI_PPOG_PACKET_TYPE_ACK) {
+      s_pp_tx_sequence_valid = false;
+    }
   }
 }
 
@@ -132,7 +192,7 @@ static void prv_send_queued_acl(struct os_mbuf *acl) {
 
   prv_trace_ppog_tx(s_acl_tx, length);
   unsigned failures = 0;
-  while (s_started) {
+  while (prv_started()) {
     const int status = t5ai_hci_ipc_send_acl(s_acl_tx, length);
     if (status == 0) {
       if (failures != 0u) {
@@ -140,6 +200,13 @@ static void prv_send_queued_acl(struct os_mbuf *acl) {
                        "T5AI HCI ACL transmit recovered after %u retries", failures);
       }
       os_mbuf_free_chain(acl);
+      return;
+    }
+    if (status == E_INVALID_OPERATION) {
+      PBL_LOG_D_ERR(LOG_DOMAIN_COMM,
+                    "T5AI HCI transport fault; scheduling host reset");
+      os_mbuf_free_chain(acl);
+      prv_schedule_reset();
       return;
     }
     ++failures;
@@ -166,7 +233,7 @@ static void prv_hci_task(void *unused) {
 }
 
 static void prv_receive_event(const uint8_t *data, size_t length) {
-  if (!s_started || !prv_event_valid(data, length)) {
+  if (!prv_started() || !prv_event_valid(data, length)) {
     PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "Dropping invalid T5AI HCI event (%u bytes)",
                   (unsigned)length);
     return;
@@ -188,7 +255,7 @@ static void prv_receive_event(const uint8_t *data, size_t length) {
 }
 
 static void prv_receive_acl(const uint8_t *data, size_t length) {
-  if (!s_started || !prv_acl_valid(data, length)) {
+  if (!prv_started() || !prv_acl_valid(data, length)) {
     PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "Dropping invalid T5AI HCI ACL packet (%u bytes)",
                   (unsigned)length);
     return;
@@ -217,9 +284,12 @@ void ble_transport_ll_reinit(void) {
       .acl = prv_receive_acl,
   };
 
-  s_started = true;
+  s_pp_rx_sequence_valid = false;
+  s_pp_tx_sequence_valid = false;
+  __atomic_store_n(&s_reset_scheduled, false, __ATOMIC_RELEASE);
+  prv_set_started(true);
   if (t5ai_hci_ipc_start(&callbacks) != 0) {
-    s_started = false;
+    prv_set_started(false);
     PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "T5AI controller start failed");
   }
 }
@@ -238,14 +308,14 @@ void ble_transport_ll_init(void) {
     };
     pebble_task_create(PebbleTask_BTHCI, &parameters, &s_hci_task);
     if (s_hci_task == NULL) {
-      s_started = false;
+      prv_set_started(false);
       PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "T5AI HCI polling task creation failed");
     }
   }
 }
 
 void ble_transport_ll_deinit(void) {
-  s_started = false;
+  prv_set_started(false);
   if (t5ai_hci_ipc_stop() != 0) {
     PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "T5AI controller stop failed");
   }
@@ -262,12 +332,17 @@ int ble_transport_to_ll_cmd_impl(void *buf) {
   const size_t length = sizeof(*command) + command->length;
   int result = BLE_ERR_MEM_CAPACITY;
 
-  if (s_started && length <= T5AI_HCI_MAX_COMMAND_SIZE &&
-      t5ai_hci_ipc_send_command(buf, length) == 0) {
+  const int status = prv_started() && length <= T5AI_HCI_MAX_COMMAND_SIZE
+                         ? t5ai_hci_ipc_send_command(buf, length)
+                         : E_INVALID_OPERATION;
+  if (status == 0) {
     result = 0;
   } else {
     PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "T5AI HCI command transmit failed (%u bytes)",
                   (unsigned)length);
+    if (t5ai_hci_ipc_faulted()) {
+      prv_schedule_reset();
+    }
   }
   ble_transport_free(buf);
   return result;
@@ -275,7 +350,7 @@ int ble_transport_to_ll_cmd_impl(void *buf) {
 
 int ble_transport_to_ll_acl_impl(struct os_mbuf *acl) {
   const size_t length = OS_MBUF_PKTLEN(acl);
-  if (s_started && s_acl_tx_queue != NULL && length <= T5AI_HCI_MAX_ACL_SIZE &&
+  if (prv_started() && s_acl_tx_queue != NULL && length <= T5AI_HCI_MAX_ACL_SIZE &&
       xQueueSend(s_acl_tx_queue, &acl, 0) == pdTRUE) {
     return 0;
   }
