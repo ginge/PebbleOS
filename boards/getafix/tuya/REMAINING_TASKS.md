@@ -2172,6 +2172,34 @@ logs were removed after these measurements. The functional 2 ms by 20-sample
 button debounce, four-line flash read cache, display batching/GDMA path,
 dynamic SysTick update, and MPU correction remain.
 
+### Later review: PPoG receive-window fallback
+
+Keep the stock PPoG version-1 receive window of 17 while auditing T5AI kernel
+RAM. The four-packet hardware experiment proved that phone-side backpressure
+prevents the measured packet-allocation collapse, but a board-specific window
+setting is not the preferred active fix. First inventory static kernel-RAM
+consumers, task stacks and high-water marks, queues/pools, duplicate staging
+buffers, diagnostic allocations, and fragmentation under AppFetch. Remove or
+right-size T5AI-only waste only when runtime measurements preserve margin for
+the established worst cases. Do not move the worker/app boundaries again; the
+previous boundary experiment stalled the AP before Bluetooth connected.
+
+The first audit pass found 19,820 bytes of AP-only NimBLE pool backing arrays
+in internal RAM. T5AI now links the MSYS and inbound-ACL backing arrays into
+the existing cacheable PSRAM board-cache section without changing pool counts;
+alignment makes the measured internal-RAM recovery 19,808 bytes. Pool metadata
+and all CP-shared HCI descriptors remain internal. This increases the linked
+kernel heap from 40,512 to 60,320 bytes and leaves 24,064 bytes unused in the
+bounded 128 KiB PSRAM reservation. Hardware must still prove cold boot,
+pairing/reconnect, discovery, stock-window AppFetch, PFS completion, and a
+same-boot reconnect before this relocation is accepted.
+
+If that audit cannot provide enough contiguous kernel-heap headroom for the
+stock 17-packet window, reconsider a generic `PPOGATT_RX_WINDOW_SIZE` Kconfig
+with stock default 17 and a DVT3 override of 4. That fallback requires a fresh
+one-variable hardware test and must not add a `CONFIG_SOC_T5AI` branch to
+shared `ppogatt.c`.
+
 ## Validation commands
 
 ```sh

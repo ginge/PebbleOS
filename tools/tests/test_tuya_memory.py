@@ -26,6 +26,12 @@ class TuyaMemoryLayoutTest(unittest.TestCase):
         compositor = (ROOT / "src/fw/services/compositor/compositor.c").read_text()
         self.assertIn('section(".t5ai_framebuffer")', compositor)
 
+    def test_ap_only_nimble_pool_storage_uses_t5ai_psram(self):
+        sections = (ROOT / "soc/t5ai/framebuffer.ld").read_text()
+        self.assertIn("KEEP(*(.bss.os_msys_1_data))", sections)
+        self.assertIn("KEEP(*(.bss.pool_acl_buf))", sections)
+        self.assertIn("AP-only NimBLE pool backing arrays", sections)
+
     def test_framebuffer_psram_handoff_is_validated_before_use(self):
         compositor = (ROOT / "src/fw/services/compositor/compositor.c").read_text()
         validation = compositor.index("prv_validate_t5ai_framebuffer_ram()")

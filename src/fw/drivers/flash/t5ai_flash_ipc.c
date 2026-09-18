@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <pbl/mcu/cache.h>
+#include <pbl/logging/logging.h>
 #include <pbl/os/mutex.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/flash_ipc.h>
@@ -11,6 +12,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+
+PBL_LOG_MODULE_DECLARE(driver_flash, CONFIG_DRIVER_FLASH_LOG_LEVEL);
 
 #define FLASH_CLIENT_PORT 16u
 #define FLASH_SERVER_PORT 1u
@@ -155,6 +158,7 @@ static void prv_flash_fault(status_t status, uint8_t command) {
 
 static status_t prv_flash_transaction(uint8_t command) {
   if (!s_flash_available) {
+    PBL_LOG_ERR("T5AI flash IPC unavailable for command %u", command);
     return E_INVALID_OPERATION;
   }
   t5ai_mb_ipc_discard(s_flash_socket);

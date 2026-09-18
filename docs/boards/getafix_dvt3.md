@@ -1351,7 +1351,7 @@ cd /home/baz/coredevices/pebbleos
   tools.tests.test_tuya_memory
 ```
 
-The latest pre-flash 2026-09-14 run passed all 89 tests. Those tests do not yet
+The latest pre-flash 2026-09-16 run passed all 90 tests. Those tests do not yet
 model concurrent HCI/flash mailbox clients or CP recovery. Finish a handoff
 with:
 
@@ -1365,12 +1365,13 @@ git status --short --branch
 Continue in this order:
 
 1. Physically power-cycle both AP and CP before reconnecting the board.
-2. Replace the transaction-wide T5AI mailbox lock with the per-channel,
-   owned-object dispatcher described in the phone-sync incident handoff.
-3. Add a T5AI flash fault/read-only state so a CP error cannot cause an
-   assertion/reboot loop.
-4. With explicit approval, reformat only the corrupted PFS after verifying its
-   exact range; do not erase firmware, resources, CP, bootloader, or PRF data.
+2. With fresh explicit approval, flash the exact validated combined image
+   recorded in the phone-sync incident. It replaces the AP firmware/resources
+   and provisions an empty PFS while preserving CP, bootloader, and PRF data.
+3. Trace idle bring-up, phone connection, one watchface sync, watchface launch,
+   and one reconnect. Stop on the first flash or transport fault.
+4. If a genuine CP flash error remains, add a T5AI storage-unavailable/read-only
+   state so it cannot cause an assertion/reboot loop.
 5. Run interleaved HCI/flash tests and repeated large watchface sync soaks.
 6. Repair the trace tool's idle-reconnect receive-thread shutdown race.
 7. Restore and measure stock low-power BLE parameters only after sync is

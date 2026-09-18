@@ -601,3 +601,424 @@ provide a complete read-only UI mode after genuine external-flash loss. Do not
 hide failed writes as successful. If hardware can still reproduce a flash
 fault with balanced mailbox/HCI traces, the next scoped change is a T5AI-local
 storage-unavailable state that keeps boot/UI alive without retrying mutations.
+
+## 2026-09-16 PutBytes and physical-ACK ownership follow-up
+
+The first hardware run of the experimental fixed-PSRAM reversed-PPoG ingress
+path got through phone setup, AppFetch, PutBytes initialization, and the first
+2,009-byte watchface block. It then asserted in `flash_write_bytes()` after
+`flash_impl_write_page_begin()` returned `E_INVALID_OPERATION`. This showed
+that the experimental queue could carry the burst, but did not prove that the
+stock heap path was intrinsically undersized or justify retaining a parallel
+T5AI transport. It localizes that run's terminal failure to the AP/CP flash
+path while HCI traffic is active. The capture is
+`build/traces/t5ai-watchface-putbytes-psram-20260916.log`.
+
+Review against Tuya's `mailbox_channel.c` found one remaining transport
+ownership error: Pebble used a global two-entry ring for physical ACK messages,
+but the hardware FIFO carries pointers rather than copying message contents.
+Unrelated HCI and flash receive channels could therefore overwrite a slot
+before CP dereferenced it. Tuya keeps each logical channel BUSY until that
+channel's ACK is consumed. Pebble now gives every receive channel one aligned,
+stable ACK slot, matching that lifetime rule without adding a timeout or
+serializing HCI behind flash.
+
+The follow-up image is built and validated but has not yet been flashed:
+
+- 90 focused Getafix/T5AI tests pass and `git diff --check` passes;
+- FLASH is 877,555 bytes and KERNEL_RAM is 86,464 bytes;
+- `build/pebbleos.bin` SHA-256 is
+  `bac1084852552a332401b121313a2cb5584670ceb5438a29b644c9d38443f67c`;
+- `build/pebbleos.t5ai-crc.bin` SHA-256 is
+  `d4753b31ce7bcc1bd74080246fab667742ac211404594b83e5ad8a23ae4785c2`;
+- the exact AP-only physical range is `0x132000..0x215a40` (end exclusive).
+
+Cold-power both processors before flashing and run one traced sync. Do not
+reuse the current CP session after the flash fault.
+
+## 2026-09-16 reversed-PPoG heap measurement correction
+
+The fixed-PSRAM reversed-ingress queue and its adapters have been removed.
+The stock NimBLE allocation and `bt_driver_cb_ppog_reversed_data_written()`
+handoff are restored. The T5AI kernel heap spans about 40,192 bytes, while the
+expected 17-packet receive burst needs only about 4.5--5 KiB including payload,
+callback contexts, and allocator overhead. A second ingress architecture is
+therefore not warranted without measurements showing that the stock path
+cannot support the bounded burst.
+
+The next image adds T5AI-only diagnostics around the unchanged stock path. It
+records total heap size, current used/free bytes, largest free block, minimum
+headroom, outstanding reversed-PPoG callbacks, peak outstanding callbacks,
+and enqueue-to-KernelMain drain latency. Samples are taken at reversed-PPoG
+subscription, immediately before both payload and callback-context
+allocations, and on either allocation failure. This distinguishes aggregate
+exhaustion from fragmentation and from a delayed KernelMain consumer.
+
+Validation for this measurement image:
+
+- all 90 documented Getafix/T5AI pre-flash tests pass and `git diff --check`
+  passes;
+- FLASH is 877,971 bytes, KERNEL_RAM is 86,464 bytes, and
+  T5AI_DISPLAY_RAM is 87,168 bytes;
+- `build/pebbleos.bin` is 877,971 bytes with SHA-256
+  `2f0db26e955ac14172738af99fa274de4a86030a77e5e949431077de24b514bf`;
+- `build/pebbleos.t5ai-crc.bin` is 932,858 bytes with SHA-256
+  `baa6159c6213ae8c3efd86391254cde36a694b10d004c3f1180e756db920a2d8`;
+- the combined `build/pebbleos.t5ai-flash.bin` still predates this build and
+  must be regenerated before flashing.
+
+Do not make another transport change before capturing one cold-boot sync with
+these counters. If allocation pressure is confirmed, the preferred correction
+order is: combine payload and deferred context into one owned allocation; make
+a small T5AI-local kernel-heap sizing adjustment only if measured headroom
+requires it; then, only if necessary, reduce the T5AI reversed-PPoG receive
+window so the phone throttles its Write Without Response burst.
+
+## 2026-09-16 measured heap correction
+
+The measurement run confirmed allocation pressure rather than a slow
+KernelMain consumer. At reversed-PPoG subscription, the 40,512-byte kernel
+heap had only 4,072 bytes free. During ordinary GATT discovery it fell to
+2,472 bytes free with a largest contiguous block of 488 bytes. The negotiated
+17-packet receive window needs about 4.5--5 KiB. In contrast, the deferred
+callback depth peaked at one packet; normal drain latency was 1--3 ms, with
+startup outliers of 73 ms and 144 ms. The capture is
+`build/traces/t5ai-ppog-heap-measurement-20260916.log`.
+
+The phone ended that session before the trace showed AppFetch, but the next
+cold boot found many incomplete PFS files and then stalled before Bluetooth
+startup. Its current IPC snapshot was `senderr=10`, `rxto=0`, with no retained
+flash-failure record. Do not treat the resulting phone connection failure as a
+new BLE or PPoG failure: the watch never reached advertising on that boot.
+
+The resulting correction keeps the stock heap-backed callback architecture:
+
+- payload and `ReversedDataCtx` are one allocation with one ownership lifetime;
+- the T5AI Gabbro AppState reservation is reduced by 3 KiB, from 77,824 to
+  74,752 bytes, retaining 816 bytes above the measured 73,936-byte AppState;
+- kernel RAM grows from 124 KiB to 127 KiB and the kernel heap grows from
+  40,512 to 43,584 bytes;
+- the RX window remains 17; no PSRAM ingress queue or parallel transport is
+  present.
+
+Validation for the corrected candidate:
+
+- all 90 documented Getafix/T5AI pre-flash tests pass;
+- the full firmware build and T5AI image-map guard pass;
+- `git diff --check` passes;
+- `build/pebbleos.bin` is 877,907 bytes with SHA-256
+  `cb2d83db909d932c3b7d0becbed7361ffffdedfa3d8923d9c67cf4ebaec39d1d`;
+- `build/pebbleos.t5ai-crc.bin` is 932,790 bytes with SHA-256
+  `a36cd0ffb4975ab746ef4497ddbff1941c967c7384666088f64ccc11d88a3e69`;
+- `build/pebbleos.t5ai-flash.bin` is 3,268,608 bytes with SHA-256
+  `bdd6160792269635b7acd9f324687e2331391e2dae3410ba786eaeaafef15921`.
+
+The next flash must reformat the already-incomplete PFS, then capture one
+cold-boot connection and watchface sync. Do not reduce the RX window unless
+this measured-capacity build still records packet allocation failure.
+
+## 2026-09-16 AppState-boundary experiment rejected
+
+The 3 KiB AppState-to-kernel rebalance above is not an acceptable fix. On the
+first hardware boot with the shifted worker and app boundaries, the watch
+reached `Ready for communication` and then suffered a complete AP stall before
+the phone connected or any reversed-PPoG traffic occurred. Runtime UART output
+stopped and neither the `PBLIPC` nor `PBLTIM` liveness command received an AP
+response. The capture is
+`build/traces/t5ai-ppog-single-allocation-20260916.log`.
+
+The memory map has therefore been restored to its previously exercised
+boundaries: 124 KiB kernel RAM, worker RAM at `0x2802f000`, and app RAM at
+`0x28032000` with a 77,824-byte Gabbro runtime reservation. Do not move those
+boundaries again without separately proving the worker/app runtime contracts.
+
+The heap measurements do support retaining the single-allocation ownership
+change by itself. The lowest observed aggregate free space was 1,388 bytes,
+the largest observed free block was 488 bytes, and reversed-PPoG callback depth
+peaked at one. A packet needs less than 300 bytes. The old path first allocated
+the packet payload and then allocated a second payload-sized deferred context,
+so a 488-byte largest block could satisfy the first allocation and leave no
+block large enough for the second. The new path needs one block and transfers
+that allocation directly to KernelMain. No timer-pool reduction, NimBLE-pool
+reduction, RX-window change, PSRAM ingress queue, or memory-boundary change is
+included in the next candidate. Heap and drain diagnostics remain enabled to
+validate this conclusion during one traced sync.
+
+Validation for this restored-layout candidate:
+
+- all 90 focused Getafix/T5AI tests pass and `git diff --check` passes;
+- FLASH is 877,907 bytes, KERNEL_RAM is 86,464 bytes of the original 124 KiB
+  region, and T5AI_DISPLAY_RAM is 87,168 bytes;
+- `build/pebbleos.bin` SHA-256 is
+  `75ace5d2077f43184b49595fd99f53c234a19dc9158667ecef4d7e1d677f59ed`;
+- `build/pebbleos.t5ai-crc.bin` SHA-256 is
+  `dc41c83827e1f2753d2d00715b9b29008739d11697676d5cd89db5127480afac`;
+- regenerated `build/pebbleos.t5ai-flash.bin` SHA-256 is
+  `c70e465284d3ab4f15b98d778367d313851f66fc64edbccbaffe496c65d743f8`.
+
+## 2026-09-17 end-of-day handoff
+
+### What is now known
+
+- Slow external-flash writes are not the cause of the Bluetooth receive
+  failure. Reversed-PPoG normally drained into KernelMain in 1--3 ms and the
+  measured callback depth peaked at one. The 73 ms and 144 ms startup outliers
+  did not create a sustained backlog.
+- The stock two-allocation receive path was vulnerable to kernel-heap
+  fragmentation. The heap still had aggregate free space, but its largest
+  observed block fell to 488 bytes. Allocating the payload and then another
+  payload-sized deferred context could therefore make the second allocation
+  fail. One allocation containing both context and payload directly addresses
+  this measured mechanism.
+- A fixed PSRAM ingress queue and T5AI-specific reversed-PPoG adapters are not
+  justified. They have been removed. The normal NimBLE-to-kernel callback path
+  is retained, with only the ownership allocation combined.
+- Flash and HCI share a mailbox whose hardware FIFO carries pointers. The old
+  global two-slot physical-ACK ring could be overwritten by traffic from
+  another logical channel before CP consumed it. T5AI now owns one stable ACK
+  slot per receive channel, matching the Tuya channel lifetime rule.
+- Moving the worker/app boundary to gain another 3 KiB of kernel heap is
+  rejected. That image caused a full AP stall before any BLE connection. This
+  was a memory-layout regression, not a sync result.
+- Reducing the TaskTimer or NimBLE pools is also deferred. The TaskTimer pool's
+  historical all-system peak is 111 entries and exhaustion currently asserts;
+  NimBLE's T5AI MSYS and inbound ACL pools were previously increased in
+  response to measured pairing/discovery and AppFetch pressure. No pool
+  reduction is needed to test the measured one-allocation fix.
+
+### Current source and hardware state
+
+The production source is `/home/baz/coredevices/pebbleos`. Shared Pebble code
+has not acquired a parallel T5AI transport; the material changes in the current
+candidate are the T5AI per-channel ACK ownership, one owned reversed-PPoG
+allocation, and T5AI-only heap/drain diagnostics. The original 124 KiB kernel,
+12 KiB worker, and 208 KiB app regions are restored.
+
+The watch is still running the rejected boundary-shift image and is AP-frozen.
+Its runtime UART stopped and `PBLIPC`/`PBLTIM` received no response. No further
+diagnostic state is recoverable from that boot without a hardware debugger.
+At the final host check no `/dev/ttyACM*` device was present. Do not attempt a
+phone sync on this image; physically replug/cold-power the board first.
+
+The restored-layout candidate has been rebuilt, all 90 focused tests pass, the
+image-map check passes, and `git diff --check` passes. The exact combined image
+to test is `build/pebbleos.t5ai-flash.bin`, 3,268,608 bytes, SHA-256
+`c70e465284d3ab4f15b98d778367d313851f66fc64edbccbaffe496c65d743f8`.
+It contains firmware, system resources, and a preformatted empty PFS. Flashing
+it is therefore intentionally destructive to current PFS contents but does
+not target the bootloader, CP image, or shared PRF/bond partition. Obtain fresh
+explicit approval before writing it.
+
+### First run tomorrow
+
+1. Replug/cold-power the watch and verify the programming and runtime UARTs
+   enumerate. Do not reuse the frozen AP/CP session.
+2. After explicit approval, verify the combined-image hash above and flash that
+   exact image once.
+3. Start a persistent runtime trace immediately and let the watch reach a
+   stable idle/advertising state before involving the phone.
+4. Connect the already-paired phone without starting AppFetch. Confirm the AP
+   remains live, the connection interval completes, and mailbox counters stay
+   balanced.
+5. Start exactly one watchface sync. Preserve the first allocation failure,
+   PPoG sequence discontinuity, flash error, assertion, or reset. Do not repeat
+   a sync after a flash fault in the same boot.
+6. A successful transfer must be followed by launching the installed
+   watchface and then disconnecting/reconnecting once; transport completion
+   alone is not sufficient validation.
+
+The remaining uncertainty is hardware validation of this exact candidate. If
+its diagnostics show an allocation failure, measure the requested size, free
+bytes, largest block, pending depth, and drain time before changing capacity.
+If allocation succeeds but flash fails, stop changing Bluetooth and implement
+the scoped T5AI storage-unavailable/read-only state before another sync. Only
+consider a smaller receive window or a measured T5AI TaskTimer default after
+the corresponding trace proves it is necessary.
+
+## 2026-09-18 four-packet receive-window candidate
+
+The restored-layout, single-allocation candidate was flashed after a cold
+power cycle and tested with one phone connection and one watchface AppFetch.
+Cold boot formatted the empty PFS, validated system resources, restored the
+saved Bluetooth bond, advertised, and reached `Ready for communication`.
+The phone then encrypted successfully, negotiated MTU 256 and a 15 ms
+connection interval, completed GATT discovery, and opened reversed PPoG with
+TX window 4 and RX window 17.
+
+The AppFetch trace proved that one allocation per packet was necessary but not
+sufficient. Deferred PPoG depth rose to seven, drain latency reached 128 ms,
+free heap fell to 696 bytes, and the largest free block fell first to 208 bytes
+and then 76--100 bytes. Multiple 266--269-byte packet allocations failed,
+followed by sequence discontinuities and the expected PutBytes timeout. There
+was no flash error, assertion, or reboot. The complete capture is
+`build/traces/t5ai-bluetooth-resume-connect-20260918.log`.
+
+This is the measured threshold required by the previous handoff before
+changing protocol capacity. Getafix DVT3 now selects the established
+four-packet PPoG receive window instead of the stock 4.5 KiB-derived window
+through `CONFIG_PPOGATT_RX_WINDOW_SIZE`. The shared protocol code has no T5AI
+branch, and every other board retains the stock default of 17. The smaller
+window makes the phone apply backpressure before the deferred KernelMain queue
+can reproduce the observed seven-packet heap collapse. The single-allocation
+experiment has been removed: shared `ppogatt.c` and its driver callback API are
+restored to stock ownership. Only the T5AI NimBLE service samples payload
+allocation headroom, while the original memory boundaries remain unchanged.
+
+Validation for the new candidate:
+
+- all 90 focused Getafix/T5AI tests pass;
+- the full firmware build and image-map guard pass;
+- `git diff --check` passes;
+- `build/pebbleos.bin` is 877,715 bytes with SHA-256
+  `986010b2a42a6995d5cfecb3649059cbe69c67138d06909910aa51b8a7e7cabe`;
+- `build/pebbleos.t5ai-crc.bin` is 932,586 bytes with SHA-256
+  `bc2fae91744d1a90f307b5c334a7d138a7ba83ad45db36ccc2232630ec975033`;
+- `build/pebbleos.t5ai-flash.bin` is 3,268,608 bytes with SHA-256
+  `9e0c9eeefcb6b114dad17bea12c7a310fe26c680a3ff8c1f3584afb2dcd83cba`.
+
+This candidate has not yet been flashed. Its first hardware run should again
+use one cold boot, one phone connection, and one watchface sync. The session
+must negotiate RX window 4. Stop on the first packet-allocation failure,
+sequence discontinuity, flash error, assertion, or reboot. If the transfer
+completes, launch the installed watchface and disconnect/reconnect once.
+
+## 2026-09-18 RX-window result and T5AI MIPC ACK candidate
+
+The four-packet candidate was flashed and tested with one watchface sync. The
+phone negotiated RX window 4. During the transfer, 250--253-byte PPoG payload
+allocations succeeded and the largest free kernel-heap block remained between
+972 and 1,232 bytes. There was no PPoG allocation failure or sequence
+discontinuity. This validates the smaller DVT3 receive window against the
+measured Bluetooth-ingress failure without changing shared `ppogatt.c`.
+
+The transfer then exposed the independent T5AI mailbox fault at
+`18:56:21.552`: `flash_impl_write_page_begin` returned
+`E_INVALID_OPERATION` (`-10`) and shared `flash_api.c` asserted. The trace is
+`build/traces/t5ai-rxw4-connect-20260918.log`. The following reboot could not
+resolve the interrupted PFS write and the first NimBLE restart also asserted;
+the second reboot eventually reconnected. No second sync was attempted.
+
+The USB bridge was no longer enumerated when diagnosis resumed, so the
+retained `PBLIPCF`/`PBLIPCFE` snapshot could not be recovered. The saved
+September 15 evidence remains applicable: overlapping HCI and flash traffic
+produced CP-side MIPC CRC failures, and HCI response slots were retired by
+descriptor address alone. `T5AIMIPCData` CRC deliberately excludes the
+CP-owned list links and result field, so those legitimate mutations do not
+justify ignoring the CRC.
+
+The next test candidate therefore changes only the T5AI HCI transport. A
+logical ACK must now match both the descriptor address and the current CRC of
+the immutable descriptor fields before the slot can be retired. This prevents
+a late or duplicate ACK for a prior occupant of the same ring slot from
+freeing a new transaction. A mismatch leaves the slot quarantined; bounded
+slot exhaustion then enters the existing HCI fault/reset path instead of
+silently corrupting cross-client mailbox ownership.
+
+Validation for this unflashed candidate:
+
+- all 89 currently discovered focused Getafix/Tuya tests pass;
+- the full firmware build and image-map guard pass;
+- `git diff --check` passes;
+- `build/pebbleos.bin` is 877,715 bytes with SHA-256
+  `399494f66fef6a8cc45351dcd34fd40d16f665febbab55c12b7b3efb72687429`;
+- `build/pebbleos.t5ai-crc.bin` is 932,586 bytes with SHA-256
+  `bdea5444ec5fded3c24cd6d48d3e381338d4906b97caf6ac5d59c88f066f955a`;
+- `build/pebbleos.t5ai-flash.bin` is 3,268,608 bytes with SHA-256
+  `a004a018a1117bd60ff9c8f81eb98db5d1801d05d6e04bbfc1ac8cf00dbd7fc5`.
+
+Do not flash or retry AppFetch until the dual-UART bridge is present. This is
+an instrumented test candidate, not evidence that the MIPC ownership defect is
+fixed. On the next run, capture the raw CP shell as well as PULSE output and
+retrieve `PBLIPC`, `PBLIPCF`, and `PBLIPCFE` immediately after the first fault.
+
+### 2026-09-18 receive-window decision superseded
+
+The receive-window Kconfig and DVT3 override described above were removed from
+the active candidate. The four-packet run remains useful capacity evidence,
+but the preferred fix is now to audit and remove T5AI kernel-memory waste while
+retaining the stock window of 17. Static allocation, task-stack high-water
+marks, queue/pool sizing, transient buffers, diagnostics, and fragmentation
+during AppFetch must be measured before changing protocol capacity. The
+four-packet Kconfig design is recorded only as a later fallback in
+`boards/getafix/tuya/REMAINING_TASKS.md` if the audit cannot recover sufficient
+contiguous headroom. Shared `ppogatt.c` remains stock.
+
+### 2026-09-18 T5AI kernel-memory audit candidate
+
+The linked 124 KiB kernel region previously contained 86,464 bytes of static
+data and left a 40,512-byte kernel heap. The dominant board-relevant static
+consumers were NimBLE MSYS backing storage (10,220 bytes), transport ACL
+backing storage (9,600 bytes), the TaskTimer pool (7,680 bytes), privileged
+app/worker syscall stacks (4,096 bytes), and T5AI HCI request/response rings
+(2,560 bytes). Existing evidence does not justify shrinking those capacities:
+the TaskTimer historical peak is 111 entries, and the NimBLE MSYS and inbound
+ACL counts were raised after measured pairing/discovery and AppFetch pressure.
+
+The MSYS and ACL backing arrays themselves are AP-only storage. T5AI's HCI
+transport copies inbound and outbound data at the CP ownership boundary; CPU0
+never dereferences these NimBLE pool blocks. The T5AI linker now places only
+`.bss.os_msys_1_data` and `.bss.pool_acl_buf` in the established cacheable
+`.t5ai_board_cache` PSRAM section while leaving pool metadata and every
+CP-shared HCI message/descriptor in internal RAM. Both pools retain their
+existing counts and block sizes. `os_mempool_init()` initializes each NOLOAD
+backing block before Bluetooth use.
+
+The resulting map uses 66,656 bytes of KERNEL_RAM and 107,008 bytes of the
+128 KiB T5AI PSRAM reservation. The kernel heap therefore grows from 40,512
+to 60,320 bytes, recovering 19,808 bytes without moving the worker/app
+boundaries or reducing any pool. A read-only `PBLTIM` sample from the preceding
+image reported 577 words free on KernelMain, 803 on KernelBackground, 156 on
+NewTimers, and 672 on the app task; these are useful observations but not yet
+enough worst-case evidence to resize stacks.
+
+The active source again uses the stock PPoG receive window of 17 and has no
+receive-window Kconfig. Host validation passes all 91 focused Getafix/T5AI
+tests, the full build and image-map guard, and `git diff --check`. The unflashed
+protected AP image is 932,586 bytes with SHA-256
+`94579a0db696ecde703704ebccf6fe26e335d49a0b457f6e2fb63ec30aae59a7`.
+The old `build/pebbleos.t5ai-flash.bin` is stale and must not be flashed; the
+flash runner must regenerate it from this protected AP image and current
+system resources immediately before an approved test.
+
+### 2026-09-18 strict MIPC ACK experiment rejected
+
+The first flashed memory-layout image also contained the preceding strict HCI
+ACK-CRC experiment. It entered a reboot loop before phone activity: HCI command
+transmits failed repeatedly, NimBLE host startup timed out, and the CP shell
+reported continuous `bk_ipc_crc_check crc check failed` diagnostics. The trace
+is `build/traces/t5ai-stock-rx17-psram-pools-coldboot-20260918.log`.
+
+This disproves the assumption that the CRC-covered portion of the vendor MIPC
+descriptor is immutable until ACK. The CP changes descriptor ownership state
+before returning the logical ACK, so its CRC is diagnostic and cannot serve as
+a transaction-generation token. Strict CRC retirement has been removed;
+pointer/type matching is restored. The PSRAM pool relocation is independent:
+those AP-only NimBLE backing blocks are never presented to the CP. Rebuild and
+test the relocation alone before drawing any conclusion about it.
+
+### 2026-09-18 stock-window PSRAM-pool hardware result
+
+The corrected memory-audit candidate cold-booted, restored the bond, connected,
+negotiated MTU 256 and a 15 ms interval, completed discovery, and opened
+reversed PPoG with the stock version-1 receive window of 17. Normal BlobDB
+traffic and the beginning of one AppFetch carried repeated 253-byte packets
+without an allocation failure or sequence discontinuity. The linked kernel
+heap was 60,320 bytes; the observed minimum free heap was 18,524 bytes and the
+largest free block immediately before the terminal fault remained 19,252
+bytes. This validates the board-local pool relocation against the measured
+Bluetooth ingress failure and leaves the four-packet Kconfig design as a
+fallback only.
+
+The run then reproduced the independent flash-path failure at
+`19:31:30.191`: `flash_impl_write_page_begin()` returned
+`E_INVALID_OPERATION` (`-10`) and shared `flash_api.c` asserted. The exact ELF
+resolves LR `0x21227ef` to `flash_write_bytes()` at `flash_api.c:148`. There
+was no preceding heap, PPoG sequence, mailbox-timeout, or ACK-mismatch fault in
+the decoded trace. The complete capture is
+`build/traces/t5ai-stock-rx17-psram-pools-connect-20260918.log`.
+
+The T5AI flash driver now logs whether a failed write came from its local
+address/protection policy or from the CP flash IPC session, including the
+address, page length, command, and status. This is diagnostic only; shared
+flash behavior and the PPoG window are unchanged. Do not retry AppFetch on the
+same flashed image because the pre-assert origin was not observable there.

@@ -184,8 +184,10 @@ static bool prv_is_transport_ack(const T5AIMIPCFrame *frame, T5AIMIPCData *data)
       frame->object != (uint32_t)(uintptr_t)data) {
     return false;
   }
-  /* Tuya treats the MIPC CRC as diagnostic: list links and the result field
-   * are mutable across CPUs, so a mismatch must not strand the descriptor. */
+  /* The vendor MIPC implementation mutates descriptor state before returning
+   * an ACK and treats a CRC mismatch as diagnostic.  It is therefore not a
+   * stable transaction-generation token; ownership completion is identified
+   * by the ACK type and the still-in-use descriptor address. */
   dcache_invalidate(data, sizeof(*data));
   (void)t5ai_mipc_frame_valid(frame, data);
   return true;

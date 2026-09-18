@@ -76,11 +76,15 @@ typedef struct {
  * targets memory owned by the CP. */
 static TxChannel s_tx[T5AI_MAILBOX_CHANNEL_COUNT];
 static RxChannel s_rx[T5AI_MAILBOX_CHANNEL_COUNT];
-static MailboxOwnedSlot s_ack_slots[2];
+/* The mailbox FIFO carries pointers, not message copies.  A CP producer does
+ * not issue its next frame on a logical channel until it consumes the ACK for
+ * the current frame, so a stable slot per receive channel gives the ACK an
+ * exact protocol lifetime.  A small global rotating ring can be overwritten
+ * by unrelated HCI and flash channels before the CP dereferences it. */
+static MailboxOwnedSlot s_ack_slots[T5AI_MAILBOX_CHANNEL_COUNT];
 static T5AIMailboxMessage s_reset_slot __attribute__((aligned(32)));
 static SemaphoreHandle_t s_wake;
 static TaskHandle_t s_task;
-static uint8_t s_ack_slot;
 static uint8_t s_sequence;
 static int8_t s_active_channel = -1;
 static bool s_initialized;
@@ -172,7 +176,7 @@ static void prv_process_ack(T5AIMailboxMessage *ack) {
 static void prv_process_command(T5AIMailboxMessage *message) {
   const uint32_t physical_header = message->header;
   const uint8_t channel = (uint8_t)(physical_header >> 24u);
-  uint8_t index;
+  uint8_t index = channel & 0x0fu;
   message->header = physical_header & 0xffu;
   if (prv_rx_channel(channel, &index) && s_rx[index].handler != NULL) {
     s_rx[index].handler(message, s_rx[index].context);
@@ -180,8 +184,7 @@ static void prv_process_command(T5AIMailboxMessage *message) {
     message->header |= MBOX_COMMUNICATION_FAILED;
   }
 
-  T5AIMailboxMessage *ack = &s_ack_slots[s_ack_slot].message;
-  s_ack_slot ^= 1u;
+  T5AIMailboxMessage *ack = &s_ack_slots[channel & 0x0fu].message;
   *ack = *message;
   ack->header = (physical_header & 0xffff00ffu) | (message->header & 0x00000f00u) | MBOX_ACK_BOX;
   /* ACKs bypass the ordinary single-frame scheduler and are never ACKed. */
@@ -306,8 +309,8 @@ static void prv_bootstrap_resynchronize(uint32_t timeout_ms) {
     if (!prv_snapshot_rx(&message) || (message.header & MBOX_ACK_BOX) != 0u) {
       continue;
     }
-    T5AIMailboxMessage *ack = &s_ack_slots[s_ack_slot].message;
-    s_ack_slot ^= 1u;
+    const uint8_t channel = (uint8_t)(message.header >> 24u);
+    T5AIMailboxMessage *ack = &s_ack_slots[channel & 0x0fu].message;
     *ack = message;
     ack->header = (ack->header & ~(0x0fu << 8u)) | MBOX_ACK_BOX;
     do {

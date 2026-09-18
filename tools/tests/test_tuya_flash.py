@@ -69,7 +69,10 @@ int main(void) {
         flash = (ROOT / "src/fw/drivers/flash/t5ai_flash_ipc.c").read_text()
         compatibility = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
 
-        self.assertIn("MailboxOwnedSlot s_ack_slots[2]", transport)
+        self.assertIn(
+            "MailboxOwnedSlot s_ack_slots[T5AI_MAILBOX_CHANNEL_COUNT]", transport
+        )
+        self.assertIn("s_ack_slots[channel & 0x0fu]", transport)
         self.assertIn("dcache_invalidate((void *)address", transport)
         self.assertNotIn("dcache_flush((void *)address", transport)
         self.assertIn("sequence != s_sequence", transport)

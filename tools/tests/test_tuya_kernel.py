@@ -88,6 +88,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("s_sync_mutex", hci_ipc)
         self.assertIn("s_async_mutex", hci_ipc)
         self.assertIn("(void)t5ai_mipc_frame_valid(frame, data)", hci_ipc)
+        self.assertIn("stable transaction-generation token", hci_ipc)
         self.assertIn("prv_mark_faulted()", hci_ipc)
         self.assertIn("static void prv_worker", hci_ipc)
         self.assertIn('section(".t5ai_board_cache")', hci_ipc)
@@ -135,7 +136,10 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn('section(".t5ai_board_cache")', put_bytes_buffers)
         self.assertIn("T5AI_PUT_BYTES_JOB_COUNT 3u", put_bytes_buffers)
         self.assertIn("s_active_channel", mailbox)
-        self.assertIn("MailboxOwnedSlot s_ack_slots[2]", mailbox)
+        self.assertIn(
+            "MailboxOwnedSlot s_ack_slots[T5AI_MAILBOX_CHANNEL_COUNT]", mailbox
+        )
+        self.assertIn("s_ack_slots[channel & 0x0fu]", mailbox)
         self.assertIn("configMAX_PRIORITIES - 1u", mailbox)
         hci_transport = (
             ROOT / "third_party/nimble/transport/hci_t5ai.c"
@@ -157,6 +161,29 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertNotIn("T5AI_HCI_ACL_SEND_ATTEMPTS", hci_transport)
         self.assertIn("int result = BLE_ERR_MEM_CAPACITY;", hci_transport)
         self.assertIn("status=%d len=%u", hci_transport)
+        reversed_ppog = (
+            ROOT / "src/bluetooth-fw/nimble/ppog_reversed_service.c"
+        ).read_text()
+        ppogatt = (
+            ROOT / "src/fw/comm/ble/kernel_le_client/ppogatt/ppogatt.c"
+        ).read_text()
+        ppog_heap_diagnostics = (
+            ROOT / "src/fw/drivers/t5ai/ppog_heap_diagnostics.c"
+        ).read_text()
+        self.assertIn("kernel_malloc(pkt_len)", reversed_ppog)
+        self.assertIn("bt_driver_cb_ppog_reversed_data_written", reversed_ppog)
+        self.assertIn('t5ai_ppog_heap_diagnostics_sample("subscribed"', reversed_ppog)
+        self.assertIn('t5ai_ppog_heap_diagnostics_sample("packet-before"', reversed_ppog)
+        self.assertIn('t5ai_ppog_heap_diagnostics_sample("packet-failed"', reversed_ppog)
+        self.assertNotIn("CONFIG_SOC_T5AI", ppogatt)
+        self.assertIn("uint8_t *buf;  // owned, freed by the KernelMain cb.", ppogatt)
+        desired_rx_window = ppogatt.split(
+            "const uint8_t desired_rx_window", 1
+        )[1].split("client->out.rx_window_size", 1)[0]
+        self.assertNotIn("CONFIG_SOC_T5AI", desired_rx_window)
+        self.assertIn("heap_calc_totals", ppog_heap_diagnostics)
+        self.assertIn("heap_get_minimum_headroom", ppog_heap_diagnostics)
+        self.assertIn("largest=%u", ppog_heap_diagnostics)
         self.assertIn(
             "cb(&pairing_info.identity, &pairing_info.irk, device_name, &bonding, context);",
             (ROOT / "src/fw/services/bluetooth/bluetooth_persistent_storage_prf.c").read_text(),

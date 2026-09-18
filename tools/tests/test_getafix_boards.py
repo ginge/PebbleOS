@@ -735,7 +735,10 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertIn("static TxChannel s_tx[T5AI_MAILBOX_CHANNEL_COUNT]", mailbox)
         self.assertIn("s_active_channel", mailbox)
         self.assertIn("sequence != s_sequence", mailbox)
-        self.assertIn("MailboxOwnedSlot s_ack_slots[2]", mailbox)
+        self.assertIn(
+            "MailboxOwnedSlot s_ack_slots[T5AI_MAILBOX_CHANNEL_COUNT]", mailbox
+        )
+        self.assertIn("s_ack_slots[channel & 0x0fu]", mailbox)
         self.assertIn("dcache_invalidate((void *)address", mailbox)
         self.assertNotIn("dcache_flush((void *)address", mailbox)
         self.assertIn("prv_bootstrap_resynchronize(poll_ms)", mailbox)

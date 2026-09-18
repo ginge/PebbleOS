@@ -1,13 +1,17 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <pbl/drivers/flash/flash_impl.h>
+#include <pbl/logging/logging.h>
 #include <pbl/soc/t5ai/flash_ipc.h>
 
+#include <inttypes.h>
 #include <stdint.h>
 #include <string.h>
 
 #include "flash_region/flash_region.h"
 #include "system/status_codes.h"
+
+PBL_LOG_MODULE_DECLARE(driver_flash, CONFIG_DRIVER_FLASH_LOG_LEVEL);
 
 #define T5AI_FLASH_IPC_MAX_TRANSFER 0x200u
 #define T5AI_FLASH_IPC_ATTEMPTS 2u
@@ -249,12 +253,18 @@ int flash_impl_write_page_begin(const void *buffer, FlashAddress address, size_t
   const size_t written = length < page_remaining ? length : page_remaining;
   status_t status = prv_write_allowed(address, written);
   if (FAILED(status)) {
+    PBL_LOG_ERR("T5AI flash write policy rejected addr=0x%08" PRIx32
+                " len=%zu status=%" PRId32,
+                address, written, status);
     return status;
   }
   /* A timeout does not prove that the CP failed to program the page. Retrying
    * a mutation can duplicate or overlap an operation, so only reads retry. */
   status = t5ai_flash_ipc_write(prv_offset(address), buffer, written);
   if (FAILED(status)) {
+    PBL_LOG_ERR("T5AI flash IPC write failed addr=0x%08" PRIx32
+                " len=%zu status=%" PRId32,
+                address, written, status);
     return status;
   }
   prv_invalidate_read_cache(address, written);
