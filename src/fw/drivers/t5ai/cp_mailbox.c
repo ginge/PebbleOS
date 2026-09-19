@@ -22,12 +22,14 @@
 #define CP_PM_UART0_CLOCK 2u
 #define CP_PM_CLOCK_ENABLE 1u
 #define CP_PM_POWER_COMMAND 1u
+#define CP_PM_SLEEP_COMMAND 3u
 #define CP_PM_PSRAM_POWER_COMMAND 7u
 #define CP_PM_CPU_FREQUENCY_COMMAND 4u
 #define CP_PM_QSPI0_CLOCK 20u
 #define CP_PM_AHBP_QSPI_POWER 101u
 #define CP_PM_POWER_ON 0u
 #define CP_PM_PSRAM_APP_MODULE 9u
+#define CP_PM_SLEEP_APP_MODULE 12u
 #define CP_PM_CPU1_MODULE 38u
 #define CP_LOG_CHANNEL 0x1eu
 #define CP_LOG_ASSERT_OUT_COMMAND 4u
@@ -375,6 +377,10 @@ status_t t5ai_cp_mailbox_enable_qspi0(void) {
 
 status_t t5ai_cp_mailbox_enable_psram(void) {
   return prv_pm_request(CP_PM_PSRAM_POWER_COMMAND, CP_PM_PSRAM_APP_MODULE, CP_PM_POWER_ON);
+}
+
+status_t t5ai_cp_mailbox_vote_app_sleep(bool allow_sleep) {
+  return prv_pm_request(CP_PM_SLEEP_COMMAND, CP_PM_SLEEP_APP_MODULE, allow_sleep ? 1u : 0u);
 }
 
 status_t t5ai_cp_mailbox_vote_cpu1_frequency(T5AICpuFrequency frequency) {

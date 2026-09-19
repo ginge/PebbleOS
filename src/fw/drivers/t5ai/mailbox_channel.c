@@ -42,6 +42,7 @@
 #define MAILBOX_TASK_PRIORITY (configMAX_PRIORITIES - 1u)
 #define MAILBOX_BOOT_POLL_MS 100u
 #define MAILBOX_BOOTSTRAP_DRAIN_LIMIT 8u
+#define MAILBOX_RUNTIME_DRAIN_LIMIT 8u
 #define AON_RTC_LOW (*(volatile uint32_t *)0x4400020cu)
 #define AON_RTC_HZ 32000u
 
@@ -87,6 +88,7 @@ static SemaphoreHandle_t s_wake;
 static TaskHandle_t s_task;
 static uint8_t s_sequence;
 static int8_t s_active_channel = -1;
+static uint16_t s_pending_ack_mask;
 static bool s_initialized;
 static bool s_reset_sent;
 
@@ -187,14 +189,19 @@ static void prv_process_command(T5AIMailboxMessage *message) {
   T5AIMailboxMessage *ack = &s_ack_slots[channel & 0x0fu].message;
   *ack = *message;
   ack->header = (physical_header & 0xffff00ffu) | (message->header & 0x00000f00u) | MBOX_ACK_BOX;
-  /* ACKs bypass the ordinary single-frame scheduler and are never ACKed. */
-  while (prv_publish(ack) == E_BUSY) {
-    taskYIELD();
+  /* ACKs bypass the ordinary single-frame scheduler and are never ACKed. Keep
+   * the vendor path's immediate attempt, but defer a busy ACK instead of
+   * spinning at the maximum task priority. */
+  if (prv_publish(ack) == E_BUSY) {
+    s_pending_ack_mask |= (uint16_t)(1u << (channel & 0x0fu));
   }
 }
 
-static void prv_drain_rx(void) {
-  while ((MBOX_CH1_CTRL & MBOX_FIFO_NOT_EMPTY) != 0u) {
+static bool prv_drain_rx(void) {
+  for (uint8_t drained = 0u;
+       drained < MAILBOX_RUNTIME_DRAIN_LIMIT &&
+       (MBOX_CH1_CTRL & MBOX_FIFO_NOT_EMPTY) != 0u;
+       ++drained) {
     T5AIMailboxMessage message;
     if (!prv_snapshot_rx(&message)) {
       continue;
@@ -205,6 +212,21 @@ static void prv_drain_rx(void) {
       prv_process_command(&message);
     }
   }
+  return (MBOX_CH1_CTRL & MBOX_FIFO_NOT_EMPTY) != 0u;
+}
+
+static bool prv_publish_pending_acks(void) {
+  for (uint8_t index = 0u; index < T5AI_MAILBOX_CHANNEL_COUNT; ++index) {
+    const uint16_t pending_bit = (uint16_t)(1u << index);
+    if ((s_pending_ack_mask & pending_bit) == 0u) {
+      continue;
+    }
+    if (prv_publish(&s_ack_slots[index].message) == E_BUSY) {
+      return false;
+    }
+    s_pending_ack_mask &= (uint16_t)~pending_bit;
+  }
+  return true;
 }
 
 static status_t prv_schedule_tx(void) {
@@ -244,15 +266,22 @@ static void prv_mailbox_task(void *context) {
   (void)context;
   while (true) {
     (void)xSemaphoreTake(s_wake, portMAX_DELAY);
-    prv_drain_rx();
-    const status_t schedule_status = prv_schedule_tx();
+    const bool rx_pending = prv_drain_rx();
+    const bool ack_pending = !prv_publish_pending_acks();
+    const status_t schedule_status =
+        (rx_pending || ack_pending) ? E_BUSY : prv_schedule_tx();
     MBOX_CH1_CTRL |= MBOX_INTERRUPT_ENABLE;
+    if (rx_pending || ack_pending || schedule_status == E_BUSY) {
+      /* Blocking for a tick is essential here. This maximum-priority task must
+       * not starve the tasks whose timeouts make mailbox failures recoverable,
+       * even if CP traffic never leaves the receive FIFO empty. */
+      vTaskDelay(pdMS_TO_TICKS(1u));
+      (void)xSemaphoreGive(s_wake);
+      continue;
+    }
     /* Close the IRQ-mask race if a frame arrived between drain and enable. */
     if ((MBOX_CH1_CTRL & MBOX_FIFO_NOT_EMPTY) != 0u) {
       MBOX_CH1_CTRL &= ~MBOX_INTERRUPT_ENABLE;
-      (void)xSemaphoreGive(s_wake);
-    } else if (schedule_status == E_BUSY) {
-      vTaskDelay(pdMS_TO_TICKS(1u));
       (void)xSemaphoreGive(s_wake);
     }
   }

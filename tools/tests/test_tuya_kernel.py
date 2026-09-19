@@ -653,6 +653,17 @@ class TuyaKernelCheckTest(unittest.TestCase):
         validate = compositor.index("prv_validate_t5ai_framebuffer_ram()", vote)
         self.assertLess(vote, validate)
 
+    def test_t5ai_holds_cp_awake_until_low_voltage_resume_is_supported(self):
+        mailbox = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
+        main = (ROOT / "src/fw/main.c").read_text()
+        self.assertIn("CP_PM_SLEEP_COMMAND 3u", mailbox)
+        self.assertIn("CP_PM_SLEEP_APP_MODULE 12u", mailbox)
+        self.assertIn("t5ai_cp_mailbox_vote_app_sleep", mailbox)
+        vote = main.index("t5ai_cp_mailbox_vote_app_sleep(false)")
+        self.assertLess(main.index("init_drivers();"), vote)
+        self.assertLess(vote, main.index("prv_t5ai_bluetooth_init();"))
+        self.assertIn('"PBLPM app_sleep=awake status=%ld"', main)
+
     def test_t5ai_core_clock_is_an_explicit_systick_contract(self):
         kconfig = (ROOT / "soc/Kconfig").read_text()
         initialization = (ROOT / "soc/t5ai/init.c").read_text()

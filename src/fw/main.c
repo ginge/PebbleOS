@@ -628,6 +628,14 @@ static NOINLINE void prv_main_task_init(void) {
   init_drivers();
 
 #ifdef CONFIG_SOC_T5AI
+  /* Pebble does not yet participate in the vendor low-voltage suspend/resume
+   * contract. Keep CP0 out of low voltage until that contract is implemented;
+   * otherwise its Bluetooth controller can stop servicing a live connection
+   * after the configured idle timeout. */
+  const status_t app_sleep_vote_status = t5ai_cp_mailbox_vote_app_sleep(false);
+  dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
+                       "PBLPM app_sleep=awake status=%ld", (long)app_sleep_vote_status);
+
   /* Diagnostic: retain the corrected MPU cacheability policy while returning
    * CPU1 to its lowest normal active frequency. This isolates the cache fix
    * from the earlier 480 MHz performance experiment. */

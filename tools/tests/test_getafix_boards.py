@@ -739,6 +739,23 @@ class GetafixBoardsTest(unittest.TestCase):
             "MailboxOwnedSlot s_ack_slots[T5AI_MAILBOX_CHANNEL_COUNT]", mailbox
         )
         self.assertIn("s_ack_slots[channel & 0x0fu]", mailbox)
+        command = mailbox[mailbox.index("static void prv_process_command"):]
+        command = command[:command.index("static bool prv_drain_rx")]
+        self.assertIn("s_pending_ack_mask |=", command)
+        self.assertIn("if (prv_publish(ack) == E_BUSY)", command)
+        self.assertNotIn("while (prv_publish", command)
+        drain = mailbox[mailbox.index("static bool prv_drain_rx"):]
+        drain = drain[:drain.index("static bool prv_publish_pending_acks")]
+        self.assertIn("MAILBOX_RUNTIME_DRAIN_LIMIT", drain)
+        self.assertIn("drained < MAILBOX_RUNTIME_DRAIN_LIMIT", drain)
+        self.assertNotIn(
+            "while ((MBOX_CH1_CTRL & MBOX_FIFO_NOT_EMPTY) != 0u)", drain
+        )
+        mailbox_task = mailbox[mailbox.index("static void prv_mailbox_task"):]
+        mailbox_task = mailbox_task[:mailbox_task.index("void MAILBOX_IRQHandler")]
+        self.assertIn("const bool ack_pending = !prv_publish_pending_acks()", mailbox_task)
+        self.assertIn("rx_pending || ack_pending || schedule_status == E_BUSY", mailbox_task)
+        self.assertIn("vTaskDelay(pdMS_TO_TICKS(1u))", mailbox_task)
         self.assertIn("dcache_invalidate((void *)address", mailbox)
         self.assertNotIn("dcache_flush((void *)address", mailbox)
         self.assertIn("prv_bootstrap_resynchronize(poll_ms)", mailbox)
@@ -790,11 +807,10 @@ class GetafixBoardsTest(unittest.TestCase):
         t5_params = (
             ROOT / "src/fw/comm/ble/gap_le_connect_params_t5ai.c"
         ).read_text()
-        self.assertIn("bt_driver_le_connection_parameter_update", t5_params)
-        self.assertIn("desired_state == ResponseTimeMin", t5_params)
-        self.assertIn(".interval_min_1_25ms = 12u", t5_params)
-        self.assertIn(".slave_latency_events = 0u", t5_params)
-        self.assertIn("T5AI conn param request", t5_params)
+        self.assertNotIn("bt_driver_le_connection_parameter_update", t5_params)
+        self.assertIn("T5AI retaining central connection parameters", t5_params)
+        self.assertIn("conn_mgr_handle_desired_state_granted(connection, desired_state)",
+                      t5_params)
         self.assertIn("T5AI conn param result", t5_params)
         update_handler = t5_params.index("bt_driver_handle_le_conn_params_update_event")
         self.assertLess(
@@ -804,6 +820,10 @@ class GetafixBoardsTest(unittest.TestCase):
         )
         self.assertNotIn("prv_watchdog", t5_params)
         self.assertIn("conn_mgr_handle_desired_state_granted", t5_params)
+
+        app_cache = (ROOT / "src/fw/services/app_cache/service.c").read_text()
+        self.assertIn("defined(CONFIG_SOC_T5AI)", app_cache)
+        self.assertIn("#define APP_SPACE_BUFFER KiBYTES(300)", app_cache)
 
         build = (
             ROOT / "src/fw/services/bluetooth/wscript_build"

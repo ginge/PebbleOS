@@ -120,6 +120,7 @@ void t5ai_cp_mailbox_heartbeat(void);
 status_t t5ai_cp_mailbox_enable_uart0_clock(void);
 status_t t5ai_cp_mailbox_enable_qspi0(void);
 status_t t5ai_cp_mailbox_enable_psram(void);
+status_t t5ai_cp_mailbox_vote_app_sleep(bool allow_sleep);
 status_t t5ai_cp_mailbox_vote_cpu1_frequency(T5AICpuFrequency frequency);
 status_t t5ai_cp_mailbox_log(const void *data, size_t length);
 void t5ai_cp_mailbox_get_diagnostics(T5AICPMailboxDiagnostics *diagnostics);
