@@ -213,8 +213,6 @@ static RebootReason s_t5ai_boot_reboot_reason;
 static uint32_t s_t5ai_boot_flash_failure_context;
 static int32_t s_t5ai_boot_flash_failure_status;
 static uint32_t s_t5ai_boot_flash_failure_address;
-volatile uint32_t g_t5ai_boot_stage;
-volatile uint32_t g_t5ai_app_stage;
 
 static void prv_t5ai_capture_retained_failure(void) {
   reboot_reason_get(&s_t5ai_boot_reboot_reason);
@@ -306,15 +304,14 @@ static void cp_heartbeat_timer_callback(void* data) {
     event_get_queue_diagnostics(&queue_diagnostics);
     dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
                          "PBLTIM freertos=%lu rtc=%lu aon=%lu core=%lu reload=%lu "
-                         "stage=%lu appstage=%lu appinit=%u first=%u "
+                         "appinit=%u first=%u "
                          "apptask=%u state=%u prio=%u stack=%u km=%u/%u bg=%u/%u "
                          "nt=%u/%u/%u bth=%u/%u bti=%u/%u "
                          "q=%lu/%lu/%lu/%lu/%lu take=%lu cur=%lu "
                          "irq=%08lx/%08lx/%08lx rr=%u/%08lx ff=%08lx/%ld/%08lx",
                          (unsigned long)xTaskGetTickCount(), (unsigned long)rtc_get_ticks(),
                          (unsigned long)t5ai_rtc_get_raw_ticks(), (unsigned long)SystemCoreClock,
-                         (unsigned long)SysTick->LOAD, (unsigned long)g_t5ai_boot_stage,
-                         (unsigned long)g_t5ai_app_stage,
+                         (unsigned long)SysTick->LOAD,
                          (unsigned)app_manager_is_initialized(),
                          (unsigned)app_manager_is_first_app_launched(), (unsigned)(app_task != NULL),
                          app_task ? (unsigned)eTaskGetState(app_task) : 0xffu,
@@ -661,7 +658,6 @@ static NOINLINE void prv_main_task_init(void) {
   display_init();
   boot_splash_start();
   backlight_set_brightness(BOARD_CONFIG.backlight_on_percent);
-  g_t5ai_boot_stage = 1u;
 #endif
 
   clock_init();
@@ -707,7 +703,6 @@ static NOINLINE void prv_main_task_init(void) {
   system_resource_init();
 
 #ifdef CONFIG_SOC_T5AI
-  g_t5ai_boot_stage = 2u;
 #endif
 
 #ifdef CONFIG_HRM
@@ -739,7 +734,6 @@ static NOINLINE void prv_main_task_init(void) {
   kernel_ui_init();
 
 #ifdef CONFIG_SOC_T5AI
-  g_t5ai_boot_stage = 3u;
   t5ai_freertos_apply_systick_clock();
   dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
                        "PBLCLK apply mode1=%08lx core=%lu systick=%08lx/%lu/%lu",
@@ -756,7 +750,6 @@ static NOINLINE void prv_main_task_init(void) {
   bt_driver_init();
 #else
   prv_t5ai_bluetooth_init();
-  g_t5ai_boot_stage = 4u;
 #endif
 
 #ifndef CONFIG_SOC_T5AI
@@ -809,7 +802,6 @@ static NOINLINE void prv_main_task_init(void) {
   debounced_button_init();
 
 #ifdef CONFIG_SOC_T5AI
-  g_t5ai_boot_stage = 5u;
 #endif
 
 #ifndef CONFIG_SOC_T5AI
@@ -826,7 +818,6 @@ static void main_task(void* parameter) {
 #endif
   prv_main_task_init();
 #ifdef CONFIG_SOC_T5AI
-  g_t5ai_boot_stage = 6u;
 #endif
   launcher_main_loop();
 }

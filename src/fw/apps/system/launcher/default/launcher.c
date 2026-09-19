@@ -28,13 +28,6 @@ typedef struct LauncherAppPersistedData {
   LauncherDrawState draw_state;
 } LauncherAppPersistedData;
 
-#ifdef CONFIG_SOC_T5AI
-extern volatile uint32_t g_t5ai_app_stage;
-#define T5AI_LAUNCHER_STAGE(stage) (g_t5ai_app_stage = (stage))
-#else
-#define T5AI_LAUNCHER_STAGE(stage) ((void)0)
-#endif
-
 static LauncherAppPersistedData s_launcher_app_persisted_data;
 
 /////////////////////////////
@@ -84,7 +77,6 @@ static uint16_t prv_transform_index(AppMenuDataSource *data_source, uint16_t ori
 // Window callbacks
 
 static void prv_window_load(Window *window) {
-  T5AI_LAUNCHER_STAGE(221u);
   LauncherAppWindowData *data = window_get_user_data(window);
 
   Layer *window_root_layer = window_get_root_layer(window);
@@ -95,14 +87,11 @@ static void prv_window_load(Window *window) {
     .filter = prv_app_filter_callback,
     .transform_index = prv_transform_index,
   }, data);
-  T5AI_LAUNCHER_STAGE(222u);
 
   LauncherMenuLayer *launcher_menu_layer = &data->launcher_menu_layer;
   launcher_menu_layer_init(launcher_menu_layer, data_source);
-  T5AI_LAUNCHER_STAGE(223u);
   launcher_menu_layer_set_click_config_onto_window(launcher_menu_layer, window);
   layer_add_child(window_root_layer, launcher_menu_layer_get_layer(launcher_menu_layer));
-  T5AI_LAUNCHER_STAGE(224u);
 
   // If we have a saved launcher selection state, restore it
   if (s_launcher_app_persisted_data.valid) {
@@ -159,7 +148,6 @@ static void prv_launcher_menu_window_push(void) {
 }
 
 static void prv_main(void) {
-  T5AI_LAUNCHER_STAGE(211u);
   const LauncherMenuArgs *args = (const LauncherMenuArgs *)app_manager_get_task_context()->args;
   // Reset the selection state of the launcher if we're visiting it for the first time or if
   // it has been more than RETURN_TIMEOUT_TICKS since we were last in the launcher
@@ -169,14 +157,10 @@ static void prv_main(void) {
     }
   }
 
-  T5AI_LAUNCHER_STAGE(212u);
   prv_launcher_menu_window_push();
-  T5AI_LAUNCHER_STAGE(213u);
 
   app_idle_timeout_start();
-  T5AI_LAUNCHER_STAGE(214u);
 
-  T5AI_LAUNCHER_STAGE(215u);
   app_event_loop();
 }
 

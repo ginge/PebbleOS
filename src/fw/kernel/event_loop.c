@@ -581,41 +581,25 @@ static void NOINLINE prv_handle_event(PebbleEvent *e) {
   shell_event_loop_handle_event(e);
 }
 
-#ifdef CONFIG_SOC_T5AI
-extern volatile uint32_t g_t5ai_boot_stage;
-#define T5AI_BOOT_STAGE(stage) (g_t5ai_boot_stage = (stage))
-#else
-#define T5AI_BOOT_STAGE(stage) ((void)0)
-#endif
-
 static NOINLINE void prv_launcher_main_loop_init(void) {
   s_back_hold_timer = new_timer_create();
 
   process_manager_init();
-  T5AI_BOOT_STAGE(7u);
   app_manager_init();
-  T5AI_BOOT_STAGE(8u);
   worker_manager_init();
-  T5AI_BOOT_STAGE(9u);
   vibes_init();
-  T5AI_BOOT_STAGE(10u);
 #ifndef CONFIG_RECOVERY_FW
   // The chime path uses alerts prefs and the vibe pattern service, so only
   // arm it once vibes_init() has run; it must never fire before this point.
   clock_hourly_chime_arm();
 #endif
-  T5AI_BOOT_STAGE(11u);
   battery_monitor_init();
-  T5AI_BOOT_STAGE(12u);
   evented_timer_init();
-  T5AI_BOOT_STAGE(13u);
 #ifdef CONFIG_MAG
   ecompass_service_init();
 #endif
   tick_timer_service_init();
-  T5AI_BOOT_STAGE(14u);
   debounced_connection_service_init();
-  T5AI_BOOT_STAGE(15u);
   event_service_system_init();
 #ifdef CONFIG_SOC_T5AI
   // T5AI skips services_common_init() while writable storage remains gated,
@@ -623,12 +607,9 @@ static NOINLINE void prv_launcher_main_loop_init(void) {
   // RAM/timer input injector.
   remote_input_init();
 #endif
-  T5AI_BOOT_STAGE(16u);
   modal_manager_init();
-  T5AI_BOOT_STAGE(17u);
 
   shell_event_loop_init();
-  T5AI_BOOT_STAGE(18u);
 
 #if STATIONARY_MODE
   stationary_init();
@@ -640,21 +621,17 @@ static NOINLINE void prv_launcher_main_loop_init(void) {
   const RunLevel run_level = launcher_panic_get_current_error() ? RunLevel_BareMinimum
                                                                 : RunLevel_Normal;
   services_set_runlevel(run_level);
-  T5AI_BOOT_STAGE(19u);
 
 #ifndef CONFIG_SOC_T5AI
   // emulate a button press-and-release to turn on/off the backlight
   light_button_pressed();
   light_button_released();
 #endif
-  T5AI_BOOT_STAGE(20u);
 
 #ifndef CONFIG_RECOVERY_FW
   i18n_set_resource(shell_prefs_get_language_resource_id());
 #endif
-  T5AI_BOOT_STAGE(21u);
   app_manager_start_first_app();
-  T5AI_BOOT_STAGE(22u);
 
 #ifndef CONFIG_RECOVERY_FW
   // Launch the default worker. If any of the buttons are down, or we hit 2 strikes already,
@@ -672,12 +649,9 @@ static NOINLINE void prv_launcher_main_loop_init(void) {
     });
   }
 #endif
-  T5AI_BOOT_STAGE(23u);
 
   notify_system_ready_for_communication();
-  T5AI_BOOT_STAGE(24u);
   serial_console_enable_prompt();
-  T5AI_BOOT_STAGE(25u);
 }
 
 void launcher_main_loop(void) {
@@ -686,7 +660,6 @@ void launcher_main_loop(void) {
   prv_launcher_main_loop_init();
 
   while (1) {
-    T5AI_BOOT_STAGE(26u);
     task_watchdog_bit_set(PebbleTask_KernelMain);
 
     // We make this PebbleEvent static to save stack space

@@ -224,19 +224,11 @@ static bool prv_needs_fetch(AppInstallId id, const PebbleProcessMd **md, bool is
   PBL_ASSERTN(md);
 
   if (!app_cache_entry_exists(id)) {
-#ifdef CONFIG_SOC_T5AI
-    PBL_LOG_INFO("T5AI launch id=%" PRId32 " worker=%u needs-fetch=cache-miss",
-                 id, (unsigned)is_worker);
-#endif
     PBL_LOG_DBG("Cache entry did not exist on launch attempt");
     return true;
   }
 
   *md = app_install_get_md(id, is_worker);
-#ifdef CONFIG_SOC_T5AI
-  PBL_LOG_INFO("T5AI launch id=%" PRId32 " worker=%u metadata=%s",
-               id, (unsigned)is_worker, *md ? "valid" : "invalid");
-#endif
 
   // The cache is keyed on the install ID alone, and IDs are recycled. An entry orphaned by a
   // previous install leaves a stale binary at this ID, whose metadata comes from its own header --
@@ -253,9 +245,6 @@ static bool prv_needs_fetch(AppInstallId id, const PebbleProcessMd **md, bool is
     app_install_release_md(*md);
     *md = NULL;
     app_cache_remove_entry(id);
-#ifdef CONFIG_SOC_T5AI
-    PBL_LOG_INFO("T5AI launch id=%" PRId32 " needs-fetch=uuid-mismatch", id);
-#endif
     return true;
   }
 

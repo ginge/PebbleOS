@@ -15,10 +15,6 @@
 #include <system/passert.h>
 #include <util/uuid.h>
 
-#ifdef CONFIG_SOC_T5AI
-#include <pbl/soc/t5ai/ppog_heap_diagnostics.h>
-#endif
-
 #include "nimble_type_conversions.h"
 
 PBL_LOG_MODULE_DECLARE(bt, CONFIG_BT_LOG_LEVEL);
@@ -42,14 +38,8 @@ static int prv_access_data_write(uint16_t conn_handle, uint16_t attr_handle,
   if (pkt_len == 0) {
     return 0;
   }
-#ifdef CONFIG_SOC_T5AI
-  t5ai_ppog_heap_diagnostics_sample("packet-before", pkt_len);
-#endif
   uint8_t *buf = kernel_malloc(pkt_len);
   if (!buf) {
-#ifdef CONFIG_SOC_T5AI
-    t5ai_ppog_heap_diagnostics_sample("packet-failed", pkt_len);
-#endif
     return BLE_ATT_ERR_INSUFFICIENT_RES;
   }
   uint16_t out_len = 0;
@@ -112,9 +102,6 @@ static void prv_handle_subscribe_event(struct ble_gap_event *event) {
     }
     BTDeviceInternal device;
     nimble_addr_to_pebble_device(&desc.peer_id_addr, &device);
-#ifdef CONFIG_SOC_T5AI
-    t5ai_ppog_heap_diagnostics_sample("subscribed", 0u);
-#endif
     bt_driver_cb_ppog_reversed_subscribed(&device, event->subscribe.conn_handle);
   } else {
     bt_driver_cb_ppog_reversed_unsubscribed(event->subscribe.conn_handle);

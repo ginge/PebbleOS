@@ -43,13 +43,6 @@
 
 extern void shell_prefs_init(void);
 
-#ifdef CONFIG_SOC_T5AI
-extern volatile uint32_t g_t5ai_boot_stage;
-#define T5AI_SHELL_STAGE(stage) (g_t5ai_boot_stage = (stage))
-#else
-#define T5AI_SHELL_STAGE(stage) ((void)0)
-#endif
-
 // Force-compact every growable settings DB on first boot after upgrade. 
 // Pre-growable-files devices keep their original full-size settings file allocation forever otherwise, 
 // which on devices with many installed apps shows up as launcher scroll lag.
@@ -69,29 +62,20 @@ static void prv_maybe_run_settings_dbs_compaction_migration(void) {
 
 void shell_event_loop_init(void) {
   shell_prefs_init();
-  T5AI_SHELL_STAGE(171u);
 #ifndef CONFIG_SOC_T5AI
   prv_maybe_run_settings_dbs_compaction_migration();
 #endif
-  T5AI_SHELL_STAGE(172u);
   notification_window_service_init();
-  T5AI_SHELL_STAGE(173u);
   app_inbox_service_init();
-  T5AI_SHELL_STAGE(174u);
   app_outbox_service_init();
-  T5AI_SHELL_STAGE(175u);
   app_message_sender_init();
-  T5AI_SHELL_STAGE(176u);
   watchface_init();
-  T5AI_SHELL_STAGE(177u);
   timeline_peek_init();
-  T5AI_SHELL_STAGE(178u);
   // Start activity tracking if enabled
   if (activity_prefs_tracking_is_enabled()) {
     activity_start_tracking(false /*test_mode*/);
   }
   workout_service_init();
-  T5AI_SHELL_STAGE(179u);
 
 #ifndef CONFIG_SOC_T5AI
   bool factory_reset_or_first_use = !shared_prf_storage_get_getting_started_complete();
@@ -105,7 +89,6 @@ void shell_event_loop_init(void) {
   // we don't need to go through it again until we factory reset.
   shared_prf_storage_set_getting_started_complete(true /* complete */);
 #endif
-  T5AI_SHELL_STAGE(180u);
 }
 
 void shell_event_loop_handle_event(PebbleEvent *e) {

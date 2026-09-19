@@ -27,28 +27,12 @@
 #define T5AI_HCI_MAX_EVENT_SIZE 257u
 #define T5AI_HCI_MAX_ACL_SIZE 1028u
 #define T5AI_HCI_ACL_TX_QUEUE_CAPACITY 16u
-#define T5AI_L2CAP_CID_ATT 0x0004u
-#define T5AI_ATT_OP_HANDLE_VALUE_NOTIFICATION 0x1bu
-#define T5AI_ATT_OP_WRITE_COMMAND 0x52u
-#define T5AI_PPOG_PACKET_TYPE_MASK 0x07u
-#define T5AI_PPOG_PACKET_TYPE_DATA 0u
-#define T5AI_PPOG_PACKET_TYPE_ACK 1u
-#define T5AI_PPOG_SEQUENCE_SHIFT 3u
 
 static bool s_started;
 static bool s_reset_scheduled;
 static uint8_t s_acl_tx[T5AI_HCI_MAX_ACL_SIZE];
 static TaskHandle_t s_hci_task;
 static QueueHandle_t s_acl_tx_queue;
-static uint32_t s_pp_rx_remaining;
-static uint32_t s_pp_tx_remaining;
-static uint32_t s_pp_rx_packets;
-static uint32_t s_pp_rx_discontinuities;
-static uint32_t s_pp_tx_discontinuities;
-static uint8_t s_pp_rx_expected_sequence;
-static uint8_t s_pp_tx_expected_sequence;
-static bool s_pp_rx_sequence_valid;
-static bool s_pp_tx_sequence_valid;
 
 static bool prv_started(void) {
   return __atomic_load_n(&s_started, __ATOMIC_ACQUIRE);
@@ -64,136 +48,6 @@ static void prv_schedule_reset(void) {
   if (__atomic_compare_exchange_n(&s_reset_scheduled, &expected, true, false,
                                   __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
     ble_hs_sched_reset(BLE_HS_ECONTROLLER);
-  }
-}
-
-static uint16_t prv_read_le16(const uint8_t *data) {
-  return (uint16_t)data[0] | ((uint16_t)data[1] << 8);
-}
-
-static uint16_t prv_read_be16(const uint8_t *data) {
-  return ((uint16_t)data[0] << 8) | (uint16_t)data[1];
-}
-
-static void prv_trace_ppog_rx(const uint8_t *data, size_t length) {
-  /* HCI ACL (4), L2CAP (4), ATT Write Command (3), then PPoG. */
-  if (length < 12u || prv_read_le16(&data[6]) != T5AI_L2CAP_CID_ATT ||
-      data[8] != T5AI_ATT_OP_WRITE_COMMAND) {
-    return;
-  }
-
-  const uint8_t header = data[11];
-  const unsigned type = header & T5AI_PPOG_PACKET_TYPE_MASK;
-  const unsigned sequence = header >> T5AI_PPOG_SEQUENCE_SHIFT;
-  const uint8_t *payload = &data[12];
-  const size_t payload_length = length - 12u;
-
-  if (type != T5AI_PPOG_PACKET_TYPE_DATA) {
-    PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
-              "T5AI PPoG RX control type=%u sn=%u len=%u", type, sequence,
-              (unsigned)payload_length);
-    if (type != T5AI_PPOG_PACKET_TYPE_ACK) {
-      s_pp_rx_remaining = 0;
-      s_pp_rx_sequence_valid = false;
-    }
-    return;
-  }
-
-  ++s_pp_rx_packets;
-  if (s_pp_rx_sequence_valid && sequence != s_pp_rx_expected_sequence) {
-    ++s_pp_rx_discontinuities;
-    PBL_LOG_D_WRN(LOG_DOMAIN_COMM,
-                  "T5AI PPoG RX sequence discontinuity expected=%u got=%u packet=%lu count=%lu",
-                  (unsigned)s_pp_rx_expected_sequence, sequence, (unsigned long)s_pp_rx_packets,
-                  (unsigned long)s_pp_rx_discontinuities);
-  }
-  s_pp_rx_expected_sequence = (uint8_t)((sequence + 1u) & 0x1fu);
-  s_pp_rx_sequence_valid = true;
-  if (s_pp_rx_remaining == 0 && payload_length >= 4u) {
-    const uint16_t pp_length = prv_read_be16(payload);
-    const uint16_t endpoint = prv_read_be16(&payload[2]);
-    s_pp_rx_remaining = (uint32_t)pp_length + 4u;
-    PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
-              "T5AI PP RX start ep=0x%04x len=%u sn=%u packet=%lu", endpoint,
-              pp_length, sequence, (unsigned long)s_pp_rx_packets);
-    if (endpoint == 0xb1dbu && pp_length >= 4u && payload_length >= 8u) {
-      PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
-                     "T5AI BlobDB RX cmd=%u token=%u db=%u",
-                     (unsigned)payload[4], (unsigned)prv_read_le16(&payload[5]),
-                     (unsigned)payload[7]);
-    }
-  } else if ((s_pp_rx_packets & 31u) == 0u) {
-    PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
-              "T5AI PPoG RX progress packet=%lu remaining=%lu sn=%u",
-              (unsigned long)s_pp_rx_packets, (unsigned long)s_pp_rx_remaining, sequence);
-  }
-
-  if (payload_length >= s_pp_rx_remaining) {
-    s_pp_rx_remaining = 0;
-  } else {
-    s_pp_rx_remaining -= payload_length;
-  }
-}
-
-static void prv_trace_ppog_tx(const uint8_t *data, size_t length) {
-  /* HCI ACL (4), L2CAP (4), ATT Handle Value Notification (3), then PPoG. */
-  if (length < 12u || prv_read_le16(&data[6]) != T5AI_L2CAP_CID_ATT ||
-      data[8] != T5AI_ATT_OP_HANDLE_VALUE_NOTIFICATION) {
-    return;
-  }
-
-  const uint8_t header = data[11];
-  const unsigned type = header & T5AI_PPOG_PACKET_TYPE_MASK;
-  const unsigned sequence = header >> T5AI_PPOG_SEQUENCE_SHIFT;
-  const unsigned att_handle = prv_read_le16(&data[9]);
-  if (type >= 4u) {
-    /* The transport also carries notifications for non-PPoG GATT
-     * characteristics. Do not report their first payload byte as a corrupt
-     * PPoG control header; retaining the handle makes those distinguishable in
-     * a raw link trace. */
-    PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
-                   "T5AI ATT notification handle=0x%04x first=0x%02x len=%u",
-                   att_handle, header, (unsigned)(length - 11u));
-    return;
-  }
-  if (type == T5AI_PPOG_PACKET_TYPE_DATA) {
-    if (s_pp_tx_sequence_valid && sequence != s_pp_tx_expected_sequence) {
-      ++s_pp_tx_discontinuities;
-      PBL_LOG_D_WRN(LOG_DOMAIN_COMM,
-                    "T5AI PPoG TX sequence discontinuity expected=%u got=%u count=%lu",
-                    (unsigned)s_pp_tx_expected_sequence, sequence,
-                    (unsigned long)s_pp_tx_discontinuities);
-    }
-    s_pp_tx_expected_sequence = (uint8_t)((sequence + 1u) & 0x1fu);
-    s_pp_tx_sequence_valid = true;
-    const uint8_t *payload = &data[12];
-    const size_t payload_length = length - 12u;
-    if (s_pp_tx_remaining == 0 && payload_length >= 4u) {
-      const uint16_t pp_length = prv_read_be16(payload);
-      const uint16_t endpoint = prv_read_be16(&payload[2]);
-      s_pp_tx_remaining = (uint32_t)pp_length + 4u;
-      PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
-                     "T5AI PP TX start ep=0x%04x len=%u sn=%u", endpoint,
-                     pp_length, sequence);
-      if (endpoint == 0xb1dbu && pp_length >= 3u && payload_length >= 7u) {
-        PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
-                       "T5AI BlobDB TX token=%u result=%u",
-                       (unsigned)prv_read_le16(&payload[4]), (unsigned)payload[6]);
-      }
-    }
-    if (payload_length >= s_pp_tx_remaining) {
-      s_pp_tx_remaining = 0;
-    } else {
-      s_pp_tx_remaining -= payload_length;
-    }
-  } else {
-    PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
-                   "T5AI PPoG TX control type=%u sn=%u handle=0x%04x",
-                   type, sequence, att_handle);
-    if (type != T5AI_PPOG_PACKET_TYPE_ACK) {
-      s_pp_tx_remaining = 0;
-      s_pp_tx_sequence_valid = false;
-    }
   }
 }
 
@@ -218,7 +72,6 @@ static void prv_send_queued_acl(struct os_mbuf *acl) {
     return;
   }
 
-  prv_trace_ppog_tx(s_acl_tx, length);
   unsigned failures = 0;
   while (prv_started()) {
     const int status = t5ai_hci_ipc_send_acl(s_acl_tx, length);
@@ -314,8 +167,6 @@ static void prv_receive_acl(const uint8_t *data, size_t length) {
     return;
   }
 
-  prv_trace_ppog_rx(data, length);
-
   struct os_mbuf *acl = ble_transport_alloc_acl_from_ll();
   if (acl == NULL || os_mbuf_append(acl, data, length) != 0) {
     if (acl != NULL) {
@@ -337,10 +188,6 @@ void ble_transport_ll_reinit(void) {
       .acl = prv_receive_acl,
   };
 
-  s_pp_rx_sequence_valid = false;
-  s_pp_rx_remaining = 0;
-  s_pp_tx_sequence_valid = false;
-  s_pp_tx_remaining = 0;
   __atomic_store_n(&s_reset_scheduled, false, __ATOMIC_RELEASE);
   prv_set_started(true);
   if (t5ai_hci_ipc_start(&callbacks) != 0) {

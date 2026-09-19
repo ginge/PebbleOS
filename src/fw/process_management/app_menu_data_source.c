@@ -19,13 +19,6 @@
 
 #include <string.h>
 
-#ifdef CONFIG_SOC_T5AI
-extern volatile uint32_t g_t5ai_app_stage;
-#define T5AI_APP_MENU_DATA_STAGE(stage) (g_t5ai_app_stage = (stage))
-#else
-#define T5AI_APP_MENU_DATA_STAGE(stage) ((void)0)
-#endif
-
 static void add_app_with_install_id(const AppInstallEntry *entry, AppMenuDataSource *source);
 static bool remove_app_with_install_id(const AppInstallId install_id, AppMenuDataSource *source);
 static AppMenuNode * prv_find_node_with_install_id(const AppInstallId install_id,
@@ -353,14 +346,11 @@ static void prv_load_list_if_needed(AppMenuDataSource *source) {
     return;
   }
   source->is_list_loaded = true;
-  T5AI_APP_MENU_DATA_STAGE(501u);
 
   PBL_ASSERTN(!source->order_storage);
   source->order_storage = app_order_read_order();
-  T5AI_APP_MENU_DATA_STAGE(502u);
 
   app_install_enumerate_entries(prv_app_enumerate_callback, source);
-  T5AI_APP_MENU_DATA_STAGE(503u);
 
   if (source->order_storage != NULL) {
     app_free(source->order_storage);
@@ -380,9 +370,7 @@ static void add_app_with_install_id(const AppInstallEntry *entry, AppMenuDataSou
     return;
   }
 
-  T5AI_APP_MENU_DATA_STAGE(510u);
   AppMenuNode *node = app_malloc_check(sizeof(AppMenuNode));
-  T5AI_APP_MENU_DATA_STAGE(511u);
   *node = (AppMenuNode) {
     .install_id = entry->install_id,
     .app_num = app_install_get_app_icon_bank(entry),
@@ -396,19 +384,15 @@ static void add_app_with_install_id(const AppInstallEntry *entry, AppMenuDataSou
 
   uint8_t len;
   const char *app_name = app_install_get_custom_app_name(node->install_id);
-  T5AI_APP_MENU_DATA_STAGE(512u);
   if (!app_name) {
     app_name = entry->name;
   }
 
   len = strlen(app_name) + 1;
   node->name = app_malloc_check(len);
-  T5AI_APP_MENU_DATA_STAGE(513u);
   strncpy(node->name, app_name, len);
 
-  T5AI_APP_MENU_DATA_STAGE(514u);
   prv_sorted_add(source, node);
-  T5AI_APP_MENU_DATA_STAGE(515u);
 }
 
 static AppMenuNode * prv_find_node_with_install_id(const AppInstallId install_id,

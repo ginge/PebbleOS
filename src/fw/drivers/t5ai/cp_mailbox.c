@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <pbl/mcu/cache.h>
+#include <pbl/mcu/interrupts.h>
 #include <pbl/os/mutex.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/mailbox_channel.h>
@@ -414,6 +415,12 @@ static status_t prv_wait_for_log_buffer_release(bool scheduler_running) {
 status_t t5ai_cp_mailbox_log(const void *data, size_t length) {
   if (data == NULL || length == 0u) {
     return E_INVALID_ARGUMENT;
+  }
+  /* Runtime logging is synchronous and owns shared staging storage.  Callers
+   * in an interrupt must use the dbgserial front end, which intentionally
+   * drops T5AI interrupt-time output rather than blocking on the CP. */
+  if (mcu_state_is_isr()) {
+    return E_INVALID_OPERATION;
   }
   const bool scheduler_running = xTaskGetSchedulerState() == taskSCHEDULER_RUNNING;
   if (scheduler_running) {

@@ -158,7 +158,9 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("prv_schedule_reset();", hci_transport)
         self.assertIn("t5ai_hci_ipc_faulted()", hci_transport)
         self.assertIn("xQueueSend(s_acl_tx_queue, &acl, 0)", hci_transport)
-        self.assertIn("T5AI PP RX start ep=0x%04x", hci_transport)
+        self.assertNotIn("prv_trace_ppog", hci_transport)
+        self.assertNotIn("T5AI PP RX start", hci_transport)
+        self.assertNotIn("T5AI BlobDB", hci_transport)
         self.assertNotIn("LOG_DOMAIN_BT_STACK", hci_transport)
         self.assertIn("PBL_LOG_D_INFO(LOG_DOMAIN_COMM", hci_transport)
         self.assertIn("T5AI_HCI_ACL_TX_QUEUE_CAPACITY", hci_transport)
@@ -172,23 +174,15 @@ class TuyaKernelCheckTest(unittest.TestCase):
         ppogatt = (
             ROOT / "src/fw/comm/ble/kernel_le_client/ppogatt/ppogatt.c"
         ).read_text()
-        ppog_heap_diagnostics = (
-            ROOT / "src/fw/drivers/t5ai/ppog_heap_diagnostics.c"
-        ).read_text()
         self.assertIn("kernel_malloc(pkt_len)", reversed_ppog)
         self.assertIn("bt_driver_cb_ppog_reversed_data_written", reversed_ppog)
-        self.assertIn('t5ai_ppog_heap_diagnostics_sample("subscribed"', reversed_ppog)
-        self.assertIn('t5ai_ppog_heap_diagnostics_sample("packet-before"', reversed_ppog)
-        self.assertIn('t5ai_ppog_heap_diagnostics_sample("packet-failed"', reversed_ppog)
+        self.assertNotIn("t5ai_ppog_heap_diagnostics", reversed_ppog)
         self.assertNotIn("CONFIG_SOC_T5AI", ppogatt)
         self.assertIn("uint8_t *buf;  // owned, freed by the KernelMain cb.", ppogatt)
         desired_rx_window = ppogatt.split(
             "const uint8_t desired_rx_window", 1
         )[1].split("client->out.rx_window_size", 1)[0]
         self.assertNotIn("CONFIG_SOC_T5AI", desired_rx_window)
-        self.assertIn("heap_calc_totals", ppog_heap_diagnostics)
-        self.assertIn("heap_get_minimum_headroom", ppog_heap_diagnostics)
-        self.assertIn("largest=%u", ppog_heap_diagnostics)
         self.assertIn(
             "cb(&pairing_info.identity, &pairing_info.irk, device_name, &bonding, context);",
             (ROOT / "src/fw/services/bluetooth/bluetooth_persistent_storage_prf.c").read_text(),
@@ -459,18 +453,14 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn(
             '"PBLTIM freertos=%lu rtc=%lu aon=%lu core=%lu reload=%lu "', main
         )
-        self.assertIn('"stage=%lu appstage=%lu appinit=%u first=%u ', main)
+        self.assertIn('"appinit=%u first=%u ', main)
         self.assertIn('"apptask=%u state=%u prio=%u stack=%u km=%u/%u bg=%u/%u "', main)
         self.assertIn('"nt=%u/%u/%u bth=%u/%u bti=%u/%u "', main)
         self.assertIn('"q=%lu/%lu/%lu/%lu/%lu take=%lu cur=%lu "', main)
         self.assertIn('"irq=%08lx/%08lx/%08lx rr=%u/%08lx ff=%08lx/%ld/%08lx"', main)
         self.assertIn("event_get_queue_diagnostics(&queue_diagnostics)", main)
-        self.assertIn(
-            "T5AI_BOOT_STAGE(26u)",
-            (ROOT / "src/fw/kernel/event_loop.c").read_text(),
-        )
-        self.assertIn("g_t5ai_boot_stage = 6u", main)
-        self.assertIn("volatile uint32_t g_t5ai_app_stage", main)
+        self.assertNotIn("g_t5ai_boot_stage", main)
+        self.assertNotIn("g_t5ai_app_stage", main)
         self.assertIn("app_manager_is_initialized()", main)
         self.assertIn("app_manager_is_first_app_launched()", main)
         self.assertIn("cron_service_init();", main)
@@ -520,8 +510,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("prv_t5ai_system_bank_metadata_valid", flash_storage)
         self.assertIn("last_entry.resource_id == manifest.num_resources", flash_storage)
         self.assertIn("individual resources retain their existing CRC check", flash_storage)
-        self.assertIn("T5AI_BOOT_STAGE(7u)", event_loop)
-        self.assertIn("T5AI_BOOT_STAGE(22u)", event_loop)
+        self.assertNotIn("T5AI_BOOT_STAGE", event_loop)
         self.assertNotIn("vTaskDelay(5u);", event_loop)
         self.assertNotIn("vTaskDelay(10u);", event_loop)
         self.assertNotIn("taskYIELD();", event_loop)
@@ -551,8 +540,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
             event_loop,
         )
         shell_event_loop = (ROOT / "src/fw/shell/normal/shell_event_loop.c").read_text()
-        self.assertIn("T5AI_SHELL_STAGE(171u)", shell_event_loop)
-        self.assertIn("T5AI_SHELL_STAGE(180u)", shell_event_loop)
+        self.assertNotIn("T5AI_SHELL_STAGE", shell_event_loop)
         self.assertIn(
             "#else\n      battery_ui_handle_state_change_event",
             shell_event_loop,
@@ -597,14 +585,9 @@ class TuyaKernelCheckTest(unittest.TestCase):
             app_install_manager,
         )
         self.assertNotIn("#ifdef CONFIG_SOC_T5AI", app_order_storage)
-        self.assertIn("T5AI_APP_STAGE(201u)", app_manager)
-        self.assertIn("T5AI_APP_STAGE(205u)", app_manager)
-        self.assertIn("T5AI_LAUNCHER_STAGE(211u)", launcher)
-        self.assertIn("T5AI_LAUNCHER_STAGE(224u)", launcher)
-        self.assertIn("T5AI_APP_STATE_STAGE(301u)", app_state)
-        self.assertIn("T5AI_APP_STATE_STAGE(323u)", app_state)
-        self.assertIn("T5AI_APP_STATE_STAGE(324u)", app_state)
-        self.assertIn("T5AI_APP_STATE_STAGE(326u)", app_state)
+        self.assertNotIn("T5AI_APP_STAGE", app_manager)
+        self.assertNotIn("T5AI_LAUNCHER_STAGE", launcher)
+        self.assertNotIn("T5AI_APP_STATE_STAGE", app_state)
         self.assertIn("t5ai_rtc_get_raw_ticks()", main)
         self.assertIn("(unsigned long)SystemCoreClock", main)
         self.assertIn("(unsigned long)SysTick->LOAD", main)
@@ -723,6 +706,24 @@ class TuyaKernelCheckTest(unittest.TestCase):
             driver,
         )
         self.assertIn("UART_INT_RX_FINISH", driver)
+
+    def test_t5ai_cp_debug_logging_never_blocks_in_an_interrupt(self):
+        console = (ROOT / "src/fw/console/dbgserial.c").read_text()
+        mailbox = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
+
+        putchar = console.split("void dbgserial_putchar_lazy", 1)[1].split(
+            "void dbgserial_flush", 1
+        )[0]
+        flush = console.split("void dbgserial_flush", 1)[1].split(
+            "void dbgserial_putstr_fmt", 1
+        )[0]
+        cp_log = mailbox.split("status_t t5ai_cp_mailbox_log", 1)[1].split(
+            "void t5ai_cp_mailbox_get_diagnostics", 1
+        )[0]
+        self.assertIn("if (mcu_state_is_isr())", putchar)
+        self.assertIn("if (mcu_state_is_isr())", flush)
+        self.assertIn("if (mcu_state_is_isr())", cp_log)
+        self.assertIn("return E_INVALID_OPERATION;", cp_log)
 
     def test_t5ai_enables_global_interrupts_at_first_task_entry(self):
         main = (ROOT / "src/fw/main.c").read_text()

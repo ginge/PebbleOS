@@ -37,13 +37,6 @@
 
 #include <string.h>
 
-#ifdef CONFIG_SOC_T5AI
-extern volatile uint32_t g_t5ai_app_stage;
-#define T5AI_APP_STATE_STAGE(stage) (g_t5ai_app_stage = (stage))
-#else
-#define T5AI_APP_STATE_STAGE(stage) ((void)0)
-#endif
-
 typedef struct {
   Heap heap;
 
@@ -279,11 +272,9 @@ static const TouchNavTwinOps s_app_twin_ops = {
 #endif
 
 NOINLINE void app_state_init(void) {
-  T5AI_APP_STATE_STAGE(301u);
   s_app_state_ptr->rand_seed.mat1 = 0; // Uninitialized
 
   click_manager_init(&s_app_state_ptr->click_manager);
-  T5AI_APP_STATE_STAGE(302u);
 
 #ifdef CONFIG_TOUCH
   recognizer_manager_init(&s_app_state_ptr->recognizer_manager);
@@ -297,87 +288,63 @@ NOINLINE void app_state_init(void) {
       app_install_id_from_system(app_manager_get_current_app_id());
   s_app_state_ptr->touch_nav_opted_in = false;
 #endif
-  T5AI_APP_STATE_STAGE(303u);
 
   animation_private_state_init(&s_app_state_ptr->animation_state);
-  T5AI_APP_STATE_STAGE(304u);
 
   app_message_init();
-  T5AI_APP_STATE_STAGE(305u);
 
   app_outbox_init();
-  T5AI_APP_STATE_STAGE(306u);
 
   // Set the correct framebuffer size depending on the SDK version
   GSize fb_size;
   app_manager_get_framebuffer_size(&fb_size);
-  T5AI_APP_STATE_STAGE(324u);
   framebuffer_init(&s_app_state_ptr->framebuffer, &fb_size);
-  T5AI_APP_STATE_STAGE(325u);
 
   framebuffer_clear(&s_app_state_ptr->framebuffer);
-  T5AI_APP_STATE_STAGE(326u);
-  T5AI_APP_STATE_STAGE(307u);
 
   const GContextInitializationMode init_mode =
       (s_app_state_ptr->sdk_type == ProcessAppSDKType_System) ? GContextInitializationMode_System :
                                                             GContextInitializationMode_App;
   graphics_context_init(&s_app_state_ptr->graphics_context,
                         &s_app_state_ptr->framebuffer, init_mode);
-  T5AI_APP_STATE_STAGE(308u);
 
 
   ble_init_app_state();
-  T5AI_APP_STATE_STAGE(309u);
 
   accel_service_state_init(app_state_get_accel_state());
-  T5AI_APP_STATE_STAGE(310u);
 
   plugin_service_state_init(app_state_get_plugin_service());
-  T5AI_APP_STATE_STAGE(311u);
 
   battery_state_service_state_init(app_state_get_battery_state_service_state());
-  T5AI_APP_STATE_STAGE(312u);
 
   backlight_service_state_init(app_state_get_backlight_service_state());
-  T5AI_APP_STATE_STAGE(313u);
 
   connection_service_state_init(app_state_get_connection_service_state());
-  T5AI_APP_STATE_STAGE(314u);
 
   tick_timer_service_state_init(app_state_get_tick_timer_service_state());
-  T5AI_APP_STATE_STAGE(315u);
 
   touch_service_state_init(app_state_get_touch_service_state());
-  T5AI_APP_STATE_STAGE(316u);
 
 #ifdef CONFIG_TOUCH
   // Route this app's touch events through the nav bridge when the master pref is on. No-op for
   // watchfaces (touch_service_set_system_handler declines them).
   app_touch_nav_subscribe();
 #endif
-  T5AI_APP_STATE_STAGE(317u);
 
   health_service_state_init(app_state_get_health_service_state());
-  T5AI_APP_STATE_STAGE(318u);
 
   locale_init_app_locale(app_state_get_locale_info());
-  T5AI_APP_STATE_STAGE(319u);
 
   content_indicator_init_buffer(app_state_get_content_indicators_buffer());
-  T5AI_APP_STATE_STAGE(320u);
 
   unobstructed_area_service_init(app_state_get_unobstructed_area_state(),
                                  s_app_state_ptr->initial_obstruction_origin_y);
-  T5AI_APP_STATE_STAGE(321u);
 
 #if !defined(CONFIG_RECOVERY_FW)
   app_glance_service_init_glance(app_state_get_glance());
 #endif
-  T5AI_APP_STATE_STAGE(322u);
 
   s_app_state_ptr->current_timeline_item_action_source = TimelineItemActionSourceModalNotification;
-  T5AI_APP_STATE_STAGE(323u);
 }
 
 NOINLINE void app_state_deinit(void) {

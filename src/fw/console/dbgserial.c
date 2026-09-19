@@ -5,6 +5,7 @@
 
 #include "board/board.h"
 #ifdef CONFIG_SOC_T5AI
+#include <pbl/mcu/interrupts.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #else
 #include <pbl/drivers/uart.h>
@@ -67,6 +68,12 @@ void dbgserial_putchar(uint8_t c) {
 
 void dbgserial_putchar_lazy(uint8_t c) {
 #ifdef CONFIG_SOC_T5AI
+  /* The T5AI console is a blocking CP mailbox transport rather than a UART.
+   * It cannot take its task mutex or wait for an ACK from an interrupt.  Do
+   * not disturb a partially assembled task-context message either. */
+  if (mcu_state_is_isr()) {
+    return;
+  }
   if (s_t5ai_buffer_length == sizeof(s_t5ai_buffer)) {
     dbgserial_flush();
   }
@@ -78,6 +85,9 @@ void dbgserial_putchar_lazy(uint8_t c) {
 
 void dbgserial_flush(void) {
 #ifdef CONFIG_SOC_T5AI
+  if (mcu_state_is_isr()) {
+    return;
+  }
   if (s_t5ai_buffer_length != 0u) {
     (void)t5ai_cp_mailbox_log(s_t5ai_buffer, s_t5ai_buffer_length);
     s_t5ai_buffer_length = 0u;
