@@ -3,7 +3,7 @@
 
 bld.stlib(
     use=['fw_includes'],
-    source=['service.c'],
+    source=['service_t5ai.c' if bld.env.CONFIG_SOC_T5AI else 'service.c'],
     target='services_boot_splash',
 )
 bld.env.SERVICES.append('services_boot_splash')

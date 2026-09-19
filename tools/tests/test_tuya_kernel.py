@@ -404,14 +404,22 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("if (s_system_task_idle", idle_watchdog)
         self.assertIn("uxQueueMessagesWaiting", idle_watchdog)
         splash = (ROOT / "src/fw/services/boot_splash/service.c").read_text()
-        self.assertIn("#if defined(CONFIG_SOC_T5AI)", splash)
-        self.assertIn("static uint8_t s_t5ai_splash_row[PBL_DISPLAY_WIDTH]", splash)
-        self.assertIn("display_update(prv_t5ai_splash_next_row", splash)
-        self.assertIn("The logo is compiled into the AP image", splash)
-        t5ai_splash = splash.split("#if defined(CONFIG_SOC_T5AI)", 1)[1].split(
-            "#elif defined(CONFIG_PBLBOOT)", 1
-        )[0]
+        t5ai_splash = (
+            ROOT / "src/fw/services/boot_splash/service_t5ai.c"
+        ).read_text()
+        splash_build = (
+            ROOT / "src/fw/services/boot_splash/wscript_build"
+        ).read_text()
+        self.assertNotIn("CONFIG_SOC_T5AI", splash)
+        self.assertIn("service_t5ai.c", splash_build)
+        self.assertIn("bld.env.CONFIG_SOC_T5AI", splash_build)
+        self.assertIn("static uint8_t s_t5ai_splash_row[PBL_DISPLAY_WIDTH]", t5ai_splash)
+        self.assertIn("display_init();", t5ai_splash)
+        self.assertIn("display_update(prv_t5ai_splash_next_row", t5ai_splash)
+        self.assertIn("The logo is compiled into the AP image", t5ai_splash)
         self.assertNotIn("kernel_malloc", t5ai_splash)
+        t5ai_startup = main.split("#ifdef CONFIG_SOC_T5AI", 2)[2].split("#endif", 1)[0]
+        self.assertNotIn("display_init();", t5ai_startup)
         self.assertNotIn("PBLTIM", main)
         self.assertNotIn("event_get_queue_diagnostics", main)
         self.assertNotIn("g_t5ai_boot_stage", main)
@@ -514,6 +522,9 @@ class TuyaKernelCheckTest(unittest.TestCase):
             "if (exists) {\n      if (!app_storage_app_exists(app_id)) {",
             app_cache,
         )
+        pfs = (ROOT / "src/fw/services/filesystem/pfs.c").read_text()
+        self.assertIn("if (!pfs_active()) {", pfs)
+        self.assertNotIn("const bool active = pfs_active();", pfs)
         services = (ROOT / "src/fw/services/services.c").read_text()
         services_common = (ROOT / "src/fw/services/services_common/service.c").read_text()
         process_manager = (ROOT / "src/fw/process_management/process_manager.c").read_text()

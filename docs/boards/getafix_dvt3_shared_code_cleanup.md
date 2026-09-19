@@ -313,6 +313,31 @@ missing final newline fails `git diff --check` and has no runtime value. The
 `CONFIG_MAG` orientation guard and `CONFIG_MIC` reminders guard remain because
 they express real T5AI hardware capabilities rather than bring-up policy.
 
+The redundant temporary around `pfs_active()` in `pfs_init()` was removed, so
+the filesystem activity check again matches stock exactly. The neighboring
+FreeRTOS interrupt-priority conversions, lazy debug-serial batching, and
+invalid-flash-log record consumption remain: those are functional Cortex-M33
+or T5AI transport changes and require separate validation or localization.
+
+Boot-splash ownership is now selected at build time. The shared
+`boot_splash/service.c` is stock again, while T5AI's bounded row renderer lives
+in `service_t5ai.c`. Both implementations preserve the service contract that
+`boot_splash_start()` initializes the display, so the T5AI startup block no
+longer calls `display_init()` directly. The splash asset and display interface
+remain shared; framebuffer allocation and transfer strategy stay platform-local.
+
+The extracted splash image passed all 95 focused tests and built with FLASH
+878,227 bytes. The guarded tool flashed only `0x132000..0x215d0a`; the raw
+SHA-256 is
+`f5c2dfcc040d05e67ab7661739c189007dd71c2ca699d1358dd2ae560c2afb02`
+and the protected SHA-256 is
+`57549598efae2eca8fe0c238e40a9a2d8c369eeeb5dc58155c73ef9d02f70010`.
+A non-flashing reset then reached the launcher and runlevel 4, restored the
+encrypted phone session, flushed BlobDB, and completed AppFetch with result 0
+without an assertion, fault, or AP reboot. The accepted runtime trace is
+`/tmp/pebbleos-boot-splash-extraction-dvt3.log`; physical splash appearance
+still requires visual confirmation because it is not observable over UART.
+
 ### Hardware validation result — 2026-09-19
 
 The first cleanup slice is **not yet hardware-accepted**. The clean build was

@@ -2096,8 +2096,7 @@ status_t pfs_init(bool run_filesystem_check) {
   ftl_populate_region_list();
 
   if (run_filesystem_check) {
-    const bool active = pfs_active();
-    if (!active) {
+    if (!pfs_active()) {
       // either we have downgraded or there is no data on the flash
       PBL_LOG_INFO("PFS not active ... formatting");
       pfs_format(true /* write erase headers */);

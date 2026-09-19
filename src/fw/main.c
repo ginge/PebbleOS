@@ -376,9 +376,6 @@ static NOINLINE void prv_main_task_init(void) {
   } else {
     PBL_LOG_ERR("T5AI CPU clock vote failed: %ld", (long)cpu_clock_vote_status);
   }
-  /* Normal firmware's boot splash service is intentionally a no-op, so T5AI
-   * must initialize its panel explicitly after the peripheral drivers. */
-  display_init();
   boot_splash_start();
   backlight_set_brightness(BOARD_CONFIG.backlight_on_percent);
 #endif
