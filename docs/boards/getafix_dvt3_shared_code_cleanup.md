@@ -230,6 +230,27 @@ AppFetch completion with result 0. It contained no HardFault, assertion,
 NimBLE host reset, flash IPC fault, or AP reboot. The accepted trace is
 `/tmp/pebbleos-runlevel-backlight-fix-dvt3.log`.
 
+Launcher cleanup restores the stock Gabbro 48 ms render cadence and removes
+the T5AI branches that bypassed launcher glance initialization, drawing, and
+selection playback. This intentionally lowers DVT3's animation render rate
+before re-enabling glance work; no shell or storage policy changes are included
+in this slice.
+
+The launcher slice builds successfully with FLASH 878,227 bytes, KERNEL_RAM
+75,232 bytes, and resources at 97.90%. All 95 focused cleanup tests pass and
+`git diff --check` is clean. The guarded tool flashed only the protected AP
+range `0x132000..0x215d0a`; the raw SHA-256 is
+`9b20499b3dc180800f535994a5bd59a097fa88084816e3bc58a1b9582326349c`
+and the protected SHA-256 is
+`aa97d4e59406f9a6c0fdcaf2be803c47d054713af58ef295764a364ec0ba3f2d`.
+
+A 120-second runtime capture reached the launcher and runlevel 4, exercised
+launcher selections, and handled an encrypted Bluetooth reconnect plus reversed
+PPoG session without a HardFault, assertion, watchdog, panic, or AP reboot.
+Missing optional glance resources 613, 616, and 618 were reported as handled
+resource-check warnings and did not destabilize the launcher. The accepted
+trace is `/tmp/pebbleos-launcher-cleanup-dvt3.log`.
+
 ### Hardware validation result — 2026-09-19
 
 The first cleanup slice is **not yet hardware-accepted**. The clean build was

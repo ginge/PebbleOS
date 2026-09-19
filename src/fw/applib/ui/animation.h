@@ -80,7 +80,7 @@ typedef struct ImmutableAnimation ImmutableAnimation;
 
 //! @internal
 //! interval at which the animation service schedules frames
-#if defined(CONFIG_PLATFORM_GABBRO) && !defined(CONFIG_SOC_T5AI)
+#if defined(CONFIG_PLATFORM_GABBRO)
 //! Gabbro's display (Sharp LS013B7DD02) is spec-limited to ~21 Hz full-frame
 //! updates; scheduling frames faster than the panel can show them produces
 //! uneven, coalesced updates

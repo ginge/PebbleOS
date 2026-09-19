@@ -434,8 +434,10 @@ class TuyaKernelCheckTest(unittest.TestCase):
         launcher_menu = (
             ROOT / "src/fw/apps/system/launcher/default/menu_layer.c"
         ).read_text()
-        self.assertIn("app_menu_data_source_draw_row(data_source", launcher_menu)
-        self.assertIn("#ifndef CONFIG_SOC_T5AI\n  launcher_app_glance_service_init", launcher_menu)
+        self.assertNotIn("CONFIG_SOC_T5AI", launcher_menu)
+        self.assertIn("launcher_app_glance_service_init", launcher_menu)
+        self.assertIn("launcher_app_glance_service_draw_glance_for_app_node", launcher_menu)
+        self.assertIn("launcher_app_glance_service_play_glance_for_app_node", launcher_menu)
         resource_impl = (ROOT / "src/fw/resource/resource_impl.def").read_text()
         t5ai_resource_impl = resource_impl.split("#if defined(CONFIG_SOC_T5AI)", 1)[1].split(
             "#elif", 1
@@ -471,10 +473,8 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("prv_dcache_clean(s_panel_row, sizeof(s_panel_row));", display_driver)
         self.assertIn("if (source_x != previous_source_x)", display_driver)
         self.assertIn("converted_pixel = s_rgb565[source[source_x] & 0x3fu]", display_driver)
-        self.assertIn(
-            "#if defined(CONFIG_PLATFORM_GABBRO) && !defined(CONFIG_SOC_T5AI)",
-            animation,
-        )
+        self.assertIn("#if defined(CONFIG_PLATFORM_GABBRO)", animation)
+        self.assertNotIn("CONFIG_SOC_T5AI", animation)
         self.assertIn(
             "#define ANIMATION_RENDER_FRAME_INTERVAL_MS ANIMATION_TARGET_FRAME_INTERVAL_MS",
             animation,

@@ -41,12 +41,10 @@ static void prv_launcher_menu_layer_mark_dirty(LauncherMenuLayer *launcher_menu_
 //////////////////////////////////////
 // LauncherAppGlanceService handlers
 
-#ifndef CONFIG_SOC_T5AI
 static void prv_glance_changed(void *context) {
   LauncherMenuLayer *launcher_menu_layer = context;
   prv_launcher_menu_layer_mark_dirty(launcher_menu_layer);
 }
-#endif
 
 ////////////////////////
 // MenuLayer callbacks
@@ -96,11 +94,6 @@ static void prv_menu_layer_draw_row(GContext* ctx, const Layer *cell_layer, Menu
     return;
   }
 
-#ifdef CONFIG_SOC_T5AI
-  // Use the non-animated menu path on DVT3 while still loading each base app's
-  // icon from the validated system resource bank.
-  app_menu_data_source_draw_row(data_source, ctx, (Layer *)cell_layer, cell_index);
-#else
   AppMenuNode *node = app_menu_data_source_get_node_at_index(data_source, cell_index->row);
   const GRect *cell_layer_bounds = &cell_layer->bounds;
   const bool is_highlighted = menu_cell_layer_is_highlighted(cell_layer);
@@ -115,7 +108,6 @@ static void prv_menu_layer_draw_row(GContext* ctx, const Layer *cell_layer, Menu
   launcher_app_glance_service_draw_glance_for_app_node(&launcher_menu_layer->glance_service,
                                                        ctx, cell_layer_bounds, is_highlighted,
                                                        screen_center_y, node);
-#endif
 
   // If we should launch an app after this render, push a callback to do that on the app task
   if (launcher_menu_layer->app_to_launch_after_next_render != INSTALL_ID_INVALID) {
@@ -143,10 +135,6 @@ static int16_t prv_menu_layer_get_cell_height(PBL_UNUSED MenuLayer *menu_layer,
 }
 
 static void prv_play_glance_for_row(LauncherMenuLayer *launcher_menu_layer, uint16_t row) {
-#ifdef CONFIG_SOC_T5AI
-  // Keep selection functional without enabling the heavier glance animations.
-  return;
-#else
   if (!launcher_menu_layer || !launcher_menu_layer->selection_animations_enabled) {
     return;
   }
@@ -157,7 +145,6 @@ static void prv_play_glance_for_row(LauncherMenuLayer *launcher_menu_layer, uint
 
   // Instruct the launcher app glance service to play the glance for the node
   launcher_app_glance_service_play_glance_for_app_node(&launcher_menu_layer->glance_service, node);
-#endif
 }
 
 static void prv_menu_layer_selection_will_change(MenuLayer *PBL_UNUSED menu_layer, MenuIndex *new_index,
@@ -267,7 +254,6 @@ void launcher_menu_layer_init(LauncherMenuLayer *launcher_menu_layer,
   // edges
   layer_add_child(container_layer, menu_layer_get_layer(menu_layer));
 
-#ifndef CONFIG_SOC_T5AI
   launcher_app_glance_service_init(&launcher_menu_layer->glance_service,
                                    LAUNCHER_MENU_LAYER_GENERIC_APP_ICON);
   const LauncherAppGlanceServiceHandlers glance_handlers = (LauncherAppGlanceServiceHandlers) {
@@ -275,7 +261,6 @@ void launcher_menu_layer_init(LauncherMenuLayer *launcher_menu_layer,
   };
   launcher_app_glance_service_set_handlers(&launcher_menu_layer->glance_service,
                                            &glance_handlers, launcher_menu_layer);
-#endif
 
   // Select the visually first item from the top
   const uint16_t first_index = 0;
