@@ -13,6 +13,47 @@ existing stock files. Eighty-nine modified files were production sources
 outside obvious build, documentation, and test glue, and 69 modified stock
 files contained T5AI-specific conditionals.
 
+## Current status — paused 2026-09-19
+
+Shared-code cleanup is paused at the user's request. Do not start another
+cleanup slice until it is explicitly resumed.
+
+The accepted source state is based on `e68bf6ba1`. The watch currently runs
+the restored fast resource-validator build: raw SHA-256
+`b98f7def2600b11a25582346e2de7d108a62299ca5704f5a36a64cd64ef421f9`,
+protected SHA-256
+`56f924a353426fc28417a89a1a802ec4efeaf7a6155042a4010a3b277619d37c`,
+flashed only over `0x132000..0x215d0a`. The latest reset trace confirmed the
+bounded resource check completed in the same log timestamp, followed by
+runlevel 4, encrypted Bluetooth, reversed PPoG, and BlobDB activity without a
+fault or unexpected reboot. That trace is
+`/tmp/pebbleos-resource-validator-restored-dvt3.log`. The complete tool suite
+contains 168 tests and passes.
+
+Accepted cleanup includes removal of obsolete instrumentation and experiments,
+stock event/GATT/I2C/launcher/runlevel behavior where validated, board-local
+backlight policy, build-selected boot splash and debug console, the narrow
+display update capability, and SoC-local retained boot-bit/reboot-reason
+implementations. The T5AI priority exception remains intentionally deferred.
+
+Rejected or deferred work must not be repeated without addressing its recorded
+failure mode:
+
+- compositor framebuffer-provider extraction caused repeatable startup
+  HardFaults and remains in shared compositor code;
+- restoring first-use onboarding caused an unsafe AppDB/PFS resource-retirement
+  assertion on upgraded devices;
+- replacing the T5AI resource metadata check with the generic full-pack CRC was
+  stable but added 4.754 seconds to every boot;
+- `resource_unwatch()`, OTA/update/reset capability cleanup, and priority-policy
+  localization require the deeper designs described below.
+
+If cleanup resumes, the next resource-storage step is to design a T5AI-local or
+capability-selected system-bank backend. It must preserve the approximately
+1 ms bounded metadata check, direct XIP reads/checksums, single-bank semantics,
+and the existing app-resource backend ordering. Do not include the deferred
+`resource_unwatch()` change in that slice.
+
 ## Findings
 
 ### Shared startup contains a platform implementation
@@ -206,7 +247,7 @@ independently justified generic fix with tests.
 
 ## Progress
 
-The first cleanup slice is complete in the working tree:
+The initial cleanup slice is complete in the current branch:
 
 - shared GATT discovery, I2C, event queues, KernelBG queue handling,
   touch service, touch navigation, and event-loop code are restored to stock;
@@ -219,8 +260,8 @@ The first cleanup slice is complete in the working tree:
 - focused board/port tests pass (99 tests), `git diff --check` passes, and a
   clean `getafix@dvt3` configure/build succeeds.
 
-The next slice is **Restore stock runtime and product policy** above. It has
-not yet been started.
+Runtime/product-policy cleanup was subsequently handled in the focused slices
+recorded below. Remaining work is summarized in the paused status above.
 
 The common-service runlevel subtask is complete: DVT3 uses the native QMI8658
 accelerometer and T5AI backlight, the existing no-hardware vibration driver,
@@ -424,9 +465,22 @@ unexpected AP reboot. The accepted trace is
 during this capture, so the previous accepted AppFetch traces continue to
 cover that independent path.
 
-### Hardware validation result — 2026-09-19
+The T5AI system-resource metadata validator was tested separately before
+resource-backend extraction. Replacing it with the stock generic full-store
+validator was functionally correct: the 150-second hardware run reached
+runlevel 4, completed BlobDB work and AppFetch with result 0, and had no fault
+or reboot. However, validating the 1,026,537-byte pack took 4.754 seconds on
+each boot, compared with approximately 1 ms for the bounded manifest/table
+check. The generic candidate is therefore rejected on startup-performance
+grounds and the shortcut is restored. Its behavior should move with the
+eventual T5AI-local resource backend rather than be deleted. The experimental
+trace is `/tmp/pebbleos-resource-generic-validator-dvt3.log`.
 
-The first cleanup slice is **not yet hardware-accepted**. The clean build was
+### Historical first-slice hardware result — 2026-09-19
+
+The first cleanup candidate was not hardware-accepted at this point in the
+sequence. This section is retained as historical failure evidence; the priority
+correction and later accepted state are recorded below. The clean build was
 flashed AP-only, preserving resources and PFS:
 
 - raw firmware SHA-256:
