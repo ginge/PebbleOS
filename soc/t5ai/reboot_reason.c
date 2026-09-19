@@ -1,0 +1,62 @@
+/* SPDX-FileCopyrightText: 2026 Core Devices LLC */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+#include "system/reboot_reason.h"
+
+#include <pbl/logging/logging.h>
+#include "pbl/mcu/interrupts.h"
+#include <pbl/soc/t5ai/retained.h>
+
+#include "FreeRTOS.h"
+#include "task.h"
+
+_Static_assert(sizeof(RebootReason) == sizeof(uint32_t[4]),
+               "RebootReason is a funny size");
+
+void reboot_reason_set(RebootReason *reason) {
+  uint32_t *raw = (uint32_t *)reason;
+  if (t5ai_retained_read(REBOOT_REASON_REGISTER_1)) {
+    if (!mcu_state_is_isr() && __get_BASEPRI() == 0 &&
+        xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {
+      PBL_LOG_WRN("Reboot reason is already set");
+    }
+    return;
+  }
+
+  t5ai_retained_write(REBOOT_REASON_REGISTER_1, raw[0]);
+  t5ai_retained_write(REBOOT_REASON_STUCK_TASK_PC, raw[1]);
+  t5ai_retained_write(REBOOT_REASON_STUCK_TASK_LR, raw[2]);
+  t5ai_retained_write(REBOOT_REASON_STUCK_TASK_CALLBACK, raw[3]);
+}
+
+void reboot_reason_set_restarted_safely(void) {
+  RebootReason reason;
+  reboot_reason_get(&reason);
+  reason.restarted_safely = true;
+
+  uint32_t *raw = (uint32_t *)&reason;
+  t5ai_retained_write(REBOOT_REASON_REGISTER_1, *raw);
+}
+
+void reboot_reason_get(RebootReason *reason) {
+  uint32_t *raw = (uint32_t *)reason;
+  raw[0] = t5ai_retained_read(REBOOT_REASON_REGISTER_1);
+  raw[1] = t5ai_retained_read(REBOOT_REASON_STUCK_TASK_PC);
+  raw[2] = t5ai_retained_read(REBOOT_REASON_STUCK_TASK_LR);
+  raw[3] = t5ai_retained_read(REBOOT_REASON_STUCK_TASK_CALLBACK);
+}
+
+void reboot_reason_clear(void) {
+  t5ai_retained_write(REBOOT_REASON_REGISTER_1, 0);
+  t5ai_retained_write(REBOOT_REASON_STUCK_TASK_PC, 0);
+  t5ai_retained_write(REBOOT_REASON_STUCK_TASK_LR, 0);
+  t5ai_retained_write(REBOOT_REASON_STUCK_TASK_CALLBACK, 0);
+}
+
+uint32_t reboot_get_slot_of_last_launched_app(void) {
+  return t5ai_retained_read(SLOT_OF_LAST_LAUNCHED_APP);
+}
+
+void reboot_set_slot_of_last_launched_app(uint32_t app_slot) {
+  t5ai_retained_write(SLOT_OF_LAST_LAUNCHED_APP, app_slot);
+}

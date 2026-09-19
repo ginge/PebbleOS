@@ -955,6 +955,22 @@ class TuyaKernelCheckTest(unittest.TestCase):
             checker.prepare_output(output)
             self.assertTrue((output / ".pebble-tuya-kernel-check").is_file())
 
+    def test_t5ai_retained_state_implementations_are_soc_local(self):
+        system_build = (ROOT / "src/fw/system/wscript_build").read_text()
+        soc_build = (ROOT / "soc/t5ai/wscript_build").read_text()
+        shared_bootbits = (ROOT / "src/fw/system/bootbits.c").read_text()
+        shared_reboot_reason = (ROOT / "src/fw/system/reboot_reason.c").read_text()
+        t5ai_bootbits = (ROOT / "soc/t5ai/bootbits.c").read_text()
+        t5ai_reboot_reason = (ROOT / "soc/t5ai/reboot_reason.c").read_text()
+
+        self.assertNotIn("CONFIG_SOC_T5AI", shared_bootbits)
+        self.assertNotIn("CONFIG_SOC_T5AI", shared_reboot_reason)
+        self.assertIn("excludes = ['bootbits.c', 'reboot_reason.c']", system_build)
+        self.assertIn("'bootbits.c'", soc_build)
+        self.assertIn("'reboot_reason.c'", soc_build)
+        self.assertIn("t5ai_retained_init();", t5ai_bootbits)
+        self.assertIn("t5ai_retained_write(REBOOT_REASON_REGISTER_1", t5ai_reboot_reason)
+
 
 if __name__ == "__main__":
     unittest.main()

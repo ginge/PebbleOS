@@ -402,6 +402,28 @@ and completed AppFetch with result 0. It contained no HardFault, assertion,
 NimBLE host reset, or unexpected AP reboot and is retained as
 `/tmp/pebbleos-compositor-final-dvt3.log`.
 
+T5AI retained boot-bit and reboot-reason ownership is now selected at build
+time. The shared `system/bootbits.c` and `system/reboot_reason.c` are stock
+again. DVT3 excludes them from the system object and supplies behaviorally
+equivalent implementations from `soc/t5ai/bootbits.c` and
+`soc/t5ai/reboot_reason.c`, using the existing checksummed `.t5ai_retained`
+store. This keeps T5AI persistence policy out of shared system code without
+changing the public interfaces or retained register layout.
+
+All 168 tool tests passed. The image built with FLASH 878,227 bytes and
+KERNEL_RAM 75,232 bytes; its raw SHA-256 is
+`62da8f2654ef7fcae4f1110ff90ad63803841fd7c8d41f24c4c62086e9f0e425`
+and its protected SHA-256 is
+`16d3fa5eb3a4bc640992f8d3485adf65695c1ce0dc7ce82b804e69bdc6a7ea6c`.
+The guarded flasher programmed only `0x132000..0x215d0a`. A controlled reset
+reported and cleared the retained reboot state, reached runlevel 4, restored
+the encrypted phone and reversed PPoG session, and completed the AppDB and
+BlobDB flush sequence without a HardFault, assertion, NimBLE host reset, or
+unexpected AP reboot. The accepted trace is
+`/tmp/pebbleos-retained-state-extraction-dvt3.log`; AppFetch was not requested
+during this capture, so the previous accepted AppFetch traces continue to
+cover that independent path.
+
 ### Hardware validation result — 2026-09-19
 
 The first cleanup slice is **not yet hardware-accepted**. The clean build was

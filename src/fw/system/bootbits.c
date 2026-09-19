@@ -24,10 +24,6 @@ extern void RTC_WriteBackupRegister(uint32_t reg_id, uint32_t value);
 extern uint32_t RTC_ReadBackupRegister(uint32_t reg_id);
 #endif
 
-#ifdef CONFIG_SOC_T5AI
-#include <pbl/soc/t5ai/retained.h>
-#endif
-
 #include <inttypes.h>
 #include <stdint.h>
 
@@ -90,46 +86,6 @@ void command_boot_bits_get(void) {
 
 uint32_t boot_version_read(void) {
   return retained_read(BOOTLOADER_VERSION_REGISTER);
-}
-
-#elif defined(CONFIG_SOC_T5AI)
-void boot_bit_init(void) {
-  t5ai_retained_init();
-  if (!boot_bit_test(BOOT_BIT_INITIALIZED)) {
-    t5ai_retained_write(RTC_BKP_BOOTBIT_DR, BOOT_BIT_INITIALIZED);
-  }
-}
-
-void boot_bit_set(BootBitValue bit) {
-  t5ai_retained_write(RTC_BKP_BOOTBIT_DR,
-                      t5ai_retained_read(RTC_BKP_BOOTBIT_DR) | bit);
-}
-
-void boot_bit_clear(BootBitValue bit) {
-  t5ai_retained_write(RTC_BKP_BOOTBIT_DR,
-                      t5ai_retained_read(RTC_BKP_BOOTBIT_DR) & ~bit);
-}
-
-bool boot_bit_test(BootBitValue bit) {
-  return t5ai_retained_read(RTC_BKP_BOOTBIT_DR) & bit;
-}
-
-void boot_bit_dump(void) {
-  PBL_LOG_DBG("0x%" PRIx32, t5ai_retained_read(RTC_BKP_BOOTBIT_DR));
-}
-
-uint32_t boot_bits_get(void) {
-  return t5ai_retained_read(RTC_BKP_BOOTBIT_DR);
-}
-
-void command_boot_bits_get(void) {
-  char buffer[32];
-  dbgserial_putstr_fmt(buffer, sizeof(buffer), "bootbits: 0x%" PRIu32,
-                       boot_bits_get());
-}
-
-uint32_t boot_version_read(void) {
-  return 0;
 }
 
 #elif defined(CONFIG_SOC_SF32LB52)
