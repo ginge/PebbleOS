@@ -133,7 +133,10 @@ dependency; do not automatically restore the workaround.
 
 - Restore launcher glances and normal animation selection.
 - Restore shell onboarding, settings migration, and battery UI.
-- Restore normal service runlevel behavior.
+- Remove the remaining T5AI exclusions from the common-service runlevel table
+  once accel, light/vibes, and HRM each have a valid T5AI implementation or an
+  explicit unavailable stub. The generic runlevel machinery is already stock;
+  do not rewrite it as part of this slice.
 - Replace firmware-update, PRF-update, core-dump, and factory-reset conditionals
   with selected T5AI implementations or explicit unavailable stubs.
 
@@ -152,7 +155,23 @@ Reapply each justified generic change independently with focused unit tests and
 representative stock-platform builds. Drop fixes that cannot be justified
 without the T5AI port.
 
-### 5. Validation and acceptance
+### 5. Deferred: localize the T5AI priority exception
+
+The hardware-proven priority ordering is required for now: T5AI KernelBG runs
+at the blocking maximum priority and its app/render task runs at priority 1.
+Do not remove or weaken that ordering during the current cleanup.
+
+As non-urgent follow-up work, determine why stock priorities allow the CP flash
+write used by AppFetch to fail. Instrument task readiness and the T5AI mailbox
+route result narrowly enough to distinguish AP scheduling starvation from a CP
+busy/rejection condition. Then move the policy into the T5AI FreeRTOS port,
+board configuration, or another platform-local priority provider so
+`services/system_task/service.c` and `process_management/app_manager.c` can
+return to stock. Accept that cleanup only after repeated stock-window AppFetch,
+launch, reconnect, and idle-soak tests pass without a flash IPC fault or AP
+reboot.
+
+### 6. Validation and acceptance
 
 After every slice:
 
@@ -185,6 +204,11 @@ The first cleanup slice is complete in the working tree:
 
 The next slice is **Restore stock runtime and product policy** above. It has
 not yet been started.
+
+The common-service runlevel subtask is complete: DVT3 uses the native QMI8658
+accelerometer and T5AI backlight, the existing no-hardware vibration driver,
+and compile-time-disabled HRM. The shared runlevel table is stock again and
+contains no T5AI policy.
 
 ### Hardware validation result — 2026-09-19
 

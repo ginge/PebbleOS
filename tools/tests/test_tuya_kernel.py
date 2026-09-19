@@ -520,8 +520,12 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertNotIn(
             "!defined(CONFIG_RECOVERY_FW) && !defined(CONFIG_SOC_T5AI)", services
         )
-        self.assertIn("#ifndef CONFIG_SOC_T5AI\n  {\n    .set_enable_fn = accel_manager_enable", services_common)
-        self.assertIn("#ifndef CONFIG_SOC_T5AI\n  {\n    .set_enable_fn = light_allow", services_common)
+        self.assertNotIn("CONFIG_SOC_T5AI", services_common)
+        self.assertIn(".set_enable_fn = accel_manager_enable", services_common)
+        self.assertIn(".set_enable_fn = light_allow", services_common)
+        self.assertIn(".set_enable_fn = vibe_service_set_enabled", services_common)
+        self.assertIn("#ifdef CONFIG_HRM", services_common)
+        self.assertIn(".set_enable_fn = hrm_manager_enable", services_common)
         self.assertIn("persist_service_client_open", process_manager)
         self.assertIn("persist_service_client_close", process_manager)
         self.assertNotIn("if (dls_initialized())", process_manager)
