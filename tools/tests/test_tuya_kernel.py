@@ -615,19 +615,15 @@ class TuyaKernelCheckTest(unittest.TestCase):
     def test_t5ai_holds_psram_power_for_the_compositor_framebuffer(self):
         initialization = (ROOT / "soc/t5ai/init.c").read_text()
         mailbox = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
-        framebuffer = (
-            ROOT / "src/fw/board/boards/compositor_framebuffer_t5ai.c"
+        compositor = (
+            ROOT / "src/fw/services/compositor/compositor.c"
         ).read_text()
-        compositor = (ROOT / "src/fw/services/compositor/compositor.c").read_text()
-        build = (ROOT / "src/fw/board/wscript_build").read_text()
         self.assertNotIn("0x2809f700u", initialization)
         self.assertIn("CP_PM_PSRAM_POWER_COMMAND 7u", mailbox)
         self.assertIn("CP_PM_PSRAM_APP_MODULE 9u", mailbox)
-        vote = framebuffer.index("t5ai_cp_mailbox_enable_psram()")
-        validate = framebuffer.index("prv_framebuffer_ram_is_valid()", vote)
+        vote = compositor.index("t5ai_cp_mailbox_enable_psram()")
+        validate = compositor.index("prv_validate_t5ai_framebuffer_ram()", vote)
         self.assertLess(vote, validate)
-        self.assertNotIn("CONFIG_SOC_T5AI", compositor)
-        self.assertIn("boards/compositor_framebuffer_t5ai.c", build)
 
     def test_t5ai_holds_cp_awake_until_low_voltage_resume_is_supported(self):
         mailbox = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()

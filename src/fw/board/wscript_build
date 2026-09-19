@@ -1,17 +1,12 @@
-framebuffer_source = ('boards/compositor_framebuffer_t5ai.c'
-                      if bld.env.CONFIG_BOARD_GETAFIX_DVT3
-                      else 'boards/compositor_framebuffer.c')
-
 if bld.env.CONFIG_BOARD_GETAFIX_DVT3:
     bld.objects(name='board',
-                source=['boards/board_t5ai.c', 'displays/display_getafix.c', framebuffer_source],
+                source=['boards/board_t5ai.c', 'displays/display_getafix.c'],
                 use=['fw_includes', 'freertos', 'drivers'])
 elif bld.env.CONFIG_BOARD_ASTERIX:
     bld.objects(
         name='board',
         source=[
             'boards/board_asterix.c',
-            framebuffer_source,
         ],
         use=[
             'fw_includes',
@@ -24,7 +19,6 @@ elif bld.env.CONFIG_BOARD_OBELIX:
         name='board',
         source=[
             'boards/board_obelix.c',
-            framebuffer_source,
         ],
         use=[
             'fw_includes',
@@ -38,7 +32,6 @@ elif bld.env.CONFIG_BOARD_GETAFIX:
         source=[
             'boards/board_getafix.c',
             'displays/display_getafix.c',
-            framebuffer_source,
         ],
         use=[
             'fw_includes',
@@ -51,7 +44,6 @@ elif bld.env.CONFIG_BOARD_QEMU_EMERY:
         name='board',
         source=[
             'boards/board_qemu_emery.c',
-            framebuffer_source,
         ],
         use=[
             'fw_includes',
@@ -64,7 +56,6 @@ elif bld.env.CONFIG_BOARD_QEMU_FLINT:
         name='board',
         source=[
             'boards/board_qemu_flint.c',
-            framebuffer_source,
         ],
         use=[
             'fw_includes',
@@ -79,7 +70,6 @@ elif bld.env.CONFIG_BOARD_QEMU_GABBRO:
             'boards/board_qemu_gabbro.c',
             # qemu_gabbro needs the getafix round display row info data
             'displays/display_getafix.c',
-            framebuffer_source,
         ],
         use=[
             'fw_includes',

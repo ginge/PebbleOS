@@ -369,43 +369,38 @@ reboot. The accepted trace is
 during this capture, so the previously accepted priority/AppFetch validation
 continues to cover that path.
 
-Compositor framebuffer ownership is now platform-selected. The common
-compositor retains only a narrow storage-preparation seam and otherwise
-returns to stock formatting and control flow. T5AI's PSRAM power vote,
-destructive handoff validation, aligned framebuffer object, and linker-section
-placement live in the board-local `boards/compositor_framebuffer_t5ai.c`;
-other boards select the ordinary internal-RAM provider from the same board
-layer. The Getafix full-frame update workaround is
-now controlled by `DISPLAY_FORCE_FULL_FRAME_UPDATES`, so the CO5300 driver's
-partial-update capability no longer appears as T5AI policy in the compositor.
+The attempted compositor framebuffer-provider extraction was rejected after
+an A/B hardware test. The board-local provider preserved the framebuffer's
+exact address and size (`0x60000000..0x6001081e`), but repeatedly introduced
+startup HardFaults. Restoring the pre-extraction image at `1fa722916` survived
+the equivalent reset, full-sync, BlobDB flush, and AppFetch workload without a
+HardFault or NimBLE host reset; its trace is
+`/tmp/pebbleos-compositor-baseline-ab.log`. A second candidate removed all
+unrelated `compositor.c` formatting churn and retained only the narrow provider
+seam. It still HardFaulted twice immediately after reset; its trace is
+`/tmp/pebbleos-compositor-minimal-dvt3.log`. This isolates the regression to
+the ownership seam rather than framebuffer placement or source formatting.
 
-All 167 tool tests passed. The image built with FLASH 878,227 bytes and
-KERNEL_RAM 75,232 bytes, and the map places only the 67,614-byte compositor
-object at `0x60000000..0x6001081e`. The guarded flasher programmed only
-`0x132000..0x215d0a`; the raw SHA-256 is
-`9f419baffdfb52557212a62d8c79dd92927732d853d89b741382ba8033642755`
-and the protected SHA-256 is
-`6e889ae3effffe17d2b095c2bd699ac37072994fd745c1f3645009783cbed4b4`.
+The provider files, board build wiring, and provider-specific tests are
+therefore removed, and the accepted T5AI framebuffer allocation, PSRAM vote,
+and destructive handoff validation remain together in the common compositor
+for now. Moving them requires deeper investigation into why relocating the
+framebuffer object and preparation routine across object boundaries destabilizes
+startup despite an identical linker address. The independent display-policy
+cleanup remains: `DISPLAY_FORCE_FULL_FRAME_UPDATES` replaces the explicit
+board/SoC conditional, so partial-update capability is expressed through the
+display configuration without changing DVT3 behavior.
 
-The first reset capture observed one HardFault immediately after an unusually
-long Timeline/BlobDB flush. It is retained as
-`/tmp/pebbleos-compositor-provider-dvt3.log`. A second no-reset soak did not
-reboot, and the decisive 150-second controlled-reset capture repeated the full
-settings, AppDB, and BlobDB flush path, completed AppFetch with result 0, and
-then remained stable without an assertion, flash fault, or AP reboot. That
-successful reproduction capture is
-`/tmp/pebbleos-compositor-provider-dvt3-reset2.log`.
-
-The provider files were subsequently moved from the shared compositor folder
-into `src/fw/board`, with DVT3 selecting the T5AI implementation from the
-board object. The map retained the exact framebuffer placement and size, but
-the reflashed board-local binary is **not hardware-accepted**. Its controlled
-reset HardFaulted during startup, then the following boot reset the NimBLE host
-three times and asserted when host start timed out. A third boot recovered to
-the launcher and encrypted phone session. The failing capture is
-`/tmp/pebbleos-board-compositor-provider-dvt3.log`. Do not treat the earlier
-successful capture or visual launcher-transition testing as acceptance until
-this startup fault is attributed.
+The final stock-ownership image passed all 167 tool tests and built with FLASH
+878,227 bytes and KERNEL_RAM 75,232 bytes. Its raw SHA-256 is
+`1f21d1145f68e63b68bd8e9b540282d305660047971e0ee0e45b8974c66ec009`
+and its protected SHA-256 is
+`059521d94733498fe627ea82b9bdfac222371b557af7143dae260838423a0438`.
+The guarded flasher programmed only `0x132000..0x215d0a`. The final controlled
+150-second trace reached runlevel 4, completed the settings and BlobDB flushes,
+and completed AppFetch with result 0. It contained no HardFault, assertion,
+NimBLE host reset, or unexpected AP reboot and is retained as
+`/tmp/pebbleos-compositor-final-dvt3.log`.
 
 ### Hardware validation result — 2026-09-19
 
