@@ -56,9 +56,9 @@ The common I2C layer contains T5AI-specific timeouts, retry limits, logging,
 and bit-bang recovery. The recovery entry point has no active caller. Restore
 the common layer and keep CST92xx error policy in the T5AI touch driver.
 
-`bluetooth_persistent_storage_t5ai.c` exists but is not selected; the build
-uses the PRF backend instead. Choose one backend, remove the dead path, and
-ensure comments describe the selected persistent-storage behavior.
+The unselected `bluetooth_persistent_storage_t5ai.c` backend was removed. T5AI
+uses the PRF backend selected in the Bluetooth service build, whose comments
+describe the current protected-flash write constraint.
 
 ### Shared product behavior is disabled for bring-up
 
@@ -250,6 +250,37 @@ PPoG session without a HardFault, assertion, watchdog, panic, or AP reboot.
 Missing optional glance resources 613, 616, and 618 were reported as handled
 resource-check warnings and did not destabilize the launcher. The accepted
 trace is `/tmp/pebbleos-launcher-cleanup-dvt3.log`.
+
+The next candidate restored the stock shell first-use block while leaving the
+settings-DB compaction migration and battery UI excluded. It passed all 95
+focused tests and built successfully, but it is not hardware-accepted. Earlier
+T5AI firmware never set the getting-started-complete preference, so the first
+upgrade boot looked like a factory reset, marked Bluetooth storage unfaithful,
+and triggered a full phone resync. During the resulting AppDB flush,
+`pfs_remove_files()` asserted because `@00000033/res` was still in use. A
+non-flashing second boot was stable, proving that the preference persisted,
+but every existing device would still encounter the unsafe transition once.
+The candidate was therefore reverted. Keep the T5AI first-use exclusion until
+full resync can safely retire resources that are held by the launcher or a
+running app. The failing and second-boot traces are
+`/tmp/pebbleos-onboarding-first-boot-dvt3.log` and
+`/tmp/pebbleos-onboarding-second-boot-dvt3.log`.
+
+The rolled-back source again passes all 95 focused tests and builds with FLASH
+878,227 bytes. It was restored to the watch over the AP-only range
+`0x132000..0x215d0a`; the raw SHA-256 is
+`34b20f6580d53e6ea3afc34eb1aeecfb87d865fd74716a63d9cbb90e41acc3e0`
+and the protected SHA-256 is
+`0896397f19d8dda86aae317a6ddcd346909ce870b5653b4d50b3856382e1b017`.
+A final 60-second capture completed AppDB and BlobDB flushes without an
+assertion or reboot. The rollback trace is
+`/tmp/pebbleos-onboarding-rollback-dvt3.log`.
+
+The unused volatile T5AI Bluetooth persistence backend was then deleted. It
+was never selected by the build; T5AI continues to use the bounded shared-PRF
+backend. A focused test now requires both that the build selects the PRF source
+and that the dead alternative file remains absent. This cleanup is intended to
+produce no firmware behavior or image change beyond build-version metadata.
 
 ### Hardware validation result — 2026-09-19
 

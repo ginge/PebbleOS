@@ -65,6 +65,12 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("bluetooth_persistent_storage_normal.c", bluetooth_build)
         self.assertIn("bluetooth_persistent_storage_prf.c", bluetooth_build)
         self.assertNotIn("bluetooth_persistent_storage_t5ai.c", bluetooth_build)
+        self.assertFalse(
+            (
+                ROOT
+                / "src/fw/services/bluetooth/bluetooth_persistent_storage_t5ai.c"
+            ).exists()
+        )
         nimble_build = (ROOT / "src/bluetooth-fw/nimble/wscript_build").read_text()
         self.assertIn("if bld.env.CONFIG_SOC_T5AI:", nimble_build)
         self.assertIn("excludes.append('gatt_client_discovery.c')", nimble_build)
