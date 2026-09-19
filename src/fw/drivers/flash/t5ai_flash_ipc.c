@@ -89,6 +89,7 @@ static PebbleMutex *s_saradc_mutex;
 static FlashCommand s_flash_command __attribute__((aligned(32)));
 static SaradcCommand s_saradc_command __attribute__((aligned(32)));
 static bool s_flash_available;
+static bool s_flash_reconnect_allowed;
 
 #if UINTPTR_MAX == UINT32_MAX
 _Static_assert(sizeof(SaradcConfig) == 36u, "BK7258 SARADC config ABI changed");
@@ -147,19 +148,39 @@ status_t t5ai_flash_ipc_init(void) {
   }
   status = t5ai_mb_ipc_open(FLASH_CLIENT_PORT, FLASH_SERVER_PORT, &s_flash_socket);
   s_flash_available = PASSED(status);
+  /* CONNECT is idempotent and no flash operation has been issued yet. */
+  s_flash_reconnect_allowed = !s_flash_available;
   return status;
 }
 
 static void prv_flash_fault(status_t status, uint8_t command) {
   s_flash_available = false;
+  /* A read can be issued again from the beginning. A write or erase may have
+   * reached flash before its response was lost, so mutations remain failed
+   * closed for the rest of the boot. */
+  s_flash_reconnect_allowed = command == FLASH_READ || command == FLASH_READ_DONE;
   t5ai_mb_ipc_poison(s_flash_socket);
   t5ai_cp_mailbox_snapshot_failure(0x464c0000u | command, status);
+  PBL_LOG_ERR("T5AI flash IPC fault command=%u status=%ld recoverable=%u", command,
+              (long)status, s_flash_reconnect_allowed);
 }
 
 static status_t prv_flash_transaction(uint8_t command) {
   if (!s_flash_available) {
-    PBL_LOG_ERR("T5AI flash IPC unavailable for command %u", command);
-    return E_INVALID_OPERATION;
+    if (!s_flash_reconnect_allowed) {
+      PBL_LOG_ERR("T5AI flash IPC unavailable for command %u", command);
+      return E_INVALID_OPERATION;
+    }
+    status_t status = t5ai_mb_ipc_open(FLASH_CLIENT_PORT, FLASH_SERVER_PORT,
+                                       &s_flash_socket);
+    s_flash_available = PASSED(status);
+    if (!s_flash_available) {
+      PBL_LOG_ERR("T5AI flash IPC reconnect failed command=%u status=%ld", command,
+                  (long)status);
+      return status;
+    }
+    s_flash_reconnect_allowed = false;
+    PBL_LOG_INFO("T5AI flash IPC reconnected before command %u", command);
   }
   t5ai_mb_ipc_discard(s_flash_socket);
   status_t status = t5ai_mb_ipc_send(s_flash_socket, command, &s_flash_command,

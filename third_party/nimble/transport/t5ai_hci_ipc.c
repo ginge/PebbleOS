@@ -85,6 +85,7 @@ static uint8_t s_pending_frame_head;
 static uint8_t s_pending_frame_count;
 static uint8_t s_event_payload[T5AI_HCI_MAX_EVENT_SIZE] __attribute__((aligned(32)));
 static uint8_t s_acl_payload[T5AI_HCI_MAX_ACL_SIZE] __attribute__((aligned(32)));
+static T5AIHCIIpcDiagnostics s_diagnostics;
 
 _Static_assert(sizeof(T5AIHCIMessage) == 20u, "T5AI HCI IPC ABI changed");
 
@@ -127,8 +128,12 @@ static status_t prv_send_frame(T5AIMIPCFrame *frame) {
     if (status != E_BUSY) {
       return status;
     }
+    ++s_diagnostics.send_busy_retries;
     vTaskDelay(pdMS_TO_TICKS(1u));
   } while (xTaskGetTickCount() - start < pdMS_TO_TICKS(T5AI_HCI_SEND_TIMEOUT_MS));
+  ++s_diagnostics.send_timeouts;
+  PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "T5AI HCI MIPC send timed out: header=%08lx object=%08lx",
+                (unsigned long)frame->header, (unsigned long)frame->object);
   return E_AGAIN;
 }
 
@@ -196,6 +201,7 @@ static bool prv_is_transport_ack(const T5AIMIPCFrame *frame, T5AIMIPCData *data)
 static status_t prv_queue_pending_frame(const T5AIMIPCFrame *frame) {
   taskENTER_CRITICAL();
   if (s_pending_frame_count == T5AI_HCI_PENDING_FRAME_CAPACITY) {
+    ++s_diagnostics.pending_queue_exhaustions;
     taskEXIT_CRITICAL();
     return E_OUT_OF_RESOURCES;
   }
@@ -203,6 +209,9 @@ static status_t prv_queue_pending_frame(const T5AIMIPCFrame *frame) {
       (uint8_t)((s_pending_frame_head + s_pending_frame_count) % T5AI_HCI_PENDING_FRAME_CAPACITY);
   s_pending_frames[tail] = (T5AIHCIPendingFrame){.frame = *frame};
   ++s_pending_frame_count;
+  if (s_pending_frame_count > s_diagnostics.pending_queue_high_water) {
+    s_diagnostics.pending_queue_high_water = s_pending_frame_count;
+  }
   taskEXIT_CRITICAL();
   return S_SUCCESS;
 }
@@ -272,6 +281,7 @@ static void prv_worker(void *context) {
     T5AIMIPCFrame frame;
     while (prv_dequeue_pending_frame(&frame)) {
       if (prv_retire_request(&frame) || prv_retire_event_response(&frame)) {
+        ++s_diagnostics.transport_acks_received;
         continue;
       }
       if ((uint8_t)frame.header !=
@@ -284,6 +294,10 @@ static void prv_worker(void *context) {
           &frame, __atomic_load_n(&s_expected_subtype, __ATOMIC_ACQUIRE), &matched);
       mutex_unlock(s_async_mutex);
       if (FAILED(status)) {
+        PBL_LOG_D_ERR(LOG_DOMAIN_COMM,
+                      "T5AI HCI command handling failed: status=%ld header=%08lx expected=%u",
+                      (long)status, (unsigned long)frame.header,
+                      (unsigned)__atomic_load_n(&s_expected_subtype, __ATOMIC_ACQUIRE));
         prv_mark_faulted();
       }
       if (matched) {
@@ -302,6 +316,7 @@ static void prv_route_frame(uint8_t logical_channel, const T5AICPMailboxFrame *f
     return;
   }
   T5AIMIPCFrame pending;
+  ++s_diagnostics.frames_received;
   memcpy(&pending, (const void *)frame->address, sizeof(pending));
   (void)t5ai_cp_mailbox_acknowledge_frame(frame, true);
   if (FAILED(prv_queue_pending_frame(&pending))) {
@@ -343,10 +358,15 @@ static status_t prv_respond_to_event(T5AIHCIMessage *message) {
         s_event_response_in_use[i] = false;
         taskEXIT_CRITICAL();
       }
+      if (PASSED(result)) {
+        ++s_diagnostics.responses_sent;
+      }
       return result;
     }
   }
   taskEXIT_CRITICAL();
+  ++s_diagnostics.response_exhaustions;
+  PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "T5AI HCI event response slots exhausted");
   return result;
 }
 
@@ -363,6 +383,11 @@ static status_t prv_handle_command(T5AIMIPCFrame *frame, uint8_t expected, bool 
      * our reply. Snapshot every field needed by the callback before replying;
      * rereading the remote descriptor afterwards races that reuse. */
     const uint8_t subtype = message->subtype;
+    if (subtype == T5AI_HCI_EVENT_TO_HOST) {
+      ++s_diagnostics.events_received;
+    } else {
+      ++s_diagnostics.acl_received;
+    }
     const uint32_t request = message->request;
     const size_t request_length = message->request_length;
     uint8_t *payload = subtype == T5AI_HCI_EVENT_TO_HOST ? s_event_payload : s_acl_payload;
@@ -382,10 +407,14 @@ static status_t prv_handle_command(T5AIMIPCFrame *frame, uint8_t expected, bool 
       }
     }
   } else if (message->subtype == expected) {
+    ++s_diagnostics.commands_received;
     s_exchange_result = message->result;
     *matched = true;
   }
   status_t ack_status = prv_mipc_ack(frame, remote_data);
+  if (PASSED(ack_status)) {
+    ++s_diagnostics.mipc_acks_sent;
+  }
   return FAILED(status) ? status : ack_status;
 }
 
@@ -393,6 +422,8 @@ static status_t prv_exchange(uint8_t subtype, const void *payload, size_t length
   const bool runtime_exchange = prv_started();
   T5AIHCIOutbound *request = prv_allocate_request();
   if (request == NULL) {
+    ++s_diagnostics.request_exhaustions;
+    PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "T5AI HCI request slots exhausted: subtype=%u", subtype);
     if (runtime_exchange) {
       prv_mark_faulted();
     }
@@ -421,6 +452,8 @@ static status_t prv_exchange(uint8_t subtype, const void *payload, size_t length
   }
 
   if (xSemaphoreTake(s_exchange_ready, pdMS_TO_TICKS(T5AI_HCI_SEND_TIMEOUT_MS)) != pdPASS) {
+    ++s_diagnostics.exchange_timeouts;
+    PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "T5AI HCI exchange timed out: subtype=%u", subtype);
     __atomic_store_n(&s_expected_subtype, UINT8_MAX, __ATOMIC_RELEASE);
     if (runtime_exchange) {
       prv_mark_faulted();
@@ -530,4 +563,23 @@ void t5ai_hci_ipc_poll(void) {
   if (prv_started() && s_worker_wake != NULL) {
     (void)xSemaphoreGive(s_worker_wake);
   }
+}
+
+void t5ai_hci_ipc_get_diagnostics(T5AIHCIIpcDiagnostics *diagnostics) {
+  if (diagnostics == NULL) {
+    return;
+  }
+  *diagnostics = s_diagnostics;
+  diagnostics->started = prv_started();
+  diagnostics->faulted = prv_faulted();
+  diagnostics->request_slots_in_use = 0u;
+  diagnostics->response_slots_in_use = 0u;
+  taskENTER_CRITICAL();
+  for (size_t i = 0; i < T5AI_HCI_REQUEST_CAPACITY; ++i) {
+    diagnostics->request_slots_in_use += s_request_in_use[i] ? 1u : 0u;
+  }
+  for (size_t i = 0; i < T5AI_HCI_EVENT_RESPONSE_CAPACITY; ++i) {
+    diagnostics->response_slots_in_use += s_event_response_in_use[i] ? 1u : 0u;
+  }
+  taskEXIT_CRITICAL();
 }

@@ -41,6 +41,7 @@ static uint8_t s_acl_tx[T5AI_HCI_MAX_ACL_SIZE];
 static TaskHandle_t s_hci_task;
 static QueueHandle_t s_acl_tx_queue;
 static uint32_t s_pp_rx_remaining;
+static uint32_t s_pp_tx_remaining;
 static uint32_t s_pp_rx_packets;
 static uint32_t s_pp_rx_discontinuities;
 static uint32_t s_pp_tx_discontinuities;
@@ -115,6 +116,12 @@ static void prv_trace_ppog_rx(const uint8_t *data, size_t length) {
     PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
               "T5AI PP RX start ep=0x%04x len=%u sn=%u packet=%lu", endpoint,
               pp_length, sequence, (unsigned long)s_pp_rx_packets);
+    if (endpoint == 0xb1dbu && pp_length >= 4u && payload_length >= 8u) {
+      PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
+                     "T5AI BlobDB RX cmd=%u token=%u db=%u",
+                     (unsigned)payload[4], (unsigned)prv_read_le16(&payload[5]),
+                     (unsigned)payload[7]);
+    }
   } else if ((s_pp_rx_packets & 31u) == 0u) {
     PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
               "T5AI PPoG RX progress packet=%lu remaining=%lu sn=%u",
@@ -159,11 +166,32 @@ static void prv_trace_ppog_tx(const uint8_t *data, size_t length) {
     }
     s_pp_tx_expected_sequence = (uint8_t)((sequence + 1u) & 0x1fu);
     s_pp_tx_sequence_valid = true;
+    const uint8_t *payload = &data[12];
+    const size_t payload_length = length - 12u;
+    if (s_pp_tx_remaining == 0 && payload_length >= 4u) {
+      const uint16_t pp_length = prv_read_be16(payload);
+      const uint16_t endpoint = prv_read_be16(&payload[2]);
+      s_pp_tx_remaining = (uint32_t)pp_length + 4u;
+      PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
+                     "T5AI PP TX start ep=0x%04x len=%u sn=%u", endpoint,
+                     pp_length, sequence);
+      if (endpoint == 0xb1dbu && pp_length >= 3u && payload_length >= 7u) {
+        PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
+                       "T5AI BlobDB TX token=%u result=%u",
+                       (unsigned)prv_read_le16(&payload[4]), (unsigned)payload[6]);
+      }
+    }
+    if (payload_length >= s_pp_tx_remaining) {
+      s_pp_tx_remaining = 0;
+    } else {
+      s_pp_tx_remaining -= payload_length;
+    }
   } else {
     PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
                    "T5AI PPoG TX control type=%u sn=%u handle=0x%04x",
                    type, sequence, att_handle);
     if (type != T5AI_PPOG_PACKET_TYPE_ACK) {
+      s_pp_tx_remaining = 0;
       s_pp_tx_sequence_valid = false;
     }
   }
@@ -238,6 +266,31 @@ static void prv_receive_event(const uint8_t *data, size_t length) {
                   (unsigned)length);
     return;
   }
+  if (data[0] == 0x05u) {
+    T5AIHCIIpcDiagnostics diagnostics;
+    t5ai_hci_ipc_get_diagnostics(&diagnostics);
+    PBL_LOG_D_INFO(
+        LOG_DOMAIN_COMM,
+        "T5AI HCI disconnect snapshot: rx=%lu ack=%lu cmd=%lu evt=%lu acl=%lu rsp=%lu mack=%lu",
+        (unsigned long)diagnostics.frames_received,
+        (unsigned long)diagnostics.transport_acks_received,
+        (unsigned long)diagnostics.commands_received, (unsigned long)diagnostics.events_received,
+        (unsigned long)diagnostics.acl_received, (unsigned long)diagnostics.responses_sent,
+        (unsigned long)diagnostics.mipc_acks_sent);
+    PBL_LOG_D_INFO(
+        LOG_DOMAIN_COMM,
+        "T5AI HCI pressure: busy=%lu sendto=%lu exchto=%lu req=%u/%lu rsp=%u/%lu",
+        (unsigned long)diagnostics.send_busy_retries, (unsigned long)diagnostics.send_timeouts,
+        (unsigned long)diagnostics.exchange_timeouts, diagnostics.request_slots_in_use,
+        (unsigned long)diagnostics.request_exhaustions, diagnostics.response_slots_in_use,
+        (unsigned long)diagnostics.response_exhaustions);
+    PBL_LOG_D_INFO(
+        LOG_DOMAIN_COMM,
+        "T5AI HCI queue: pend=%u/%lu started=%u fault=%u",
+        diagnostics.pending_queue_high_water,
+        (unsigned long)diagnostics.pending_queue_exhaustions, diagnostics.started,
+        diagnostics.faulted);
+  }
 
   void *event = ble_transport_alloc_evt(0);
   if (event == NULL) {
@@ -285,7 +338,9 @@ void ble_transport_ll_reinit(void) {
   };
 
   s_pp_rx_sequence_valid = false;
+  s_pp_rx_remaining = 0;
   s_pp_tx_sequence_valid = false;
+  s_pp_tx_remaining = 0;
   __atomic_store_n(&s_reset_scheduled, false, __ATOMIC_RELEASE);
   prv_set_started(true);
   if (t5ai_hci_ipc_start(&callbacks) != 0) {

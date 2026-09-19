@@ -60,6 +60,9 @@ extern uint32_t retained_read(uint8_t id);
 #define RTC_TIMEZONE_DST_END                    16
 #define T5AI_RTC_BASE_TICKS_LOW                 20
 #define T5AI_RTC_BASE_TICKS_HIGH                21
+#define T5AI_FLASH_FAILURE_CONTEXT              22
+#define T5AI_FLASH_FAILURE_STATUS               23
+#define T5AI_FLASH_FAILURE_ADDRESS              24
 
 #elif defined(CONFIG_QEMU)
 /* QEMU backup registers mapped to MMIO backup region (indices 0..15) */

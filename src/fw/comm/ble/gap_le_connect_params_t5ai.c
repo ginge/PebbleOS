@@ -15,33 +15,22 @@
 extern void conn_mgr_handle_desired_state_granted(GAPLEConnection *hdl,
                                                   ResponseTimeState granted_state);
 
-/* Keep the unstable low-power transition disabled, but do request Pebble's
- * active 15 ms interval. Android can establish this board at 30 ms, which made
- * service discovery and initial sync consume most of the phone's timeout. */
+/* Keep the unstable low-power transition disabled. For this diagnostic build,
+ * also retain the central-established latency-zero parameters: the T5AI link
+ * repeatedly stalls after accepting our 15 ms parameter update, while the
+ * vendor peripheral path deliberately leaves its update request disabled. */
 void gap_le_connect_params_request(GAPLEConnection *connection,
                                    ResponseTimeState desired_state) {
   new_timer_stop(connection->param_update_info.watchdog_timer);
   connection->param_update_info.attempts = 0;
   connection->param_update_info.is_request_pending = false;
 
-  if (desired_state == ResponseTimeMin &&
-      connection->conn_params.conn_interval_1_25ms > 12u) {
-    const BleConnectionParamsUpdateReq request = {
-        .interval_min_1_25ms = 12u,
-        .interval_max_1_25ms = 12u,
-        .slave_latency_events = 0u,
-        .supervision_timeout_10ms = 2000u,
-    };
-    const bool accepted =
-        bt_driver_le_connection_parameter_update(&connection->device, &request);
-    PBL_LOG_INFO("T5AI conn param request: current=%u latency=%u target=12 accepted=%u",
-                 connection->conn_params.conn_interval_1_25ms,
-                 connection->conn_params.slave_latency_events, accepted);
-    if (accepted) {
-      connection->param_update_info.is_request_pending = true;
-      return;
-    }
-  }
+  PBL_LOG_INFO("T5AI retaining central connection parameters: interval=%u latency=%u "
+               "timeout=%u desired=%u",
+               connection->conn_params.conn_interval_1_25ms,
+               connection->conn_params.slave_latency_events,
+               connection->conn_params.supervision_timeout_10ms,
+               (unsigned)desired_state);
 
   conn_mgr_handle_desired_state_granted(connection, desired_state);
 }

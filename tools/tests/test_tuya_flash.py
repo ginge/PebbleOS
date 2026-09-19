@@ -9,6 +9,36 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class TuyaFlashTest(unittest.TestCase):
+    def test_t5ai_write_failures_survive_ap_reset_for_diagnosis(self):
+        flash = (ROOT / "src/fw/drivers/flash/t5ai.c").read_text()
+        main = (ROOT / "src/fw/main.c").read_text()
+        registers = (ROOT / "src/fw/system/rtc_registers.h").read_text()
+
+        self.assertIn("T5AI_FLASH_FAILURE_CONTEXT", registers)
+        self.assertIn("T5AI_FLASH_FAILURE_STATUS", registers)
+        self.assertIn("T5AI_FLASH_FAILURE_ADDRESS", registers)
+        self.assertIn("T5AI_FLASH_FAILURE_POLICY", flash)
+        self.assertIn("T5AI_FLASH_FAILURE_IPC_WRITE", flash)
+        self.assertIn("prv_record_write_failure", flash)
+        self.assertIn("prv_t5ai_capture_retained_failure();", main)
+        self.assertIn("rr=%u/%08lx ff=%08lx/%ld/%08lx", main)
+
+    def test_t5ai_flash_reconnects_only_after_non_mutating_faults(self):
+        flash = (ROOT / "src/fw/drivers/flash/t5ai_flash_ipc.c").read_text()
+
+        self.assertIn("static bool s_flash_reconnect_allowed;", flash)
+        self.assertIn(
+            "command == FLASH_READ || command == FLASH_READ_DONE", flash
+        )
+        self.assertIn(
+            "if (!s_flash_reconnect_allowed)", flash
+        )
+        self.assertIn(
+            "t5ai_mb_ipc_open(FLASH_CLIENT_PORT, FLASH_SERVER_PORT", flash
+        )
+        self.assertNotIn("command == FLASH_WRITE ||", flash)
+        self.assertNotIn("command == FLASH_ERASE_SECTOR ||", flash)
+
     @unittest.skipUnless(shutil.which("cc"), "host C compiler required")
     def test_mipc_wire_format(self):
         source = r'''
@@ -103,17 +133,29 @@ int main(void) {
 
 static uint8_t storage[0x800000];
 static unsigned reads, writes, erases;
-static bool fail_next_read, fail_next_write, fail_next_erase;
+static bool fail_next_read, fail_next_write, fail_next_erase, corrupt_next_write;
+static bool corrupt_next_successful_read;
+
+void t5ai_retained_write(uint8_t index, uint32_t value) {
+  (void)index;
+  (void)value;
+}
 
 status_t t5ai_flash_ipc_init(void) { memset(storage, 0xff, sizeof(storage)); return S_SUCCESS; }
 status_t t5ai_flash_ipc_read(uint32_t offset, void *buffer, size_t length) {
   assert(length <= 0x200); reads++;
   if (fail_next_read) { fail_next_read = false; return E_ERROR; }
-  memcpy(buffer, storage + offset, length); return S_SUCCESS;
+  memcpy(buffer, storage + offset, length);
+  if (corrupt_next_successful_read) {
+    corrupt_next_successful_read = false;
+    ((uint8_t *)buffer)[0] ^= 0x02;
+  }
+  return S_SUCCESS;
 }
 status_t t5ai_flash_ipc_write(uint32_t offset, const void *buffer, size_t length) {
   assert(length <= 0x100); writes++; memcpy(storage + offset, buffer, length);
   if (fail_next_write) { fail_next_write = false; return E_ERROR; }
+  if (corrupt_next_write) { corrupt_next_write = false; storage[offset] ^= 0x08; }
   return S_SUCCESS;
 }
 status_t t5ai_flash_ipc_erase_4k(uint32_t offset) {
@@ -171,21 +213,32 @@ int main(void) {
   const uint32_t cached_offset = cached_page - FLASH_REGION_BASE_ADDRESS;
   memset(storage + cached_offset, 0xa5, 32);
   unsigned reads_before_cache = reads;
+  corrupt_next_successful_read = true;
   assert(flash_impl_read_sync(output, cached_page + 3, 4) == S_SUCCESS);
-  assert(reads == reads_before_cache + 1 && output[0] == 0xa5 && output[3] == 0xa5);
+  assert(reads == reads_before_cache + 3 && output[0] == 0xa5 && output[3] == 0xa5);
   assert(flash_impl_read_sync(output, cached_page + 3, 4) == S_SUCCESS);
-  assert(reads == reads_before_cache + 1);
+  assert(reads == reads_before_cache + 3);
 
   uint8_t header_update = 0x33;
   assert(flash_impl_write_page_begin(&header_update, cached_page + 3, 1) == 1);
   assert(flash_impl_get_write_status() == S_SUCCESS);
   assert(flash_impl_read_sync(output, cached_page + 3, 1) == S_SUCCESS);
-  assert(reads == reads_before_cache + 1 && output[0] == header_update);
+  assert(reads == reads_before_cache + 3 && output[0] == header_update);
+
+  const uint8_t version_update[] = {0x01, 0x50};
+  corrupt_next_write = true;
+  assert(flash_impl_write_page_begin(version_update, cached_page,
+                                     sizeof(version_update)) == sizeof(version_update));
+  assert(flash_impl_get_write_status() == S_SUCCESS);
+  assert(writes == 6 && reads == reads_before_cache + 7);
+  assert(flash_impl_read_sync(output, cached_page, sizeof(version_update)) == S_SUCCESS);
+  assert(reads == reads_before_cache + 7 &&
+         memcmp(output, version_update, sizeof(version_update)) == 0);
 
   assert(flash_impl_erase_subsector_begin(cached_page) == S_SUCCESS);
   assert(flash_impl_get_erase_status() == S_SUCCESS);
   assert(flash_impl_read_sync(output, cached_page, 1) == S_SUCCESS);
-  assert(reads == reads_before_cache + 1 && output[0] == 0xff);
+  assert(reads == reads_before_cache + 7 && output[0] == 0xff);
   return 0;
 }
 '''

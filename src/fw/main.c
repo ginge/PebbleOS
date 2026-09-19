@@ -41,6 +41,7 @@
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/clock.h>
 #include <pbl/soc/t5ai/freertos.h>
+#include <pbl/soc/t5ai/retained.h>
 #include <pbl/soc/t5ai/rtc.h>
 #endif
 
@@ -208,8 +209,23 @@ static T5AICPMailboxDiagnostics s_t5ai_mailbox_diagnostics;
 static T5AICPMailboxFailureDiagnostics s_t5ai_mailbox_failure_diagnostics;
 #define T5AI_SYSTEM_CLK_MODE1 (*(volatile uint32_t *)0x44010020u)
 static T5AIClockDiagnostics s_t5ai_clock_diagnostics;
+static RebootReason s_t5ai_boot_reboot_reason;
+static uint32_t s_t5ai_boot_flash_failure_context;
+static int32_t s_t5ai_boot_flash_failure_status;
+static uint32_t s_t5ai_boot_flash_failure_address;
 volatile uint32_t g_t5ai_boot_stage;
 volatile uint32_t g_t5ai_app_stage;
+
+static void prv_t5ai_capture_retained_failure(void) {
+  reboot_reason_get(&s_t5ai_boot_reboot_reason);
+  s_t5ai_boot_flash_failure_context = t5ai_retained_read(T5AI_FLASH_FAILURE_CONTEXT);
+  s_t5ai_boot_flash_failure_status =
+      (int32_t)t5ai_retained_read(T5AI_FLASH_FAILURE_STATUS);
+  s_t5ai_boot_flash_failure_address = t5ai_retained_read(T5AI_FLASH_FAILURE_ADDRESS);
+  t5ai_retained_write(T5AI_FLASH_FAILURE_CONTEXT, 0u);
+  t5ai_retained_write(T5AI_FLASH_FAILURE_STATUS, 0u);
+  t5ai_retained_write(T5AI_FLASH_FAILURE_ADDRESS, 0u);
+}
 
 static void prv_t5ai_print_retained_mailbox_failure(void) {
   if (!t5ai_cp_mailbox_get_failure_diagnostics(&s_t5ai_mailbox_failure_diagnostics)) {
@@ -294,7 +310,7 @@ static void cp_heartbeat_timer_callback(void* data) {
                          "apptask=%u state=%u prio=%u stack=%u km=%u/%u bg=%u/%u "
                          "nt=%u/%u/%u bth=%u/%u bti=%u/%u "
                          "q=%lu/%lu/%lu/%lu/%lu take=%lu cur=%lu "
-                         "irq=%08lx/%08lx/%08lx",
+                         "irq=%08lx/%08lx/%08lx rr=%u/%08lx ff=%08lx/%ld/%08lx",
                          (unsigned long)xTaskGetTickCount(), (unsigned long)rtc_get_ticks(),
                          (unsigned long)t5ai_rtc_get_raw_ticks(), (unsigned long)SystemCoreClock,
                          (unsigned long)SysTick->LOAD, (unsigned long)g_t5ai_boot_stage,
@@ -323,7 +339,12 @@ static void cp_heartbeat_timer_callback(void* data) {
                          (unsigned long)queue_diagnostics.events_taken,
                          (unsigned long)queue_diagnostics.current_event,
                          (unsigned long)SCB->ICSR, (unsigned long)__get_BASEPRI(),
-                         (unsigned long)__get_PRIMASK());
+                         (unsigned long)__get_PRIMASK(),
+                         (unsigned)s_t5ai_boot_reboot_reason.code,
+                         (unsigned long)s_t5ai_boot_reboot_reason.extra.value,
+                         (unsigned long)s_t5ai_boot_flash_failure_context,
+                         (long)s_t5ai_boot_flash_failure_status,
+                         (unsigned long)s_t5ai_boot_flash_failure_address);
   } else if (probe == DbgSerialMailboxProbe_Mailbox) {
     t5ai_cp_mailbox_get_diagnostics(&s_t5ai_mailbox_diagnostics);
     dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
@@ -563,6 +584,10 @@ static NOINLINE void prv_main_task_init(void) {
   // reset to the bootloader.
   static McuRebootReason s_mcu_reboot_reason;
   s_mcu_reboot_reason = watchdog_clear_reset_flag();
+
+#ifdef CONFIG_SOC_T5AI
+  prv_t5ai_capture_retained_failure();
+#endif
 
 #ifdef CONFIG_PULSE_EVERYWHERE
   pulse_init();

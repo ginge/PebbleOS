@@ -424,6 +424,11 @@ status_t app_cache_add_entry(AppInstallId app_id, uint32_t total_size) {
     rv = settings_file_set(&file, (uint8_t *)&app_id, sizeof(AppInstallId),
         (uint8_t *)&entry, sizeof(AppCacheEntry));
 
+#ifdef CONFIG_SOC_T5AI
+    PBL_LOG_INFO("T5AI app cache add id=%" PRId32 " size=%" PRIu32 " rv=%" PRId32,
+                 app_id, total_size, rv);
+#endif
+
     settings_file_close(&file);
 
     // cleanup the cache if we need to
@@ -437,25 +442,49 @@ unlock:
 //! Tests if an entry with the given AppInstallId is in the cache
 bool app_cache_entry_exists(AppInstallId app_id) {
   bool exists = false;
+#ifdef CONFIG_SOC_T5AI
+  status_t open_rv = S_SUCCESS;
+  bool record_exists = false;
+  bool storage_exists = false;
+#endif
   mutex_lock_recursive(s_app_cache_mutex);
   {
     SettingsFile file;
     status_t rv = settings_file_open(&file, APP_CACHE_FILE_NAME, APP_CACHE_MAX_SIZE);
+#ifdef CONFIG_SOC_T5AI
+    open_rv = rv;
+#endif
     if (rv != S_SUCCESS) {
       goto unlock;
     }
 
     exists = settings_file_exists(&file, (uint8_t *)&app_id, sizeof(AppInstallId));
+#ifdef CONFIG_SOC_T5AI
+    record_exists = exists;
+#endif
 
-    if (exists && !app_storage_app_exists(app_id)) {
+    if (exists) {
+#ifdef CONFIG_SOC_T5AI
+      storage_exists = app_storage_app_exists(app_id);
+      if (!storage_exists) {
+#else
+      if (!app_storage_app_exists(app_id)) {
+#endif
       settings_file_delete(&file, (uint8_t *)&app_id, sizeof(AppInstallId));
       exists = false;
+      }
     }
 
     settings_file_close(&file);
   }
 unlock:
   mutex_unlock_recursive(s_app_cache_mutex);
+#ifdef CONFIG_SOC_T5AI
+  PBL_LOG_INFO("T5AI app cache exists id=%" PRId32 " open=%" PRId32
+               " record=%u storage=%u result=%u",
+               app_id, open_rv, (unsigned)record_exists,
+               (unsigned)storage_exists, (unsigned)exists);
+#endif
   return exists;
 }
 

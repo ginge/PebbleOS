@@ -166,9 +166,17 @@ class Interface:
         """The lower layer (iostream) is down. Bring down the interface."""
         with self.close_lock:
             self.closed = True
+            # Wake a blocking pyserial read before closing its file descriptor.
+            # Otherwise the receive thread can race serial.close(), observe an
+            # fd of None inside os.read(), and terminate with TypeError.
+            if hasattr(self.iostream, "cancel_read"):
+                self.iostream.cancel_read()
             self.close_all_sockets()
             self.lcp.down()
             self.simplex_transport.down()
+            if (threading.current_thread() is not self.receive_thread and
+                    self.receive_thread.is_alive()):
+                self.receive_thread.join(timeout=1.0)
             self.iostream.close()
 
     def on_link_up(self):

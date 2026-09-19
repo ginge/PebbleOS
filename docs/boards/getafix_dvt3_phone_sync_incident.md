@@ -1022,3 +1022,117 @@ address/protection policy or from the CP flash IPC session, including the
 address, page length, command, and status. This is diagnostic only; shared
 flash behavior and the PPoG window are unchanged. Do not retry AppFetch on the
 same flashed image because the pre-assert origin was not observable there.
+
+### 2026-09-18 retries stop before AppFetch
+
+The flash-origin diagnostic image did not reproduce the earlier flash write.
+After bond restoration and discovery, the first retry carried no AppFetch or
+PutBytes traffic and ended about 92 seconds later with HCI reason `0x08`
+(connection supervision timeout). A cold-replugged retry restored 97 BlobDB
+packets; a later phone attempt delivered a 914-byte App Order packet on
+endpoint `0xABCD`, then ended about 52 seconds later with the same supervision
+timeout. Neither run entered AppFetch, called the flash writer, asserted, or
+reset. The latter trace is
+`build/traces/t5ai-stock-rx17-flash-origin-retry-20260918.log`.
+
+The raw `PBLIPC` snapshot after the second timeout was
+`tx=2087/1850/1849 ... senderr=237 rxto=0 ackmis=0`. The 237 send errors are
+not 237 dropped frames: the HCI sender retries `E_BUSY` once per millisecond
+for up to two seconds, and `tx_queued - tx_published` is also 237. Existing
+mailbox counters therefore conflate harmless single-channel contention with a
+terminal send failure.
+
+The next diagnostic candidate adds T5AI-local HCI counters and logs only; it
+does not alter mailbox, HCI, PPoG, or flash behavior. It separates busy retries
+from terminal send and exchange timeouts, records request/response slot and
+pending-frame pressure, counts controller events and ACL packets, and emits a
+snapshot when HCI Disconnection Complete arrives. The focused 66-test
+Tuya/Getafix suite and full firmware build pass. KERNEL_RAM use is 66,688
+bytes, 32 bytes above the preceding diagnostic image. `build/pebbleos.bin` is
+878,259 bytes with SHA-256
+`be3e4e74eb68df25b3fcf70193d9b08dfde288cdf2b28cca5dce546ac55613e9`.
+
+### 2026-09-18 HCI isolation and transfer-triggered reboot
+
+The HCI diagnostic image connected at a 15 ms interval and remained connected
+for about 62 seconds before controller reason `0x08`. Its disconnect snapshot
+reported 677 received frames, 338 mailbox acknowledgements, 119 commands, 127
+events, 93 ACL packets, 220 responses, 109 transient busy retries, no terminal
+send or exchange timeouts, and no request-slot exhaustion. This isolates that
+supervision timeout from AP/CP mailbox congestion, heap pressure, and PPoG
+sequence handling. The trace is
+`build/traces/t5ai-hci-diagnostics-sync-20260918.log`.
+
+A subsequent single-watchface attempt reproduced an AP reboot, but the live
+decoder emitted no pre-reset fault line. Two diagnostic persistence gaps were
+identified: the mailbox failure snapshot is ordinary BSS despite being treated
+as reset-retained, and boot logging clears the retained reboot reason before a
+later shell query can retrieve it. T5AI persistent coredumps are also disabled.
+
+The next diagnostic image captures the reboot reason and assert extra value at
+early boot, and records T5AI flash policy or IPC-write failures in unused
+retained words before returning the error. `PBLTIM` reports these as
+`rr=<code>/<extra>` and `ff=<context>/<status>/<address>`, then clears the flash
+record so it describes only the preceding boot. This is T5AI-local diagnostics
+only and does not change transfer, flash, mailbox, HCI, or PPoG behavior. The
+focused 67-test Tuya/Getafix suite and firmware build pass. KERNEL_RAM use is
+66,720 bytes. `build/pebbleos.bin` is 878,483 bytes with SHA-256
+`6ca4f576dcb3eebaf8a901af703f34f701be5fa9ae52fbb1d2caa60a6760feb7`.
+
+### 2026-09-18 retained-diagnostic watchface result
+
+One watchface transfer on the retained-diagnostic image reproduced the primary
+failure. AppFetch began with about 20.7 KiB free heap and a 19.2 KiB largest
+block, so allocation pressure was not causal. The flash client then reported
+repeated `FLASH_READ` command 3 operations as unavailable, followed by an
+unavailable `FLASH_WRITE` command 5. `flash_impl_write_page_begin()` returned
+`E_INVALID_OPERATION` (`-10`) and shared `flash_api.c` asserted. The trace is
+`build/traces/t5ai-retained-diag-watchface-20260918.log`.
+
+The first AP restart left the CP Bluetooth controller running. NimBLE restart
+attempts returned reason `0x0013`, then asserted on host-start timeout at LR
+`0x021246b7`, causing a second AP restart. `PBLTIM` subsequently reported
+`rr=17/021246b7`, confirming that secondary assertion. The retained flash
+record had been consumed during the short first boot and was therefore zero by
+the second boot, but the live trace preserved the primary flash failure.
+
+Comparison with the pinned Tuya/Beken flash client found the concrete recovery
+divergence. The vendor client retries a failed non-mutating read once. Pebble's
+outer T5AI layer also nominally retries reads, but the inner client poisoned
+the socket after every failed `READ` or `READ_DONE`, so the retry could only
+return `E_INVALID_OPERATION`; the later write then failed without being sent.
+
+The next candidate allows one socket reconnect on the existing outer retry
+path only when the preceding fault was `READ`, `READ_DONE`, or initial connect.
+It does not retry or reconnect after an ambiguous write or erase: mutations
+remain failed closed for the rest of that boot. First-fault logging now records
+the command, status, and recoverability, and the T5AI write diagnostic avoids
+the unsupported `%zu` formatter. The vendor MIPC CRC byte range was verified
+against both AP and CP reference source and remains unchanged.
+
+The focused 68-test Tuya/Getafix suite, `git diff --check`, and full firmware
+build pass. KERNEL_RAM remains 66,720 bytes. `build/pebbleos.bin` is 878,579
+bytes with SHA-256
+`4315639338a8397a17fccd1b9a068ce85f0b5118d6a44560a48d302fb1de1d2f`;
+the protected AP image has SHA-256
+`72dc52f310e003118f05a3123f8e4770f02f3124dd3e3f7cb6cb9232104520f7`.
+
+### 2026-09-18 flash-recovery watchface result
+
+The read-reconnect candidate prevented the previous flash assertion and AP
+reboot. The initial phone sync paused, then a phone retry transferred the
+watchface twice. Both AppFetch attempts completed with result 0, no flash IPC
+fault, and about 19.8 KiB minimum free heap. Immediately after each successful
+transfer, however, app 25 failed resource lookup and AppFetch started again;
+the watch eventually remained on the AppFetch UI while the Bluetooth task was
+still able to report a clean disconnect. The capture is
+`build/traces/t5ai-flash-read-recovery-watchface-20260918.log`.
+
+The failure was a T5AI resource-backend configuration gap. T5AI PutBytes
+accepts `ObjectAppResources` and stores it as a PFS app-resource file, but the
+T5AI branch of `resource_impl.def` registered only the built-in and system-bank
+backends. Consequently, every transferred app resource file was invisible to
+`resource_storage_check()` after PutBytes closed it. T5AI now registers the
+existing `g_app_file_impl` ahead of the built-in and system-bank backends. This
+is SoC-scoped and restores the same app-resource lookup path used by stock
+normal firmware without enabling the unrelated generic file backend.

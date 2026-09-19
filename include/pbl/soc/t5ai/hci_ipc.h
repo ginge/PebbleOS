@@ -12,6 +12,27 @@ typedef struct {
   T5AIHCIReceiveCallback acl;
 } T5AIHCICallbacks;
 
+typedef struct {
+  uint32_t send_busy_retries;
+  uint32_t send_timeouts;
+  uint32_t exchange_timeouts;
+  uint32_t frames_received;
+  uint32_t transport_acks_received;
+  uint32_t commands_received;
+  uint32_t events_received;
+  uint32_t acl_received;
+  uint32_t responses_sent;
+  uint32_t mipc_acks_sent;
+  uint32_t request_exhaustions;
+  uint32_t response_exhaustions;
+  uint32_t pending_queue_exhaustions;
+  uint8_t pending_queue_high_water;
+  uint8_t request_slots_in_use;
+  uint8_t response_slots_in_use;
+  bool started;
+  bool faulted;
+} T5AIHCIIpcDiagnostics;
+
 /*
  * Controller-only interface to the CP Bluetooth firmware. Receive buffers are
  * borrowed from CP IPC and are valid only for the duration of the callback.
@@ -25,3 +46,4 @@ int t5ai_hci_ipc_send_command(const uint8_t *data, size_t length);
 int t5ai_hci_ipc_send_acl(const uint8_t *data, size_t length);
 bool t5ai_hci_ipc_faulted(void);
 void t5ai_hci_ipc_poll(void);
+void t5ai_hci_ipc_get_diagnostics(T5AIHCIIpcDiagnostics *diagnostics);

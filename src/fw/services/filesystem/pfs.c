@@ -31,6 +31,12 @@
 
 PBL_LOG_MODULE_DEFINE(service_filesystem, CONFIG_SERVICE_FILESYSTEM_LOG_LEVEL);
 
+#ifdef CONFIG_SOC_T5AI
+#define T5AI_PFS_BOOT_TRACE(message) PBL_LOG_INFO("T5AI PFS boot: " message)
+#else
+#define T5AI_PFS_BOOT_TRACE(message) ((void)0)
+#endif
+
 static PebbleRecursiveMutex *s_pfs_mutex = NULL;
 
 #define IS_FILE_TYPE(file_type, type)   ((file_type) == (type))
@@ -2085,6 +2091,7 @@ done:
 }
 
 status_t pfs_init(bool run_filesystem_check) {
+  T5AI_PFS_BOOT_TRACE("enter");
   if (s_pfs_mutex == NULL) {
     s_pfs_mutex = mutex_create_recursive();
   }
@@ -2093,13 +2100,23 @@ status_t pfs_init(bool run_filesystem_check) {
     PFS_FD(fd) = (FileDesc) { .fd_status = FD_STATUS_FREE };
   }
 
+  T5AI_PFS_BOOT_TRACE("populate-begin");
   ftl_populate_region_list();
+  T5AI_PFS_BOOT_TRACE("populate-done");
 
   if (run_filesystem_check) {
-    if (!pfs_active()) {
+    T5AI_PFS_BOOT_TRACE("active-begin");
+    const bool active = pfs_active();
+    if (active) {
+      T5AI_PFS_BOOT_TRACE("active-yes");
+    } else {
+      T5AI_PFS_BOOT_TRACE("active-no");
+    }
+    if (!active) {
       // either we have downgraded or there is no data on the flash
       PBL_LOG_INFO("PFS not active ... formatting");
       pfs_format(true /* write erase headers */);
+      T5AI_PFS_BOOT_TRACE("format-done");
     }
   }
 
@@ -2107,13 +2124,16 @@ status_t pfs_init(bool run_filesystem_check) {
   // think a region is free when in reality we just rebooted in the middle of it
   // being re-written
   int fd;
+  T5AI_PFS_BOOT_TRACE("gc-open-begin");
   if ((fd = pfs_open_gc_file(0, false)) >= S_SUCCESS) {
     // we rebooted while we were in the middle of a garbage collection
     PBL_LOG_INFO("Recovering flash region from GC file");
     recover_region_from_file(fd);
   }
+  T5AI_PFS_BOOT_TRACE("gc-open-done");
 
   // find a free region
+  T5AI_PFS_BOOT_TRACE("reserve-begin");
   if (!prv_update_gc_reserved_region()) {
     PBL_LOG_ERR("No free flash erase units!");
     // Note: It should not be possible for this to happen since start of day no
@@ -2122,6 +2142,7 @@ status_t pfs_init(bool run_filesystem_check) {
     // only being cached on the FS
     pfs_format(true);
   }
+  T5AI_PFS_BOOT_TRACE("reserve-done");
 
   // get us off to a good start by ensuring there is some pre-erased space on
   // the filesystem. We do a lot of initialization from different threads early
@@ -2130,7 +2151,9 @@ status_t pfs_init(bool run_filesystem_check) {
   PBL_LOG_DBG("Preparing %"PRIu32" bytes of flash for filesystem use",
           bytes_to_free);
 
+  T5AI_PFS_BOOT_TRACE("prepare-begin");
   pfs_prepare_for_file_creation(bytes_to_free, 15 * RTC_TICKS_HZ);
+  T5AI_PFS_BOOT_TRACE("prepare-done");
 
   return (S_SUCCESS);
 }

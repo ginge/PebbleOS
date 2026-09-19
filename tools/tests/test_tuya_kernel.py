@@ -90,6 +90,9 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("(void)t5ai_mipc_frame_valid(frame, data)", hci_ipc)
         self.assertIn("stable transaction-generation token", hci_ipc)
         self.assertIn("prv_mark_faulted()", hci_ipc)
+        self.assertIn("send_busy_retries", hci_ipc)
+        self.assertIn("exchange timed out", hci_ipc)
+        self.assertIn("pending_queue_high_water", hci_ipc)
         self.assertIn("static void prv_worker", hci_ipc)
         self.assertIn('section(".t5ai_board_cache")', hci_ipc)
         self.assertIn("xTaskGenericCreate(prv_worker", hci_ipc)
@@ -148,6 +151,8 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("T5AI HCI event delivery failed", hci_transport)
         self.assertIn("T5AI HCI ACL delivery failed", hci_transport)
         self.assertIn("T5AI HCI ACL transmit deferred", hci_transport)
+        self.assertIn("T5AI HCI disconnect snapshot", hci_transport)
+        self.assertIn("T5AI HCI pressure", hci_transport)
         self.assertIn("ble_hs_sched_reset(BLE_HS_ECONTROLLER)", hci_transport)
         self.assertIn("s_reset_scheduled", hci_transport)
         self.assertIn("prv_schedule_reset();", hci_transport)
@@ -458,7 +463,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn('"apptask=%u state=%u prio=%u stack=%u km=%u/%u bg=%u/%u "', main)
         self.assertIn('"nt=%u/%u/%u bth=%u/%u bti=%u/%u "', main)
         self.assertIn('"q=%lu/%lu/%lu/%lu/%lu take=%lu cur=%lu "', main)
-        self.assertIn('"irq=%08lx/%08lx/%08lx"', main)
+        self.assertIn('"irq=%08lx/%08lx/%08lx rr=%u/%08lx ff=%08lx/%ld/%08lx"', main)
         self.assertIn("event_get_queue_diagnostics(&queue_diagnostics)", main)
         self.assertIn(
             "T5AI_BOOT_STAGE(26u)",
@@ -496,6 +501,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         t5ai_resource_impl = resource_impl.split("#if defined(CONFIG_SOC_T5AI)", 1)[1].split(
             "#elif", 1
         )[0]
+        self.assertIn("RESOURCE_IMPL(g_app_file_impl)", t5ai_resource_impl)
         self.assertIn("RESOURCE_IMPL(g_builtin_impl)", t5ai_resource_impl)
         self.assertIn("RESOURCE_IMPL(g_system_bank_impl)", t5ai_resource_impl)
         builtin_storage = (ROOT / "src/fw/resource/resource_storage_builtin.c").read_text()

@@ -3,20 +3,35 @@
 #include <pbl/drivers/flash/flash_impl.h>
 #include <pbl/logging/logging.h>
 #include <pbl/soc/t5ai/flash_ipc.h>
+#include <pbl/soc/t5ai/retained.h>
 
 #include <inttypes.h>
 #include <stdint.h>
 #include <string.h>
 
 #include "flash_region/flash_region.h"
+#include "system/rtc_registers.h"
 #include "system/status_codes.h"
 
 PBL_LOG_MODULE_DECLARE(driver_flash, CONFIG_DRIVER_FLASH_LOG_LEVEL);
+
+#define T5AI_FLASH_FAILURE_POLICY 0x504f4c59u
+#define T5AI_FLASH_FAILURE_IPC_WRITE 0x49504357u
+#define T5AI_FLASH_FAILURE_VERIFY 0x56455249u
+
+static void prv_record_write_failure(uint32_t context, FlashAddress address, status_t status) {
+  /* Publish context last so a reset cannot make a partial record valid. */
+  t5ai_retained_write(T5AI_FLASH_FAILURE_ADDRESS, address);
+  t5ai_retained_write(T5AI_FLASH_FAILURE_STATUS, (uint32_t)status);
+  t5ai_retained_write(T5AI_FLASH_FAILURE_CONTEXT, context);
+}
 
 #define T5AI_FLASH_IPC_MAX_TRANSFER 0x200u
 #define T5AI_FLASH_IPC_ATTEMPTS 2u
 #define T5AI_PFS_PAGE_SIZE 0x1000u
 #define T5AI_PFS_HEADER_SIZE 32u
+#define T5AI_PFS_VERSION 0x5001u
+#define T5AI_PFS_ERASED_VERSION 0xffffu
 #define T5AI_FLASH_READ_CACHE_LINE_SIZE T5AI_FLASH_IPC_MAX_TRANSFER
 #define T5AI_FLASH_READ_CACHE_LINES 4u
 #define T5AI_PFS_PAGE_COUNT \
@@ -32,14 +47,18 @@ static T5AIFlashOperation s_operation;
 static bool s_protected;
 static FlashAddress s_protected_start;
 static FlashAddress s_protected_end;
+/* Keep flash data in internal SRAM. The T5AI_DISPLAY_RAM reservation is
+ * write-back PSRAM; using it here makes a flash read and its cached copy share
+ * a second possible corruption domain, which defeats read diagnostics and can
+ * preserve a bad PFS header for the rest of the boot. */
 static uint8_t s_pfs_header_cache[T5AI_PFS_PAGE_COUNT][T5AI_PFS_HEADER_SIZE]
-    __attribute__((section(".t5ai_board_cache"), aligned(32)));
+    __attribute__((aligned(32)));
 static uint32_t s_pfs_header_valid[(T5AI_PFS_PAGE_COUNT + 31u) / 32u];
 // CP flash IPC has a substantial fixed cost per request. Resource rendering performs many
 // small, nearby reads (font hash entries, glyph metadata and glyph bitmaps), so cache complete
 // IPC-sized lines for every flash region rather than limiting read-ahead to PFS files.
 static uint8_t s_flash_read_cache[T5AI_FLASH_READ_CACHE_LINES][T5AI_FLASH_READ_CACHE_LINE_SIZE]
-    __attribute__((section(".t5ai_board_cache"), aligned(32)));
+    __attribute__((aligned(32)));
 static FlashAddress s_flash_read_cache_address[T5AI_FLASH_READ_CACHE_LINES];
 static bool s_flash_read_cache_valid[T5AI_FLASH_READ_CACHE_LINES];
 static unsigned s_flash_read_cache_next;
@@ -109,6 +128,53 @@ static status_t prv_read_with_retry(uint32_t offset, void *buffer, size_t length
   return status;
 }
 
+static status_t prv_confirm_pfs_read(uint32_t offset, void *buffer, size_t length) {
+  uint8_t second[T5AI_PFS_HEADER_SIZE];
+  uint8_t third[T5AI_PFS_HEADER_SIZE];
+  if (length > sizeof(second)) {
+    return E_INVALID_ARGUMENT;
+  }
+
+  status_t status = prv_read_with_retry(offset, buffer, length);
+  if (FAILED(status)) {
+    return status;
+  }
+  status = prv_read_with_retry(offset, second, length);
+  if (FAILED(status)) {
+    return status;
+  }
+  if (memcmp(buffer, second, length) == 0) {
+    return S_SUCCESS;
+  }
+
+  status = prv_read_with_retry(offset, third, length);
+  if (FAILED(status)) {
+    return status;
+  }
+  if (memcmp(buffer, third, length) == 0) {
+    PBL_LOG_WRN("T5AI PFS read disagreement offset=0x%08" PRIx32
+                "; selected first/third",
+                offset);
+    return S_SUCCESS;
+  }
+  if (memcmp(second, third, length) == 0) {
+    memcpy(buffer, second, length);
+    PBL_LOG_WRN("T5AI PFS read disagreement offset=0x%08" PRIx32
+                "; selected second/third",
+                offset);
+    return S_SUCCESS;
+  }
+
+  PBL_LOG_ERR("T5AI PFS read had no consensus offset=0x%08" PRIx32, offset);
+  return E_ERROR;
+}
+
+static bool prv_pfs_version_plausible(const void *buffer) {
+  uint16_t version;
+  memcpy(&version, buffer, sizeof(version));
+  return version == T5AI_PFS_VERSION || version == T5AI_PFS_ERASED_VERSION;
+}
+
 static status_t prv_read_cached(FlashAddress address, void *buffer, size_t length,
                                 size_t *bytes_read) {
   const FlashAddress line_address =
@@ -164,8 +230,14 @@ static status_t prv_read_pfs_header(FlashAddress address, void *buffer, size_t l
   if (!prv_pfs_header_cached(page)) {
     const FlashAddress page_address =
         FLASH_REGION_FILESYSTEM_BEGIN + page * T5AI_PFS_PAGE_SIZE;
-    status_t status = prv_read_with_retry(prv_offset(page_address), s_pfs_header_cache[page],
+    status_t status = prv_read_with_retry(prv_offset(page_address),
+                                          s_pfs_header_cache[page],
                                           T5AI_PFS_HEADER_SIZE);
+    if (PASSED(status) && !prv_pfs_version_plausible(s_pfs_header_cache[page])) {
+      status = prv_confirm_pfs_read(prv_offset(page_address),
+                                    s_pfs_header_cache[page],
+                                    T5AI_PFS_HEADER_SIZE);
+    }
     if (FAILED(status)) {
       return status;
     }
@@ -199,6 +271,59 @@ static void prv_cache_erased_pfs_page(FlashAddress address) {
   }
   memset(s_pfs_header_cache[page], 0xff, T5AI_PFS_HEADER_SIZE);
   prv_pfs_header_mark_cached(page);
+}
+
+static status_t prv_verify_pfs_header_write(FlashAddress address, const void *buffer,
+                                            size_t length) {
+  size_t page;
+  size_t header_offset;
+  if (!prv_pfs_header_location(address, &page, &header_offset) || header_offset != 0u ||
+      length < sizeof(uint16_t)) {
+    return S_SUCCESS;
+  }
+
+  /* PFS progressively clears mutable header fields, so their requested bytes
+   * need not equal the resulting NOR contents. The immutable version at page
+   * offset zero is written onto an erased page and must compare exactly. */
+  const size_t verify_length = sizeof(uint16_t);
+  uint8_t readback[T5AI_PFS_HEADER_SIZE];
+  status_t status = prv_read_with_retry(prv_offset(address), readback, verify_length);
+  if (FAILED(status)) {
+    return status;
+  }
+  if (memcmp(readback, buffer, verify_length) == 0) {
+    return S_SUCCESS;
+  }
+  status = prv_confirm_pfs_read(prv_offset(address), readback, verify_length);
+  if (FAILED(status)) {
+    return status;
+  }
+  if (memcmp(readback, buffer, verify_length) == 0) {
+    return S_SUCCESS;
+  }
+
+  /* The first command completed successfully and read-back proved that not all
+   * requested NOR bits were programmed. Repeating the exact same program is
+   * idempotent: it can only request the same 1-to-0 transitions. This is
+   * deliberately different from retrying a timed-out, ambiguous mutation. */
+  PBL_LOG_WRN("T5AI PFS version verify mismatch addr=0x%08" PRIx32
+              " len=%lu; retrying once",
+              address, (unsigned long)verify_length);
+  status = t5ai_flash_ipc_write(prv_offset(address), buffer, length);
+  if (FAILED(status)) {
+    return status;
+  }
+  status = prv_read_with_retry(prv_offset(address), readback, verify_length);
+  if (FAILED(status)) {
+    return status;
+  }
+  if (memcmp(readback, buffer, verify_length) == 0) {
+    return S_SUCCESS;
+  }
+  status = prv_confirm_pfs_read(prv_offset(address), readback, verify_length);
+  return PASSED(status) && memcmp(readback, buffer, verify_length) == 0
+             ? S_SUCCESS
+             : E_ERROR;
 }
 
 FlashAddress flash_impl_get_sector_base_address(FlashAddress address) {
@@ -253,18 +378,28 @@ int flash_impl_write_page_begin(const void *buffer, FlashAddress address, size_t
   const size_t written = length < page_remaining ? length : page_remaining;
   status_t status = prv_write_allowed(address, written);
   if (FAILED(status)) {
+    prv_record_write_failure(T5AI_FLASH_FAILURE_POLICY, address, status);
     PBL_LOG_ERR("T5AI flash write policy rejected addr=0x%08" PRIx32
-                " len=%zu status=%" PRId32,
-                address, written, status);
+                " len=%lu status=%" PRId32,
+                address, (unsigned long)written, status);
     return status;
   }
   /* A timeout does not prove that the CP failed to program the page. Retrying
    * a mutation can duplicate or overlap an operation, so only reads retry. */
   status = t5ai_flash_ipc_write(prv_offset(address), buffer, written);
   if (FAILED(status)) {
+    prv_record_write_failure(T5AI_FLASH_FAILURE_IPC_WRITE, address, status);
     PBL_LOG_ERR("T5AI flash IPC write failed addr=0x%08" PRIx32
-                " len=%zu status=%" PRId32,
-                address, written, status);
+                " len=%lu status=%" PRId32,
+                address, (unsigned long)written, status);
+    return status;
+  }
+  status = prv_verify_pfs_header_write(address, buffer, written);
+  if (FAILED(status)) {
+    prv_record_write_failure(T5AI_FLASH_FAILURE_VERIFY, address, status);
+    PBL_LOG_ERR("T5AI PFS version verification failed addr=0x%08" PRIx32
+                " len=%lu status=%" PRId32,
+                address, (unsigned long)written, status);
     return status;
   }
   prv_invalidate_read_cache(address, written);

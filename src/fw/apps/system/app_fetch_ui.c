@@ -68,6 +68,10 @@ static void prv_set_progress(AppFetchUIData *data, int16_t progress) {
 // Launch the desired app
 static void prv_app_fetch_launch_app(AppFetchUIData *data) {
   // Let's launch the application we just fetched.
+#ifdef CONFIG_SOC_T5AI
+  PBL_LOG_INFO("T5AI App Fetch: post launch event id=%" PRId32,
+               data->next_app_args.app_id);
+#endif
   PBL_LOG_DBG("App Fetch: Putting launch event");
 
   // if this was launched by the phone, it's probably a new install
@@ -161,6 +165,10 @@ static void prv_set_progress_failure(AppFetchUIData *data) {
 
 static void prv_progress_window_finished(ProgressWindow *window, bool success, void *context) {
   AppFetchUIData *data = context;
+#ifdef CONFIG_SOC_T5AI
+  PBL_LOG_INFO("T5AI App Fetch: progress finished id=%" PRId32 " success=%u",
+               data->next_app_args.app_id, (unsigned)success);
+#endif
   if (success) {
     prv_app_fetch_launch_app(data);
   }
@@ -220,6 +228,10 @@ static void prv_app_fetch_event_handler(PebbleEvent *event, void *context) {
 
   // We have finished the app fetch. Launching
   } else if (af_event->type == AppFetchEventTypeFinish) {
+#ifdef CONFIG_SOC_T5AI
+    PBL_LOG_INFO("T5AI App Fetch: finish event id=%" PRId32,
+                 data->next_app_args.app_id);
+#endif
     progress_window_set_result_success(&data->window);
     prv_app_fetch_cleanup(data);
 
