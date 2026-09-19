@@ -4,7 +4,7 @@
 [T5-E1-Touch-AMOLED-1.75](https://www.waveshare.com/wiki/T5-E1-Touch-AMOLED-1.75),
 which uses the Tuya T5AI/BK7258. This page is the operator handoff for the
 hardware currently under test. It reflects the state observed through
-2026-09-14.
+2026-09-19.
 
 The only PebbleOS source of truth is:
 
@@ -40,22 +40,27 @@ runs Pebble's NimBLE host against the CP-owned Bluetooth controller.
 | Bluetooth HCI command/event and ACL transport | Proven |
 | Connectable advertising and BlueZ connection | Proven |
 | Pebble GATT service discovery | Proven |
-| Pairing, bonding, reconnect, and Pebble protocol session setup | Proven |
+| Pairing, bonding, reconnect, and Pebble protocol session setup | Mostly stable; connection setup occasionally fails and can reboot the AP |
 | Device identity | Phone recognizes the watch as Round 2; further compatibility remains under test |
-| Sustained phone sync and watchface transfer | Failing: PPoG retransmissions followed by flash/IPC failure during BlobDB/PFS writes |
+| Sustained phone sync and watchface transfer | One stock-RXW17 watchface transfer and launch proven stable; cleaned-image regression pending |
 | Sleep/wake and low-power operation | Not yet validated |
-| Writable PFS | Unsafe under concurrent phone sync; final test entered a flash assertion/reboot loop |
+| Writable PFS | Watchface AppFetch write and launch proven once; broader repetition and recovery soak pending |
 | OTA, recovery, and general writable flash | Deliberately disabled pending a safe storage/recovery contract |
 
 The normal T5AI path retains board-specific hardware sequencing in
 `src/fw/main.c`, then initializes the complete normal service set. Native
-startup has visibly progressed through the PebbleOS splash and charging
-animation into the launcher, physical touch has moved its menu, and the phone
-has opened an encrypted reversed-PPoG session. Sustained sync is not yet safe.
-The 2026-09-14 watchface attempt reached BlobDB and a 914-byte protocol packet,
-then failed a CP flash write and entered a repeated erase-assertion loop. See
-the [phone-sync incident handoff](getafix_dvt3_phone_sync_incident.md) before
-doing more Bluetooth or writable-storage work.
+startup progresses through the PebbleOS splash into the launcher, and the
+phone opens an encrypted reversed-PPoG session. The 2026-09-14 flash/reboot
+failure has been superseded by board-local mailbox, flash recovery, resource
+backend, memory-layout, and interrupt-safe logging fixes. On 2026-09-19 the
+phone transferred and launched a 23,817-byte watchface with the stock RX window
+of 17, and the watch remained stable. See the
+[phone-sync incident handoff](getafix_dvt3_phone_sync_incident.md) for the full
+fault chain. Repetition, reconnect, and long-duration soak coverage remain.
+Bluetooth is mostly stable after a clean connection, but connection setup still
+occasionally fails instead of reaching a usable protocol session. At least one
+such failure mode can reboot the AP. Treat reconnect and failed-connect reboot
+coverage as open reliability work rather than considering Bluetooth complete.
 
 ## Device and USB ports
 

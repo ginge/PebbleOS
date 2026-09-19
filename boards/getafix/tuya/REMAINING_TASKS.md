@@ -6,24 +6,32 @@ T5-E1 Touch AMOLED 1.75 board. Continue in the only valid source checkout,
 `/home/baz/Documents/ChatGPT/pebble` is reference and artifact storage, not a
 PebbleOS source tree.
 
-## Current priority: stop unsafe phone sync and replace mailbox serialization
+## Current priority: repeat and soak the successful stock-window sync path
 
-The 2026-09-14 watchface-sync session ended in a CP flash-write failure and a
-dangerous AP reboot loop. Pairing, encryption, MTU 256, reversed PPoG, and
-session setup are proven, and the phone now recognizes the identity as Round 2,
-but sustained BlobDB/PFS sync is not proven. The final trace reached a 914-byte
-endpoint packet before `flash_impl_write_page_begin` returned `E_ERROR`; each
-restart then failed filesystem recovery erase with `E_INVALID_OPERATION` while
-the CP rejected a QSPI power/clock request with `E_AGAIN`.
+The unsafe 2026-09-14 flash/reboot state is superseded. On 2026-09-19 the phone
+completed a 23,817-byte watchface transfer over reversed PPoG with `TXW: 4
+RXW: 17`, the watch validated and launched the face, and the UI remained
+stable. The fixes cover T5AI-local transport and flash recovery, app-resource
+backend registration, AP-only NimBLE pool relocation to PSRAM, and preventing
+synchronous CP debug logging from entering a task mutex in interrupt context.
+Shared PPoG behavior remains stock and no receive-window Kconfig is active.
 
-Stop using the older priority statement below as the active plan. A Tuya
-source audit on 2026-09-16 identified in-place ACK/cache-line corruption in the
-native AP implementation and led to a clean T5AI-local transport, socket IPC,
-flash client, and HCI worker. The replacement builds successfully and its
-protocol-focused tests and source review are complete, but it has not yet been
-hardware validated. Before that first validation, physically
-power-cycle both cores. Do not reformat PFS: it is destructive and requires
+The investigation-only packet, heap, progress, stage, and PFS boot traces have
+now been removed. The cleaned AP image was flashed successfully on 2026-09-19;
+its raw SHA-256 is
+`19bd10aaac8fd6097b8e51dc99e1195b0c6a7a0957e7aae3a7651e04b99b846d`,
+and its exact protected physical range is `0x132000..0x215c3e`. The immediate
+next task is one post-cleanup watchface transfer and launch, followed by repeat
+transfer, disconnect/reconnect, cold-boot bond restoration, and idle/active
+soak testing. Do not reformat PFS: it is destructive and still requires
 explicit operator approval after the exact partition range is checked.
+
+Bluetooth is mostly stable once connected, but it is not yet reliable at the
+connection boundary. A phone connection occasionally fails to establish a
+clean protocol session, and the failure path can cause an AP reboot. Preserve
+the first failure evidence and include repeated connect/disconnect/reconnect
+cycles in the next validation run; a successful watchface transfer alone does
+not close this remaining Bluetooth reliability issue.
 
 The shared event loop and app manager are stock, the app is priority 1, and no
 T5AI scheduler guard exists in the current tree. Do not reintroduce an app
@@ -2190,9 +2198,12 @@ the existing cacheable PSRAM board-cache section without changing pool counts;
 alignment makes the measured internal-RAM recovery 19,808 bytes. Pool metadata
 and all CP-shared HCI descriptors remain internal. This increases the linked
 kernel heap from 40,512 to 60,320 bytes and leaves 24,064 bytes unused in the
-bounded 128 KiB PSRAM reservation. Hardware must still prove cold boot,
-pairing/reconnect, discovery, stock-window AppFetch, PFS completion, and a
-same-boot reconnect before this relocation is accepted.
+bounded 128 KiB PSRAM reservation. Hardware has now proved cold boot,
+discovery, stock-window AppFetch, PFS completion, and watchface launch once,
+with approximately 7.9 KiB minimum observed PPoG heap headroom. Repeat
+transfer, same-boot reconnect, restored-bond cold boot, and longer soak
+coverage are still required before this relocation is considered fully
+validated.
 
 If that audit cannot provide enough contiguous kernel-heap headroom for the
 stock 17-packet window, reconsider a generic `PPOGATT_RX_WINDOW_SIZE` Kconfig

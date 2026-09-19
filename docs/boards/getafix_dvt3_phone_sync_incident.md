@@ -1136,3 +1136,66 @@ backends. Consequently, every transferred app resource file was invisible to
 existing `g_app_file_impl` ahead of the built-in and system-bank backends. This
 is SoC-scoped and restores the same app-resource lookup path used by stock
 normal firmware without enabling the unrelated generic file backend.
+
+### 2026-09-19 launch-fault root cause and successful watchface run
+
+With app-resource lookup restored, the phone completed a watchface transfer,
+but launching the installed app reset the AP. The fault was not another flash,
+PPoG, heap, or resource-storage failure. T5AI routes normal debug output through
+a synchronous CP mailbox transport. An interrupt-time log attempted to enter
+that transport, which takes a task mutex and waits for a CP acknowledgement.
+The resulting assertion occurred during app launch.
+
+The production fix is deliberately two-layered and T5AI-scoped:
+
+- `dbgserial_putchar_lazy()` and `dbgserial_flush()` discard interrupt-time
+  T5AI output without modifying any partially assembled task-context message;
+- `t5ai_cp_mailbox_log()` independently rejects interrupt context with
+  `E_INVALID_OPERATION` so a future direct caller cannot block in an ISR.
+
+No shared mutex or assertion behavior was changed. A second apparent app fault
+was caused by temporary stage instrumentation writing a privileged kernel
+global after the app task had become unprivileged; the stage writes were
+removed rather than changing MPU boundaries.
+
+The resulting instrumented image had raw SHA-256
+`8933eb40e42cc18556144d17020a73be8782eddba423c9227aa27e074a3708dc`.
+It cold-booted, connected, opened PPoG with `TXW: 4 RXW: 17`, transferred a
+23,817-byte watchface, validated its metadata, launched it, and remained stable
+without a reset, freeze, mailbox timeout, or flash failure. Minimum observed
+PPoG heap headroom was approximately 7.9 KiB. This is the first successful
+end-to-end stock-window watchface transfer and launch on DVT3.
+
+### 2026-09-19 diagnostic cleanup and flashed confirmation candidate
+
+After the successful run, the high-volume investigation-only instrumentation
+was removed: PPoG heap sampling, decoded HCI/BlobDB packet progress, app
+transfer/cache/launch success logs, boot/app/launcher stage probes, and PFS boot
+tracing. Failure-only HCI and flash logs, disconnect snapshots, mailbox failure
+counters, retained failure reporting, and the on-demand `PBLTIM` diagnostics
+remain. The functional ISR logging guards remain.
+
+The cleanup reduced FLASH by 1,664 bytes, KERNEL_RAM by 32 bytes, and
+LOG_STRINGS by 3,183 bytes relative to the immediately preceding build. The
+focused 70-test suite, full firmware build, image-map checks, and both staged
+and unstaged `git diff --check` passed. The final artifacts are:
+
+- raw image: 878,035 bytes, SHA-256
+  `19bd10aaac8fd6097b8e51dc99e1195b0c6a7a0957e7aae3a7651e04b99b846d`;
+- protected AP image: 932,926 bytes, SHA-256
+  `c4cf00676e51f7d12bcd42e9792e828044665f49c3ea52653a3cf7be5159fb63`;
+- exact AP-only physical range: `0x132000..0x215c3e` (end exclusive).
+
+The protected image was validated by `tools/flash_t5ai_firmware.py` and flashed
+successfully through `if00` with tyutool 3.2.9. Handshake, flash-ID read,
+unprotect, erase, write, protect, and reboot all succeeded, and both USB serial
+interfaces returned. A post-cleanup watchface transfer/launch regression is
+still pending; do not describe the cleaned image as hardware-confirmed until
+that test completes.
+
+Bluetooth should likewise be described as mostly stable, not fully stable.
+Once a connection is established it commonly remains usable, including the
+successful watchface run above, but connection setup occasionally fails to
+reach a clean session. The unsuccessful path can also cause an AP reboot. This
+intermittent connect/reboot defect remains open and requires failure-path
+capture plus repeated connect, disconnect, reconnect, and cold-boot testing.
