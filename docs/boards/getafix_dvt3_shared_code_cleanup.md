@@ -369,6 +369,34 @@ reboot. The accepted trace is
 during this capture, so the previously accepted priority/AppFetch validation
 continues to cover that path.
 
+Compositor framebuffer ownership is now platform-selected. The common
+compositor retains only a narrow storage-preparation seam and otherwise
+returns to stock formatting and control flow. T5AI's PSRAM power vote,
+destructive handoff validation, aligned framebuffer object, and linker-section
+placement live in the board-local `boards/compositor_framebuffer_t5ai.c`;
+other boards select the ordinary internal-RAM provider from the same board
+layer. The Getafix full-frame update workaround is
+now controlled by `DISPLAY_FORCE_FULL_FRAME_UPDATES`, so the CO5300 driver's
+partial-update capability no longer appears as T5AI policy in the compositor.
+
+All 167 tool tests passed. The image built with FLASH 878,227 bytes and
+KERNEL_RAM 75,232 bytes, and the map places only the 67,614-byte compositor
+object at `0x60000000..0x6001081e`. The guarded flasher programmed only
+`0x132000..0x215d0a`; the raw SHA-256 is
+`be726d43251557d43742a2e473a36f827717055a0f3ffd612415a62e9b23dbf3`
+and the protected SHA-256 is
+`10c4740ee0ecce5fbc027646539322eda9ffebb604e6715d82af315c5f96818b`.
+
+The first reset capture observed one HardFault immediately after an unusually
+long Timeline/BlobDB flush. It is retained as
+`/tmp/pebbleos-compositor-provider-dvt3.log`. A second no-reset soak did not
+reboot, and the decisive 150-second controlled-reset capture repeated the full
+settings, AppDB, and BlobDB flush path, completed AppFetch with result 0, and
+then remained stable without an assertion, flash fault, or AP reboot. That
+accepted reproduction capture is
+`/tmp/pebbleos-compositor-provider-dvt3-reset2.log`. Visual launcher-transition
+appearance still requires confirmation on the physical display.
+
 ### Hardware validation result — 2026-09-19
 
 The first cleanup slice is **not yet hardware-accepted**. The clean build was

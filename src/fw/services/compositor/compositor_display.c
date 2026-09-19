@@ -142,7 +142,7 @@ void compositor_display_update(void (*handle_update_complete_cb)(void)) {
   if (!framebuffer_is_dirty(fb)) {
     return;
   }
-#if defined(CONFIG_BOARD_GETAFIX) && !defined(CONFIG_SOC_T5AI)
+#ifdef CONFIG_DISPLAY_FORCE_FULL_FRAME_UPDATES
   // Force full screen updates - partial ROI causes animation issues on getafix display
   fb->dirty_rect = (GRect){ GPointZero, fb->size };
 #endif

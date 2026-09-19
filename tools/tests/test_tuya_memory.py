@@ -23,8 +23,10 @@ class TuyaMemoryLayoutTest(unittest.TestCase):
         self.assertEqual(int(match.group(1), 16), 0x60000000)
         self.assertLessEqual(int(match.group(2)), 128)
 
-        compositor = (ROOT / "src/fw/services/compositor/compositor.c").read_text()
-        self.assertIn('section(".t5ai_framebuffer")', compositor)
+        framebuffer = (
+            ROOT / "src/fw/board/boards/compositor_framebuffer_t5ai.c"
+        ).read_text()
+        self.assertIn('section(".t5ai_framebuffer")', framebuffer)
 
     def test_ap_only_nimble_pool_storage_uses_t5ai_psram(self):
         sections = (ROOT / "soc/t5ai/framebuffer.ld").read_text()
@@ -33,13 +35,16 @@ class TuyaMemoryLayoutTest(unittest.TestCase):
         self.assertIn("AP-only NimBLE pool backing arrays", sections)
 
     def test_framebuffer_psram_handoff_is_validated_before_use(self):
+        framebuffer = (
+            ROOT / "src/fw/board/boards/compositor_framebuffer_t5ai.c"
+        ).read_text()
         compositor = (ROOT / "src/fw/services/compositor/compositor.c").read_text()
-        validation = compositor.index("prv_validate_t5ai_framebuffer_ram()")
-        initialization = compositor.index("framebuffer_init(&s_framebuffer")
-        self.assertLess(validation, initialization)
-        self.assertIn("PBL_ASSERTN(prv_validate_t5ai_framebuffer_ram())", compositor)
-        self.assertIn("seed ^ (uint32_t)i", compositor)
-        self.assertIn("~(seed ^ (uint32_t)i)", compositor)
+        prepare = compositor.index("board_compositor_framebuffer_prepare()")
+        initialization = compositor.index("framebuffer_init(&g_board_compositor_framebuffer")
+        self.assertLess(prepare, initialization)
+        self.assertIn("PBL_ASSERTN(prv_framebuffer_ram_is_valid())", framebuffer)
+        self.assertIn("seed ^ (uint32_t)i", framebuffer)
+        self.assertIn("~(seed ^ (uint32_t)i)", framebuffer)
 
 
 if __name__ == "__main__":

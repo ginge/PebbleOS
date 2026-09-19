@@ -688,6 +688,7 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertEqual(dvt3["MIC"], "n")
         self.assertEqual(dvt3["VIBE"], "n")
         self.assertEqual(dvt3["AMBIENT_LIGHT"], "n")
+        self.assertEqual(dvt3["DISPLAY_FORCE_FULL_FRAME_UPDATES"], "n")
         self.assertEqual(dvt3["PRESSURE"], "n")
         self.assertEqual(dvt3["TEMPERATURE"], "n")
 
@@ -877,6 +878,7 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertEqual(config["PROMPT"], "y")
         self.assertEqual(config["VIBE_AW8623X"], "y")
         self.assertEqual(config["VIBE_AW86225"], "n")
+        self.assertEqual(config["DISPLAY_FORCE_FULL_FRAME_UPDATES"], "y")
 
 
 if __name__ == "__main__":
