@@ -37,12 +37,8 @@
 #include <pbl/drivers/watchdog.h>
 #include <pbl/drivers/sf32lb52/rc10k.h>
 #ifdef CONFIG_SOC_T5AI
-#include <pbl/drivers/display/t5ai.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
-#include <pbl/soc/t5ai/clock.h>
 #include <pbl/soc/t5ai/freertos.h>
-#include <pbl/soc/t5ai/retained.h>
-#include <pbl/soc/t5ai/rtc.h>
 #endif
 
 #include "resource/resource.h"
@@ -55,8 +51,6 @@
 #include "kernel/fault_handling.h"
 #include "kernel/memory_layout.h"
 #include "kernel/panic.h"
-#include "kernel/pebble_tasks.h"
-#include "kernel/remote_input.h"
 #include "logging/pulse_logging.h"
 #include "pbl/services/services.h"
 #include "pbl/services/boot_splash.h"
@@ -85,9 +79,6 @@
 #include "pbl/services/prf_update.h"
 #include "kernel/ui/kernel_ui.h"
 #include "kernel/kernel_applib_state.h"
-#include "process_management/app_manager.h"
-#include "process_state/app_state/app_state.h"
-#include "applib/ui/recognizer/touch_nav.h"
 #include "kernel/util/delay.h"
 #include "util/mbuf.h"
 #include "system/firmware_storage.h"
@@ -204,70 +195,6 @@ static void watchdog_timer_callback(void* data) {
 #include <pbl/services/bluetooth/bluetooth_ctl.h>
 #include <pbl/services/bluetooth/bluetooth_persistent_storage.h>
 
-static char s_t5ai_timebase_response[480];
-static T5AICPMailboxDiagnostics s_t5ai_mailbox_diagnostics;
-static T5AICPMailboxFailureDiagnostics s_t5ai_mailbox_failure_diagnostics;
-#define T5AI_SYSTEM_CLK_MODE1 (*(volatile uint32_t *)0x44010020u)
-static T5AIClockDiagnostics s_t5ai_clock_diagnostics;
-static RebootReason s_t5ai_boot_reboot_reason;
-static uint32_t s_t5ai_boot_flash_failure_context;
-static int32_t s_t5ai_boot_flash_failure_status;
-static uint32_t s_t5ai_boot_flash_failure_address;
-
-static void prv_t5ai_capture_retained_failure(void) {
-  reboot_reason_get(&s_t5ai_boot_reboot_reason);
-  s_t5ai_boot_flash_failure_context = t5ai_retained_read(T5AI_FLASH_FAILURE_CONTEXT);
-  s_t5ai_boot_flash_failure_status =
-      (int32_t)t5ai_retained_read(T5AI_FLASH_FAILURE_STATUS);
-  s_t5ai_boot_flash_failure_address = t5ai_retained_read(T5AI_FLASH_FAILURE_ADDRESS);
-  t5ai_retained_write(T5AI_FLASH_FAILURE_CONTEXT, 0u);
-  t5ai_retained_write(T5AI_FLASH_FAILURE_STATUS, 0u);
-  t5ai_retained_write(T5AI_FLASH_FAILURE_ADDRESS, 0u);
-}
-
-static void prv_t5ai_print_retained_mailbox_failure(void) {
-  if (!t5ai_cp_mailbox_get_failure_diagnostics(&s_t5ai_mailbox_failure_diagnostics)) {
-    return;
-  }
-  const T5AICPMailboxFailureDiagnostics *failure = &s_t5ai_mailbox_failure_diagnostics;
-  const uint32_t last = failure->trace_count == 0u ? 0u :
-      MIN(failure->trace_count, T5AI_CP_MAILBOX_FAILURE_TRACE_CAPACITY) - 1u;
-  const T5AICPMailboxTraceEntry *entry = &failure->trace[last];
-  dbgserial_putstr_fmt(
-      s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
-      "PBLIPCBOOT ctx=%08lx s=%ld tx=%lu/%lu/%lu bypass=%lu depth=%u high=%u "
-      "rx=%lu ack=%lu route=%lu unroute=%lu senderr=%lu rxto=%lu ackmis=%lu "
-      "head=%08lx/%08lx pending=%u rxpend=%u hw=%08lx/%08lx "
-      "trace=%lu last=%lu/%u/%08lx/%08lx/%u/%ld",
-      (unsigned long)failure->context, (long)failure->status,
-      (unsigned long)failure->tx_queued, (unsigned long)failure->tx_published,
-      (unsigned long)failure->tx_retired, (unsigned long)failure->tx_ack_bypass,
-      (unsigned)failure->tx_depth, (unsigned)failure->tx_high_water,
-      (unsigned long)failure->rx_frames, (unsigned long)failure->rx_transport_acks,
-      (unsigned long)failure->rx_routed, (unsigned long)failure->rx_unrouted,
-      (unsigned long)failure->send_failures, (unsigned long)failure->receive_timeouts,
-      (unsigned long)failure->tx_ack_mismatches,
-      (unsigned long)failure->tx_head_header, (unsigned long)failure->tx_head_parameter,
-      (unsigned)failure->tx_pending, (unsigned)failure->rx_pending,
-      (unsigned long)failure->mailbox_control, (unsigned long)failure->tx_fifo_status,
-      (unsigned long)failure->trace_count,
-      (unsigned long)entry->ticks, (unsigned)entry->event,
-      (unsigned long)entry->header, (unsigned long)entry->parameter,
-      (unsigned)entry->tx_depth, (long)entry->status);
-  const uint32_t available =
-      MIN(failure->trace_count, T5AI_CP_MAILBOX_FAILURE_TRACE_CAPACITY);
-  for (uint32_t i = 0u; i < available; ++i) {
-    entry = &failure->trace[i];
-    dbgserial_putstr_fmt(
-        s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
-        "PBLIPCBE n=%lu t=%lu e=%u h=%08lx p=%08lx d=%u s=%ld",
-        (unsigned long)i, (unsigned long)entry->ticks, (unsigned)entry->event,
-        (unsigned long)entry->header, (unsigned long)entry->parameter,
-        (unsigned)entry->tx_depth, (long)entry->status);
-  }
-  t5ai_cp_mailbox_clear_failure_diagnostics();
-}
-
 static void prv_t5ai_bluetooth_init(void) {
   /* The CP shell is ready before its flash and HCI services. Normal service
    * startup reaches this point well after reset on other platforms; preserve
@@ -290,196 +217,6 @@ static void prv_t5ai_bluetooth_init(void) {
 static void cp_heartbeat_timer_callback(void* data) {
   (void)t5ai_cp_mailbox_process_pending();
   t5ai_cp_mailbox_heartbeat();
-  const DbgSerialMailboxProbe probe = dbgserial_input_consume_mailbox_probe();
-  if (probe == DbgSerialMailboxProbe_Rx) {
-    dbgserial_putstr("PBLRX-OK: T5AI USB mailbox RX passed");
-  } else if (probe == DbgSerialMailboxProbe_Timebase) {
-    TaskHandle_t app_task = pebble_task_get_handle_for_task(PebbleTask_App);
-    TaskHandle_t kernel_task = pebble_task_get_handle_for_task(PebbleTask_KernelMain);
-    TaskHandle_t background_task = pebble_task_get_handle_for_task(PebbleTask_KernelBackground);
-    TaskHandle_t timer_task = pebble_task_get_handle_for_task(PebbleTask_NewTimers);
-    TaskHandle_t bt_host_task = pebble_task_get_handle_for_task(PebbleTask_BTHost);
-    TaskHandle_t bt_hci_task = pebble_task_get_handle_for_task(PebbleTask_BTHCI);
-    EventQueueDiagnostics queue_diagnostics;
-    event_get_queue_diagnostics(&queue_diagnostics);
-    dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
-                         "PBLTIM freertos=%lu rtc=%lu aon=%lu core=%lu reload=%lu "
-                         "appinit=%u first=%u "
-                         "apptask=%u state=%u prio=%u stack=%u km=%u/%u bg=%u/%u "
-                         "nt=%u/%u/%u bth=%u/%u bti=%u/%u "
-                         "q=%lu/%lu/%lu/%lu/%lu take=%lu cur=%lu "
-                         "irq=%08lx/%08lx/%08lx rr=%u/%08lx ff=%08lx/%ld/%08lx",
-                         (unsigned long)xTaskGetTickCount(), (unsigned long)rtc_get_ticks(),
-                         (unsigned long)t5ai_rtc_get_raw_ticks(), (unsigned long)SystemCoreClock,
-                         (unsigned long)SysTick->LOAD,
-                         (unsigned)app_manager_is_initialized(),
-                         (unsigned)app_manager_is_first_app_launched(), (unsigned)(app_task != NULL),
-                         app_task ? (unsigned)eTaskGetState(app_task) : 0xffu,
-                         app_task ? (unsigned)uxTaskPriorityGet(app_task) : 0xffu,
-                         app_task ? (unsigned)uxTaskGetStackHighWaterMark(app_task) : 0u,
-                         kernel_task ? (unsigned)eTaskGetState(kernel_task) : 0xffu,
-                         kernel_task ? (unsigned)uxTaskGetStackHighWaterMark(kernel_task) : 0u,
-                         background_task ? (unsigned)eTaskGetState(background_task) : 0xffu,
-                         background_task ? (unsigned)uxTaskGetStackHighWaterMark(background_task) : 0u,
-                         timer_task ? (unsigned)eTaskGetState(timer_task) : 0xffu,
-                         timer_task ? (unsigned)uxTaskPriorityGet(timer_task) : 0xffu,
-                         timer_task ? (unsigned)uxTaskGetStackHighWaterMark(timer_task) : 0u,
-                         bt_host_task ? (unsigned)eTaskGetState(bt_host_task) : 0xffu,
-                         bt_host_task ? (unsigned)uxTaskPriorityGet(bt_host_task) : 0xffu,
-                         bt_hci_task ? (unsigned)eTaskGetState(bt_hci_task) : 0xffu,
-                         bt_hci_task ? (unsigned)uxTaskPriorityGet(bt_hci_task) : 0xffu,
-                         (unsigned long)queue_diagnostics.set_depth,
-                         (unsigned long)queue_diagnostics.kernel_depth,
-                         (unsigned long)queue_diagnostics.app_depth,
-                         (unsigned long)queue_diagnostics.worker_depth,
-                         (unsigned long)queue_diagnostics.self_depth,
-                         (unsigned long)queue_diagnostics.events_taken,
-                         (unsigned long)queue_diagnostics.current_event,
-                         (unsigned long)SCB->ICSR, (unsigned long)__get_BASEPRI(),
-                         (unsigned long)__get_PRIMASK(),
-                         (unsigned)s_t5ai_boot_reboot_reason.code,
-                         (unsigned long)s_t5ai_boot_reboot_reason.extra.value,
-                         (unsigned long)s_t5ai_boot_flash_failure_context,
-                         (long)s_t5ai_boot_flash_failure_status,
-                         (unsigned long)s_t5ai_boot_flash_failure_address);
-  } else if (probe == DbgSerialMailboxProbe_Mailbox) {
-    t5ai_cp_mailbox_get_diagnostics(&s_t5ai_mailbox_diagnostics);
-    dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
-                         "PBLIPC tx=%lu/%lu/%lu ack=%lu depth=%u high=%u rx=%lu ack=%lu route=%lu "
-                         "unroute=%lu senderr=%lu rxto=%lu ackmis=%lu trace=%lu",
-                         (unsigned long)s_t5ai_mailbox_diagnostics.tx_queued,
-                         (unsigned long)s_t5ai_mailbox_diagnostics.tx_published,
-                         (unsigned long)s_t5ai_mailbox_diagnostics.tx_retired,
-                         (unsigned long)s_t5ai_mailbox_diagnostics.tx_ack_bypass,
-                         (unsigned)s_t5ai_mailbox_diagnostics.tx_depth,
-                         (unsigned)s_t5ai_mailbox_diagnostics.tx_high_water,
-                         (unsigned long)s_t5ai_mailbox_diagnostics.rx_frames,
-                         (unsigned long)s_t5ai_mailbox_diagnostics.rx_transport_acks,
-                         (unsigned long)s_t5ai_mailbox_diagnostics.rx_routed,
-                         (unsigned long)s_t5ai_mailbox_diagnostics.rx_unrouted,
-                         (unsigned long)s_t5ai_mailbox_diagnostics.send_failures,
-                         (unsigned long)s_t5ai_mailbox_diagnostics.receive_timeouts,
-                         (unsigned long)s_t5ai_mailbox_diagnostics.tx_ack_mismatches,
-                         (unsigned long)s_t5ai_mailbox_diagnostics.trace_count);
-    const uint32_t available =
-        MIN(s_t5ai_mailbox_diagnostics.trace_count, T5AI_CP_MAILBOX_TRACE_CAPACITY);
-    const uint32_t first = s_t5ai_mailbox_diagnostics.trace_count - available;
-    for (uint32_t i = first; i < s_t5ai_mailbox_diagnostics.trace_count; ++i) {
-      const T5AICPMailboxTraceEntry *entry =
-          &s_t5ai_mailbox_diagnostics.trace[i % T5AI_CP_MAILBOX_TRACE_CAPACITY];
-      dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
-                           "PBLIPCE n=%lu t=%lu e=%u h=%08lx p=%08lx d=%u s=%ld", (unsigned long)i,
-                           (unsigned long)entry->ticks, (unsigned)entry->event,
-                           (unsigned long)entry->header, (unsigned long)entry->parameter,
-                           (unsigned)entry->tx_depth, (long)entry->status);
-    }
-    if (t5ai_cp_mailbox_get_failure_diagnostics(&s_t5ai_mailbox_failure_diagnostics)) {
-      dbgserial_putstr_fmt(
-          s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
-          "PBLIPCF ctx=%08lx s=%ld t=%lu tx=%lu/%lu/%lu ack=%lu depth=%u high=%u "
-          "rx=%lu ack=%lu route=%lu unroute=%lu senderr=%lu rxto=%lu ackmis=%lu trace=%lu",
-          (unsigned long)s_t5ai_mailbox_failure_diagnostics.context,
-          (long)s_t5ai_mailbox_failure_diagnostics.status,
-          (unsigned long)s_t5ai_mailbox_failure_diagnostics.ticks,
-          (unsigned long)s_t5ai_mailbox_failure_diagnostics.tx_queued,
-          (unsigned long)s_t5ai_mailbox_failure_diagnostics.tx_published,
-          (unsigned long)s_t5ai_mailbox_failure_diagnostics.tx_retired,
-          (unsigned long)s_t5ai_mailbox_failure_diagnostics.tx_ack_bypass,
-          (unsigned)s_t5ai_mailbox_failure_diagnostics.tx_depth,
-          (unsigned)s_t5ai_mailbox_failure_diagnostics.tx_high_water,
-          (unsigned long)s_t5ai_mailbox_failure_diagnostics.rx_frames,
-          (unsigned long)s_t5ai_mailbox_failure_diagnostics.rx_transport_acks,
-          (unsigned long)s_t5ai_mailbox_failure_diagnostics.rx_routed,
-          (unsigned long)s_t5ai_mailbox_failure_diagnostics.rx_unrouted,
-          (unsigned long)s_t5ai_mailbox_failure_diagnostics.send_failures,
-          (unsigned long)s_t5ai_mailbox_failure_diagnostics.receive_timeouts,
-          (unsigned long)s_t5ai_mailbox_failure_diagnostics.tx_ack_mismatches,
-          (unsigned long)s_t5ai_mailbox_failure_diagnostics.trace_count);
-      for (uint32_t i = 0; i < T5AI_CP_MAILBOX_FAILURE_TRACE_CAPACITY; ++i) {
-        const T5AICPMailboxTraceEntry *entry = &s_t5ai_mailbox_failure_diagnostics.trace[i];
-        dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
-                             "PBLIPCFE n=%lu t=%lu e=%u h=%08lx p=%08lx d=%u s=%ld",
-                             (unsigned long)i, (unsigned long)entry->ticks,
-                             (unsigned)entry->event, (unsigned long)entry->header,
-                             (unsigned long)entry->parameter, (unsigned)entry->tx_depth,
-                             (long)entry->status);
-      }
-    }
-  } else if (probe == DbgSerialMailboxProbe_Display) {
-    display_co5300_log_diagnostics();
-  } else if (probe == DbgSerialMailboxProbe_DisplayBitbang) {
-    display_co5300_bitbang_probe();
-  } else if (probe == DbgSerialMailboxProbe_Splash) {
-    boot_splash_start();
-    dbgserial_putstr("PBLSPL done");
-  } else if (probe >= DbgSerialMailboxProbe_ButtonBack &&
-             probe <= DbgSerialMailboxProbe_ButtonDown) {
-    const ButtonId button = (ButtonId)(probe - DbgSerialMailboxProbe_ButtonBack);
-    const RemoteInputResult result = remote_input_button_press(button, 1u, 120u, 0u);
-    dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
-                         "PBLB%u result=%u", (unsigned)button, (unsigned)result);
-  } else if (probe == DbgSerialMailboxProbe_Touch) {
-    TouchSensorDiagnostics diagnostics;
-    touch_sensor_get_diagnostics(&diagnostics);
-    dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
-                         "PBLTP global=%u nav=%u app=%u enabled=%u down=%u "
-                         "polls=%lu fail=%lu ack=%lu valid=%lu n=%u chg=%u "
-                         "first=%d,%d min=%d,%d max=%d,%d last=%d,%d "
-                         "raw=%02x%02x%02x%02x%02x%02x%02x%02x%02x%02x",
-                         (unsigned)touch_service_is_globally_enabled(),
-                         (unsigned)touch_nav_enabled(), (unsigned)touch_app_nav_active(),
-                         (unsigned)diagnostics.enabled, (unsigned)diagnostics.finger_down,
-                         (unsigned long)diagnostics.polls,
-                         (unsigned long)diagnostics.read_failures,
-                         (unsigned long)diagnostics.ack_reports,
-                         (unsigned long)diagnostics.valid_reports,
-                         (unsigned)diagnostics.contact_samples,
-                         (unsigned)diagnostics.coordinate_changes,
-                         diagnostics.first_x, diagnostics.first_y,
-                         diagnostics.min_x, diagnostics.min_y,
-                         diagnostics.max_x, diagnostics.max_y,
-                         diagnostics.last_x, diagnostics.last_y,
-                         diagnostics.last_report[0], diagnostics.last_report[1],
-                         diagnostics.last_report[2], diagnostics.last_report[3],
-                         diagnostics.last_report[4], diagnostics.last_report[5],
-                         diagnostics.last_report[6], diagnostics.last_report[7],
-                         diagnostics.last_report[8], diagnostics.last_report[9]);
-  } else if (probe == DbgSerialMailboxProbe_TouchNav) {
-    const TouchNavState *state = app_state_get_touch_nav_state();
-    const TouchServiceState *touch_state = app_state_get_touch_service_state();
-    TouchServiceDiagnostics service;
-    TouchEventLoopDiagnostics event_loop;
-    touch_get_diagnostics(&service);
-    event_loop_get_touch_diagnostics(&event_loop);
-    dbgserial_putstr_fmt(
-        s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
-        "PBLTN ev=%u/%u/%u widget=%u/%u/%u/%u route=%u mgr=%u "
-        "menu=%u target=%u bridge=%u/%u/%u/%u/%u/%u "
-        "svc=%lu/%lu/%lu/%lu/%lu/%u/%u/%u loop=%lu/%lu/%lu/%lu sub=%u/%u",
-        state->counters.touchdowns, state->counters.position_updates,
-        state->counters.liftoffs, state->counters.widget_started,
-        state->counters.widget_updated, state->counters.widget_completed,
-        state->counters.widget_cancelled, (unsigned)state->route,
-        (unsigned)state->manager->state, (unsigned)(state->menu_head != NULL),
-        (unsigned)(state->latched_target != NULL), state->counters.started,
-        state->counters.completed, state->counters.failed,
-        state->counters.cancelled, state->counters.dropped, state->counters.gated,
-        (unsigned long)service.physical_samples,
-        (unsigned long)service.physical_samples_ignored,
-        (unsigned long)service.queued_touchdowns,
-        (unsigned long)service.queued_position_updates,
-        (unsigned long)service.queued_liftoffs, (unsigned)service.touch_state,
-        (unsigned)service.injecting, (unsigned)service.subscriber_count,
-        (unsigned long)event_loop.events, (unsigned long)event_loop.unarmed_touchdowns,
-        (unsigned long)event_loop.masked_animation, (unsigned long)event_loop.masked_modal,
-        (unsigned)touch_state->subscribed, (unsigned)(touch_state->system_handler != NULL));
-  } else if (probe == DbgSerialMailboxProbe_SwipeUp) {
-    const RemoteInputResult result =
-        remote_input_swipe(RemoteInputSwipeDirection_Up,
-                           REMOTE_INPUT_SWIPE_DEFAULT_DURATION_MS);
-    dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
-                         "PBLSU result=%u", (unsigned)result);
-  }
 }
 #endif
 
@@ -582,10 +319,6 @@ static NOINLINE void prv_main_task_init(void) {
   static McuRebootReason s_mcu_reboot_reason;
   s_mcu_reboot_reason = watchdog_clear_reset_flag();
 
-#ifdef CONFIG_SOC_T5AI
-  prv_t5ai_capture_retained_failure();
-#endif
-
 #ifdef CONFIG_PULSE_EVERYWHERE
   pulse_init();
   pulse_logging_init();
@@ -630,29 +363,19 @@ static NOINLINE void prv_main_task_init(void) {
    * otherwise its Bluetooth controller can stop servicing a live connection
    * after the configured idle timeout. */
   const status_t app_sleep_vote_status = t5ai_cp_mailbox_vote_app_sleep(false);
-  dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
-                       "PBLPM app_sleep=awake status=%ld", (long)app_sleep_vote_status);
+  if (FAILED(app_sleep_vote_status)) {
+    PBL_LOG_ERR("T5AI app sleep vote failed: %ld", (long)app_sleep_vote_status);
+  }
 
-  /* Diagnostic: retain the corrected MPU cacheability policy while returning
-   * CPU1 to its lowest normal active frequency. This isolates the cache fix
-   * from the earlier 480 MHz performance experiment. */
+  /* Run CPU1 at its lowest normal active frequency. */
   const status_t cpu_clock_vote_status =
       t5ai_cp_mailbox_vote_cpu1_frequency(T5AICpuFrequency_120MHz);
   if (cpu_clock_vote_status == S_SUCCESS) {
     SystemCoreClock = 120000000u;
     t5ai_freertos_apply_systick_clock();
+  } else {
+    PBL_LOG_ERR("T5AI CPU clock vote failed: %ld", (long)cpu_clock_vote_status);
   }
-  s_t5ai_clock_diagnostics = t5ai_clock_get_diagnostics();
-  dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
-                       "PBLCLK vote=%ld mode1=%08lx cpu1=%08lx measured=%lu core=%lu "
-                       "systick=%08lx/%lu/%lu",
-                       (long)cpu_clock_vote_status, (unsigned long)s_t5ai_clock_diagnostics.mode1,
-                       (unsigned long)s_t5ai_clock_diagnostics.cpu1_control,
-                       (unsigned long)s_t5ai_clock_diagnostics.measured_hz,
-                       (unsigned long)SystemCoreClock, (unsigned long)SysTick->CTRL,
-                       (unsigned long)SysTick->LOAD, (unsigned long)SysTick->VAL);
-  prv_t5ai_print_retained_mailbox_failure();
-
   /* Normal firmware's boot splash service is intentionally a no-op, so T5AI
    * must initialize its panel explicitly after the peripheral drivers. */
   display_init();
@@ -672,14 +395,6 @@ static NOINLINE void prv_main_task_init(void) {
 #endif
 
   debug_init(s_mcu_reboot_reason);
-
-#ifdef CONFIG_SOC_T5AI
-  PBL_LOG_ERR("T5AI clock mode1=%08lx cpu1=%08lx measured=%lu configured=%lu",
-              (unsigned long)s_t5ai_clock_diagnostics.mode1,
-              (unsigned long)s_t5ai_clock_diagnostics.cpu1_control,
-              (unsigned long)s_t5ai_clock_diagnostics.measured_hz,
-              (unsigned long)SystemCoreClock);
-#endif
 
   services_early_init();
 
@@ -701,9 +416,6 @@ static NOINLINE void prv_main_task_init(void) {
   resource_init();
 
   system_resource_init();
-
-#ifdef CONFIG_SOC_T5AI
-#endif
 
 #ifdef CONFIG_HRM
   hrm_init(HRM);
@@ -735,11 +447,6 @@ static NOINLINE void prv_main_task_init(void) {
 
 #ifdef CONFIG_SOC_T5AI
   t5ai_freertos_apply_systick_clock();
-  dbgserial_putstr_fmt(s_t5ai_timebase_response, sizeof(s_t5ai_timebase_response),
-                       "PBLCLK apply mode1=%08lx core=%lu systick=%08lx/%lu/%lu",
-                       (unsigned long)T5AI_SYSTEM_CLK_MODE1, (unsigned long)SystemCoreClock,
-                       (unsigned long)SysTick->CTRL, (unsigned long)SysTick->LOAD,
-                       (unsigned long)SysTick->VAL);
 
   /* CP0's shell fallback is interrupt-scale. Defer mailbox dispatch from IRQ
    * 63 to the high-priority NewTimer work queue after hardware bring-up. */
@@ -801,9 +508,6 @@ static NOINLINE void prv_main_task_init(void) {
   // entering the kernel event queue.
   debounced_button_init();
 
-#ifdef CONFIG_SOC_T5AI
-#endif
-
 #ifndef CONFIG_SOC_T5AI
   task_watchdog_resume();
 #endif
@@ -817,7 +521,5 @@ static void main_task(void* parameter) {
   __enable_irq();
 #endif
   prv_main_task_init();
-#ifdef CONFIG_SOC_T5AI
-#endif
   launcher_main_loop();
 }

@@ -33,7 +33,6 @@
 #include "kernel/low_power.h"
 #include "kernel/panic.h"
 #include "kernel/pbl_malloc.h"
-#include "kernel/remote_input.h"
 #include "kernel/ui/kernel_ui.h"
 #include "kernel/ui/modals/modal_manager.h"
 #include "kernel/util/factory_reset.h"
@@ -89,16 +88,6 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
-
-#ifdef CONFIG_TOUCH
-static TouchEventLoopDiagnostics s_touch_diagnostics;
-
-void event_loop_get_touch_diagnostics(TouchEventLoopDiagnostics *diagnostics) {
-  if (diagnostics) {
-    *diagnostics = s_touch_diagnostics;
-  }
-}
-#endif
 
 static const uint32_t FORCE_QUIT_HOLD_MS = 1500;
 static int s_back_hold_timer = TIMER_INVALID_ID;
@@ -308,7 +297,6 @@ static NOINLINE void prv_minimal_event_handler(PebbleEvent* e) {
 
 #ifdef CONFIG_TOUCH
     case PEBBLE_TOUCH_EVENT: {
-      ++s_touch_diagnostics.events;
       // Raw touches only navigate (and hold the backlight) while the
       // interaction session is active; unarmed contact on the idle watchface
       // stays fully inert. Release on liftoff ungated so the refcount can't
@@ -344,7 +332,6 @@ static NOINLINE void prv_minimal_event_handler(PebbleEvent* e) {
         }
         gate = (TouchWakeGateResult){.latch = !armed};
         if (!armed) {
-          ++s_touch_diagnostics.unarmed_touchdowns;
           PBL_ANALYTICS_ADD(touch_gated_touchdown_count, 1);
         }
         touch_session_extend();
@@ -356,14 +343,7 @@ static NOINLINE void prv_minimal_event_handler(PebbleEvent* e) {
         touch_session_extend();
         app_idle_timeout_touch_up();
       }
-      const bool compositor_animating = compositor_is_animating();
-      if (compositor_animating) {
-        ++s_touch_diagnostics.masked_animation;
-      }
-      if (is_modal_focused) {
-        ++s_touch_diagnostics.masked_modal;
-      }
-      if (compositor_animating || is_modal_focused) {
+      if (compositor_is_animating() || is_modal_focused) {
         // Mask the app task while the compositor animates or a modal is focused. Otherwise a
         // gesture over a focused modal reaches both the kernel (modal) twin and the app twin
         // underneath, firing two actions for one gesture; masking the app leaves the modal twin
@@ -601,12 +581,6 @@ static NOINLINE void prv_launcher_main_loop_init(void) {
   tick_timer_service_init();
   debounced_connection_service_init();
   event_service_system_init();
-#ifdef CONFIG_SOC_T5AI
-  // T5AI skips services_common_init() while writable storage remains gated,
-  // but USART diagnostics and touch navigation still require the self-contained
-  // RAM/timer input injector.
-  remote_input_init();
-#endif
   modal_manager_init();
 
   shell_event_loop_init();
@@ -622,11 +596,9 @@ static NOINLINE void prv_launcher_main_loop_init(void) {
                                                                 : RunLevel_Normal;
   services_set_runlevel(run_level);
 
-#ifndef CONFIG_SOC_T5AI
   // emulate a button press-and-release to turn on/off the backlight
   light_button_pressed();
   light_button_released();
-#endif
 
 #ifndef CONFIG_RECOVERY_FW
   i18n_set_resource(shell_prefs_get_language_resource_id());

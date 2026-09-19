@@ -836,18 +836,6 @@ bool event_try_put_from_process(PebbleTask task, PebbleEvent* event);
 
 bool event_take_timeout(PebbleEvent* event, int timeout_ms);
 
-typedef struct EventQueueDiagnostics {
-  uint32_t events_taken;
-  uint32_t current_event;
-  UBaseType_t set_depth;
-  UBaseType_t kernel_depth;
-  UBaseType_t app_depth;
-  UBaseType_t worker_depth;
-  UBaseType_t self_depth;
-} EventQueueDiagnostics;
-
-void event_get_queue_diagnostics(EventQueueDiagnostics *diagnostics);
-
 //! Return a reference to the allocated buffer within an event, if applicable
 void **event_get_buffer(PebbleEvent *event);
 

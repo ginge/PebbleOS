@@ -15,7 +15,6 @@
 
 #include "FreeRTOS.h"
 #include "queue.h"
-#include "task.h"
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -37,17 +36,12 @@ static QueueHandle_t s_from_kernel_event_queue = NULL;
 // This queue set contains the s_kernel_event_queue, s_from_app_event_queue, and s_from_worker_event_queue queues
 static QueueSetHandle_t s_system_event_queue_set = NULL;
 
-enum {
-  MAX_KERNEL_EVENTS = 32,
-  MAX_FROM_APP_EVENTS = 10,
-  MAX_FROM_WORKER_EVENTS = 5,
-  MAX_FROM_KERNEL_MAIN_EVENTS = 14,
-  MAX_SYSTEM_EVENT_SET_EVENTS =
-      MAX_KERNEL_EVENTS + MAX_FROM_APP_EVENTS + MAX_FROM_WORKER_EVENTS,
-};
+static const int MAX_KERNEL_EVENTS = 32;
+static const int MAX_FROM_APP_EVENTS = 10;
+static const int MAX_FROM_WORKER_EVENTS = 5;
+static const int MAX_FROM_KERNEL_MAIN_EVENTS = 14;
 
 uint32_t s_current_event;
-static uint32_t s_events_taken;
 
 // Breakdown of kernel event queue entries by callback function pointer.
 // Visible in coredumps to diagnose EventQueueFull reboots.
@@ -112,9 +106,7 @@ void events_init(void) {
                  "You made the PebbleEvent bigger! It should be no more than 12");
 
 
-  // A queue set must have enough slots for every event that can be present in all of its members.
-  s_system_event_queue_set = xQueueCreateSet(MAX_SYSTEM_EVENT_SET_EVENTS);
-  PBL_ASSERTN(s_system_event_queue_set != NULL);
+  s_system_event_queue_set = xQueueCreateSet(MAX_KERNEL_EVENTS + MAX_FROM_APP_EVENTS);
 
   s_kernel_event_queue = xQueueCreate(MAX_KERNEL_EVENTS, sizeof(PebbleEvent));
   PBL_ASSERTN(s_kernel_event_queue != NULL);
@@ -288,7 +280,6 @@ bool event_take_timeout(PebbleEvent* event, int timeout_ms) {
   // Check the from_kernel queue first to see if we posted any events to ourself.
   portBASE_TYPE result = xQueueReceive(s_from_kernel_event_queue, event, 0);
   if (result) {
-    ++s_events_taken;
     s_current_event = prv_get_fancy_type_from_event(event);
     return true;
   }
@@ -328,24 +319,8 @@ bool event_take_timeout(PebbleEvent* event, int timeout_ms) {
     }
   }
 
-  ++s_events_taken;
   s_current_event = prv_get_fancy_type_from_event(event);
   return true;
-}
-
-void event_get_queue_diagnostics(EventQueueDiagnostics *diagnostics) {
-  if (!diagnostics) {
-    return;
-  }
-  *diagnostics = (EventQueueDiagnostics) {
-    .events_taken = s_events_taken,
-    .current_event = s_current_event,
-    .set_depth = uxQueueMessagesWaiting(s_system_event_queue_set),
-    .kernel_depth = uxQueueMessagesWaiting(s_kernel_event_queue),
-    .app_depth = uxQueueMessagesWaiting(s_from_app_event_queue),
-    .worker_depth = uxQueueMessagesWaiting(s_from_worker_event_queue),
-    .self_depth = uxQueueMessagesWaiting(s_from_kernel_event_queue),
-  };
 }
 
 void **event_get_buffer(PebbleEvent *event) {
@@ -416,59 +391,43 @@ void event_cleanup(PebbleEvent* event) {
 }
 
 void event_reset_from_process_queue(PebbleTask task) {
-  // FreeRTOS queue sets contain one member handle for each queued item. Resetting the set itself
-  // discards notifications for every member and can leave KernelMain blocked while a member still
-  // contains events. Drain one complete snapshot atomically, discard only reset_queue's events,
-  // and restore the other member notifications unchanged.
-  QueueHandle_t reset_queue;
+  // Unfortunately, current versions of FreeRTOS don't really handle resetting a queue that's part
+  // of a queue set all that well. See PBL-1817. We'll clean up the queue set manually.
+
+  // Notice that we don't disable the scheduler or enter a critical section here. This is because
+  // it is usually unsafe to do so when making other FreeRTOS calls that might cause  context switch
+  // (see http://www.freertos.org/a00134.html). I think this is OK though - the worse that can
+  // happen is that we end up with extra items in the s_system_event_queue_set that don't belong
+  // there and event_take_timeout() is tolerant of that. Also see the discussion at
+  // https://github.com/pebble/tintin/pull/2416#discussion_r16641981.
+
+  // We want to remove all references to the queue we just reset, while keeping references to other
+  // queues in check. This would be really annoying, but luckily we only have two other queues in
+  // the set. Count the number of times the other queues exist in the queue set, clear the queue,
+  // and then restore the original count.
+  QueueHandle_t reset_queue, preserve_queue;
   if (task == PebbleTask_App) {
     reset_queue = s_from_app_event_queue;
+    preserve_queue = s_from_worker_event_queue;
   } else if (task == PebbleTask_Worker) {
     reset_queue = s_from_worker_event_queue;
+    preserve_queue = s_from_app_event_queue;
   } else {
-    reset_queue = NULL;
+    preserve_queue = reset_queue = NULL;
     WTF;
   }
 
-  PebbleEvent dropped[MAX_FROM_APP_EVENTS];
-  QueueSetMemberHandle_t preserved[MAX_SYSTEM_EVENT_SET_EVENTS];
-  UBaseType_t preserved_count = 0;
-  UBaseType_t dropped_count = 0;
+  xQueueReset(s_system_event_queue_set);
+  event_queue_cleanup_and_reset(reset_queue);
 
-  taskENTER_CRITICAL();
-  const UBaseType_t set_count = uxQueueMessagesWaiting(s_system_event_queue_set);
-  PBL_ASSERTN(set_count <= MAX_SYSTEM_EVENT_SET_EVENTS);
-  for (UBaseType_t i = 0; i < set_count; ++i) {
-    QueueSetMemberHandle_t activated_queue = xQueueSelectFromSet(s_system_event_queue_set, 0);
-    PBL_ASSERTN(activated_queue != NULL);
-    if (activated_queue == reset_queue) {
-      PBL_ASSERTN(dropped_count < MAX_FROM_APP_EVENTS);
-      PBL_ASSERTN(xQueueReceive(reset_queue, &dropped[dropped_count++], 0) == pdTRUE);
-    } else {
-      preserved[preserved_count++] = activated_queue;
-    }
+  int num_kernel_events_enqueued = uxQueueMessagesWaiting(s_kernel_event_queue);
+  for (int i = 0; i < num_kernel_events_enqueued; ++i) {
+    xQueueSend(s_system_event_queue_set, &s_kernel_event_queue, 0);
   }
 
-  // This fallback also repairs an already-desynchronised set without making direct member receives
-  // part of normal dispatch. There can never be more than the member queue's configured capacity.
-  while (uxQueueMessagesWaiting(reset_queue) != 0) {
-    PBL_ASSERTN(dropped_count < MAX_FROM_APP_EVENTS);
-    PBL_ASSERTN(xQueueReceive(reset_queue, &dropped[dropped_count++], 0) == pdTRUE);
-  }
-
-  PBL_ASSERTN(xQueueReset(reset_queue) == pdPASS);
-  for (UBaseType_t i = 0; i < preserved_count; ++i) {
-    PBL_ASSERTN(xQueueSend(s_system_event_queue_set, &preserved[i], 0) == pdTRUE);
-  }
-  taskEXIT_CRITICAL();
-
-  for (UBaseType_t i = 0; i < dropped_count; ++i) {
-    // Event services keep bookkeeping for queued events and dynamically owned payloads.
-    sys_event_service_cleanup(&dropped[i]);
-#if !defined(CONFIG_RECOVERY_FW)
-    app_outbox_service_cleanup_event(&dropped[i]);
-#endif
-    event_cleanup(&dropped[i]);
+  int num_client_task_events_enqueued = uxQueueMessagesWaiting(preserve_queue);
+  for (int i = 0; i < num_client_task_events_enqueued; ++i) {
+    xQueueSend(s_system_event_queue_set, &preserve_queue, 0);
   }
 }
 

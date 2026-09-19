@@ -188,19 +188,12 @@ typedef struct TouchNavState {
 
   //! Observability counters.
   struct {
-    uint16_t touchdowns;
-    uint16_t position_updates;
-    uint16_t liftoffs;
     uint16_t started;
     uint16_t completed;
     uint16_t failed;
     uint16_t cancelled;
     uint16_t dropped;
     uint16_t gated;
-    uint16_t widget_started;
-    uint16_t widget_updated;
-    uint16_t widget_completed;
-    uint16_t widget_cancelled;
   } counters;
 
   //! Observability ring buffer.

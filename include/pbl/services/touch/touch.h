@@ -134,17 +134,3 @@ bool touch_handle_injected_update(TouchInjectPhase phase, int16_t x, int16_t y);
 //! @return false when a new injected gesture would be refused: touch is globally disabled, or a
 //! physical finger currently owns the sensor.
 bool touch_injection_is_available(void);
-
-//! Bounded bring-up snapshot of the driver-to-event-service boundary.
-typedef struct TouchServiceDiagnostics {
-  uint32_t physical_samples;
-  uint32_t physical_samples_ignored;
-  uint32_t queued_touchdowns;
-  uint32_t queued_position_updates;
-  uint32_t queued_liftoffs;
-  uint8_t touch_state;
-  uint8_t injecting;
-  uint8_t subscriber_count;
-} TouchServiceDiagnostics;
-
-void touch_get_diagnostics(TouchServiceDiagnostics *diagnostics);

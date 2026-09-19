@@ -20,7 +20,3 @@ void i2c_hal_abort_transfer(I2CBus *bus);
 void i2c_hal_init_transfer(I2CBus *bus);
 
 void i2c_hal_start_transfer(I2CBus *bus);
-
-#ifdef CONFIG_SOC_T5AI
-bool i2c_hal_bitbang_recovery(I2CBus *bus);
-#endif

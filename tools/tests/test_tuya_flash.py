@@ -9,19 +9,15 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class TuyaFlashTest(unittest.TestCase):
-    def test_t5ai_write_failures_survive_ap_reset_for_diagnosis(self):
+    def test_t5ai_write_path_has_no_retained_probe_instrumentation(self):
         flash = (ROOT / "src/fw/drivers/flash/t5ai.c").read_text()
         main = (ROOT / "src/fw/main.c").read_text()
         registers = (ROOT / "src/fw/system/rtc_registers.h").read_text()
 
-        self.assertIn("T5AI_FLASH_FAILURE_CONTEXT", registers)
-        self.assertIn("T5AI_FLASH_FAILURE_STATUS", registers)
-        self.assertIn("T5AI_FLASH_FAILURE_ADDRESS", registers)
-        self.assertIn("T5AI_FLASH_FAILURE_POLICY", flash)
-        self.assertIn("T5AI_FLASH_FAILURE_IPC_WRITE", flash)
-        self.assertIn("prv_record_write_failure", flash)
-        self.assertIn("prv_t5ai_capture_retained_failure();", main)
-        self.assertIn("rr=%u/%08lx ff=%08lx/%ld/%08lx", main)
+        self.assertNotIn("T5AI_FLASH_FAILURE_", registers)
+        self.assertNotIn("T5AI_FLASH_FAILURE_", flash)
+        self.assertNotIn("prv_record_write_failure", flash)
+        self.assertNotIn("prv_t5ai_capture_retained_failure", main)
 
     def test_t5ai_flash_reconnects_only_after_non_mutating_faults(self):
         flash = (ROOT / "src/fw/drivers/flash/t5ai_flash_ipc.c").read_text()

@@ -5,7 +5,6 @@
 #include <pbl/drivers/display/t5ai.h>
 
 #include "board/board.h"
-#include "console/dbgserial.h"
 #include "kernel/util/delay.h"
 #include <pbl/drivers/gpio.h>
 #include <pbl/logging/logging.h>
@@ -15,8 +14,6 @@
 #include <cmsis_core.h>
 
 #include <stddef.h>
-#include <stdarg.h>
-#include <stdio.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -27,10 +24,6 @@ PBL_LOG_MODULE_DEFINE(driver_display_co5300, CONFIG_DRIVER_DISPLAY_LOG_LEVEL);
 #define PANEL_ROW_BYTES (PANEL_WIDTH * 2u)
 #define PANEL_X_OFFSET 6u
 #define PANEL_RESET_PIN 29u
-#define PANEL_QSPI_CLK_PIN 22u
-#define PANEL_QSPI_CS_PIN 23u
-#define PANEL_QSPI_IO0_PIN 24u
-
 #define QSPI_BASE 0x46040000u
 #define QSPI_GLB_CTRL 0x08u
 #define QSPI_CMD_A_L 0x20u
@@ -83,13 +76,11 @@ PBL_LOG_MODULE_DEFINE(driver_display_co5300, CONFIG_DRIVER_DISPLAY_LOG_LEVEL);
 #define SYSTEM_POWER_SLEEP_WAKEUP (*(volatile uint32_t *)0x44010040u)
 #define SYSTEM_CPU1_INTERRUPT_ENABLE (*(volatile uint32_t *)0x44010088u)
 #define SYSTEM_GPIO_FUNCTION_BASE ((volatile uint32_t *)0x440100c0u)
-#define SYSTEM_ANALOG_BASE ((volatile uint32_t *)0x44010100u)
 #define GPIO_BASE ((volatile uint32_t *)0x44000400u)
 
 static bool s_initialized;
 static bool s_enabled;
 static bool s_updating;
-static status_t s_qspi_power_status;
 static bool s_rotated;
 static uint8_t s_brightness = 0xffu;
 static bool s_brightness_dirty;
@@ -98,24 +89,8 @@ static uint32_t s_dma_test_source[8] __attribute__((aligned(32)));
 static uint32_t s_dma_test_destination[8] __attribute__((aligned(32)));
 static uint16_t s_panel_source_x[PANEL_WIDTH];
 static uint16_t s_rgb565[64];
-static char s_trace_buffer[160];
-static uint32_t s_last_stream_words;
 static bool s_dma_display_enabled;
 static bool s_dma_display_failed;
-
-static void prv_trace(const char *format, ...) {
-  va_list args;
-  va_start(args, format);
-  const int length = vsnprintf(s_trace_buffer, sizeof(s_trace_buffer), format, args);
-  va_end(args);
-
-  const size_t bounded_length = length < 0 ? 0u
-                                : (size_t)length < sizeof(s_trace_buffer)
-                                    ? (size_t)length
-                                    : sizeof(s_trace_buffer) - 1u;
-  s_trace_buffer[bounded_length] = '\0';
-  dbgserial_putstr(s_trace_buffer);
-}
 
 static volatile uint32_t *prv_qspi(uint32_t offset) {
   return (volatile uint32_t *)(QSPI_BASE + offset);
@@ -189,19 +164,6 @@ static bool prv_command(uint8_t command, const uint8_t *data, size_t length, boo
 
 static bool prv_register(uint8_t command, const uint8_t *data, size_t length) {
   return prv_command(command, data, length, false);
-}
-
-static bool prv_read_register(uint8_t command, uint32_t *raw_data) {
-  prv_power_up();
-  *prv_qspi(QSPI_CMD_D_L) = 0u;
-  *prv_qspi(QSPI_CMD_D_H) = 0x03u | ((uint32_t)command << 16);
-  *prv_qspi(QSPI_CMD_D_CFG1) = 0x300u;
-  *prv_qspi(QSPI_CMD_D_CFG2) = (1u << 2) | QSPI_CMD_START;
-  const bool result = prv_wait_command();
-  *raw_data = *prv_qspi(QSPI_FIFO_DATA);
-  *prv_qspi(QSPI_CMD_D_CFG1) = 0u;
-  *prv_qspi(QSPI_CMD_D_CFG2) = 0u;
-  return result;
 }
 
 static void prv_apply_brightness(void) {
@@ -362,18 +324,10 @@ static bool prv_dma_self_test(void) {
   while ((DMA_CTRL & 1u) && --timeout) {
   }
   const uint32_t status = DMA_STATUS;
-  const uint32_t final_source = DMA_SRC;
-  const uint32_t final_destination = DMA_DEST;
   DMA_CTRL = 0u;
   prv_dcache_invalidate(s_dma_test_destination, sizeof(s_dma_test_destination));
   const bool matches = memcmp(s_dma_test_source, s_dma_test_destination,
                               sizeof(s_dma_test_source)) == 0;
-  prv_trace("PBLDMATEST ok=%u timeout=%u status=%08lx req=%08lx src=%08lx/%08lx dst=%08lx/%08lx first=%08lx/%08lx\r\n",
-            (unsigned)matches, (unsigned)(timeout == 0u), (unsigned long)status,
-            (unsigned long)DMA_REQ, (unsigned long)source, (unsigned long)final_source,
-            (unsigned long)destination, (unsigned long)final_destination,
-            (unsigned long)s_dma_test_source[0],
-            (unsigned long)s_dma_test_destination[0]);
   return matches && timeout != 0u && (status & (1u << 20)) == 0u;
 }
 
@@ -465,47 +419,10 @@ static uint16_t prv_panel_row_start(uint16_t logical_y) {
   return (logical_y * PANEL_HEIGHT + PBL_DISPLAY_HEIGHT - 1u) / PBL_DISPLAY_HEIGHT;
 }
 
-static bool prv_draw_diagnostic_pattern(void) {
-  // Match Tuya's production frame transfer rather than splitting each row
-  // into command-C FIFO transactions. It holds CS low across the 32 00 2c 00
-  // preamble and every pixel, then streams incrementing 32-bit writes through
-  // the BK7258 QSPI0 data aperture. Use saturated RGB bands so any accepted
-  // pixel data is obvious.
-  s_last_stream_words = 0u;
-  if (!prv_register(0x13u, NULL, 0u)) {
-    return false;
-  }
-  if (!prv_set_window(PANEL_X_OFFSET, 0u, PANEL_X_OFFSET + PANEL_WIDTH - 1u,
-                      PANEL_HEIGHT - 1u)) {
-    return false;
-  }
-
-  if (!prv_pixel_stream_begin()) {
-    return false;
-  }
-
-  size_t aperture_word = 0u;
-  for (uint16_t y = 0u; y < PANEL_HEIGHT; ++y) {
-    const uint16_t color = y < PANEL_HEIGHT / 3u   ? 0xf800u
-                           : y < 2u * PANEL_HEIGHT / 3u ? 0x07e0u
-                                                        : 0x001fu;
-    for (uint16_t x = 0u; x < PANEL_WIDTH; ++x) {
-      s_panel_row[x * 2u] = (uint8_t)(color >> 8);
-      s_panel_row[x * 2u + 1u] = (uint8_t)color;
-    }
-    aperture_word = prv_pixel_stream_write(s_panel_row, sizeof(s_panel_row), aperture_word);
-  }
-
-  prv_pixel_stream_end();
-  s_last_stream_words = (uint32_t)aperture_word;
-  return true;
-}
-
 static bool prv_qspi_init(void) {
   // BK7258 gates QSPI with both the AHB-peripheral power domain and its
   // individual peripheral clock. A cleared power-down bit turns AHBP on.
   const status_t status = t5ai_cp_mailbox_enable_qspi0();
-  s_qspi_power_status = status;
   if (FAILED(status)) {
     // The CP power-management service is not guaranteed to be ready during
     // early display bring-up. The AP registers below are the validated native
@@ -575,127 +492,6 @@ static bool prv_panel_init(void) {
   return prv_register(0x13u, NULL, 0) && prv_register(0x29u, NULL, 0);
 }
 
-static void prv_bitbang_write_pin(const OutputConfig *pin, bool level) {
-  gpio_output_set(pin, level);
-  delay_us(2);
-}
-
-static void prv_bitbang_byte(const OutputConfig *clock, const OutputConfig *data, uint8_t value) {
-  for (uint8_t mask = 0x80u; mask != 0u; mask >>= 1) {
-    prv_bitbang_write_pin(data, (value & mask) != 0u);
-    prv_bitbang_write_pin(clock, true);
-    prv_bitbang_write_pin(clock, false);
-  }
-}
-
-static void prv_bitbang_command(const OutputConfig *clock, const OutputConfig *chip_select,
-                                const OutputConfig *data, uint8_t command, const uint8_t *payload,
-                                size_t length) {
-  prv_bitbang_write_pin(chip_select, false);
-  prv_bitbang_byte(clock, data, 0x02u);
-  prv_bitbang_byte(clock, data, 0x00u);
-  prv_bitbang_byte(clock, data, command);
-  prv_bitbang_byte(clock, data, 0x00u);
-  for (size_t i = 0; i < length; ++i) {
-    prv_bitbang_byte(clock, data, payload[i]);
-  }
-  prv_bitbang_write_pin(chip_select, true);
-  delay_us(10);
-}
-
-static void prv_bitbang_read(const OutputConfig *clock, const OutputConfig *chip_select,
-                             const OutputConfig *data_output, uint8_t command,
-                             GPIOPuPd_TypeDef pull, uint8_t data0_result[4],
-                             uint8_t data1_result[4]) {
-  static const InputConfig data0_input = {.pin = PANEL_QSPI_IO0_PIN};
-  static const InputConfig data1_input = {.pin = PANEL_QSPI_IO0_PIN + 1u};
-
-  prv_bitbang_write_pin(chip_select, false);
-  prv_bitbang_byte(clock, data_output, 0x03u);
-  prv_bitbang_byte(clock, data_output, 0x00u);
-  prv_bitbang_byte(clock, data_output, command);
-  prv_bitbang_byte(clock, data_output, 0x00u);
-  gpio_input_init_pull_up_down(&data0_input, pull);
-  gpio_input_init_pull_up_down(&data1_input, pull);
-  memset(data0_result, 0, 4u);
-  memset(data1_result, 0, 4u);
-  for (unsigned bit = 0; bit < 32u; ++bit) {
-    prv_bitbang_write_pin(clock, true);
-    data0_result[bit / 8u] =
-        (uint8_t)((data0_result[bit / 8u] << 1) | (gpio_input_read(&data0_input) ? 1u : 0u));
-    data1_result[bit / 8u] =
-        (uint8_t)((data1_result[bit / 8u] << 1) | (gpio_input_read(&data1_input) ? 1u : 0u));
-    prv_bitbang_write_pin(clock, false);
-  }
-  prv_bitbang_write_pin(chip_select, true);
-  gpio_output_init(data_output, GPIO_OType_PP);
-  prv_bitbang_write_pin(data_output, false);
-}
-
-void display_co5300_bitbang_probe(void) {
-  static const OutputConfig clock = {.pin = PANEL_QSPI_CLK_PIN, .active_high = true};
-  static const OutputConfig chip_select = {.pin = PANEL_QSPI_CS_PIN, .active_high = true};
-  static const OutputConfig data = {.pin = PANEL_QSPI_IO0_PIN, .active_high = true};
-  static const OutputConfig reset = {.pin = PANEL_RESET_PIN, .active_high = true};
-
-  // This is a diagnostic boundary test, not the production transport. Stop
-  // QSPI0, return its one-wire command pins to GPIO ownership, and clock the
-  // exact CO5300 byte stream in mode 0 at approximately 125 kHz.
-  *prv_qspi(QSPI_CONFIG) &= ~QSPI_ENABLE;
-  gpio_output_init(&clock, GPIO_OType_PP);
-  gpio_output_init(&chip_select, GPIO_OType_PP);
-  gpio_output_init(&data, GPIO_OType_PP);
-  prv_bitbang_write_pin(&clock, false);
-  prv_bitbang_write_pin(&chip_select, true);
-  prv_bitbang_write_pin(&data, false);
-
-  gpio_output_init(&reset, GPIO_OType_PP);
-  gpio_output_set(&reset, true);
-  delay_us(20000);
-  gpio_output_set(&reset, false);
-  delay_us(200000);
-  gpio_output_set(&reset, true);
-  delay_us(120000);
-
-  static const struct {
-    uint8_t command;
-    uint8_t value;
-  } init[] = {
-      {0xfe, 0x20}, {0x19, 0x10}, {0x1c, 0xa0}, {0xfe, 0x00}, {0xc4, 0x80},
-      {0x3a, 0x55}, {0x35, 0x00}, {0x53, 0x20}, {0x51, 0xff}, {0x63, 0xff},
-  };
-  for (size_t i = 0; i < sizeof(init) / sizeof(init[0]); ++i) {
-    prv_bitbang_command(&clock, &chip_select, &data, init[i].command, &init[i].value, 1u);
-  }
-  prv_bitbang_command(&clock, &chip_select, &data, 0x11u, NULL, 0u);
-  delay_us(200000);
-  prv_bitbang_command(&clock, &chip_select, &data, 0x29u, NULL, 0u);
-  prv_bitbang_command(&clock, &chip_select, &data, 0x23u, NULL, 0u);
-  uint8_t data0_float[4];
-  uint8_t data1_float[4];
-  uint8_t data0_up[4];
-  uint8_t data1_up[4];
-  uint8_t data0_down[4];
-  uint8_t data1_down[4];
-  prv_bitbang_read(&clock, &chip_select, &data, 0x0au, GPIO_PuPd_NOPULL, data0_float,
-                   data1_float);
-  prv_bitbang_read(&clock, &chip_select, &data, 0x0au, GPIO_PuPd_UP, data0_up, data1_up);
-  prv_bitbang_read(&clock, &chip_select, &data, 0x0au, GPIO_PuPd_DOWN, data0_down, data1_down);
-  prv_trace(
-      "PBLBIT done cfg=%08lx clk/cs/io0/io1/rst=%03lx/%03lx/%03lx/%03lx/%03lx "
-      "float=%02x%02x%02x%02x/%02x%02x%02x%02x\r\n",
-      (unsigned long)*prv_qspi(QSPI_CONFIG), (unsigned long)GPIO_BASE[PANEL_QSPI_CLK_PIN],
-      (unsigned long)GPIO_BASE[PANEL_QSPI_CS_PIN], (unsigned long)GPIO_BASE[PANEL_QSPI_IO0_PIN],
-      (unsigned long)GPIO_BASE[PANEL_QSPI_IO0_PIN + 1u],
-      (unsigned long)GPIO_BASE[PANEL_RESET_PIN], data0_float[0], data0_float[1], data0_float[2],
-      data0_float[3], data1_float[0], data1_float[1], data1_float[2], data1_float[3]);
-  prv_trace("PBLBIT pull-up=%02x%02x%02x%02x/%02x%02x%02x%02x "
-            "pull-down=%02x%02x%02x%02x/%02x%02x%02x%02x\r\n",
-            data0_up[0], data0_up[1], data0_up[2], data0_up[3], data1_up[0], data1_up[1],
-            data1_up[2], data1_up[3], data0_down[0], data0_down[1], data0_down[2],
-            data0_down[3], data1_down[0], data1_down[1], data1_down[2], data1_down[3]);
-}
-
 void display_init(void) {
   prv_dma_init();
   s_dma_display_enabled = prv_dma_self_test();
@@ -705,67 +501,6 @@ void display_init(void) {
   s_brightness_dirty = false;
   if (!s_initialized) {
     PBL_LOG_ERR("CO5300 initialization failed");
-  }
-}
-
-void display_co5300_log_diagnostics(void) {
-  const status_t boot_power_status = s_qspi_power_status;
-  if (s_updating) {
-    prv_trace("PBLDSP busy bootpm=%ld", (long)boot_power_status);
-    return;
-  }
-
-  // The initial CP power vote can run before that service is ready. Retry it
-  // on demand after the USART path proves the CP is fully up, then repeat the
-  // vendor reset and initialization sequence against the known register state.
-  const bool reinitialized = prv_qspi_init() && prv_panel_init();
-  s_initialized = reinitialized;
-  s_enabled = reinitialized;
-  s_brightness_dirty = false;
-  const bool pattern_written = reinitialized && prv_draw_diagnostic_pattern();
-  prv_trace("PBLPIX continuous=%u words=%lu bytes=%lu cfg=%08lx st=%08lx\r\n",
-            (unsigned)pattern_written, (unsigned long)s_last_stream_words,
-            (unsigned long)(s_last_stream_words * sizeof(uint32_t)),
-            (unsigned long)*prv_qspi(QSPI_CONFIG), (unsigned long)*prv_qspi(QSPI_STATUS));
-  uint32_t power_mode_raw = 0u;
-  const bool power_mode_read = prv_read_register(0x0au, &power_mode_raw);
-  prv_trace(
-      "PBLDSP bootpm=%ld nowpm=%ld reinit=%u pattern=%u rd=%u pm=%02lx raw=%08lx "
-      "i/e/u=%u/%u/%u glb=%08lx "
-      "cfg=%08lx rst=%08lx st=%08lx\r\n",
-      (long)boot_power_status, (long)s_qspi_power_status, (unsigned)reinitialized,
-      (unsigned)pattern_written, (unsigned)power_mode_read,
-      (unsigned long)(power_mode_raw & 0xffu), (unsigned long)power_mode_raw,
-      (unsigned)s_initialized, (unsigned)s_enabled, (unsigned)s_updating,
-      (unsigned long)*prv_qspi(QSPI_GLB_CTRL), (unsigned long)*prv_qspi(QSPI_CONFIG),
-      (unsigned long)*prv_qspi(QSPI_RST_CFG), (unsigned long)*prv_qspi(QSPI_STATUS));
-  prv_trace("PBLPWR clk=%08lx gate=%08lx irq=%08lx mem=%08lx/%08lx sleep=%08lx p19=%08lx p29=%08lx\r\n",
-            (unsigned long)SYSTEM_CLK_MODE2, (unsigned long)SYSTEM_DEVICE_CLK_ENABLE,
-            (unsigned long)SYSTEM_CPU1_INTERRUPT_ENABLE, (unsigned long)SYSTEM_DEVICE_MEM_CTRL1,
-            (unsigned long)SYSTEM_DEVICE_MEM_CTRL2, (unsigned long)SYSTEM_POWER_SLEEP_WAKEUP,
-            (unsigned long)GPIO_BASE[19], (unsigned long)GPIO_BASE[PANEL_RESET_PIN]);
-  prv_trace(
-      "PBLPIN p22-27=%03lx/%03lx/%03lx/%03lx/%03lx/%03lx mux=%08lx/%08lx\r\n",
-      (unsigned long)GPIO_BASE[22], (unsigned long)GPIO_BASE[23], (unsigned long)GPIO_BASE[24],
-      (unsigned long)GPIO_BASE[25], (unsigned long)GPIO_BASE[26], (unsigned long)GPIO_BASE[27],
-      (unsigned long)SYSTEM_GPIO_FUNCTION_BASE[2], (unsigned long)SYSTEM_GPIO_FUNCTION_BASE[3]);
-  for (uint32_t offset = 0u; offset <= QSPI_STATUS; offset += 16u) {
-    prv_trace("PBLREG %02lx=%08lx %02lx=%08lx %02lx=%08lx %02lx=%08lx\r\n", (unsigned long)offset,
-              (unsigned long)*prv_qspi(offset), (unsigned long)(offset + 4u),
-              (unsigned long)*prv_qspi(offset + 4u), (unsigned long)(offset + 8u),
-              (unsigned long)*prv_qspi(offset + 8u), (unsigned long)(offset + 12u),
-              (unsigned long)*prv_qspi(offset + 12u));
-  }
-  // These shared analog registers survive an AP-only replacement and are a
-  // useful boundary check for the observation that the formerly visible AP
-  // image stopped driving the panel after a complete USB power cycle. Keep
-  // this probe read-only until a specific vendor startup write is identified.
-  for (unsigned index = 0u; index < 28u; index += 4u) {
-    prv_trace("PBLANA %02u=%08lx %02u=%08lx %02u=%08lx %02u=%08lx\r\n", index,
-              (unsigned long)SYSTEM_ANALOG_BASE[index], index + 1u,
-              (unsigned long)SYSTEM_ANALOG_BASE[index + 1u], index + 2u,
-              (unsigned long)SYSTEM_ANALOG_BASE[index + 2u], index + 3u,
-              (unsigned long)SYSTEM_ANALOG_BASE[index + 3u]);
   }
 }
 

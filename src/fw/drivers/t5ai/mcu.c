@@ -1,8 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <pbl/drivers/mcu.h>
-#include <pbl/soc/t5ai/clock.h>
-#include <pbl/soc/t5ai/rtc.h>
 
 #include <cmsis_core.h>
 
@@ -12,10 +10,6 @@
 
 /* BK7258 AP eFuse registers and factory device-ID allocation. */
 #define T5AI_SYSTEM_DEVICE_CLOCK_ENABLE (*(volatile uint32_t *)0x44010030u)
-#define T5AI_SYSTEM_CPU1_CONTROL (*(volatile uint32_t *)0x44010014u)
-#define T5AI_SYSTEM_CLK_MODE1 (*(volatile uint32_t *)0x44010020u)
-#define T5AI_AON_RTC_HZ 32000u
-#define T5AI_CLOCK_MEASUREMENT_TICKS 320u
 #define T5AI_EFUSE_BASE 0x44880000u
 #define T5AI_EFUSE_GLOBAL_CTRL (*(volatile uint32_t *)(T5AI_EFUSE_BASE + 0x08u))
 #define T5AI_EFUSE_CTRL (*(volatile uint32_t *)(T5AI_EFUSE_BASE + 0x10u))
@@ -90,26 +84,4 @@ StatusCode mcu_get_serial(void *buf, size_t *buf_sz) {
 
 uint32_t mcu_cycles_to_milliseconds(uint64_t cpu_ticks) {
   return (uint32_t)((cpu_ticks * 1000u) / SystemCoreClock);
-}
-
-T5AIClockDiagnostics t5ai_clock_get_diagnostics(void) {
-  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
-  DWT->CYCCNT = 0u;
-  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
-
-  const uint64_t rtc_start = t5ai_rtc_get_raw_ticks();
-  const uint32_t cycle_start = DWT->CYCCNT;
-  uint64_t rtc_end;
-  do {
-    rtc_end = t5ai_rtc_get_raw_ticks();
-  } while (rtc_end - rtc_start < T5AI_CLOCK_MEASUREMENT_TICKS);
-  const uint32_t elapsed_cycles = DWT->CYCCNT - cycle_start;
-  const uint64_t elapsed_rtc_ticks = rtc_end - rtc_start;
-
-  return (T5AIClockDiagnostics) {
-    .mode1 = T5AI_SYSTEM_CLK_MODE1,
-    .cpu1_control = T5AI_SYSTEM_CPU1_CONTROL,
-    .measured_hz =
-        (uint32_t)(((uint64_t)elapsed_cycles * T5AI_AON_RTC_HZ) / elapsed_rtc_ticks),
-  };
 }

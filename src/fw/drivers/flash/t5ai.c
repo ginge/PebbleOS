@@ -3,7 +3,6 @@
 #include <pbl/drivers/flash/flash_impl.h>
 #include <pbl/logging/logging.h>
 #include <pbl/soc/t5ai/flash_ipc.h>
-#include <pbl/soc/t5ai/retained.h>
 
 #include <inttypes.h>
 #include <stdint.h>
@@ -14,17 +13,6 @@
 #include "system/status_codes.h"
 
 PBL_LOG_MODULE_DECLARE(driver_flash, CONFIG_DRIVER_FLASH_LOG_LEVEL);
-
-#define T5AI_FLASH_FAILURE_POLICY 0x504f4c59u
-#define T5AI_FLASH_FAILURE_IPC_WRITE 0x49504357u
-#define T5AI_FLASH_FAILURE_VERIFY 0x56455249u
-
-static void prv_record_write_failure(uint32_t context, FlashAddress address, status_t status) {
-  /* Publish context last so a reset cannot make a partial record valid. */
-  t5ai_retained_write(T5AI_FLASH_FAILURE_ADDRESS, address);
-  t5ai_retained_write(T5AI_FLASH_FAILURE_STATUS, (uint32_t)status);
-  t5ai_retained_write(T5AI_FLASH_FAILURE_CONTEXT, context);
-}
 
 #define T5AI_FLASH_IPC_MAX_TRANSFER 0x200u
 #define T5AI_FLASH_IPC_ATTEMPTS 2u
@@ -378,7 +366,6 @@ int flash_impl_write_page_begin(const void *buffer, FlashAddress address, size_t
   const size_t written = length < page_remaining ? length : page_remaining;
   status_t status = prv_write_allowed(address, written);
   if (FAILED(status)) {
-    prv_record_write_failure(T5AI_FLASH_FAILURE_POLICY, address, status);
     PBL_LOG_ERR("T5AI flash write policy rejected addr=0x%08" PRIx32
                 " len=%lu status=%" PRId32,
                 address, (unsigned long)written, status);
@@ -388,7 +375,6 @@ int flash_impl_write_page_begin(const void *buffer, FlashAddress address, size_t
    * a mutation can duplicate or overlap an operation, so only reads retry. */
   status = t5ai_flash_ipc_write(prv_offset(address), buffer, written);
   if (FAILED(status)) {
-    prv_record_write_failure(T5AI_FLASH_FAILURE_IPC_WRITE, address, status);
     PBL_LOG_ERR("T5AI flash IPC write failed addr=0x%08" PRIx32
                 " len=%lu status=%" PRId32,
                 address, (unsigned long)written, status);
@@ -396,7 +382,6 @@ int flash_impl_write_page_begin(const void *buffer, FlashAddress address, size_t
   }
   status = prv_verify_pfs_header_write(address, buffer, written);
   if (FAILED(status)) {
-    prv_record_write_failure(T5AI_FLASH_FAILURE_VERIFY, address, status);
     PBL_LOG_ERR("T5AI PFS version verification failed addr=0x%08" PRIx32
                 " len=%lu status=%" PRId32,
                 address, (unsigned long)written, status);

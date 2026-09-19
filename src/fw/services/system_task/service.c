@@ -15,16 +15,13 @@
 
 #include "FreeRTOS.h"
 #include "queue.h"
-#include "semphr.h"
 #include "task.h"
 
 PBL_LOG_MODULE_DEFINE(service_system_task, CONFIG_SERVICE_SYSTEM_TASK_LOG_LEVEL);
 
 #ifdef CONFIG_SOC_T5AI
-// T5AI's partial service set can keep KernelMain continuously ready. KernelBG owns bounded system
-// callbacks and must drain producers such as the once-per-second advertising cycle before their
-// queue fills. Match the timer task at the highest FreeRTOS priority; both tasks block between short
-// jobs. Slow peripheral I/O such as CST92xx polling runs in its own lower-priority worker.
+// KernelBG owns the serialized PutBytes/PFS callbacks on T5AI. Keep those
+// bounded callbacks schedulable while the app and KernelMain are active.
 #define SYSTEM_TASK_PRIORITY (configMAX_PRIORITIES - 1)
 #else
 #define SYSTEM_TASK_PRIORITY (tskIDLE_PRIORITY + 1)
@@ -38,70 +35,41 @@ typedef struct {
 static QueueHandle_t s_system_task_queue;
 static QueueHandle_t s_from_app_system_task_queue;
 
-#ifdef CONFIG_SOC_T5AI
-static SemaphoreHandle_t s_system_task_wake;
-#else
 static QueueSetHandle_t s_system_task_queue_set;
-#endif
 
-static volatile SystemTaskEventCallback s_current_cb;
+static SystemTaskEventCallback s_current_cb;
 
+static bool s_system_task_idle = true;
 static bool s_should_block_callbacks = false;
 
 static bool prv_is_accepting_callbacks() {
   return s_system_task_queue != 0 && !s_should_block_callbacks;
 }
 
-static void system_task_idle_timer_callback(void *data) {
-  // A task blocked in xQueueSelectFromSet() is healthy, but it cannot prove
-  // that itself until its timeout is scheduled.  On T5AI we have observed a
-  // delayed-list wakeup arrive after the five-second task-watchdog window.
-  // The regular timer is independent of that wait, so use the actual callback
-  // state as the liveness contract: idle queue waits are healthy; a callback
-  // that remains in progress still prevents this feed and trips the watchdog.
-  if (s_current_cb == NULL) {
+static void system_task_idle_timer_callback(void* data) {
+  if (s_system_task_idle && uxQueueMessagesWaiting(s_system_task_queue_set) == 0) {
     system_task_watchdog_feed();
   }
 }
 
-static void system_task_main(void *paramater) {
+static void system_task_main(void* paramater) {
   task_watchdog_mask_set(PebbleTask_KernelBackground);
   task_init();
 
   while (true) {
+    s_system_task_idle = true;
+
     SystemTaskEvent event;
 
-#ifdef CONFIG_SOC_T5AI
-    // Queue-set notifications can be lost on the current T5AI FreeRTOS port.
-    // Drain both queues directly, then block on the producer-signalled wake
-    // semaphore. This remains event-driven and avoids periodic queue polling.
-    const TickType_t wait_ticks = milliseconds_to_ticks(1000);
-    portBASE_TYPE result = xQueueReceive(s_system_task_queue, &event, 0);
-    if (!result) {
-      result = xQueueReceive(s_from_app_system_task_queue, &event, 0);
-    }
-    if (!result) {
-      if (xSemaphoreTake(s_system_task_wake, wait_ticks) == pdFALSE) {
-        system_task_watchdog_feed();
-      }
-      continue;
-    }
-#else
-    const TickType_t wait_ticks = portMAX_DELAY;
-    QueueSetMemberHandle_t activated_queue =
-        xQueueSelectFromSet(s_system_task_queue_set, wait_ticks);
-    if (activated_queue == NULL) {
-      system_task_watchdog_feed();
-      continue;
-    }
+    QueueSetMemberHandle_t activated_queue = xQueueSelectFromSet(s_system_task_queue_set, portMAX_DELAY);
 
     // Get event from the activated queue
     portBASE_TYPE result = xQueueReceive(activated_queue, &event, 0);
-#endif
 
     // I believe its possible that we just reset the queue and accidently
     // pended an extra event to the queue set so handle that case gracefully
     if (result) {
+      s_system_task_idle = false;
       s_current_cb = event.cb;
       event.cb(event.data);
       mcu_fpu_cleanup();
@@ -118,33 +86,26 @@ void system_task_init(void) {
   static const int FROM_APP_SYSTEM_TASK_QUEUE_LENGTH = 8;
 
   s_system_task_queue = xQueueCreate(SYSTEM_TASK_QUEUE_LENGTH, sizeof(SystemTaskEvent));
-  s_from_app_system_task_queue =
-      xQueueCreate(FROM_APP_SYSTEM_TASK_QUEUE_LENGTH, sizeof(SystemTaskEvent));
+  s_from_app_system_task_queue = xQueueCreate(FROM_APP_SYSTEM_TASK_QUEUE_LENGTH, sizeof(SystemTaskEvent));
 
-#ifdef CONFIG_SOC_T5AI
-  s_system_task_wake = xSemaphoreCreateBinary();
-  PBL_ASSERTN(s_system_task_wake);
-#else
-  s_system_task_queue_set =
-      xQueueCreateSet(SYSTEM_TASK_QUEUE_LENGTH + FROM_APP_SYSTEM_TASK_QUEUE_LENGTH);
+  s_system_task_queue_set = xQueueCreateSet(SYSTEM_TASK_QUEUE_LENGTH + FROM_APP_SYSTEM_TASK_QUEUE_LENGTH);
   xQueueAddToSet(s_system_task_queue, s_system_task_queue_set);
   xQueueAddToSet(s_from_app_system_task_queue, s_system_task_queue_set);
-#endif
 
   extern uint32_t __kernel_bg_stack_start__[];
   extern uint32_t __kernel_bg_stack_size__[];
   extern uint32_t __stack_guard_size__[];
-  const uint32_t kernel_bg_stack_words =
-      ((uint32_t)__kernel_bg_stack_size__ - (uint32_t)__stack_guard_size__) /
-      sizeof(portSTACK_TYPE);
+  const uint32_t kernel_bg_stack_words = ( (uint32_t)__kernel_bg_stack_size__
+                       - (uint32_t)__stack_guard_size__) / sizeof(portSTACK_TYPE);
 
   TaskParameters_t task_params = {
-      .pvTaskCode = system_task_main,
-      .pcName = "KernelBG",
-      .usStackDepth = kernel_bg_stack_words,
-      .uxPriority = SYSTEM_TASK_PRIORITY | portPRIVILEGE_BIT,
-      .puxStackBuffer = (void *)(uintptr_t)((uint32_t)__kernel_bg_stack_start__ +
-                                            (uint32_t)__stack_guard_size__)};
+    .pvTaskCode = system_task_main,
+    .pcName = "KernelBG",
+    .usStackDepth = kernel_bg_stack_words,
+    .uxPriority = SYSTEM_TASK_PRIORITY | portPRIVILEGE_BIT,
+    .puxStackBuffer = (void*)(uintptr_t)((uint32_t)__kernel_bg_stack_start__
+                                          + (uint32_t)__stack_guard_size__)
+  };
 
   pebble_task_create(PebbleTask_KernelBackground, &task_params, NULL);
 }
@@ -157,7 +118,9 @@ void system_task_timer_init(void) {
   // all the other regular tasks. Note that the system_task_idle_timer_callback only kicks
   // the watchdog if we're currently waiting for work to do on the system_task. If we're in the
   // middle of something we won't kick it.
-  static RegularTimerInfo idle_watchdog_timer = {.cb = system_task_idle_timer_callback};
+  static RegularTimerInfo idle_watchdog_timer = {
+    .cb = system_task_idle_timer_callback
+  };
   regular_timer_add_seconds_callback(&idle_watchdog_timer);
 }
 
@@ -168,10 +131,14 @@ void system_task_watchdog_feed(void) {
 static void handle_system_task_send_failure(SystemTaskEventCallback cb, uintptr_t caller_lr) {
   PBL_LOG_ERR("System task queue full. Dropped cb: %p, current cb: %p", cb, s_current_cb);
 
-  RebootReason reason = {.code = RebootReasonCode_EventQueueFull,
-                         .event_queue = {.push_lr = (uint32_t)caller_lr,
-                                         .current_event = (uint32_t)s_current_cb,
-                                         .dropped_event = (uint32_t)cb}};
+  RebootReason reason = {
+    .code = RebootReasonCode_EventQueueFull,
+    .event_queue = {
+      .push_lr = (uint32_t) caller_lr,
+      .current_event = (uint32_t) s_current_cb,
+      .dropped_event = (uint32_t) cb
+    }
+  };
   reboot_reason_set(&reason);
 
   reset_due_to_software_failure();
@@ -180,26 +147,18 @@ static void handle_system_task_send_failure(SystemTaskEventCallback cb, uintptr_
 static bool prv_send_to_queue_from_isr(SystemTaskEventCallback cb, void *data,
                                        bool *should_context_switch) {
   SystemTaskEvent event = {
-      .cb = cb,
-      .data = data,
+    .cb = cb,
+    .data = data,
   };
 
   signed portBASE_TYPE tmp = pdFALSE;
   bool success = (xQueueSendToBackFromISR(s_system_task_queue, &event, &tmp) == pdTRUE);
-#ifdef CONFIG_SOC_T5AI
-  if (success) {
-    signed portBASE_TYPE wake_tmp = pdFALSE;
-    (void)xSemaphoreGiveFromISR(s_system_task_wake, &wake_tmp);
-    tmp = tmp || wake_tmp;
-  }
-#endif
   *should_context_switch = (tmp == pdTRUE);
 
   return success;
 }
 
-bool system_task_add_callback_from_isr(SystemTaskEventCallback cb, void *data,
-                                       bool *should_context_switch) {
+bool system_task_add_callback_from_isr(SystemTaskEventCallback cb, void *data, bool* should_context_switch) {
   // Capture caller LR at entry; reading from a deeper helper is unreliable.
   uintptr_t caller_lr = (uintptr_t)__builtin_return_address(0);
   if (!prv_is_accepting_callbacks()) {
@@ -230,31 +189,22 @@ bool system_task_add_callback(SystemTaskEventCallback cb, void *data) {
   }
 
   SystemTaskEvent event = {
-      .cb = cb,
-      .data = data,
+    .cb = cb,
+    .data = data,
   };
 
   if (pebble_task_get_current() == PebbleTask_App) {
     // If we're the app and we've filled up our system task, the app just gets to wait.
-    // FIXME: In the future when we want to bound the amount of time a syscall can take this will
-    // have to change.
+    // FIXME: In the future when we want to bound the amount of time a syscall can take this will have to change.
     xQueueSendToBack(s_from_app_system_task_queue, &event, portMAX_DELAY);
-#ifdef CONFIG_SOC_T5AI
-    (void)xSemaphoreGive(s_system_task_wake);
-#endif
     return true;
   } else {
-    // Back ourselves up and wait a reasonable amount of time before failing. If the queue is really
-    // backed up we want to fall through to the handle_system_task_send_failure and not just get
-    // killed by the watchdog.
-    bool success =
-        (xQueueSendToBack(s_system_task_queue, &event, milliseconds_to_ticks(3000)) == pdTRUE);
+    // Back ourselves up and wait a reasonable amount of time before failing. If the queue is really backed up
+    // we want to fall through to the handle_system_task_send_failure and not just get killed by the watchdog.
+    bool success = (xQueueSendToBack(s_system_task_queue, &event, milliseconds_to_ticks(3000)) == pdTRUE);
     if (!success) {
       handle_system_task_send_failure(cb, caller_lr);
     }
-#ifdef CONFIG_SOC_T5AI
-    (void)xSemaphoreGive(s_system_task_wake);
-#endif
   }
 
   return true;
@@ -269,23 +219,19 @@ uint32_t system_task_get_available_space(void) {
   return uxQueueSpacesAvailable(is_app ? s_from_app_system_task_queue : s_system_task_queue);
 }
 
-void *system_task_get_current_callback(void) {
+void* system_task_get_current_callback(void) {
   return s_current_cb;
 }
 
 void system_task_enable_raised_priority(bool is_raised) {
-#ifdef CONFIG_SOC_T5AI
-  const uint32_t raised_priority_level = configMAX_PRIORITIES - 1;
-#else
-  const uint32_t raised_priority_level = tskIDLE_PRIORITY + 3;  // Same as KernelMain / BT tasks
-#endif
+  const uint32_t raised_priority_level = tskIDLE_PRIORITY + 3; // Same as KernelMain / BT tasks
   vTaskPrioritySet(pebble_task_get_handle_for_task(PebbleTask_KernelBackground),
                    (is_raised ? raised_priority_level : SYSTEM_TASK_PRIORITY) | portPRIVILEGE_BIT);
 }
 
 bool system_task_is_ready_to_run(void) {
   const eTaskState bg_task_state =
-      eTaskGetState(pebble_task_get_handle_for_task(PebbleTask_KernelBackground));
+        eTaskGetState(pebble_task_get_handle_for_task(PebbleTask_KernelBackground));
   // check if system task is ready to go (instead of e.g. waiting for a mutex)
   return (bg_task_state == eReady);
 }

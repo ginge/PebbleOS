@@ -257,7 +257,6 @@ static void prv_widget_recognizer_event(const Recognizer *recognizer, Recognizer
 
   switch (event) {
     case RecognizerEvent_Started:
-      state->counters.widget_started++;
       if (recognizer == state->widget_pan) {
         if (ops->can_start && !ops->can_start(w)) {
           // The widget is not ready (e.g. its layout has not loaded). Decline the whole gesture
@@ -272,7 +271,6 @@ static void prv_widget_recognizer_event(const Recognizer *recognizer, Recognizer
       }
       break;
     case RecognizerEvent_Updated:
-      state->counters.widget_updated++;
       if (!state->declined && recognizer == state->widget_pan) {
         const RtcTicks now = sys_get_ticks();
         const RtcTicks min_ticks =
@@ -285,7 +283,6 @@ static void prv_widget_recognizer_event(const Recognizer *recognizer, Recognizer
       }
       break;
     case RecognizerEvent_Completed:
-      state->counters.widget_completed++;
       if (!state->declined) {
         if (recognizer == state->widget_pan) {
           ops->pan_snap(w, state->gesture_base,
@@ -306,7 +303,6 @@ static void prv_widget_recognizer_event(const Recognizer *recognizer, Recognizer
       state->declined = false;
       break;
     case RecognizerEvent_Cancelled:
-      state->counters.widget_cancelled++;
       if (!state->declined && recognizer == state->widget_pan) {
         ops->pan_cancel(w);
       }
@@ -466,18 +462,6 @@ static void prv_recognizer_event(const Recognizer *recognizer, RecognizerEvent e
 void touch_nav_dispatch(const TouchEvent *touch_event, void *context) {
   TouchNavState *state = context;
   PBL_ASSERTN(state && state->manager && state->ops);
-
-  switch (touch_event->type) {
-    case TouchEvent_Touchdown:
-      state->counters.touchdowns++;
-      break;
-    case TouchEvent_PositionUpdate:
-      state->counters.position_updates++;
-      break;
-    case TouchEvent_Liftoff:
-      state->counters.liftoffs++;
-      break;
-  }
 
   // Nothing navigating: inert even if a stale subscription remains. The recognizer set is never
   // activated, no route is resolved, and the bridge synthesizes nothing. System nav covers the

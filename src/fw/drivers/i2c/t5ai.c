@@ -129,40 +129,6 @@ void i2c_hal_init_transfer(I2CBus *bus) {
   bus->state->transfer.idx = 0u;
 }
 
-bool i2c_hal_bitbang_recovery(I2CBus *bus) {
-  const OutputConfig scl = {.pin = bus->hal->scl_pin, .active_high = true};
-  const OutputConfig sda = {.pin = bus->hal->sda_pin, .active_high = true};
-  const InputConfig sda_input = {.pin = bus->hal->sda_pin};
-
-  prv_regs(bus)->config &= ~T5AI_I2C_CONFIG_ENABLE;
-  gpio_output_init(&scl, GPIO_OType_OD);
-  gpio_output_init(&sda, GPIO_OType_OD);
-  gpio_output_set(&scl, true);
-  gpio_output_set(&sda, true);
-  delay_us(5u);
-
-  for (unsigned int pulse = 0; pulse < 9u && !gpio_input_read(&sda_input); ++pulse) {
-    gpio_output_set(&scl, false);
-    delay_us(5u);
-    gpio_output_set(&scl, true);
-    delay_us(5u);
-  }
-
-  // Generate a STOP while SCL is high, then restore controller ownership.
-  gpio_output_set(&sda, false);
-  delay_us(5u);
-  gpio_output_set(&scl, true);
-  delay_us(5u);
-  gpio_output_set(&sda, true);
-  delay_us(5u);
-  const bool recovered = gpio_input_read(&sda_input);
-
-  prv_configure_pin(bus->hal->scl_pin);
-  prv_configure_pin(bus->hal->sda_pin);
-  prv_regs(bus)->config |= T5AI_I2C_CONFIG_ENABLE;
-  return recovered;
-}
-
 void i2c_hal_start_transfer(I2CBus *bus) {
   I2CTransfer *transfer = &bus->state->transfer;
   if (transfer->size == 0u) {

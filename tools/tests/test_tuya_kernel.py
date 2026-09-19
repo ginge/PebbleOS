@@ -260,14 +260,13 @@ class TuyaKernelCheckTest(unittest.TestCase):
         mailbox = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
         transport = (ROOT / "src/fw/drivers/t5ai/mailbox_channel.c").read_text()
         port = (ROOT / "soc/t5ai/freertos.c").read_text()
-        marker = startup.index("uart0[7] = 'A'")
         initialize_soc = startup.index("SystemInit()")
         enable_cache = startup.index("icache_enable()")
         announce = initialization.index("t5ai_cp_mailbox_announce_power_up()")
         enable_irq = initialization.index("__enable_irq()")
-        self.assertLess(marker, initialize_soc)
         self.assertLess(initialize_soc, enable_cache)
         self.assertLess(announce, enable_irq)
+        self.assertNotIn("uart0[7] = 'A'", startup)
         self.assertIn("< 3200u", initialization)
         self.assertIn("t5ai_mailbox_channel_bootstrap_send", mailbox)
         self.assertIn("static void prv_send_reset", transport)
@@ -290,13 +289,9 @@ class TuyaKernelCheckTest(unittest.TestCase):
         dbgserial_input = (ROOT / "src/fw/console/dbgserial_input.c").read_text()
         serial_console = (ROOT / "src/fw/console/serial_console.c").read_text()
         self.assertIn("t5ai_cp_mailbox_log(s_t5ai_buffer", dbgserial)
-        self.assertIn("T5AI_CP_LOG_RX_CHANNEL 0x4eu", dbgserial_input)
-        self.assertIn("T5AI_CP_LOG_USER_INPUT_COMMAND 3u", dbgserial_input)
-        self.assertIn("prv_log_mailbox_receive", dbgserial_input)
-        self.assertIn(
-            "t5ai_cp_mailbox_acknowledge_frame(frame, handled)",
-            dbgserial_input,
-        )
+        self.assertNotIn("T5AI_CP_LOG_RX_CHANNEL", dbgserial_input)
+        self.assertNotIn("T5AI_CP_LOG_USER_INPUT_COMMAND", dbgserial_input)
+        self.assertNotIn("prv_log_mailbox_receive", dbgserial_input)
         self.assertIn("frame->address", mailbox)
         self.assertIn("CP_QUEUE_DEPTH 4u", mailbox)
         receive_wait = mailbox.split("status_t t5ai_cp_mailbox_receive", 1)[1].split(
@@ -306,29 +301,17 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("xSemaphoreTake(s_pm_queue.ready", receive_wait)
         self.assertNotIn("s_queues[", mailbox)
         self.assertIn("t5ai_cp_mailbox_process_pending();", main)
-        self.assertIn("dbgserial_input_consume_mailbox_probe()", main)
-        self.assertIn('dbgserial_putstr("PBLRX-OK: T5AI USB mailbox RX passed")', main)
-        self.assertIn("DbgSerialMailboxProbe_Timebase", dbgserial_input)
-        self.assertIn("DbgSerialMailboxProbe_Timebase", main)
-        self.assertIn("DbgSerialMailboxProbe_Display", dbgserial_input)
-        self.assertIn("DbgSerialMailboxProbe_Display", main)
-        self.assertIn("DbgSerialMailboxProbe_Splash", dbgserial_input)
-        self.assertIn("DbgSerialMailboxProbe_Splash", main)
-        self.assertIn(
-            "else if (memcmp(request, s_mailbox_display_probe_request",
-            dbgserial_input,
-        )
-        self.assertIn("s_mailbox_splash_request", dbgserial_input)
+        self.assertNotIn("DbgSerialMailboxProbe_", dbgserial_input)
+        self.assertNotIn("DbgSerialMailboxProbe_", main)
+        self.assertNotIn("mailbox_probe", dbgserial_input)
+        self.assertNotIn("mailbox_probe", main)
         self.assertIn("boot_splash_start();", main)
-        self.assertIn('dbgserial_putstr("PBLSPL done")', main)
-        self.assertIn("const status_t boot_power_status", display)
         self.assertIn("prv_qspi_init() && prv_panel_init()", display)
         self.assertIn("prv_register(0x13u, NULL, 0) && prv_register(0x29u, NULL, 0)", display)
         panel_init = display.split("static bool prv_panel_init(void)", 1)[1].split(
-            "static void prv_bitbang_write_pin", 1
+            "void display_init(void)", 1
         )[0]
         self.assertNotIn("prv_register(0x23u", panel_init)
-        self.assertIn("prv_read_register(0x0au, &power_mode_raw)", display)
         self.assertIn("exact compiled Tuya ordering", display)
         self.assertIn(
             "GPIO_BASE[pin] = (GPIO_BASE[pin] & ~0x3fffu) | (1u << 3) | (1u << 6) | (3u << 8)",
@@ -349,21 +332,12 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("*prv_qspi(QSPI_GLB_CTRL) |= 1u", display)
         self.assertIn("(5u << 6)", display)
         self.assertIn("*prv_qspi(QSPI_RST_CFG) = 0u", display)
-        self.assertIn('"PBLPWR clk=%08lx', display)
-        self.assertIn('"PBLPIN p22-27=%03lx', display)
-        self.assertIn('"PBLREG %02lx=%08lx', display)
-        self.assertNotIn("prv_bitbang_panel_init", display)
-        self.assertIn("void display_co5300_bitbang_probe(void)", display)
-        self.assertIn("*prv_qspi(QSPI_CONFIG) &= ~QSPI_ENABLE", display)
-        self.assertIn('prv_bitbang_byte(clock, data, 0x02u)', display)
-        self.assertIn("GPIO_PuPd_NOPULL, data0_float", display)
-        self.assertIn("GPIO_PuPd_UP, data0_up", display)
-        self.assertIn("GPIO_PuPd_DOWN, data0_down", display)
-        self.assertIn('"pull-down=%02x%02x%02x%02x/%02x%02x%02x%02x', display)
-        self.assertIn('"PBLBIT done', display)
-        self.assertIn("static bool prv_draw_diagnostic_pattern(void)", display)
-        self.assertIn("const bool pattern_written = reinitialized", display)
-        self.assertIn('"PBLDSP bootpm=%ld nowpm=%ld reinit=%u pattern=%u', display)
+        self.assertNotIn("display_co5300_bitbang_probe", display)
+        self.assertNotIn("display_co5300_log_diagnostics", display)
+        self.assertNotIn("prv_draw_diagnostic_pattern", display)
+        self.assertNotIn("PBLBIT", display)
+        self.assertNotIn("PBLDSP", display)
+        self.assertNotIn("PBLREG", display)
         self.assertIn("return 100u", backlight)
         self.assertIn("display_co5300_set_brightness(0xffu)", backlight)
         self.assertNotIn("* 255u", backlight)
@@ -400,47 +374,28 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertNotIn("vTaskDelay(milliseconds_to_ticks(CST92XX_POLL_MS))", touch)
         self.assertNotIn("system_task_add_callback(prv_poll", touch)
         touch_nav = (ROOT / "src/fw/applib/ui/recognizer/touch_nav.c").read_text()
-        self.assertIn("state->counters.position_updates++", touch_nav)
-        self.assertIn("state->counters.widget_started++", touch_nav)
-        self.assertIn("s_mailbox_touch_nav_request", dbgserial_input)
-        self.assertIn('"PBLTN ev=%u/%u/%u widget=%u/%u/%u/%u route=%u mgr=%u "', main)
-        self.assertIn("touch_get_diagnostics(&service)", main)
-        self.assertIn("event_loop_get_touch_diagnostics(&event_loop)", main)
-        self.assertIn("++s_physical_samples", (ROOT / "src/fw/services/touch/touch.c").read_text())
+        self.assertNotIn("state->counters.position_updates++", touch_nav)
+        self.assertNotIn("state->counters.widget_started++", touch_nav)
+        self.assertNotIn("s_mailbox_touch_nav_request", dbgserial_input)
+        self.assertNotIn("touch_get_diagnostics", main)
+        self.assertNotIn("event_loop_get_touch_diagnostics", main)
+        self.assertNotIn("s_physical_samples", (ROOT / "src/fw/services/touch/touch.c").read_text())
         events = (ROOT / "src/fw/kernel/events.c").read_text()
         system_task = (ROOT / "src/fw/services/system_task/service.c").read_text()
-        self.assertIn(
-            "MAX_SYSTEM_EVENT_SET_EVENTS =\n"
-            "      MAX_KERNEL_EVENTS + MAX_FROM_APP_EVENTS + MAX_FROM_WORKER_EVENTS",
-            events,
-        )
-        self.assertIn(
-            "xQueueCreateSet(MAX_SYSTEM_EVENT_SET_EVENTS)",
-            events,
-        )
-        self.assertIn(
-            "const UBaseType_t set_count = uxQueueMessagesWaiting(s_system_event_queue_set)",
-            events,
-        )
-        self.assertIn("taskENTER_CRITICAL();", events)
-        self.assertIn("taskEXIT_CRITICAL();", events)
-        process_reset = events.split("void event_reset_from_process_queue", 1)[1].split(
-            "QueueHandle_t event_kernel_to_kernel_event_queue", 1
-        )[0]
-        self.assertNotIn("xQueueReset(s_system_event_queue_set)", process_reset)
+        self.assertNotIn("MAX_SYSTEM_EVENT_SET_EVENTS", events)
+        self.assertNotIn("event_get_queue_diagnostics", events)
         event_take = events.split("bool event_take_timeout", 1)[1].split(
             "void **event_get_buffer", 1
         )[0]
         self.assertNotIn("#ifdef CONFIG_SOC_T5AI", event_take)
         self.assertNotIn("(void)timeout_ms", event_take)
         self.assertIn("#define SYSTEM_TASK_PRIORITY (configMAX_PRIORITIES - 1)", system_task)
-        self.assertIn("#define SYSTEM_TASK_PRIORITY (tskIDLE_PRIORITY + 1)", system_task)
-        self.assertIn("static volatile SystemTaskEventCallback s_current_cb", system_task)
+        self.assertIn("static SystemTaskEventCallback s_current_cb", system_task)
         idle_watchdog = system_task.split(
             "static void system_task_idle_timer_callback", 1
         )[1].split("static void system_task_main", 1)[0]
-        self.assertIn("if (s_current_cb == NULL)", idle_watchdog)
-        self.assertNotIn("uxQueueMessagesWaiting", idle_watchdog)
+        self.assertIn("if (s_system_task_idle", idle_watchdog)
+        self.assertIn("uxQueueMessagesWaiting", idle_watchdog)
         splash = (ROOT / "src/fw/services/boot_splash/service.c").read_text()
         self.assertIn("#if defined(CONFIG_SOC_T5AI)", splash)
         self.assertIn("static uint8_t s_t5ai_splash_row[PBL_DISPLAY_WIDTH]", splash)
@@ -450,19 +405,12 @@ class TuyaKernelCheckTest(unittest.TestCase):
             "#elif defined(CONFIG_PBLBOOT)", 1
         )[0]
         self.assertNotIn("kernel_malloc", t5ai_splash)
-        self.assertIn(
-            '"PBLTIM freertos=%lu rtc=%lu aon=%lu core=%lu reload=%lu "', main
-        )
-        self.assertIn('"appinit=%u first=%u ', main)
-        self.assertIn('"apptask=%u state=%u prio=%u stack=%u km=%u/%u bg=%u/%u "', main)
-        self.assertIn('"nt=%u/%u/%u bth=%u/%u bti=%u/%u "', main)
-        self.assertIn('"q=%lu/%lu/%lu/%lu/%lu take=%lu cur=%lu "', main)
-        self.assertIn('"irq=%08lx/%08lx/%08lx rr=%u/%08lx ff=%08lx/%ld/%08lx"', main)
-        self.assertIn("event_get_queue_diagnostics(&queue_diagnostics)", main)
+        self.assertNotIn("PBLTIM", main)
+        self.assertNotIn("event_get_queue_diagnostics", main)
         self.assertNotIn("g_t5ai_boot_stage", main)
         self.assertNotIn("g_t5ai_app_stage", main)
-        self.assertIn("app_manager_is_initialized()", main)
-        self.assertIn("app_manager_is_first_app_launched()", main)
+        self.assertNotIn("app_manager_is_initialized()", main)
+        self.assertNotIn("app_manager_is_first_app_launched()", main)
         self.assertIn("cron_service_init();", main)
         self.assertIn("accel_manager_init();", main)
         self.assertIn("touch_init();", main)
@@ -535,10 +483,8 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("mpu_set_region(&s_display_psram_region);", board)
         self.assertIn("prv_enable_display_psram_cache();", board)
         self.assertIn("address >= T5AI_DISPLAY_PSRAM_BASE", mpu)
-        self.assertIn(
-            "#ifndef CONFIG_SOC_T5AI\n  // emulate a button press-and-release",
-            event_loop,
-        )
+        self.assertNotIn("CONFIG_SOC_T5AI", event_loop)
+        self.assertIn("// emulate a button press-and-release", event_loop)
         shell_event_loop = (ROOT / "src/fw/shell/normal/shell_event_loop.c").read_text()
         self.assertNotIn("T5AI_SHELL_STAGE", shell_event_loop)
         self.assertIn(
@@ -588,9 +534,8 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertNotIn("T5AI_APP_STAGE", app_manager)
         self.assertNotIn("T5AI_LAUNCHER_STAGE", launcher)
         self.assertNotIn("T5AI_APP_STATE_STAGE", app_state)
-        self.assertIn("t5ai_rtc_get_raw_ticks()", main)
-        self.assertIn("(unsigned long)SystemCoreClock", main)
-        self.assertIn("(unsigned long)SysTick->LOAD", main)
+        self.assertNotIn("t5ai_rtc_get_raw_ticks()", main)
+        self.assertNotIn("SysTick->LOAD", main)
         self.assertNotIn("s_character_callback", dbgserial_input.split("#elif", 1)[0])
         self.assertIn("dbgserial_putchar_lazy(*(msg++))", serial_console)
         self.assertIn("CP_CONTROL_CHANNEL 0x10u", mailbox)
@@ -645,7 +590,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         vote = main.index("t5ai_cp_mailbox_vote_app_sleep(false)")
         self.assertLess(main.index("init_drivers();"), vote)
         self.assertLess(vote, main.index("prv_t5ai_bluetooth_init();"))
-        self.assertIn('"PBLPM app_sleep=awake status=%ld"', main)
+        self.assertNotIn("PBLPM", main)
 
     def test_t5ai_core_clock_is_an_explicit_systick_contract(self):
         kconfig = (ROOT / "soc/Kconfig").read_text()
@@ -681,10 +626,10 @@ class TuyaKernelCheckTest(unittest.TestCase):
         vote = main.index("t5ai_cp_mailbox_vote_cpu1_frequency")
         self.assertLess(main.index("init_drivers();"), vote)
         self.assertLess(vote, main.index("display_init();", vote))
-        self.assertIn('"PBLCLK vote=%ld mode1=%08lx', main)
-        self.assertIn('"PBLCLK apply mode1=%08lx', main)
-        self.assertIn(
-            "T5AI_CP_LOG_RX_CHANNEL 0x4eu",
+        self.assertNotIn("PBLCLK", main)
+        self.assertNotIn("t5ai_clock_get_diagnostics", main)
+        self.assertNotIn(
+            "T5AI_CP_LOG_RX_CHANNEL",
             (ROOT / "src/fw/console/dbgserial_input.c").read_text(),
         )
 
@@ -740,13 +685,14 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("watchdog_init();", early_init)
         self.assertNotIn("watchdog_start();", early_init)
 
-    def test_t5ai_kernelbg_proves_liveness_from_its_idle_wait(self):
+    def test_t5ai_kernelbg_keeps_stock_queue_path_with_safe_priority_ordering(self):
         service = (ROOT / "src/fw/services/system_task/service.c").read_text()
         app_manager = (ROOT / "src/fw/process_management/app_manager.c").read_text()
         self.assertIn("#define SYSTEM_TASK_PRIORITY (configMAX_PRIORITIES - 1)", service)
-        self.assertIn("must drain producers such as the once-per-second advertising cycle", service)
+        self.assertIn("xQueueSelectFromSet(s_system_task_queue_set, portMAX_DELAY)", service)
+        self.assertIn("#ifdef CONFIG_SOC_T5AI", service)
         self.assertIn("#ifdef CONFIG_SOC_T5AI", app_manager)
-        self.assertIn("const UBaseType_t app_task_priority = tskIDLE_PRIORITY + 1", app_manager)
+        self.assertIn("const UBaseType_t app_task_priority = tskIDLE_PRIORITY + 1;", app_manager)
         self.assertIn(".uxPriority = app_task_priority | portPRIVILEGE_BIT", app_manager)
         board_t5ai = (ROOT / "src/fw/board/boards/board_t5ai.c").read_text()
         self.assertNotIn("T5AI_APP_PRIORITY", board_t5ai)
@@ -760,14 +706,11 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertNotIn("Skipping remote GATT service", t5ai_discovery)
         task = service.split("static void system_task_main", 1)[1]
         task = task.split("void system_task_init", 1)[0]
-        self.assertIn("#ifdef CONFIG_SOC_T5AI", task)
-        self.assertIn("milliseconds_to_ticks(1000)", task)
-        self.assertIn("xSemaphoreTake(s_system_task_wake, wait_ticks)", task)
-        self.assertIn("xQueueReceive(s_system_task_queue, &event, 0)", task)
-        self.assertIn("xQueueReceive(s_from_app_system_task_queue, &event, 0)", task)
+        self.assertNotIn("CONFIG_SOC_T5AI", task)
+        self.assertIn("xQueueSelectFromSet(s_system_task_queue_set, portMAX_DELAY)", task)
+        self.assertIn("xQueueReceive(activated_queue, &event, 0)", task)
         self.assertIn("system_task_watchdog_feed();", task)
-        self.assertIn("xSemaphoreGiveFromISR(s_system_task_wake", service)
-        self.assertIn("xSemaphoreGive(s_system_task_wake)", service)
+        self.assertNotIn("s_system_task_wake", service)
 
     def test_t5ai_initializes_native_button_debouncing(self):
         main = (ROOT / "src/fw/main.c").read_text()
@@ -808,9 +751,10 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("~T5AI_I2C_CONFIG_ENABLE", disable)
         self.assertIn("NVIC_SetPriority(bus->hal->irqn, 6u)", i2c)
         common_i2c = (ROOT / "src/fw/drivers/i2c/common.c").read_text()
-        self.assertIn("#define I2C_ERROR_TIMEOUT_MS (20)", common_i2c)
-        self.assertIn("#define I2C_NACK_COUNT_MAX (1)", common_i2c)
-        self.assertIn("prv_should_log_transfer_failure", common_i2c)
+        self.assertIn("#define I2C_ERROR_TIMEOUT_MS  (1000)", common_i2c)
+        self.assertIn("#define I2C_NACK_COUNT_MAX    (1000)", common_i2c)
+        self.assertNotIn("CONFIG_SOC_T5AI", common_i2c)
+        self.assertNotIn("prv_should_log_transfer_failure", common_i2c)
         self.assertIn("mutex_lock(bus->state->bus_mutex);", common_i2c)
         self.assertIn("if (!prv_external_rtc_read_raw(&control, registers))", rtc)
         self.assertIn("prv_set_retained_time(external_time);", rtc)

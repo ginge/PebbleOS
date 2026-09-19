@@ -28,44 +28,13 @@
 
 PBL_LOG_MODULE_DEFINE(driver_i2c, CONFIG_DRIVER_I2C_LOG_LEVEL);
 
-#ifdef CONFIG_SOC_T5AI
-/* A 100 kHz T5AI transfer completes in a few milliseconds. A lost BK7258
- * interrupt must not hold the shared touch/RTC/IMU bus for a full second. */
-#define I2C_ERROR_TIMEOUT_MS (20)
-#else
-#define I2C_ERROR_TIMEOUT_MS (1000)
-#endif
+#define I2C_ERROR_TIMEOUT_MS  (1000)
 #define I2C_TIMEOUT_ATTEMPTS_MAX (2 * 1000 * 1000)
 
-#ifdef CONFIG_SOC_T5AI
-/* Getafix has no MFi device. In particular, retrying a missing CST92xx 1000
- * times keeps its maximum-priority poll task runnable long enough to starve
- * NewTimer and trip the task watchdog. Let the touch driver's reset/recovery
- * policy handle a NACK after one retry. */
-#define I2C_NACK_COUNT_MAX (1)
-#else
 // MFI NACKs while busy. We delay ~1ms between retries so this is approximately a 1000ms timeout.
 // The longest operation of the MFi chip is "start signature generation", which seems to take
 // 223-224 NACKs, but sometimes for unknown reasons it can take much longer.
-#define I2C_NACK_COUNT_MAX (1000)
-#endif
-
-#ifdef CONFIG_SOC_T5AI
-static bool prv_should_log_transfer_failure(void) {
-  static uint32_t s_failure_logs;
-  ++s_failure_logs;
-  return s_failure_logs == 1u || (s_failure_logs & 0x3fu) == 0u;
-}
-
-#define I2C_TRANSFER_LOG_ERR(...)                  \
-  do {                                             \
-    if (prv_should_log_transfer_failure()) {       \
-      PBL_LOG_ERR(__VA_ARGS__);                    \
-    }                                              \
-  } while (0)
-#else
-#define I2C_TRANSFER_LOG_ERR(...) PBL_LOG_ERR(__VA_ARGS__)
-#endif
+#define I2C_NACK_COUNT_MAX    (1000)
 
 #define Read I2CTransferDirection_Read
 #define Write I2CTransferDirection_Write
@@ -199,17 +168,8 @@ void i2c_reset(I2CSlavePort *slave) {
 }
 
 bool i2c_bitbang_recovery(I2CSlavePort *slave) {
-#ifdef CONFIG_SOC_T5AI
-  PBL_ASSERTN(slave);
-  I2CBus *bus = slave->bus;
-  mutex_lock(bus->state->bus_mutex);
-  const bool recovered = i2c_hal_bitbang_recovery(bus);
-  mutex_unlock(bus->state->bus_mutex);
-  return recovered;
-#else
   PBL_LOG_ERR("I2C bitbang recovery not supported on this platform");
   return false;
-#endif
 }
 
 /*--------------------DATA TRANSFER FUNCTIONS--------------------------*/
@@ -221,7 +181,7 @@ static bool prv_wait_for_not_busy(I2CBus *bus) {
   if (i2c_hal_is_busy(bus)) {
     psleep(WAIT_DELAY);
     if (i2c_hal_is_busy(bus)) {
-      I2C_TRANSFER_LOG_ERR("Timed out waiting for bus %s to become non-busy", bus->name);
+      PBL_LOG_ERR("Timed out waiting for bus %s to become non-busy", bus->name);
       return false;
     }
   }
@@ -248,7 +208,7 @@ static bool prv_do_transfer_locked(I2CBus *bus, I2CTransferDirection direction, 
 
     if (!prv_wait_for_not_busy(bus)) {
       // Bus did not recover after reset
-      I2C_TRANSFER_LOG_ERR("I2C bus did not recover after reset (%s)", bus->name);
+      PBL_LOG_ERR("I2C bus did not recover after reset (%s)", bus->name);
       return false;
     }
   }
@@ -282,7 +242,7 @@ static bool prv_do_transfer_locked(I2CBus *bus, I2CTransferDirection direction, 
       if ((bus->state->transfer_event == I2CTransferEvent_TransferComplete) ||
           (bus->state->transfer_event == I2CTransferEvent_Error)) {
         if (bus->state->transfer_event == I2CTransferEvent_Error) {
-          I2C_TRANSFER_LOG_ERR("I2C Error on bus %s", bus->name);
+          PBL_LOG_ERR("I2C Error on bus %s", bus->name);
           PBL_ANALYTICS_ADD(i2c_transfer_error_count, 1);
         }
         complete = true;
@@ -303,7 +263,7 @@ static bool prv_do_transfer_locked(I2CBus *bus, I2CTransferDirection direction, 
         // Too many NACKs received, abort transfer
         i2c_hal_abort_transfer(bus);
         complete = true;
-        I2C_TRANSFER_LOG_ERR("I2C Error: too many NACKs received on bus %s", bus->name);
+        PBL_LOG_ERR("I2C Error: too many NACKs received on bus %s", bus->name);
         break;
       }
 
@@ -311,7 +271,7 @@ static bool prv_do_transfer_locked(I2CBus *bus, I2CTransferDirection direction, 
       // Timeout, abort transfer
       i2c_hal_abort_transfer(bus);
       complete = true;
-      I2C_TRANSFER_LOG_ERR("Transfer timed out on bus %s", bus->name);
+      PBL_LOG_ERR("Transfer timed out on bus %s", bus->name);
       PBL_ANALYTICS_ADD(i2c_transfer_error_count, 1);
       break;
     }
@@ -358,7 +318,7 @@ bool i2c_read_register_block(I2CSlavePort *slave,  uint8_t register_address_star
                                 result_buffer, SendRegisterAddress);
 
   if (!result) {
-    I2C_TRANSFER_LOG_ERR("Read failed on bus %s", slave->bus->name);
+    PBL_LOG_ERR("Read failed on bus %s", slave->bus->name);
   }
 
   return result;
@@ -372,7 +332,7 @@ bool i2c_read_block(I2CSlavePort *slave, uint32_t read_size, uint8_t* result_buf
                             NoRegisterAddress);
 
   if (!result) {
-    I2C_TRANSFER_LOG_ERR("Block read failed on bus %s", slave->bus->name);
+    PBL_LOG_ERR("Block read failed on bus %s", slave->bus->name);
   }
 
   return result;
@@ -391,7 +351,7 @@ bool i2c_write_register_block(I2CSlavePort *slave, uint8_t register_address_star
                                 write_size, (uint8_t*)buffer, SendRegisterAddress);
 
   if (!result) {
-    I2C_TRANSFER_LOG_ERR("Write failed on bus %s", slave->bus->name);
+    PBL_LOG_ERR("Write failed on bus %s", slave->bus->name);
   }
 
   return result;
@@ -406,7 +366,7 @@ bool i2c_write_block(I2CSlavePort *slave, uint32_t write_size, const uint8_t* bu
                                 NoRegisterAddress);
 
   if (!result) {
-    I2C_TRANSFER_LOG_ERR("Block write failed on bus %s", slave->bus->name);
+    PBL_LOG_ERR("Block write failed on bus %s", slave->bus->name);
   }
 
   return result;
@@ -436,7 +396,7 @@ bool i2c_write_read_block(I2CSlavePort *slave, uint32_t write_size, const uint8_
   mutex_unlock(bus->state->bus_mutex);
 
   if (!result) {
-    I2C_TRANSFER_LOG_ERR("Write-read block failed on bus %s", bus->name);
+    PBL_LOG_ERR("Write-read block failed on bus %s", bus->name);
   }
 
   return result;

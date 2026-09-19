@@ -16,15 +16,6 @@ void launcher_task_add_callback(CallbackEventCallback callback, void *data);
 
 bool launcher_task_is_current_task(void);
 
-typedef struct TouchEventLoopDiagnostics {
-  uint32_t events;
-  uint32_t unarmed_touchdowns;
-  uint32_t masked_animation;
-  uint32_t masked_modal;
-} TouchEventLoopDiagnostics;
-
-void event_loop_get_touch_diagnostics(TouchEventLoopDiagnostics *diagnostics);
-
 //! Increment or decrement a reference count of services that want the launcher
 //! to block pop-ups; used by getting started and firmware update
 void launcher_block_popups(bool ignore);

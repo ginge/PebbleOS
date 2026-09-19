@@ -39,20 +39,8 @@ static volatile bool s_enabled;
 static bool s_finger_down;
 static int16_t s_last_x;
 static int16_t s_last_y;
-static uint32_t s_polls;
 static uint32_t s_read_failures;
 static uint8_t s_consecutive_read_failures;
-static uint32_t s_ack_reports;
-static uint32_t s_valid_reports;
-static uint16_t s_contact_samples;
-static uint16_t s_coordinate_changes;
-static int16_t s_first_x;
-static int16_t s_first_y;
-static int16_t s_min_x;
-static int16_t s_min_y;
-static int16_t s_max_x;
-static int16_t s_max_y;
-static uint8_t s_last_report[CST92XX_REPORT_LENGTH];
 static SemaphoreHandle_t s_touch_wake;
 static const ExtiConfig s_interrupt = {
     .pin = CST92XX_INTERRUPT_PIN,
@@ -99,8 +87,6 @@ static bool prv_poll(void) {
   if (!s_enabled) {
     return true;
   }
-  ++s_polls;
-
   uint8_t report[CST92XX_REPORT_LENGTH] = {0};
   if (!prv_read_report(report)) {
     ++s_read_failures;
@@ -115,41 +101,18 @@ static bool prv_poll(void) {
     return false;
   }
   s_consecutive_read_failures = 0u;
-  for (size_t i = 0; i < CST92XX_REPORT_LENGTH; ++i) {
-    s_last_report[i] = report[i];
-  }
-
   const uint8_t points = report[5] & 0x7fu;
   const uint8_t status = report[0] & 0x0fu;
-  if (report[6] == CST92XX_REPORT_ACK) {
-    ++s_ack_reports;
-  }
   if (report[6] == CST92XX_REPORT_ACK && points != 0u && status == CST92XX_TOUCH_STATUS) {
     const uint16_t native_x = ((uint16_t)report[1] << 4) | (report[3] >> 4);
     const uint16_t native_y = ((uint16_t)report[2] << 4) | (report[3] & 0x0fu);
     if (native_x < CST92XX_NATIVE_SIZE && native_y < CST92XX_NATIVE_SIZE) {
-      ++s_valid_reports;
       // The panel is mounted with both touch axes mirrored. This matches the exact Waveshare board
       // configuration and was confirmed by physical path telemetry (finger-up read as increasing Y).
       const int16_t x = PBL_DISPLAY_WIDTH - 1 -
                         prv_map_coordinate(native_x, PBL_DISPLAY_WIDTH);
       const int16_t y = PBL_DISPLAY_HEIGHT - 1 -
                         prv_map_coordinate(native_y, PBL_DISPLAY_HEIGHT);
-      if (!s_finger_down) {
-        s_contact_samples = 1u;
-        s_coordinate_changes = 0u;
-        s_first_x = s_min_x = s_max_x = x;
-        s_first_y = s_min_y = s_max_y = y;
-      } else {
-        ++s_contact_samples;
-        if (x != s_last_x || y != s_last_y) {
-          ++s_coordinate_changes;
-        }
-        s_min_x = MIN(s_min_x, x);
-        s_min_y = MIN(s_min_y, y);
-        s_max_x = MAX(s_max_x, x);
-        s_max_y = MAX(s_max_y, y);
-      }
       s_last_x = x;
       s_last_y = y;
       touch_handle_update(TouchState_FingerDown, s_last_x, s_last_y);
@@ -244,32 +207,5 @@ void touch_sensor_set_enabled(bool enabled) {
       s_finger_down = false;
     }
     prv_reset(false);
-  }
-}
-
-void touch_sensor_get_diagnostics(TouchSensorDiagnostics *diagnostics) {
-  if (!diagnostics) {
-    return;
-  }
-  *diagnostics = (TouchSensorDiagnostics) {
-    .enabled = s_enabled,
-    .finger_down = s_finger_down,
-    .polls = s_polls,
-    .read_failures = s_read_failures,
-    .ack_reports = s_ack_reports,
-    .valid_reports = s_valid_reports,
-    .contact_samples = s_contact_samples,
-    .coordinate_changes = s_coordinate_changes,
-    .first_x = s_first_x,
-    .first_y = s_first_y,
-    .min_x = s_min_x,
-    .min_y = s_min_y,
-    .max_x = s_max_x,
-    .max_y = s_max_y,
-    .last_x = s_last_x,
-    .last_y = s_last_y,
-  };
-  for (size_t i = 0; i < CST92XX_REPORT_LENGTH; ++i) {
-    diagnostics->last_report[i] = s_last_report[i];
   }
 }
