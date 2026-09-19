@@ -198,14 +198,20 @@ static bool prv_set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
 
 static void prv_init_conversion_tables(void) {
   static const uint8_t red_blue[4] = {0u, 10u, 21u, 31u};
-  for (unsigned pixel = 0u; pixel < 64u; ++pixel) {
-    const uint16_t red = red_blue[(pixel >> 4) & 3u];
-    const uint16_t green = ((pixel >> 2) & 3u) * 21u;
-    const uint16_t blue = red_blue[pixel & 3u];
+  for (unsigned framebuffer_pixel = 0u; framebuffer_pixel < 64u; ++framebuffer_pixel) {
+    // This CO5300/panel assembly displays each RGB channel with inverted
+    // polarity. Convert the complemented RGB222 value so Pebble's GColorBlack
+    // produces black, GColorWhite produces white, and every intermediate
+    // channel level retains its intended intensity. Alpha is discarded before
+    // this table is indexed.
+    const unsigned panel_pixel = framebuffer_pixel ^ 0x3fu;
+    const uint16_t red = red_blue[(panel_pixel >> 4) & 3u];
+    const uint16_t green = ((panel_pixel >> 2) & 3u) * 21u;
+    const uint16_t blue = red_blue[panel_pixel & 3u];
     const uint16_t rgb565 = (red << 11) | (green << 5) | blue;
     // Store in the byte order consumed by the panel so the conversion loop
     // can emit one aligned halfword instead of two byte stores.
-    s_rgb565[pixel] = (uint16_t)((rgb565 >> 8) | (rgb565 << 8));
+    s_rgb565[framebuffer_pixel] = (uint16_t)((rgb565 >> 8) | (rgb565 << 8));
   }
   for (unsigned x = 0u; x < PANEL_WIDTH; ++x) {
     s_panel_source_x[x] = x * PBL_DISPLAY_WIDTH / PANEL_WIDTH;
@@ -487,9 +493,12 @@ static bool prv_panel_init(void) {
     return false;
   }
   delay_us(200000);
-  // Select normal display mode before enabling output. DCS 0x23 is the
-  // all-pixels-on diagnostic and would mask every GRAM update as solid white.
-  return prv_register(0x13u, NULL, 0) && prv_register(0x29u, NULL, 0);
+  // Do not rely on the controller's retained/default inversion state across
+  // an AP-only reboot. DCS 0x20 selects non-inverted pixels, while 0x13 exits
+  // partial mode and 0x29 enables output. DCS 0x23 is the all-pixels-on
+  // diagnostic and would mask every GRAM update as solid white.
+  return prv_register(0x20u, NULL, 0) && prv_register(0x13u, NULL, 0) &&
+         prv_register(0x29u, NULL, 0);
 }
 
 void display_init(void) {

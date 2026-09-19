@@ -326,10 +326,11 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertNotIn("mailbox_probe", main)
         self.assertIn("boot_splash_start();", main)
         self.assertIn("prv_qspi_init() && prv_panel_init()", display)
-        self.assertIn("prv_register(0x13u, NULL, 0) && prv_register(0x29u, NULL, 0)", display)
+        self.assertIn("prv_register(0x20u, NULL, 0) && prv_register(0x13u, NULL, 0)", display)
         panel_init = display.split("static bool prv_panel_init(void)", 1)[1].split(
             "void display_init(void)", 1
         )[0]
+        self.assertLess(panel_init.index("prv_register(0x20u"), panel_init.index("prv_register(0x29u"))
         self.assertNotIn("prv_register(0x23u", panel_init)
         self.assertIn("exact compiled Tuya ordering", display)
         self.assertIn(
@@ -498,6 +499,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertEqual(flash_driver.count("prv_invalidate_read_cache("), 3)
         self.assertIn("prv_pixel_stream_write_dma", display_driver)
         self.assertIn("prv_dcache_clean(s_panel_row, sizeof(s_panel_row));", display_driver)
+        self.assertIn("const unsigned panel_pixel = framebuffer_pixel ^ 0x3fu", display_driver)
         self.assertIn("if (source_x != previous_source_x)", display_driver)
         self.assertIn("converted_pixel = s_rgb565[source[source_x] & 0x3fu]", display_driver)
         self.assertIn("#if defined(CONFIG_PLATFORM_GABBRO)", animation)

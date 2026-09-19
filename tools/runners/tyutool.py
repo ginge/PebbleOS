@@ -3,7 +3,12 @@
 
 from pathlib import Path
 
-from tools.t5ai_image import build_pebble_flash_image
+from tools.t5ai_image import (
+    PEBBLE_AP_PHYSICAL_OFFSET,
+    PEBBLE_FILESYSTEM_PHYSICAL_OFFSET,
+    build_empty_pfs,
+    build_pebble_flash_image,
+)
 
 from .core import Runner, RunnerCaps, RunnerError
 
@@ -36,17 +41,25 @@ class TyuToolRunner(Runner):
         if not self.cfg.bin_file or not self.cfg.resources_file:
             raise RunnerError("T5AI flashing requires firmware and system resources")
 
-        output = Path(self.cfg.bin_file).with_name("pebbleos.t5ai-flash.bin")
-        image = build_pebble_flash_image(
+        ap_output = Path(self.cfg.bin_file).with_name("pebbleos.t5ai-flash.bin")
+        pfs_output = Path(self.cfg.bin_file).with_name("pebbleos.t5ai-pfs.bin")
+        ap_image = build_pebble_flash_image(
             Path(self.cfg.bin_file).read_bytes(),
             Path(self.cfg.resources_file).read_bytes(),
         )
+        pfs_image = build_empty_pfs()
         if not self.cfg.dry_run:
-            output.write_bytes(image)
+            ap_output.write_bytes(ap_image)
+            pfs_output.write_bytes(pfs_image)
 
-        start = 0x132000
-        end = start + len(image)
-        cmd = self.quote(self.tool, "write", "-d", "t5ai", "-p", self.tty,
-                         "-s", hex(start), "--end", hex(end), "-f", output, "--plain")
-        if self.call(cmd):
-            raise RunnerError("tyutool failed to flash the T5AI AP image")
+        writes = (
+            ("AP", PEBBLE_AP_PHYSICAL_OFFSET, ap_image, ap_output),
+            ("PFS", PEBBLE_FILESYSTEM_PHYSICAL_OFFSET, pfs_image, pfs_output),
+        )
+        for name, start, image, output in writes:
+            end = start + len(image)
+            cmd = self.quote(self.tool, "write", "-d", "t5ai", "-p", self.tty,
+                             "-s", hex(start), "--end", hex(end), "-f", output,
+                             "--plain")
+            if self.call(cmd):
+                raise RunnerError(f"tyutool failed to flash the T5AI {name} image")

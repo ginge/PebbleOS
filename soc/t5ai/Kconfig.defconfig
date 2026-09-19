@@ -17,7 +17,7 @@ config FLASH_OFFSET
 config FW_FLASH_SIZE
     # Deliberately smaller experimental Pebble slot inside primary_ap_app.
     # This is not an OTA slot or a complete factory partition.
-    default 0x000f0000
+    default 0x00190000
 config SRAM_BASE
     default 0x28010000
 config SRAM_SIZE

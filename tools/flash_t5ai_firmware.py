@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
 from tools.t5ai_image import (
     PADDING_BYTE,
     PEBBLE_AP_PHYSICAL_OFFSET,
+    PEBBLE_EXPERIMENTAL_SLOT_SIZE,
     PEBBLE_EXPERIMENTAL_SLOT_PHYSICAL_SIZE,
     PRIMARY_AP_APP_XIP_BASE,
     verify_protected_blocks,
@@ -43,7 +44,7 @@ def validate_firmware(raw_path: Path, protected_path: Path) -> tuple[bytes, byte
     if not (reset_vector & 1) or not (
         PRIMARY_AP_APP_XIP_BASE
         <= reset_vector & ~1
-        < PRIMARY_AP_APP_XIP_BASE + 0x000F0000
+        < PRIMARY_AP_APP_XIP_BASE + PEBBLE_EXPERIMENTAL_SLOT_SIZE
     ):
         raise ValueError(f"invalid reset vector 0x{reset_vector:08x}")
     return raw, protected

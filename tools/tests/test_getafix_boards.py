@@ -87,7 +87,9 @@ class GetafixBoardsTest(unittest.TestCase):
 
         runner = (ROOT / "tools/runners/tyutool.py").read_text()
         self.assertIn('commands={"flash"}', runner)
-        self.assertIn('start = 0x132000', runner)
+        self.assertIn('("AP", PEBBLE_AP_PHYSICAL_OFFSET', runner)
+        self.assertIn('("PFS", PEBBLE_FILESYSTEM_PHYSICAL_OFFSET', runner)
+        self.assertIn('end = start + len(image)', runner)
         self.assertNotIn('"erase"', runner)
 
     def test_dvt3_internal_update_paths_are_fail_closed(self):
@@ -673,6 +675,7 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertEqual(dvt3["SOC_T5AI"], "y")
         self.assertEqual(dvt3["CORTEX_M33"], "y")
         self.assertEqual(dvt3["PLATFORM_GABBRO"], "y")
+        self.assertEqual(dvt3["MODDABLE_XS"], "y")
         self.assertEqual(dvt3["VIBE"], "n")
         self.assertEqual(dvt3["PMIC"], "n")
         self.assertEqual(dvt3["MAG"], "n")

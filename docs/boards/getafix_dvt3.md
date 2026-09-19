@@ -47,6 +47,12 @@ runs Pebble's NimBLE host against the CP-owned Bluetooth controller.
 | Writable PFS | Watchface AppFetch write and launch proven once; broader repetition and recovery soak pending |
 | OTA, recovery, and general writable flash | Deliberately disabled pending a safe storage/recovery contract |
 
+The fitted CO5300/panel assembly presents inverted polarity on all three RGB222
+channels: black/white and every two-bit channel level are complementary. The
+DVT3 display driver's RGB222-to-RGB565 table applies `pixel ^ 0x3f` before
+conversion. This is panel compensation, not a theme, PFS setting, or a change
+to Pebble's shared `GColor` values.
+
 The normal T5AI path retains board-specific hardware sequencing in
 `src/fw/main.c`, then initializes the complete normal service set. Native
 startup progresses through the PebbleOS splash into the launcher, and the
@@ -133,18 +139,20 @@ not the CRC-protected physical-flash representation.
 ## AP-only lab flashing
 
 The pinned partition places the AP at physical flash offset `0x132000`, mapped
-to logical XIP address `0x02120000`. Pebble links into a `0xf0000`-byte
+to logical XIP address `0x02120000`. Pebble links into a `0x190000`-byte
 protected firmware region followed by a 1 MiB protected system-resource bank.
-The CP flash service accesses the PFS as raw physical data, so the image leaves
-a sector-alignment gap after the resource bank and places the 1 MiB raw PFS at
-physical `0x350000`.
+Together they occupy AP physical flash `0x132000..0x3eb000`. The CP flash
+service accesses the PFS as raw physical data, so the 1 MiB PFS is a separate
+image at physical `0x500000..0x600000`, inside the otherwise-unused factory OTA
+data partition. This preserves the shared-PRF area at `0x4ea000..0x4fa000` and
+the factory bootloader, CP, configuration, and RF-calibration partitions.
 
-For an already-backed-up lab board, `pbl flash` builds an exact-range protected
-AP image containing firmware, system resources (including stored base apps),
-and a preformatted empty PFS region. The host image writes the same active-low
-page headers as `pfs_format(true)`, so filesystem provisioning is deterministic
-before normal resource and launcher startup. The factory bootloader and CP
-partitions remain untouched:
+For an already-backed-up lab board, `pbl flash` builds two exact-range images:
+the protected AP image contains firmware and system resources (including stored
+base apps), while a second raw image contains a preformatted empty PFS. The PFS
+image writes the same active-low page headers as `pfs_format(true)`, so
+filesystem provisioning is deterministic before normal resource and launcher
+startup. The factory bootloader and CP partitions remain untouched:
 
 ```sh
 python pbl flash \
@@ -152,9 +160,11 @@ python pbl flash \
   --tyutool-tty /dev/ttyACM0
 ```
 
-The runner derives `--end` from `build/pebbleos.t5ai-flash.bin`. Do not use the
-image with a factory or OTA programming mode. Reset, bulk erase, recovery
-imaging, and firmware/resource update paths remain disabled on T5AI.
+The runner derives each `--end` from `build/pebbleos.t5ai-flash.bin` and
+`build/pebbleos.t5ai-pfs.bin`; it writes the AP image at `0x132000` and the raw
+PFS image at `0x500000`. Do not use either image with a factory or OTA
+programming mode. Reset, bulk erase, recovery imaging, and firmware/resource
+update paths remain disabled on T5AI.
 
 For a persistent, decoded trace suitable for pairing, BlobDB, AppFetch, and
 PutBytes diagnosis, run from the PebbleOS checkout:

@@ -309,8 +309,8 @@ int main(void) {
                 values[fields[1]] = int(fields[2], 16)
 
         regions = [
-            "FIRMWARE_SLOT_0", "FILESYSTEM", "CD", "FIRMWARE_SLOT_1",
-            "DEBUG_DB", "SHARED_PRF_STORAGE",
+            "FIRMWARE_SLOT_0", "SYSTEM_RESOURCES_BANK_0", "CD",
+            "FIRMWARE_SLOT_1", "DEBUG_DB", "SHARED_PRF_STORAGE", "FILESYSTEM",
         ]
         spans = []
         for region in regions:
@@ -321,6 +321,7 @@ int main(void) {
             self.assertEqual(end % 0x1000, 0, region)
             spans.append((begin, end, region))
 
+        spans.sort()
         for (_, left_end, left), (right_begin, _, right) in zip(spans, spans[1:]):
             self.assertLessEqual(left_end, right_begin, f"{left} overlaps {right}")
 

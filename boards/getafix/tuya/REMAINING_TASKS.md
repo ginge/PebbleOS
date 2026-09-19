@@ -1765,7 +1765,7 @@ and recovery updates, raw arbitrary flash access, and OTA remain disabled.
   host-tested: 32 logical bytes, `0xff` tail padding, then a big-endian Beken
   CRC-16 (polynomial `0x8005`, initial value `0xffffffff`). T5AI builds now
   reproducibly emit `pebbleos.t5ai-crc.bin` in addition to the raw binary. The
-  packager now rejects a raw image larger than the `0x1f0000` experimental slot
+  packager now rejects a raw image larger than the `0x190000` experimental slot
   and verifies that the slot remains inside the pinned factory AP partition.
 - The pinned SDK selects its normal bootloader and its packaging path contains
   no signing step for this configuration. That does not prove the factory
@@ -1775,9 +1775,12 @@ and recovery updates, raw arbitrary flash access, and OTA remain disabled.
   diagnostic are proven. Two matching full-flash backups exist, but complete
   factory restoration has not needed to be exercised.
 - DVT3 uses a flash-only `tyutool` runner. It creates one exact-range protected
-  AP image containing firmware, the system-resource pack, and a preformatted PFS;
-  the bootloader and CP partitions are not included. Reset, run, erase,
-  debug-server, direct resource imaging, and recovery imaging remain gated.
+  AP image containing firmware and the system-resource pack, plus a separate
+  1 MiB raw preformatted-PFS image. The runner writes only AP physical
+  `0x132000..0x3eb000` and OTA-data physical `0x500000..0x600000`; the
+  bootloader, CP, shared-PRF, configuration, and RF-calibration partitions are
+  not included. Reset, run, erase, debug-server, direct resource imaging, and
+  recovery imaging remain gated.
 - The firmware-side boundary also fails closed on T5AI. Firmware-update start
   requests are cancelled before entering the update runlevel, and Put Bytes
   rejects firmware, recovery, and system-resource objects while retaining
@@ -1892,7 +1895,7 @@ and recovery updates, raw arbitrary flash access, and OTA remain disabled.
   valid coredump retrieval and mark-read behavior; DVT3 remains read-only.
 - Define recovery before enabling OTA or destructive flash tests.
 - A link assertion and mandatory pre-objcopy map check now require FLASH to be
-  exactly the firmware region (`0x02120000..0x02210000`) and reject any NOR
+  exactly the firmware region (`0x02120000..0x022b0000`) and reject any NOR
   VMA/load address outside it. A successful check stamps
   `build/pebbleos.image-layout.ok`; `.bin`/`.hex` generation depends on it.
 
@@ -1902,11 +1905,12 @@ and recovery updates, raw arbitrary flash access, and OTA remain disabled.
   drivers as further changes are made.
 - T5AI host packaging enforces a 1 MiB logical system-resource pack ceiling;
   the current 1,026,537-byte pack fits narrowly. The flash-only runner installs
-  it into the single protected logical `0x00210000..0x00310000` resource bank
-  (physical `0x00231000..0x00341000`). Runtime writes to this bank are now
+  it into the single protected logical `0x002b0000..0x003b0000` resource bank
+  (physical `0x002db000..0x003eb000`). Runtime writes to this bank are now
   permitted, but there is no redundant bank or validated rollback path. The
-  PFS remains a raw CP-flash partition at
-  physical `0x00350000..0x00450000` after a sector-alignment gap.
+  PFS is a raw CP-flash partition at physical
+  `0x00500000..0x00600000`, inside the otherwise-unused factory OTA-data
+  allocation and disjoint from the shared-PRF block.
 - The mandatory T5AI pre-objcopy map gate now verifies the exact FLASH, kernel,
   worker, app, and display-memory regions; the 0x140-byte vector table at slot
   start; ordered stack/heap and framebuffer bounds; and absence of Tuya/Beken

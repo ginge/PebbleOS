@@ -165,6 +165,14 @@ DEFINE_SYSCALL(void, moddable_createMachine, ModdableCreationRecord *cr)
 	}
 }
 
+#if defined(CONFIG_SOC_T5AI)
+struct CommSession;
+
+void xsbug_protocol_msg_callback(struct CommSession *session, const uint8_t *msg, size_t length)
+{
+}
+#endif
+
 #else
 
 DEFINE_SYSCALL(void, moddable_createMachine, ModdableCreationRecord *cr)

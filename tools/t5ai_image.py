@@ -36,21 +36,25 @@ PRIMARY_CP_APP_LOGICAL_OFFSET = 0x00020000
 PRIMARY_CP_APP_LOGICAL_SIZE = 0x00100000
 PRIMARY_AP_APP_LOGICAL_OFFSET = 0x00120000
 PRIMARY_AP_APP_LOGICAL_SIZE = 0x00380000
+PRIMARY_OTA_PHYSICAL_OFFSET = 0x004EA000
+PRIMARY_OTA_PHYSICAL_SIZE = 0x002DF000
 PRIMARY_CP_APP_XIP_BASE = T5AI_XIP_BASE + PRIMARY_CP_APP_LOGICAL_OFFSET
 PRIMARY_AP_APP_XIP_BASE = T5AI_XIP_BASE + PRIMARY_AP_APP_LOGICAL_OFFSET
 
 # Pebble intentionally links only the first part of the factory AP partition.
 # This is not a second factory/OTA partition and must not be packaged as one.
-PEBBLE_EXPERIMENTAL_SLOT_SIZE = 0x000F0000
+PEBBLE_EXPERIMENTAL_SLOT_SIZE = 0x00190000
 PEBBLE_EXPERIMENTAL_SLOT_PHYSICAL_SIZE = (
     PEBBLE_EXPERIMENTAL_SLOT_SIZE * PHYSICAL_BLOCK_SIZE // LOGICAL_BLOCK_SIZE
 )
 
 PEBBLE_AP_PHYSICAL_OFFSET = PRIMARY_AP_APP_PHYSICAL_OFFSET
-PEBBLE_RESOURCES_LOGICAL_OFFSET = 0x000F0000
+PEBBLE_RESOURCES_LOGICAL_OFFSET = 0x00190000
 PEBBLE_RESOURCES_SIZE = 0x00100000
-PEBBLE_FILESYSTEM_PHYSICAL_OFFSET = 0x00350000
+PEBBLE_FILESYSTEM_PHYSICAL_OFFSET = 0x00500000
 PEBBLE_FILESYSTEM_SIZE = 0x00100000
+PEBBLE_SHARED_PRF_PHYSICAL_OFFSET = PRIMARY_OTA_PHYSICAL_OFFSET
+PEBBLE_SHARED_PRF_SIZE = 0x00010000
 PFS_PAGE_SIZE = 0x1000
 PFS_VERSION = 0x5001
 PFS_ERASED_PAGE_FLAGS = 0xFE
@@ -112,7 +116,7 @@ def build_empty_pfs() -> bytes:
 
 
 def build_pebble_flash_image(firmware: bytes, resources: bytes) -> bytes:
-    """Build an exact-range AP image with resources and formatted empty PFS."""
+    """Build the protected AP image containing firmware and system resources."""
     if len(firmware) > PEBBLE_RESOURCES_LOGICAL_OFFSET:
         raise ValueError("Pebble firmware overlaps the T5AI system resource bank")
     if len(resources) > PEBBLE_RESOURCES_SIZE:
@@ -123,18 +127,7 @@ def build_pebble_flash_image(firmware: bytes, resources: bytes) -> bytes:
     protected_logical[: len(firmware)] = firmware
     protected_logical[PEBBLE_RESOURCES_LOGICAL_OFFSET :
                       PEBBLE_RESOURCES_LOGICAL_OFFSET + len(resources)] = resources
-    protected_prefix = encode_protected_blocks(protected_logical)
-
-    image_size = (
-        PEBBLE_FILESYSTEM_PHYSICAL_OFFSET
-        + PEBBLE_FILESYSTEM_SIZE
-        - PRIMARY_AP_APP_PHYSICAL_OFFSET
-    )
-    image = bytearray([PADDING_BYTE]) * image_size
-    image[: len(protected_prefix)] = protected_prefix
-    filesystem_start = PEBBLE_FILESYSTEM_PHYSICAL_OFFSET - PRIMARY_AP_APP_PHYSICAL_OFFSET
-    image[filesystem_start:] = build_empty_pfs()
-    return bytes(image)
+    return encode_protected_blocks(protected_logical)
 
 
 def validate_pinned_ap_layout() -> None:
@@ -156,6 +149,20 @@ def validate_pinned_ap_layout() -> None:
         raise ValueError("pinned T5AI AP partition size is not 34:32 aligned")
     if PEBBLE_EXPERIMENTAL_SLOT_SIZE > PRIMARY_AP_APP_LOGICAL_SIZE:
         raise ValueError("experimental Pebble slot exceeds the factory AP partition")
+    protected_end = PRIMARY_AP_APP_PHYSICAL_OFFSET + (
+        (PEBBLE_RESOURCES_LOGICAL_OFFSET + PEBBLE_RESOURCES_SIZE)
+        * PHYSICAL_BLOCK_SIZE // LOGICAL_BLOCK_SIZE
+    )
+    if protected_end > PRIMARY_AP_APP_PHYSICAL_OFFSET + PRIMARY_AP_APP_PHYSICAL_SIZE:
+        raise ValueError("firmware and resources exceed the factory AP partition")
+    if PEBBLE_FILESYSTEM_PHYSICAL_OFFSET < (
+        PEBBLE_SHARED_PRF_PHYSICAL_OFFSET + PEBBLE_SHARED_PRF_SIZE
+    ):
+        raise ValueError("Pebble filesystem overlaps shared PRF storage")
+    if PEBBLE_FILESYSTEM_PHYSICAL_OFFSET + PEBBLE_FILESYSTEM_SIZE > (
+        PRIMARY_OTA_PHYSICAL_OFFSET + PRIMARY_OTA_PHYSICAL_SIZE
+    ):
+        raise ValueError("Pebble filesystem exceeds the factory OTA data partition")
 
 
 def verify_protected_blocks(data: bytes) -> bytes:

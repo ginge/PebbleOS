@@ -7,11 +7,19 @@ from pathlib import Path
 from tools.t5ai_image import (
     PEBBLE_EXPERIMENTAL_SLOT_SIZE,
     PEBBLE_EXPERIMENTAL_SLOT_PHYSICAL_SIZE,
+    PEBBLE_FILESYSTEM_PHYSICAL_OFFSET,
+    PEBBLE_FILESYSTEM_SIZE,
+    PEBBLE_RESOURCES_LOGICAL_OFFSET,
+    PEBBLE_RESOURCES_SIZE,
+    PEBBLE_SHARED_PRF_PHYSICAL_OFFSET,
+    PEBBLE_SHARED_PRF_SIZE,
     PRIMARY_AP_APP_LOGICAL_OFFSET,
     PRIMARY_AP_APP_LOGICAL_SIZE,
     PRIMARY_AP_APP_PHYSICAL_OFFSET,
     PRIMARY_AP_APP_PHYSICAL_SIZE,
     PRIMARY_AP_APP_XIP_BASE,
+    PRIMARY_OTA_PHYSICAL_OFFSET,
+    PRIMARY_OTA_PHYSICAL_SIZE,
     crc16,
     encode_pebble_application,
     encode_protected_blocks,
@@ -76,6 +84,15 @@ class T5AIImagePackagingTest(unittest.TestCase):
         self.assertEqual(PRIMARY_AP_APP_XIP_BASE, 0x02120000)
         self.assertEqual(PRIMARY_AP_APP_PHYSICAL_SIZE, 0x3B8000)
         self.assertEqual(PRIMARY_AP_APP_LOGICAL_SIZE, 0x380000)
+        self.assertEqual(PEBBLE_EXPERIMENTAL_SLOT_SIZE, 0x190000)
+        self.assertEqual(PEBBLE_RESOURCES_LOGICAL_OFFSET, 0x190000)
+        self.assertEqual(PEBBLE_RESOURCES_SIZE, 0x100000)
+        self.assertEqual(PRIMARY_OTA_PHYSICAL_OFFSET, 0x4EA000)
+        self.assertEqual(PRIMARY_OTA_PHYSICAL_SIZE, 0x2DF000)
+        self.assertEqual(PEBBLE_SHARED_PRF_PHYSICAL_OFFSET, 0x4EA000)
+        self.assertEqual(PEBBLE_SHARED_PRF_SIZE, 0x10000)
+        self.assertEqual(PEBBLE_FILESYSTEM_PHYSICAL_OFFSET, 0x500000)
+        self.assertEqual(PEBBLE_FILESYSTEM_SIZE, 0x100000)
 
     def test_pebble_payload_is_bounded_below_factory_ap_capacity(self):
         self.assertLess(PEBBLE_EXPERIMENTAL_SLOT_SIZE, PRIMARY_AP_APP_LOGICAL_SIZE)

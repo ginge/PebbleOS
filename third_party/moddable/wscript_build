@@ -176,16 +176,13 @@ else:
         ]
 
         libxs_flags = [
-            '-Og',
+            '-Os' if bld.env.CONFIG_SOC_T5AI else '-Og',
             '-Dpebble',
             '-DmxUseDefaultSharedChunks=1',
             '-DkCommodettoBitmapFormat=kCommodettoBitmapMonochromeAligned',
             '-DkPocoRotation=0',
             '-DkPocoFrameBuffer=1',
             '-DMODGCC=1',
-            '-DMODINSTRUMENTATION=1',
-            '-DmxInstrument',
-            '-DmxDebug',
             '-fno-strict-aliasing',
             '-fomit-frame-pointer',
             '-fshort-enums',
@@ -201,6 +198,13 @@ else:
             '-Wno-misleading-indentation',
             '-Wno-error=maybe-uninitialized',
             '-Wno-error=implicit-fallthrough']
+
+        if not bld.env.CONFIG_SOC_T5AI:
+            libxs_flags.extend([
+                '-DMODINSTRUMENTATION=1',
+                '-DmxInstrument',
+                '-DmxDebug',
+            ])
 
         bld(export_includes=libxs_includes, name='libxs_includes')
 

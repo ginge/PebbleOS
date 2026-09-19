@@ -224,7 +224,7 @@ def _check_firmware_image_size(env, path):
         else:
             max_firmware_size = 3072 * BYTES_PER_K
     elif env.CONFIG_SOC_T5AI:
-        max_firmware_size = 960 * BYTES_PER_K
+        max_firmware_size = int(env.CONFIG_FW_FLASH_SIZE)
     elif env.CONFIG_QEMU:
         max_firmware_size = 4096 * BYTES_PER_K
     else:

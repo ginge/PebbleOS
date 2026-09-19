@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /* The T5AI AP bootloader maps the CRC-stripped application partition here. */
 ASSERT(ORIGIN(FLASH) == 0x02120000, "Unexpected T5AI AP virtual flash base")
-ASSERT(ORIGIN(FLASH) + LENGTH(FLASH) == 0x02210000,
+ASSERT(ORIGIN(FLASH) + LENGTH(FLASH) == 0x022b0000,
        "T5AI firmware image is not bounded by experimental slot 0")
 ASSERT(ORIGIN(KERNEL_RAM) == 0x28010000, "Unexpected T5AI AP RAM base")
 ASSERT(ORIGIN(APP_RAM) + LENGTH(APP_RAM) <= 0x28066000,
