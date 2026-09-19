@@ -210,6 +210,26 @@ accelerometer and T5AI backlight, the existing no-hardware vibration driver,
 and compile-time-disabled HRM. The shared runlevel table is stock again and
 contains no T5AI policy.
 
+The first flashed runlevel candidate exposed a T5AI-local display race. Once
+the stock light entry enabled its timeout/fade state machine, each fade step
+sent a synchronous AMOLED brightness command while framebuffer traffic could
+be active. Two boots HardFaulted shortly after runlevel 4; the second interval
+was about eight seconds, matching the light timeout and fade. T5AI still uses
+fixed maximum brightness, so its backlight driver now treats software
+brightness changes as state-only and leaves the `0x51 = 0xff` panel setting to
+display initialization. The shared light and runlevel services remain stock.
+
+The corrected image flashed successfully to the protected AP-only range
+`0x132000..0x213bb4`. Its raw SHA-256 is
+`7f8bd6446fd92044dac4bb14a61bdbfe94e885ebc23127951edd1ac527a91173`
+and its protected SHA-256 is
+`72cddb8b007ca36c87647982f4ac28a8f61e9f36899a52bc980f4f0b1f93c481`.
+A 120-second hardware capture passed runlevel 4, encrypted Bluetooth and
+reversed PPoG setup, multiple light timeout intervals, BlobDB work, and an
+AppFetch completion with result 0. It contained no HardFault, assertion,
+NimBLE host reset, flash IPC fault, or AP reboot. The accepted trace is
+`/tmp/pebbleos-runlevel-backlight-fix-dvt3.log`.
+
 ### Hardware validation result — 2026-09-19
 
 The first cleanup slice is **not yet hardware-accepted**. The clean build was

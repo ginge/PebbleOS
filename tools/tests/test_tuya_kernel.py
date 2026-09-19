@@ -339,7 +339,8 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertNotIn("PBLDSP", display)
         self.assertNotIn("PBLREG", display)
         self.assertIn("return 100u", backlight)
-        self.assertIn("display_co5300_set_brightness(0xffu)", backlight)
+        self.assertNotIn("display_co5300_set_brightness", backlight)
+        self.assertIn("Do not issue QSPI commands", backlight)
         self.assertNotIn("* 255u", backlight)
         self.assertIn(
             "PBL_DISPLAY_WIDTH - 1 -\n"
