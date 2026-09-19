@@ -505,6 +505,15 @@ class TuyaKernelCheckTest(unittest.TestCase):
             "#ifndef CONFIG_SOC_T5AI\n  bool factory_reset_or_first_use",
             shell_event_loop,
         )
+        app_cache = (ROOT / "src/fw/services/app_cache/service.c").read_text()
+        self.assertIn(
+            "if (exists && !app_storage_app_exists(app_id)) {",
+            app_cache,
+        )
+        self.assertNotIn(
+            "if (exists) {\n      if (!app_storage_app_exists(app_id)) {",
+            app_cache,
+        )
         services = (ROOT / "src/fw/services/services.c").read_text()
         services_common = (ROOT / "src/fw/services/services_common/service.c").read_text()
         process_manager = (ROOT / "src/fw/process_management/process_manager.c").read_text()

@@ -171,7 +171,24 @@ return to stock. Accept that cleanup only after repeated stock-window AppFetch,
 launch, reconnect, and idle-soak tests pass without a flash IPC fault or AP
 reboot.
 
-### 6. Validation and acceptance
+### 6. Deferred: resource and update capability cleanup
+
+Do not remove the T5AI guard in `resource_unwatch()` mechanically. The stock
+function assumes every callback belongs to `g_file_impl`, while T5AI omits that
+system-file resource implementation and uses direct-mapped system resources.
+The deeper cleanup should make the callback handle retain its owning resource
+implementation, or provide a selected platform implementation, so unwatching
+does not depend on a hard-coded backend.
+
+Firmware update, PRF update, core dump, and factory reset also need capability
+cleanup rather than simple guard removal. T5AI currently has no validated OTA
+container, install slots, rollback path, recovery image, or persistent core-dump
+region. Express those unavailable capabilities through build-time source
+selection or explicit stubs, then restore the shared control flow to stock.
+Validate update rejection, factory reset, and interrupted-reset recovery before
+accepting that work.
+
+### 7. Validation and acceptance
 
 After every slice:
 
@@ -281,6 +298,20 @@ was never selected by the build; T5AI continues to use the bounded shared-PRF
 backend. A focused test now requires both that the build selects the PRF source
 and that the dead alternative file remains absent. This cleanup is intended to
 produce no firmware behavior or image change beyond build-version metadata.
+
+The semantically redundant nested condition in `app_cache_entry_exists()` was
+restored exactly to stock. The T5AI-specific 300 KiB cache reserve remains: it
+is a storage-capacity policy and is not part of this behavior-neutral cleanup.
+Resource-unwatch and update/reset conditionals are explicitly deferred to the
+capability work above rather than being removed mechanically.
+
+The remaining behavior-neutral shared-file drift was also reduced: launcher
+menu spacing and the built-in resource store's equivalent
+`CONFIG_RECOVERY_FW` spelling now match stock. Existing final-newline-only
+differences are retained because recreating stock's trailing blank lines or
+missing final newline fails `git diff --check` and has no runtime value. The
+`CONFIG_MAG` orientation guard and `CONFIG_MIC` reminders guard remain because
+they express real T5AI hardware capabilities rather than bring-up policy.
 
 ### Hardware validation result — 2026-09-19
 

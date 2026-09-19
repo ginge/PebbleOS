@@ -447,11 +447,10 @@ bool app_cache_entry_exists(AppInstallId app_id) {
     }
 
     exists = settings_file_exists(&file, (uint8_t *)&app_id, sizeof(AppInstallId));
-    if (exists) {
-      if (!app_storage_app_exists(app_id)) {
-        settings_file_delete(&file, (uint8_t *)&app_id, sizeof(AppInstallId));
-        exists = false;
-      }
+
+    if (exists && !app_storage_app_exists(app_id)) {
+      settings_file_delete(&file, (uint8_t *)&app_id, sizeof(AppInstallId));
+      exists = false;
     }
 
     settings_file_close(&file);

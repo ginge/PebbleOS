@@ -95,6 +95,7 @@ static void prv_menu_layer_draw_row(GContext* ctx, const Layer *cell_layer, Menu
   }
 
   AppMenuNode *node = app_menu_data_source_get_node_at_index(data_source, cell_index->row);
+
   const GRect *cell_layer_bounds = &cell_layer->bounds;
   const bool is_highlighted = menu_cell_layer_is_highlighted(cell_layer);
 
