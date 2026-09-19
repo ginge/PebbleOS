@@ -338,6 +338,37 @@ without an assertion, fault, or AP reboot. The accepted runtime trace is
 `/tmp/pebbleos-boot-splash-extraction-dvt3.log`; physical splash appearance
 still requires visual confirmation because it is not observable over UART.
 
+Debug-console ownership is now also selected at build time. The shared
+`dbgserial.c` and `dbgserial_input.c` implementations are stock again, while
+T5AI's buffered CP-mailbox output and intentionally disabled input live in
+`dbgserial_t5ai.c` and `dbgserial_input_t5ai.c`. This is an ownership-only
+extraction: the 159-byte mailbox batch, interrupt-context log dropping, and
+single flush per completed message are preserved.
+
+The shared `serial_console_write_log_message()` lazy-write batching remains a
+deliberate deviation from stock. Reverting it would turn each character into a
+blocking mailbox transaction on T5AI. Moving that requirement behind a bulk
+debug-output API may be worthwhile in a deeper console cleanup, but expanding
+the common interface is not justified for this extraction.
+
+### Debug-console extraction hardware result — 2026-09-19
+
+All 167 tool tests passed and the firmware built with FLASH 878,227 bytes and
+KERNEL_RAM 75,232 bytes. The guarded flasher programmed and reprotected only
+`0x132000..0x215d0a`; the raw image SHA-256 is
+`afb4837e3e3623eddf14fde0ab00713a879a083ae205ecae85ae41a45882b188`
+and the protected image SHA-256 is
+`f4c0d219fbe1ff6300337af409dbd2d0492374e71aa73009d7e9761506c78311`.
+
+A controlled reset continued to emit complete mailbox-backed logs, reached
+the launcher and runlevel 4, restored the encrypted phone connection, opened
+a reversed PPoG session, and completed GATT discovery. The final HCI snapshot
+reported `fault=0`; there was no assertion, hard fault, or uncommanded AP
+reboot. The accepted trace is
+`/tmp/pebbleos-debug-console-extraction-dvt3.log`. AppFetch was not requested
+during this capture, so the previously accepted priority/AppFetch validation
+continues to cover that path.
+
 ### Hardware validation result — 2026-09-19
 
 The first cleanup slice is **not yet hardware-accepted**. The clean build was

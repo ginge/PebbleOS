@@ -9,10 +9,14 @@ if bld.env.CONFIG_SOC_T5AI:
     # protocols that can erase/write raw flash or mutate arbitrary memory
     # behind the host-side guards.
     excl += [
+        'dbgserial.c',
+        'dbgserial_input.c',
         'pulse_flash_imaging.c',
         'pulse_bulkio_external_flash.c',
         'pulse_bulkio_memory.c',
     ]
+else:
+    excl += ['dbgserial_t5ai.c', 'dbgserial_input_t5ai.c']
 
 bld.objects(
     name='console',

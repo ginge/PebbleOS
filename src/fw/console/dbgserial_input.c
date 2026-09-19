@@ -7,23 +7,7 @@
 #include <pbl/drivers/uart.h>
 #include "pbl/util/attributes.h"
 
-#if defined(CONFIG_SOC_T5AI)
-
-void dbgserial_input_init(void) {}
-
-void dbgserial_register_character_callback(DbgSerialCharacterCallback callback) {
-  (void)callback;
-}
-
-void dbgserial_set_rx_dma_enabled(bool enabled) {
-  (void)enabled;
-}
-
-void dbgserial_set_input_enabled(bool enabled) {
-  (void)enabled;
-}
-
-#elif !defined(CONFIG_RELEASE) || defined(CONFIG_MFG)
+#if !defined(CONFIG_RELEASE) || defined(CONFIG_MFG)
 
 static DbgSerialCharacterCallback s_character_callback;
 

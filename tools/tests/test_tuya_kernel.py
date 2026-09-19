@@ -291,10 +291,23 @@ class TuyaKernelCheckTest(unittest.TestCase):
         )[1].split("status_t t5ai_cp_mailbox_log", 1)[0]
         self.assertIn("dcache_invalidate(s_log_buffer, 1u)", log_release)
         self.assertIn("s_log_buffer[0] == 0u", log_release)
-        dbgserial = (ROOT / "src/fw/console/dbgserial.c").read_text()
-        dbgserial_input = (ROOT / "src/fw/console/dbgserial_input.c").read_text()
+        dbgserial = (ROOT / "src/fw/console/dbgserial_t5ai.c").read_text()
+        dbgserial_input = (
+            ROOT / "src/fw/console/dbgserial_input_t5ai.c"
+        ).read_text()
+        dbgserial_common = (ROOT / "src/fw/console/dbgserial.c").read_text()
+        dbgserial_input_common = (
+            ROOT / "src/fw/console/dbgserial_input.c"
+        ).read_text()
+        console_build = (ROOT / "src/fw/console/wscript_build").read_text()
         serial_console = (ROOT / "src/fw/console/serial_console.c").read_text()
         self.assertIn("t5ai_cp_mailbox_log(s_t5ai_buffer", dbgserial)
+        self.assertNotIn("CONFIG_SOC_T5AI", dbgserial_common)
+        self.assertNotIn("CONFIG_SOC_T5AI", dbgserial_input_common)
+        self.assertIn("'dbgserial.c'", console_build)
+        self.assertIn("'dbgserial_input.c'", console_build)
+        self.assertIn("'dbgserial_t5ai.c'", console_build)
+        self.assertIn("'dbgserial_input_t5ai.c'", console_build)
         self.assertNotIn("T5AI_CP_LOG_RX_CHANNEL", dbgserial_input)
         self.assertNotIn("T5AI_CP_LOG_USER_INPUT_COMMAND", dbgserial_input)
         self.assertNotIn("prv_log_mailbox_receive", dbgserial_input)
@@ -567,7 +580,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertNotIn("T5AI_APP_STATE_STAGE", app_state)
         self.assertNotIn("t5ai_rtc_get_raw_ticks()", main)
         self.assertNotIn("SysTick->LOAD", main)
-        self.assertNotIn("s_character_callback", dbgserial_input.split("#elif", 1)[0])
+        self.assertNotIn("s_character_callback", dbgserial_input)
         self.assertIn("dbgserial_putchar_lazy(*(msg++))", serial_console)
         self.assertIn("CP_CONTROL_CHANNEL 0x10u", mailbox)
         self.assertIn("CP_POWER_UP_COMMAND 1u", mailbox)
@@ -661,17 +674,14 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertNotIn("t5ai_clock_get_diagnostics", main)
         self.assertNotIn(
             "T5AI_CP_LOG_RX_CHANNEL",
-            (ROOT / "src/fw/console/dbgserial_input.c").read_text(),
+            (ROOT / "src/fw/console/dbgserial_input_t5ai.c").read_text(),
         )
 
-    def test_t5ai_debug_uart_keeps_the_board_runtime_baud_rate(self):
-        console = (ROOT / "src/fw/console/dbgserial.c").read_text()
+    def test_t5ai_debug_uart_keeps_the_board_runtime_configuration(self):
+        console = (ROOT / "src/fw/console/dbgserial_t5ai.c").read_text()
         driver = (ROOT / "src/fw/drivers/uart/t5ai.c").read_text()
-        self.assertIn(
-            "#elif defined(CONFIG_SOC_T5AI)\n"
-            "#define DEFAULT_SERIAL_BAUD_RATE 460800",
-            console,
-        )
+        self.assertIn("t5ai_cp_mailbox_log", console)
+        self.assertNotIn("uart_set_baud_rate", console)
         self.assertIn("uart->global_ctrl = (1u << 0) | (1u << 1);", driver)
         self.assertIn(
             "T5AI_SYSTEM_CPU0_INTERRUPT_ENABLE |= T5AI_UART0_INTERRUPT_ENABLE",
@@ -684,7 +694,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("UART_INT_RX_FINISH", driver)
 
     def test_t5ai_cp_debug_logging_never_blocks_in_an_interrupt(self):
-        console = (ROOT / "src/fw/console/dbgserial.c").read_text()
+        console = (ROOT / "src/fw/console/dbgserial_t5ai.c").read_text()
         mailbox = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
 
         putchar = console.split("void dbgserial_putchar_lazy", 1)[1].split(
@@ -746,7 +756,9 @@ class TuyaKernelCheckTest(unittest.TestCase):
     def test_t5ai_initializes_native_button_debouncing(self):
         main = (ROOT / "src/fw/main.c").read_text()
         exti = (ROOT / "src/fw/drivers/exti/t5ai.c").read_text()
-        dbgserial_input = (ROOT / "src/fw/console/dbgserial_input.c").read_text()
+        dbgserial_input = (
+            ROOT / "src/fw/console/dbgserial_input_t5ai.c"
+        ).read_text()
         button_init = main.split(
             '// entering the kernel event queue.\n', 1
         )[1].split("#ifndef CONFIG_SOC_T5AI", 1)[0]
