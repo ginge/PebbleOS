@@ -383,9 +383,9 @@ All 167 tool tests passed. The image built with FLASH 878,227 bytes and
 KERNEL_RAM 75,232 bytes, and the map places only the 67,614-byte compositor
 object at `0x60000000..0x6001081e`. The guarded flasher programmed only
 `0x132000..0x215d0a`; the raw SHA-256 is
-`be726d43251557d43742a2e473a36f827717055a0f3ffd612415a62e9b23dbf3`
+`9f419baffdfb52557212a62d8c79dd92927732d853d89b741382ba8033642755`
 and the protected SHA-256 is
-`10c4740ee0ecce5fbc027646539322eda9ffebb604e6715d82af315c5f96818b`.
+`6e889ae3effffe17d2b095c2bd699ac37072994fd745c1f3645009783cbed4b4`.
 
 The first reset capture observed one HardFault immediately after an unusually
 long Timeline/BlobDB flush. It is retained as
@@ -393,9 +393,19 @@ long Timeline/BlobDB flush. It is retained as
 reboot, and the decisive 150-second controlled-reset capture repeated the full
 settings, AppDB, and BlobDB flush path, completed AppFetch with result 0, and
 then remained stable without an assertion, flash fault, or AP reboot. That
-accepted reproduction capture is
-`/tmp/pebbleos-compositor-provider-dvt3-reset2.log`. Visual launcher-transition
-appearance still requires confirmation on the physical display.
+successful reproduction capture is
+`/tmp/pebbleos-compositor-provider-dvt3-reset2.log`.
+
+The provider files were subsequently moved from the shared compositor folder
+into `src/fw/board`, with DVT3 selecting the T5AI implementation from the
+board object. The map retained the exact framebuffer placement and size, but
+the reflashed board-local binary is **not hardware-accepted**. Its controlled
+reset HardFaulted during startup, then the following boot reset the NimBLE host
+three times and asserted when host start timed out. A third boot recovered to
+the launcher and encrypted phone session. The failing capture is
+`/tmp/pebbleos-board-compositor-provider-dvt3.log`. Do not treat the earlier
+successful capture or visual launcher-transition testing as acceptance until
+this startup fault is attributed.
 
 ### Hardware validation result — 2026-09-19
 
