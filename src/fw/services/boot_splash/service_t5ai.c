@@ -6,6 +6,7 @@
 #include "board/display.h"
 #include "board/splash.h"
 #include <pbl/drivers/display/display.h>
+#include <pbl/drivers/display/t5ai.h>
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -63,9 +64,10 @@ void boot_splash_start(void) {
 
   // T5AI's 67,600-byte framebuffer does not fit in the remaining internal
   // kernel heap. The logo is compiled into the AP image, so render it one
-  // bounded row at a time through the synchronous native display transport.
+  // bounded row at a time through the synchronous CPU aperture transport.
+  // GDMA is retained for normal compositor updates after startup.
   s_t5ai_splash_y = 0u;
-  display_update(prv_t5ai_splash_next_row, prv_t5ai_splash_complete);
+  display_co5300_update_cpu(prv_t5ai_splash_next_row, prv_t5ai_splash_complete);
 }
 
 void boot_splash_stop(void) {

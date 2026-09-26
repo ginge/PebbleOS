@@ -199,15 +199,9 @@ static bool prv_set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
 static void prv_init_conversion_tables(void) {
   static const uint8_t red_blue[4] = {0u, 10u, 21u, 31u};
   for (unsigned framebuffer_pixel = 0u; framebuffer_pixel < 64u; ++framebuffer_pixel) {
-    // This CO5300/panel assembly displays each RGB channel with inverted
-    // polarity. Convert the complemented RGB222 value so Pebble's GColorBlack
-    // produces black, GColorWhite produces white, and every intermediate
-    // channel level retains its intended intensity. Alpha is discarded before
-    // this table is indexed.
-    const unsigned panel_pixel = framebuffer_pixel ^ 0x3fu;
-    const uint16_t red = red_blue[(panel_pixel >> 4) & 3u];
-    const uint16_t green = ((panel_pixel >> 2) & 3u) * 21u;
-    const uint16_t blue = red_blue[panel_pixel & 3u];
+    const uint16_t red = red_blue[(framebuffer_pixel >> 4) & 3u];
+    const uint16_t green = ((framebuffer_pixel >> 2) & 3u) * 21u;
+    const uint16_t blue = red_blue[framebuffer_pixel & 3u];
     const uint16_t rgb565 = (red << 11) | (green << 5) | blue;
     // Store in the byte order consumed by the panel so the conversion loop
     // can emit one aligned halfword instead of two byte stores.
@@ -219,7 +213,8 @@ static void prv_init_conversion_tables(void) {
 }
 
 static void __attribute__((section(".t5ai_ramfunc"), noinline, optimize("O3")))
-prv_convert_row(uint8_t *destination, const uint8_t *source, bool reverse) {
+prv_convert_row(uint8_t *destination, const uint8_t *source, bool reverse,
+                bool invert_colors) {
   uint16_t *output = (uint16_t *)destination;
   unsigned previous_source_x = PBL_DISPLAY_WIDTH;
   uint16_t converted_pixel = 0u;
@@ -232,7 +227,13 @@ prv_convert_row(uint8_t *destination, const uint8_t *source, bool reverse) {
     // The framebuffer is in PSRAM, so avoid rereading and reconverting a pixel
     // while the nearest-neighbour mapping still selects the same source x.
     if (source_x != previous_source_x) {
-      converted_pixel = s_rgb565[source[source_x] & 0x3fu];
+      unsigned framebuffer_pixel = source[source_x] & 0x3fu;
+      if (invert_colors) {
+        // Pebble's compositor output needs the panel assembly's inverted-polarity
+        // compensation. The early boot splash is already in panel polarity.
+        framebuffer_pixel ^= 0x3fu;
+      }
+      converted_pixel = s_rgb565[framebuffer_pixel];
       previous_source_x = source_x;
     }
     output[x] = converted_pixel;
@@ -380,12 +381,13 @@ static bool prv_send_panel_row(void) {
   return true;
 }
 
-static bool prv_send_logical_row(uint16_t logical_y, const uint8_t *data) {
+static bool prv_send_logical_row(uint16_t logical_y, const uint8_t *data,
+                                 bool invert_colors) {
   const uint16_t mapped_y = s_rotated ? PBL_DISPLAY_HEIGHT - 1u - logical_y : logical_y;
   const uint16_t y0 = (mapped_y * PANEL_HEIGHT + PBL_DISPLAY_HEIGHT - 1u) / PBL_DISPLAY_HEIGHT;
   const uint16_t y1 =
       ((mapped_y + 1u) * PANEL_HEIGHT + PBL_DISPLAY_HEIGHT - 1u) / PBL_DISPLAY_HEIGHT - 1u;
-  prv_convert_row(s_panel_row, data, s_rotated);
+  prv_convert_row(s_panel_row, data, s_rotated, invert_colors);
   if (!prv_set_window(PANEL_X_OFFSET, y0, PANEL_X_OFFSET + PANEL_WIDTH - 1u, y1)) {
     return false;
   }
@@ -398,20 +400,21 @@ static bool prv_send_logical_row(uint16_t logical_y, const uint8_t *data) {
 }
 
 static bool prv_stream_logical_row(uint16_t logical_y, const uint8_t *data,
-                                   size_t *aperture_word, bool use_dma) {
+                                   size_t *aperture_word, bool use_dma,
+                                   bool invert_colors) {
   const uint16_t y0 =
       (logical_y * PANEL_HEIGHT + PBL_DISPLAY_HEIGHT - 1u) / PBL_DISPLAY_HEIGHT;
   const uint16_t y1 =
       ((logical_y + 1u) * PANEL_HEIGHT + PBL_DISPLAY_HEIGHT - 1u) / PBL_DISPLAY_HEIGHT - 1u;
   if (!use_dma) {
-    prv_convert_row(s_panel_row, data, false);
+    prv_convert_row(s_panel_row, data, false, invert_colors);
     for (uint16_t y = y0; y <= y1; ++y) {
       *aperture_word = prv_pixel_stream_write(s_panel_row, sizeof(s_panel_row), *aperture_word);
     }
     return true;
   }
 
-  prv_convert_row(s_panel_row, data, false);
+  prv_convert_row(s_panel_row, data, false, invert_colors);
   prv_dcache_clean(s_panel_row, sizeof(s_panel_row));
   for (uint16_t y = y0; y <= y1; ++y) {
     if (!prv_pixel_stream_write_dma(s_panel_row, sizeof(s_panel_row), aperture_word)) {
@@ -495,8 +498,7 @@ static bool prv_panel_init(void) {
   delay_us(200000);
   // Do not rely on the controller's retained/default inversion state across
   // an AP-only reboot. DCS 0x20 selects non-inverted pixels, while 0x13 exits
-  // partial mode and 0x29 enables output. DCS 0x23 is the all-pixels-on
-  // diagnostic and would mask every GRAM update as solid white.
+  // partial mode and 0x29 enables output.
   return prv_register(0x20u, NULL, 0) && prv_register(0x13u, NULL, 0) &&
          prv_register(0x29u, NULL, 0);
 }
@@ -543,15 +545,14 @@ void display_set_rotated(bool rotated) {
   s_rotated = rotated;
 }
 
-void display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
+static void prv_display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb,
+                               bool use_dma, bool invert_colors) {
   PBL_ASSERTN(!s_updating);
   s_updating = true;
   DisplayRow row;
   bool full_stream = false;
   size_t aperture_word = 0u;
   uint16_t expected_row = 0u;
-  const bool use_dma = s_dma_display_enabled && !s_dma_display_failed;
-
   while (s_initialized && nrcb(&row)) {
     if (row.address >= PBL_DISPLAY_HEIGHT) {
       break;
@@ -569,7 +570,8 @@ void display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
       expected_row = row.address;
     }
     if (full_stream && row.address == expected_row) {
-      if (!prv_stream_logical_row(row.address, row.data, &aperture_word, use_dma)) {
+      if (!prv_stream_logical_row(row.address, row.data, &aperture_word, use_dma,
+                                  invert_colors)) {
         s_dma_display_failed = true;
         s_dma_display_enabled = false;
         break;
@@ -580,7 +582,7 @@ void display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
         prv_pixel_stream_end();
         full_stream = false;
       }
-      if (!prv_send_logical_row(row.address, row.data)) {
+      if (!prv_send_logical_row(row.address, row.data, invert_colors)) {
         break;
       }
     }
@@ -591,6 +593,15 @@ void display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
   s_updating = false;
   prv_apply_brightness();
   uccb();
+}
+
+void display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
+  const bool use_dma = s_dma_display_enabled && !s_dma_display_failed;
+  prv_display_update(nrcb, uccb, use_dma, true);
+}
+
+void display_co5300_update_cpu(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
+  prv_display_update(nrcb, uccb, false, false);
 }
 
 bool display_update_in_progress(void) {
@@ -608,7 +619,8 @@ void display_update_boot_frame(uint8_t *framebuffer) {
   }
   size_t aperture_word = 0u;
   for (uint16_t y = 0; y < PBL_DISPLAY_HEIGHT; ++y) {
-    if (!prv_stream_logical_row(y, framebuffer + y * PBL_DISPLAY_WIDTH, &aperture_word, false)) {
+    if (!prv_stream_logical_row(y, framebuffer + y * PBL_DISPLAY_WIDTH, &aperture_word,
+                                false, true)) {
       break;
     }
   }

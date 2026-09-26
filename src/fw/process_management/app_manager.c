@@ -352,18 +352,12 @@ static bool prv_app_start(const PebbleProcessMd *app_md, const void *args,
   char task_name[configMAX_TASK_NAME_LEN];
   snprintf(task_name, sizeof(task_name), "App <%s>", process_metadata_get_name(s_app_task_context.app_md));
 
-#ifdef CONFIG_SOC_T5AI
-  // Keep app rendering below the T5AI system callback and mailbox workers.
-  const UBaseType_t app_task_priority = tskIDLE_PRIORITY + 1;
-#else
-  const UBaseType_t app_task_priority = APP_TASK_PRIORITY;
-#endif
   TaskParameters_t task_params = {
     .pvTaskCode = prv_app_task_main,
     .pcName = task_name,
     .usStackDepth = stack_size / sizeof(portSTACK_TYPE),
     .pvParameters = entry_point,
-    .uxPriority = app_task_priority | portPRIVILEGE_BIT,
+    .uxPriority = APP_TASK_PRIORITY | portPRIVILEGE_BIT,
     .puxStackBuffer = stack,
   };
 

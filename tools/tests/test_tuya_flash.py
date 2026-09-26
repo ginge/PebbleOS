@@ -111,6 +111,8 @@ int main(void) {
         self.assertIn("prv_tag(message) != socket->tx_tag", ipc)
         self.assertIn("MB_IPC_ROUTE_RX_BUSY", ipc)
         self.assertIn("prv_respond(socket, &request)", ipc)
+        self.assertIn("response route status is diagnostic", ipc)
+        self.assertNotIn("return FAILED(status) ? status : response_status;", ipc)
 
         self.assertIn("prv_flash_transaction(FLASH_READ_DONE)", flash)
         self.assertIn("t5ai_mb_ipc_discard(s_flash_socket)", flash)

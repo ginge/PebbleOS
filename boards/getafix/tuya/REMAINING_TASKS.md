@@ -33,10 +33,57 @@ the first failure evidence and include repeated connect/disconnect/reconnect
 cycles in the next validation run; a successful watchface transfer alone does
 not close this remaining Bluetooth reliability issue.
 
-The shared event loop and app manager are stock, the app is priority 1, and no
-T5AI scheduler guard exists in the current tree. Do not reintroduce an app
-priority-3 or polling-task workaround. Preserve large protocol objects and
-normal OS endpoints.
+The shared event loop, app manager, and SystemTask now use their stock task
+priorities: app priority 2 and KernelBG priority 1, with the existing temporary
+KernelBG raise to priority 3 left intact. This ordering prevents the earlier
+AppRunState race in which phone-sent custom preferences arrived before
+`app_message_open()`.
+
+The initial stock-priority run disconnected after 14.8 seconds and a later full
+phone sync exposed the actual blocker: a delayed T5 MIPC response was physically
+accepted but returned route status 3 (`IPC_ROUTE_UNSOLICITED_RSP`). PebbleOS
+incorrectly propagated that diagnostic response status as a failed flash write,
+then asserted and repeatedly reset the AP. Tuya's `mb_ipc_recv_async()` ignores
+the return from `ipc_socket_tx_rsp()` after receiving and validating the payload;
+its source explicitly describes the response route status as debug-only. The
+T5AI-local shim now matches that behavior while logging the rejected response.
+
+The 2026-09-19 post-fix hardware run remained connected for the complete
+165-second observation through GATT discovery, reversed PPoG, full BlobDB sync,
+AppFetch, and repeated flash reads and writes. Multiple route-3 response
+rejections occurred without a disconnect, assert, or AP reset. Two recoverable
+flash read/read-done status `-1` faults remain to investigate, but the socket
+reconnected and the phone session survived. The protected AP image in that run
+was SHA-256 `96ce9ae1922bf635af921da709a860af08fe240bea361734027bb68a1c2be3bb`
+over `0x132000..0x2c9a6c`.
+
+The final custom-preference attempt reached the running Pedal app; there was no
+`No AppInbox` race. It was still rejected with `Dropping data, not enough space
+126 vs 86`, so the remaining preference problem is an app inbox allocation or
+unconsumed-message backlog, not Bluetooth. Do not enlarge the shared inbox or
+reintroduce an app-priority-3 or polling-task workaround to mask it. Preserve
+large protocol objects and normal OS endpoints.
+
+The subsequent reconnect investigation kept shared BLE code stock. T5-local
+HCI diagnostics proved that, after an ordinary phone disconnect, PebbleOS sent
+LE Set Advertising Enable (`enable=1`), the CP returned HCI status 0, and the
+phone reconnected nine seconds later with encryption, MTU 256, and reversed
+PPoG restored. The apparent reconnect failure was instead preceded by an AP
+hard fault. On that reboot the still-running CP delivered a Disconnection
+Complete for the previous AP generation to a fresh NimBLE host; the host then
+reset repeatedly and hit `NimBLE host start timed out`. The T5 HCI transport now
+tracks connections observed in the current AP generation and discards only a
+disconnect received before any such connection. This is confined to
+`third_party/nimble/transport/hci_t5ai.c`; no shared GAP reconnect changes
+remain. The resulting AP image has raw SHA-256
+`272167ea85f0e7ebbb4e6a0072b3fb0e7adc7e4f6d743a384107fdb122c4ff6c`,
+protected SHA-256
+`2e798ddf543a1ac77ba4a918fd16c9d56811767cdda413024da66016903e6111`,
+and occupies `0x132000..0x2c9b16`. It survived a connected AP reflash, full
+BlobDB/AppFetch traffic, and a subsequent disconnect/reconnect cycle without a
+reset. The original hard-fault source is still unknown and remains a release
+blocker; T5 persistent core dumps are unavailable, and the failed attempt to
+invoke the AP-only `reset` prompt could not establish a PULSE reliable link.
 
 ## Superseded Bluetooth checkpoint history
 
@@ -2214,6 +2261,95 @@ stock 17-packet window, reconsider a generic `PPOGATT_RX_WINDOW_SIZE` Kconfig
 with stock default 17 and a DVT3 override of 4. That fallback requires a fresh
 one-variable hardware test and must not add a `CONFIG_SOC_T5AI` branch to
 shared `ppogatt.c`.
+
+### 2026-09-19 app-preferences packet and reconnect checkpoint
+
+The phone-to-watch application-preferences failure remains under investigation.
+The original failure is preserved in
+`build/traces/t5ai-stock-priority-app-prefs-final-20260919.log`. At 19:02:11 the
+AppMessage receiver logged `Dropping data, not enough space 126 vs 86`. The
+numbers include the 12-byte `AppMessageReceiverHeader` and 8-byte
+`AppInboxMessageHeader`, so the rejected wire payload was 106 bytes. The app
+opens the 8 KiB AppMessage maximum; its registered AppInbox is approximately
+8260 bytes after the receiver and queue headers. Only 86 bytes remaining means
+roughly 8174 bytes were already occupied. This is therefore a nearly full
+inbox or queued-backlog failure, not evidence that the app requested an
+86-byte inbox. Do not hide it by enlarging the shared inbox.
+
+A temporary T5AI-gated metadata trace in
+`src/fw/services/app_message/app_message_receiver.c` and
+`src/fw/applib/app_message/app_message.c` records payload length, command,
+transaction ID, dictionary count, and the first tuple's key/type/length. It
+deliberately does not record preference values. A controlled, already-running
+app accepted a 106-byte push immediately (`cmd=1 txn=0 len=106`). Rapid
+exit/relaunch tests exposed a second boundary problem: messages can be
+successfully queued to the old app instance and then disappear when that
+instance's AppInbox is destroyed. In repeated runs a 274-byte push and one or
+more 106-byte pushes were queued around the transition, the app logged
+`timeout 3`, and only the last 106-byte transaction reached the new app
+callback (transactions 4, 7, and 12 in the observed runs). This is distinct
+from the near-8-KiB capacity failure. Relevant traces are:
+
+- `build/traces/t5ai-app-prefs-boundary-trace-20260919.log`
+- `build/traces/t5ai-app-prefs-metadata-trace-20260919.log`
+- `build/traces/t5ai-app-prefs-metadata-trace-after-reboot-20260919.log`
+
+The metadata run was interrupted by Bluetooth instability before it identified
+the metadata of a lost packet. The apparent reboot at 21:40:58 was caused by
+the operator replugging the frozen watch; do not classify that specific reboot
+as an uncommanded AP reset. A following frozen-state capture kept the watch
+powered for five minutes. Periodic battery and weather logs proved that the AP
+and scheduler remained alive, but there were no HCI events, disconnects,
+advertising transitions, or AppMessage packets. Preserve that trace as
+`build/traces/t5ai-bt-frozen-app-prefs-20260919.log`.
+
+To separate an AP hang from a controller/mailbox stall, temporary diagnostics
+were added only to the T5 transport in
+`third_party/nimble/transport/hci_t5ai.c`. Every 30 seconds they report active
+connection count, requested advertising state, ACL queue depth, transport
+started/faulted state, and HCI/IPC counters. No common BLE GAP code was
+modified. The instrumented build passed the focused 42-test Tuya set and was
+flashed as an exact AP-only image:
+
+- raw SHA-256 `d5163a7d8cca894ad76aee6da8c61412ac2f2273317e14d1d522ecd54960a53b`
+- protected SHA-256
+  `8ec1e7bebc582eca8efadb6e264bfea2c3aa2887a6792cca87220549c0712b8f`
+- physical range `0x132000..0x2c9c6a`
+
+`build/traces/t5ai-bt-heartbeat-app-prefs-20260919.log` shows the reconnect
+stall clearly. From 21:54:46 through 21:57:46 the heartbeat stayed at
+`active=0 adv=1 queue=0 started=1 fault=0`; counters were unchanged at
+`rx=108 evt=26 acl=0 cmd=28 busy=7`. Thus Pebble had requested advertising,
+the AP-side IPC transport was not faulted, and no controller traffic reached
+the host during the interval. A passive 20-second host scan found other BLE
+devices but no fresh RSSI for the watch's known public address. Treat that scan
+as supporting but not decisive evidence because reconnect advertising may use
+bond-aware filtering or directed behavior.
+
+The watch recovered without another reboot. At 21:57:49 it reported a
+successful peripheral connection, pairing completion, MTU 256, reversed PPoG
+subscription, and an open system protocol session. A later heartbeat reported
+`active=1`. This was therefore a reconnect stall of several minutes rather
+than a permanent controller death. The post-recovery preference capture
+`build/traces/t5ai-app-prefs-after-bt-recovery-20260919.log` ended before a new
+preference packet arrived.
+
+Current checkpoint and next experiment:
+
+1. The watch currently contains the combined temporary AppMessage metadata and
+   T5 HCI-heartbeat image identified above.
+2. Extend the T5-local trace, if needed, to record all connection-complete
+   statuses and the legacy advertising parameter/data/enable command sequence;
+   keep shared BLE code stock.
+3. With the phone protocol session confirmed open, launch the affected app,
+   wait for its AppMessage inbox to open, and change one preference. Then repeat
+   once across an immediate exit/relaunch boundary.
+4. If reconnect stalls again, do not replug immediately. Retain at least two
+   heartbeat intervals and the first subsequent connection or disconnect event.
+5. After the packet metadata is captured, remove the temporary common
+   AppMessage trace and the T5 heartbeat, rebuild, reflash a clean image, and
+   rerun the focused tests. Any functional fix must be board-, SoC-, or
+   driver-local unless the evidence proves a genuine shared AppInbox defect.
 
 ## Validation commands
 

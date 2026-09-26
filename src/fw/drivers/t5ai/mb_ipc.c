@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <pbl/mcu/cache.h>
+#include <pbl/logging/logging.h>
 #include <pbl/os/mutex.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/mailbox_channel.h>
@@ -209,9 +210,22 @@ static status_t prv_transmit(T5AIMbIpcSocket *socket, uint8_t command, uint8_t u
   T5AIMailboxMessage ack;
   status_t status = t5ai_mailbox_channel_send(MB_IPC_TX_CHANNEL, &socket->tx_message, &ack,
                                               MB_IPC_PHYSICAL_TIMEOUT_MS);
-  if (FAILED(status) || prv_route_status(&ack) != MB_IPC_ROUTE_OK) {
+  if (FAILED(status)) {
+    PBL_LOG_D_ERR(LOG_DOMAIN_COMM,
+                  "T5AI MIPC physical send failed: status=%ld cmd=%u user=%u tag=%u port=%u>%u",
+                  (long)status, command, user_command, socket->tx_tag, socket->client_port,
+                  socket->server_port);
     socket->tx_in_process = false;
-    return FAILED(status) ? status : E_INVALID_OPERATION;
+    return status;
+  }
+  const uint8_t route_status = prv_route_status(&ack);
+  if (route_status != MB_IPC_ROUTE_OK) {
+    PBL_LOG_D_ERR(LOG_DOMAIN_COMM,
+                  "T5AI MIPC route rejected: route=%u api=%u cmd=%u user=%u tag=%u port=%u>%u",
+                  route_status, prv_api_status(&ack), command, user_command, socket->tx_tag,
+                  socket->client_port, socket->server_port);
+    socket->tx_in_process = false;
+    return E_INVALID_OPERATION;
   }
   return prv_wait_for_logical_response(socket, timeout_ms);
 }
@@ -261,10 +275,16 @@ status_t t5ai_mb_ipc_send(T5AIMbIpcSocket *socket, uint8_t command, const void *
     return E_INVALID_ARGUMENT;
   }
   mutex_lock(socket->mutex);
-  status_t status = socket->connected
-                        ? prv_transmit(socket, MB_IPC_COMMAND_SEND, command, data, length,
-                                       timeout_ms)
-                        : E_INVALID_OPERATION;
+  status_t status;
+  if (socket->connected) {
+    status = prv_transmit(socket, MB_IPC_COMMAND_SEND, command, data, length, timeout_ms);
+  } else {
+    PBL_LOG_D_ERR(LOG_DOMAIN_COMM,
+                  "T5AI MIPC send on disconnected socket: user=%u port=%u>%u generation=%lu",
+                  command, socket->client_port, socket->server_port,
+                  (unsigned long)socket->generation);
+    status = E_INVALID_OPERATION;
+  }
   mutex_unlock(socket->mutex);
   return status;
 }
@@ -278,7 +298,17 @@ static status_t prv_respond(T5AIMbIpcSocket *socket, T5AIMailboxMessage *request
   T5AIMailboxMessage ack;
   status_t status = t5ai_mailbox_channel_send(MB_IPC_TX_CHANNEL, &response, &ack,
                                               MB_IPC_PHYSICAL_TIMEOUT_MS);
-  if (PASSED(status) && prv_route_status(&ack) != MB_IPC_ROUTE_OK) {
+  if (FAILED(status)) {
+    PBL_LOG_D_ERR(LOG_DOMAIN_COMM,
+                  "T5AI MIPC response physical send failed: status=%ld user=%u tag=%u port=%u>%u",
+                  (long)status, (unsigned)(request->parameter2 >> 24u), prv_tag(request),
+                  socket->client_port, socket->server_port);
+  } else if (prv_route_status(&ack) != MB_IPC_ROUTE_OK) {
+    PBL_LOG_D_WRN(LOG_DOMAIN_COMM,
+                  "T5AI MIPC response route rejected: route=%u api=%u user=%u tag=%u port=%u>%u",
+                  prv_route_status(&ack), prv_api_status(&ack),
+                  (unsigned)(request->parameter2 >> 24u), prv_tag(request),
+                  socket->client_port, socket->server_port);
     status = E_INVALID_OPERATION;
   }
   return status;
@@ -315,9 +345,14 @@ status_t t5ai_mb_ipc_receive(T5AIMbIpcSocket *socket, uint8_t *command, void *da
   if (command != NULL) {
     *command = (uint8_t)(request.parameter2 >> 24u);
   }
-  const status_t response_status = prv_respond(socket, &request);
+  /* Match Tuya's mb_ipc_recv_async semantics: once the request payload has
+   * been received and validated, the response route status is diagnostic
+   * only. A delayed response can be rejected as stale after the CP has already
+   * completed the flash operation; propagating that rejection turns a
+   * successful write into a fatal Pebble flash error. */
+  (void)prv_respond(socket, &request);
   socket->rx_in_process = false;
-  return FAILED(status) ? status : response_status;
+  return status;
 }
 
 void t5ai_mb_ipc_discard(T5AIMbIpcSocket *socket) {

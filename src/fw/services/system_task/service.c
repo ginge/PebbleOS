@@ -19,13 +19,7 @@
 
 PBL_LOG_MODULE_DEFINE(service_system_task, CONFIG_SERVICE_SYSTEM_TASK_LOG_LEVEL);
 
-#ifdef CONFIG_SOC_T5AI
-// KernelBG owns the serialized PutBytes/PFS callbacks on T5AI. Keep those
-// bounded callbacks schedulable while the app and KernelMain are active.
-#define SYSTEM_TASK_PRIORITY (configMAX_PRIORITIES - 1)
-#else
 #define SYSTEM_TASK_PRIORITY (tskIDLE_PRIORITY + 1)
-#endif
 
 typedef struct {
   SystemTaskEventCallback cb;

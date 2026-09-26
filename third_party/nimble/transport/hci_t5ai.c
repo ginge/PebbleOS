@@ -27,12 +27,28 @@
 #define T5AI_HCI_MAX_EVENT_SIZE 257u
 #define T5AI_HCI_MAX_ACL_SIZE 1028u
 #define T5AI_HCI_ACL_TX_QUEUE_CAPACITY 16u
+#define T5AI_HCI_TRACE_INTERVAL_MS 30000u
+#define T5AI_HCI_LE_SET_ADV_ENABLE_OPCODE \
+  BLE_HCI_OP(BLE_HCI_OGF_LE, BLE_HCI_OCF_LE_SET_ADV_ENABLE)
 
 static bool s_started;
 static bool s_reset_scheduled;
+static uint8_t s_active_connections;
+static uint8_t s_advertising_requested;
 static uint8_t s_acl_tx[T5AI_HCI_MAX_ACL_SIZE];
 static TaskHandle_t s_hci_task;
 static QueueHandle_t s_acl_tx_queue;
+
+static void prv_log_task_state(PebbleTask task) {
+  TaskHandle_t handle = pebble_task_get_handle_for_task(task);
+  if (handle == NULL) {
+    return;
+  }
+  PBL_LOG_D_INFO(LOG_DOMAIN_COMM, "T5AI task snapshot: task=%c state=%u prio=%u stack=%u",
+                 pebble_task_get_char(task), (unsigned)eTaskGetState(handle),
+                 (unsigned)uxTaskPriorityGet(handle),
+                 (unsigned)uxTaskGetStackHighWaterMark(handle));
+}
 
 static bool prv_started(void) {
   return __atomic_load_n(&s_started, __ATOMIC_ACQUIRE);
@@ -102,6 +118,7 @@ static void prv_send_queued_acl(struct os_mbuf *acl) {
 
 static void prv_hci_task(void *unused) {
   (void)unused;
+  TickType_t last_trace_tick = xTaskGetTickCount();
   for (;;) {
     struct os_mbuf *acl;
     if (s_acl_tx_queue != NULL && xQueueReceive(s_acl_tx_queue, &acl, 0) == pdTRUE) {
@@ -109,6 +126,26 @@ static void prv_hci_task(void *unused) {
       continue;
     }
     t5ai_hci_ipc_poll();
+
+    const TickType_t now = xTaskGetTickCount();
+    if ((now - last_trace_tick) >= pdMS_TO_TICKS(T5AI_HCI_TRACE_INTERVAL_MS)) {
+      T5AIHCIIpcDiagnostics diagnostics;
+      t5ai_hci_ipc_get_diagnostics(&diagnostics);
+      const unsigned queued = s_acl_tx_queue == NULL ? 0u :
+          (unsigned)uxQueueMessagesWaiting(s_acl_tx_queue);
+      PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
+                     "T5AI HCI heartbeat: active=%u adv=%u queue=%u started=%u fault=%u",
+                     s_active_connections, s_advertising_requested, queued,
+                     diagnostics.started, diagnostics.faulted);
+      PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
+                     "T5AI HCI heartbeat counters: rx=%lu evt=%lu acl=%lu cmd=%lu busy=%lu",
+                     (unsigned long)diagnostics.frames_received,
+                     (unsigned long)diagnostics.events_received,
+                     (unsigned long)diagnostics.acl_received,
+                     (unsigned long)diagnostics.commands_received,
+                     (unsigned long)diagnostics.send_busy_retries);
+      last_trace_tick = now;
+    }
     vTaskDelay(pdMS_TO_TICKS(5));
   }
 }
@@ -119,6 +156,18 @@ static void prv_receive_event(const uint8_t *data, size_t length) {
                   (unsigned)length);
     return;
   }
+  // The CP survives an AP-only reset. Its Bluetooth reset can therefore emit
+  // a Disconnection Complete for a link owned by the previous AP generation.
+  // A fresh NimBLE host has no matching connection and treats that stale event
+  // as a controller fault. Connection Complete always precedes a legitimate
+  // disconnect in the current generation, so filter only that stale case.
+  if (data[0] == 0x3eu && length >= 6u &&
+      (data[2] == 0x01u || data[2] == 0x0au) && data[3] == 0u) {
+    if (s_active_connections != UINT8_MAX) {
+      ++s_active_connections;
+    }
+  }
+
   if (data[0] == 0x05u) {
     T5AIHCIIpcDiagnostics diagnostics;
     t5ai_hci_ipc_get_diagnostics(&diagnostics);
@@ -143,6 +192,32 @@ static void prv_receive_event(const uint8_t *data, size_t length) {
         diagnostics.pending_queue_high_water,
         (unsigned long)diagnostics.pending_queue_exhaustions, diagnostics.started,
         diagnostics.faulted);
+    prv_log_task_state(PebbleTask_KernelMain);
+    prv_log_task_state(PebbleTask_KernelBackground);
+    prv_log_task_state(PebbleTask_App);
+    prv_log_task_state(PebbleTask_BTHost);
+    prv_log_task_state(PebbleTask_BTHCI);
+
+    if (s_active_connections == 0u) {
+      PBL_LOG_D_WRN(LOG_DOMAIN_COMM,
+                    "Dropping stale T5AI HCI disconnect from prior AP generation");
+      return;
+    }
+    --s_active_connections;
+  }
+
+  if (data[0] == 0x0eu && length >= 6u) {
+    const uint16_t opcode = (uint16_t)data[3] | ((uint16_t)data[4] << 8);
+    if (opcode == T5AI_HCI_LE_SET_ADV_ENABLE_OPCODE) {
+      PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
+                     "T5AI HCI advertising command complete: status=%u", data[5]);
+    }
+  } else if (data[0] == 0x0fu && length >= 6u) {
+    const uint16_t opcode = (uint16_t)data[4] | ((uint16_t)data[5] << 8);
+    if (opcode == T5AI_HCI_LE_SET_ADV_ENABLE_OPCODE) {
+      PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
+                     "T5AI HCI advertising command status: status=%u", data[2]);
+    }
   }
 
   void *event = ble_transport_alloc_evt(0);
@@ -189,6 +264,8 @@ void ble_transport_ll_reinit(void) {
   };
 
   __atomic_store_n(&s_reset_scheduled, false, __ATOMIC_RELEASE);
+  s_active_connections = 0u;
+  s_advertising_requested = 0u;
   prv_set_started(true);
   if (t5ai_hci_ipc_start(&callbacks) != 0) {
     prv_set_started(false);
@@ -234,17 +311,31 @@ int ble_transport_to_ll_cmd_impl(void *buf) {
   const size_t length = sizeof(*command) + command->length;
   int result = BLE_ERR_MEM_CAPACITY;
 
+  const bool is_advert_enable =
+      command->opcode == T5AI_HCI_LE_SET_ADV_ENABLE_OPCODE && command->length >= 1u;
+  if (is_advert_enable) {
+    PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
+                   "T5AI HCI advertising request: enable=%u", command->data[0]);
+  }
+
   const int status = prv_started() && length <= T5AI_HCI_MAX_COMMAND_SIZE
                          ? t5ai_hci_ipc_send_command(buf, length)
                          : E_INVALID_OPERATION;
   if (status == 0) {
     result = 0;
+    if (is_advert_enable) {
+      s_advertising_requested = command->data[0];
+    }
   } else {
     PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "T5AI HCI command transmit failed (%u bytes)",
                   (unsigned)length);
     if (t5ai_hci_ipc_faulted()) {
       prv_schedule_reset();
     }
+  }
+  if (is_advert_enable && status != 0) {
+    PBL_LOG_D_ERR(LOG_DOMAIN_COMM,
+                  "T5AI HCI advertising request transport failed: status=%d", status);
   }
   ble_transport_free(buf);
   return result;

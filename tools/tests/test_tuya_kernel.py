@@ -159,6 +159,12 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("T5AI HCI ACL transmit deferred", hci_transport)
         self.assertIn("T5AI HCI disconnect snapshot", hci_transport)
         self.assertIn("T5AI HCI pressure", hci_transport)
+        self.assertIn("s_active_connections", hci_transport)
+        self.assertIn(
+            "Dropping stale T5AI HCI disconnect from prior AP generation",
+            hci_transport,
+        )
+        self.assertIn("data[0] == 0x3eu", hci_transport)
         self.assertIn("ble_hs_sched_reset(BLE_HS_ECONTROLLER)", hci_transport)
         self.assertIn("s_reset_scheduled", hci_transport)
         self.assertIn("prv_schedule_reset();", hci_transport)
@@ -410,7 +416,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         )[0]
         self.assertNotIn("#ifdef CONFIG_SOC_T5AI", event_take)
         self.assertNotIn("(void)timeout_ms", event_take)
-        self.assertIn("#define SYSTEM_TASK_PRIORITY (configMAX_PRIORITIES - 1)", system_task)
+        self.assertIn("#define SYSTEM_TASK_PRIORITY (tskIDLE_PRIORITY + 1)", system_task)
         self.assertIn("static SystemTaskEventCallback s_current_cb", system_task)
         idle_watchdog = system_task.split(
             "static void system_task_idle_timer_callback", 1
@@ -429,7 +435,8 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("bld.env.CONFIG_SOC_T5AI", splash_build)
         self.assertIn("static uint8_t s_t5ai_splash_row[PBL_DISPLAY_WIDTH]", t5ai_splash)
         self.assertIn("display_init();", t5ai_splash)
-        self.assertIn("display_update(prv_t5ai_splash_next_row", t5ai_splash)
+        self.assertIn("display_co5300_update_cpu(prv_t5ai_splash_next_row", t5ai_splash)
+        self.assertNotIn("delay_us", t5ai_splash)
         self.assertIn("The logo is compiled into the AP image", t5ai_splash)
         self.assertNotIn("kernel_malloc", t5ai_splash)
         t5ai_startup = main.split("#ifdef CONFIG_SOC_T5AI", 2)[2].split("#endif", 1)[0]
@@ -498,10 +505,13 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("cache complete\n// IPC-sized lines for every flash region", flash_driver)
         self.assertEqual(flash_driver.count("prv_invalidate_read_cache("), 3)
         self.assertIn("prv_pixel_stream_write_dma", display_driver)
+        self.assertIn("display_co5300_update_cpu", display_driver)
+        self.assertIn("prv_display_update(nrcb, uccb, false, false);", display_driver)
         self.assertIn("prv_dcache_clean(s_panel_row, sizeof(s_panel_row));", display_driver)
-        self.assertIn("const unsigned panel_pixel = framebuffer_pixel ^ 0x3fu", display_driver)
+        self.assertIn("framebuffer_pixel ^= 0x3fu", display_driver)
+        self.assertIn("prv_display_update(nrcb, uccb, use_dma, true);", display_driver)
         self.assertIn("if (source_x != previous_source_x)", display_driver)
-        self.assertIn("converted_pixel = s_rgb565[source[source_x] & 0x3fu]", display_driver)
+        self.assertIn("converted_pixel = s_rgb565[framebuffer_pixel]", display_driver)
         self.assertIn("#if defined(CONFIG_PLATFORM_GABBRO)", animation)
         self.assertNotIn("CONFIG_SOC_T5AI", animation)
         self.assertIn(
@@ -731,12 +741,11 @@ class TuyaKernelCheckTest(unittest.TestCase):
     def test_t5ai_kernelbg_keeps_stock_queue_path_with_safe_priority_ordering(self):
         service = (ROOT / "src/fw/services/system_task/service.c").read_text()
         app_manager = (ROOT / "src/fw/process_management/app_manager.c").read_text()
-        self.assertIn("#define SYSTEM_TASK_PRIORITY (configMAX_PRIORITIES - 1)", service)
+        self.assertIn("#define SYSTEM_TASK_PRIORITY (tskIDLE_PRIORITY + 1)", service)
         self.assertIn("xQueueSelectFromSet(s_system_task_queue_set, portMAX_DELAY)", service)
-        self.assertIn("#ifdef CONFIG_SOC_T5AI", service)
-        self.assertIn("#ifdef CONFIG_SOC_T5AI", app_manager)
-        self.assertIn("const UBaseType_t app_task_priority = tskIDLE_PRIORITY + 1;", app_manager)
-        self.assertIn(".uxPriority = app_task_priority | portPRIVILEGE_BIT", app_manager)
+        self.assertNotIn("CONFIG_SOC_T5AI", service)
+        self.assertNotIn("CONFIG_SOC_T5AI", app_manager)
+        self.assertIn(".uxPriority = APP_TASK_PRIORITY | portPRIVILEGE_BIT", app_manager)
         board_t5ai = (ROOT / "src/fw/board/boards/board_t5ai.c").read_text()
         self.assertNotIn("T5AI_APP_PRIORITY", board_t5ai)
         self.assertNotIn("T5AISched", board_t5ai)
