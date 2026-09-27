@@ -38,6 +38,8 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("(stacked_lr & 0xfffffff0u) == 0xfffffff0u", handler)
         self.assertIn("hardfault_args[6]", handler)
         self.assertIn("reason.data16 = (uint16_t)SCB->CFSR", handler)
+        self.assertIn("reason.hard_fault.pc = hardfault_args[6]", handler)
+        self.assertIn("reason.hard_fault.lr = hardfault_args[5]", handler)
         self.assertIn("T5AI HardFault CFSR[15:0]", reboot_log)
 
     def test_t5ai_cacheable_mpu_regions_are_non_shareable(self):
@@ -107,6 +109,8 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("skipped latency=%u update", responsiveness)
         self.assertIn("T5AI_ACTIVE_SUPERVISION_TIMEOUT_10MS 2000u", responsiveness)
         self.assertIn("effective_req.supervision_timeout_10ms", responsiveness)
+        self.assertIn("desc.role == BLE_GAP_ROLE_SLAVE", responsiveness)
+        self.assertIn("ble_l2cap_sig_update", responsiveness)
         self.assertIn("ble_gap_update_params", responsiveness)
         hci_ipc = (ROOT / "third_party/nimble/transport/t5ai_hci_ipc.c").read_text()
         hci_exchange = hci_ipc.split("static status_t prv_exchange(", 1)[1].split(
@@ -153,7 +157,13 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("t5ai_mb_ipc_discard(s_flash_socket)", flash_ipc)
         self.assertIn("prv_flash_transaction(FLASH_READ_DONE)", flash_ipc)
         self.assertIn("t5ai_mb_ipc_poison(s_flash_socket)", flash_ipc)
+        self.assertIn("#define SARADC_IPC_TIMEOUT_MS 100u", flash_ipc)
+        self.assertIn("t5ai_mb_ipc_poison(s_saradc_socket)", flash_ipc)
+        self.assertIn("s_saradc_socket = NULL", flash_ipc)
         self.assertNotIn("t5ai_cp_mailbox_lock()", flash_ipc)
+        mb_ipc = (ROOT / "src/fw/drivers/t5ai/mb_ipc.c").read_text()
+        self.assertIn("timeout_ms < MB_IPC_PHYSICAL_TIMEOUT_MS", mb_ipc)
+        self.assertIn("physical_timeout_ms", mb_ipc)
         mailbox = (ROOT / "src/fw/drivers/t5ai/mailbox_channel.c").read_text()
         self.assertIn("static TxChannel s_tx[T5AI_MAILBOX_CHANNEL_COUNT]", mailbox)
         self.assertNotIn('section(".t5ai_board_cache")', mailbox)

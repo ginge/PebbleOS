@@ -82,7 +82,11 @@ void debug_reboot_reason_print(McuRebootReason mcu_reboot_reason) {
     reason_string = "%s%sAssert: LR %#"PRIxPTR;
     break;
   case RebootReasonCode_HardFault:
+#ifdef CONFIG_SOC_T5AI
+    reason_string = "%s%sHardFault: PC %#"PRIxPTR;
+#else
     reason_string = "%s%sHardFault: LR %#"PRIxPTR;
+#endif
     break;
   case RebootReasonCode_LauncherPanic:
     reason_string = "%s%sLauncherPanic: code 0x%"PRIx32;
@@ -138,6 +142,8 @@ void debug_reboot_reason_print(McuRebootReason mcu_reboot_reason) {
 #ifdef CONFIG_SOC_T5AI
   if (reason.code == RebootReasonCode_HardFault) {
     PBL_LOG_WRN("T5AI HardFault CFSR[15:0]: 0x%04x", reason.data16);
+    PBL_LOG_WRN("T5AI HardFault LR: 0x%08"PRIx32" xPSR: 0x%08"PRIx32,
+                reason.hard_fault.lr, reason.hard_fault.xpsr);
   }
 #endif
 

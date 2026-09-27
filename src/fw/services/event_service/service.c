@@ -16,6 +16,7 @@
 
 #include "FreeRTOS.h"
 #include "queue.h"
+#include "task.h"
 
 #include <string.h>
 
@@ -115,6 +116,20 @@ static bool prv_event_service_send_event(QueueHandle_t queue, PebbleEvent *e) {
   bool success = (xQueueSendToBack(queue, e, 0) == pdTRUE);
   return success;
 }
+
+#ifdef CONFIG_SOC_T5AI
+static void prv_log_full_process_queue(PebbleTask task, QueueHandle_t queue) {
+  TaskHandle_t handle = pebble_task_get_handle_for_task(task);
+  if (handle == NULL) {
+    return;
+  }
+
+  PBL_LOG_ERR("T5AI full process queue: task=%u state=%u priority=%u waiting=%u LR=%p PC=%p",
+              (unsigned)task, (unsigned)eTaskGetState(handle), (unsigned)uxTaskPriorityGet(handle),
+              (unsigned)uxQueueMessagesWaiting(queue), (void *)ulTaskDebugGetStackedLR(handle),
+              (void *)ulTaskDebugGetStackedPC(handle));
+}
+#endif
 
 void event_service_handle_subscription(PebbleSubscriptionEvent *subscription) {
   if (subscription->subscribe) {
@@ -224,6 +239,9 @@ void event_service_handle_event(PebbleEvent *e) {
         if (!prv_event_service_send_event(service->subscribers[i], e)) {
           PBL_LOG_ERR("Queue full! %d not delivered to task %d!",
                   (int)e->type, (int)i);
+#ifdef CONFIG_SOC_T5AI
+          prv_log_full_process_queue(i, service->subscribers[i]);
+#endif
 #ifndef CONFIG_RELEASE
           // For 3rd party apps, just close them. For a 1st party app or other task, reboot
           // the watch

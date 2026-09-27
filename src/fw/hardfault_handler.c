@@ -155,10 +155,13 @@ static void hard_fault_handler_c(unsigned int* hardfault_args) {
   }
   RebootReason reason = { .code = RebootReasonCode_HardFault, .extra = { .value = stacked_lr } };
 #ifdef CONFIG_SOC_T5AI
-  /* Preserve the MemManage and BusFault status bytes.  In particular this
-   * distinguishes exception stacking faults from an imprecise bus fault when
-   * the retained PC points at an interrupt entry. */
+  /* T5AI has no persistent core dump. Preserve the complete exception return
+   * location so an instruction-access violation does not get reduced to the
+   * interrupt handler named by LR. */
   reason.data16 = (uint16_t)SCB->CFSR;
+  reason.hard_fault.pc = hardfault_args[6];
+  reason.hard_fault.lr = hardfault_args[5];
+  reason.hard_fault.xpsr = hardfault_args[7];
 #endif
   reboot_reason_set(&reason);
 

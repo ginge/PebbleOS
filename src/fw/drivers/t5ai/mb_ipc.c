@@ -208,8 +208,10 @@ static status_t prv_transmit(T5AIMbIpcSocket *socket, uint8_t command, uint8_t u
     dcache_flush((void *)data, length);
   }
   T5AIMailboxMessage ack;
+  const uint32_t physical_timeout_ms =
+      timeout_ms < MB_IPC_PHYSICAL_TIMEOUT_MS ? timeout_ms : MB_IPC_PHYSICAL_TIMEOUT_MS;
   status_t status = t5ai_mailbox_channel_send(MB_IPC_TX_CHANNEL, &socket->tx_message, &ack,
-                                              MB_IPC_PHYSICAL_TIMEOUT_MS);
+                                              physical_timeout_ms);
   if (FAILED(status)) {
     PBL_LOG_D_ERR(LOG_DOMAIN_COMM,
                   "T5AI MIPC physical send failed: status=%ld cmd=%u user=%u tag=%u port=%u>%u",

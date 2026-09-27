@@ -71,6 +71,11 @@ typedef struct PACKED {
       uint32_t heap_alloc_lr;
       uint32_t heap_ptr;
     } heap_data; //!< Valid if code == RebootReasonCode_OutOfMemory
+    struct {
+      uint32_t pc;
+      uint32_t lr;
+      uint32_t xpsr;
+    } hard_fault; //!< Valid if code == RebootReasonCode_HardFault on T5AI
   };
 } RebootReason;
 

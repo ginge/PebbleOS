@@ -20,6 +20,7 @@ PBL_LOG_MODULE_DECLARE(driver_flash, CONFIG_DRIVER_FLASH_LOG_LEVEL);
 #define SARADC_CLIENT_PORT 17u
 #define SARADC_SERVER_PORT 2u
 #define IPC_TIMEOUT_MS 2000u
+#define SARADC_IPC_TIMEOUT_MS 100u
 #define SARADC_NOTIFY_RX_CHANNEL 0x4cu
 #define SARADC_NOTIFY_ACK 2u
 
@@ -266,16 +267,21 @@ static status_t prv_saradc_connect(void) {
   return t5ai_mb_ipc_open(SARADC_CLIENT_PORT, SARADC_SERVER_PORT, &s_saradc_socket);
 }
 
+static void prv_saradc_disconnect(void) {
+  t5ai_mb_ipc_poison(s_saradc_socket);
+  s_saradc_socket = NULL;
+}
+
 static status_t prv_saradc_transaction(uint8_t command) {
   t5ai_mb_ipc_discard(s_saradc_socket);
   status_t status = t5ai_mb_ipc_send(s_saradc_socket, command, &s_saradc_command,
-                                     sizeof(s_saradc_command), IPC_TIMEOUT_MS);
+                                     sizeof(s_saradc_command), SARADC_IPC_TIMEOUT_MS);
   if (FAILED(status)) {
     return status;
   }
   uint8_t received_command = UINT8_MAX;
   status = t5ai_mb_ipc_receive(s_saradc_socket, &received_command, &s_saradc_command,
-                               sizeof(s_saradc_command), IPC_TIMEOUT_MS);
+                               sizeof(s_saradc_command), SARADC_IPC_TIMEOUT_MS);
   if (FAILED(status) || received_command != command || s_saradc_command.status != 0) {
     return FAILED(status) ? status : E_ERROR;
   }
@@ -283,14 +289,26 @@ static status_t prv_saradc_transaction(uint8_t command) {
 }
 
 static status_t prv_saradc_cleanup(uint8_t channel, status_t result) {
+  status_t cleanup_status = S_SUCCESS;
   memset(&s_saradc_command, 0, sizeof(s_saradc_command));
-  (void)prv_saradc_transaction(SARADC_STOP);
+  status_t status = prv_saradc_transaction(SARADC_STOP);
+  cleanup_status = FAILED(status) ? status : cleanup_status;
   s_saradc_command.config.channel = channel;
-  (void)prv_saradc_transaction(SARADC_DEINIT);
-  (void)prv_saradc_transaction(SARADC_RELEASE);
+  status = prv_saradc_transaction(SARADC_DEINIT);
+  cleanup_status = FAILED(status) ? status : cleanup_status;
+  status = prv_saradc_transaction(SARADC_RELEASE);
+  cleanup_status = FAILED(status) ? status : cleanup_status;
   s_saradc_command.config.channel = channel;
-  (void)prv_saradc_transaction(SARADC_DEINIT_GPIO);
-  return result;
+  status = prv_saradc_transaction(SARADC_DEINIT_GPIO);
+  cleanup_status = FAILED(status) ? status : cleanup_status;
+  if (FAILED(result) || FAILED(cleanup_status)) {
+    /* Battery sampling runs from KernelBG. Never retain a possibly stale
+     * SARADC session after an IPC fault; the next periodic sample reconnects.
+     * The short per-command timeout bounds this entire cleanup below the task
+     * watchdog deadline. */
+    prv_saradc_disconnect();
+  }
+  return FAILED(result) ? result : cleanup_status;
 }
 
 static status_t prv_saradc_read_peak_locked(uint8_t channel, uint8_t samples, uint16_t *peak) {
@@ -302,6 +320,7 @@ static status_t prv_saradc_read_peak_locked(uint8_t channel, uint8_t samples, ui
   s_saradc_command.config.channel = channel;
   status = prv_saradc_transaction(SARADC_INIT_GPIO);
   if (FAILED(status)) {
+    prv_saradc_disconnect();
     return status;
   }
   status = prv_saradc_transaction(SARADC_ACQUIRE);
