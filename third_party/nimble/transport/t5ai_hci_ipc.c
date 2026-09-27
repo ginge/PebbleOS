@@ -74,6 +74,7 @@ static uint8_t s_sequence;
 static uint16_t s_exchange_result;
 static bool s_started;
 static bool s_faulted;
+static bool s_accept_frames;
 static PebbleMutex *s_sync_mutex;
 static PebbleMutex *s_async_mutex;
 static SemaphoreHandle_t s_worker_wake;
@@ -262,6 +263,26 @@ static T5AIHCIOutbound *prv_allocate_request(void) {
   return request;
 }
 
+static bool prv_all_outbound_retired(void) {
+  bool retired = true;
+  taskENTER_CRITICAL();
+  for (size_t i = 0; i < T5AI_HCI_REQUEST_CAPACITY; ++i) {
+    retired = retired && !s_request_in_use[i];
+  }
+  for (size_t i = 0; i < T5AI_HCI_EVENT_RESPONSE_CAPACITY; ++i) {
+    retired = retired && !s_event_response_in_use[i];
+  }
+  taskEXIT_CRITICAL();
+  return retired;
+}
+
+static bool prv_pending_empty(void) {
+  taskENTER_CRITICAL();
+  const bool empty = s_pending_frame_count == 0u;
+  taskEXIT_CRITICAL();
+  return empty;
+}
+
 static status_t prv_handle_command(T5AIMIPCFrame *frame, uint8_t expected, bool *matched);
 
 static bool prv_dequeue_pending_frame(T5AIMIPCFrame *frame) {
@@ -313,7 +334,8 @@ static void prv_worker(void *context) {
 static void prv_route_frame(uint8_t logical_channel, const T5AICPMailboxFrame *frame,
                             void *context) {
   (void)context;
-  if (logical_channel != T5AI_MIPC_RX_LOGICAL_CHANNEL ||
+  if (!__atomic_load_n(&s_accept_frames, __ATOMIC_ACQUIRE) ||
+      logical_channel != T5AI_MIPC_RX_LOGICAL_CHANNEL ||
       frame->length != sizeof(T5AIMIPCFrame)) {
     (void)t5ai_cp_mailbox_acknowledge_frame(frame, false);
     return;
@@ -332,7 +354,8 @@ static void prv_route_frame(uint8_t logical_channel, const T5AICPMailboxFrame *f
 
 static status_t prv_decode_remote(T5AIMIPCFrame *frame, T5AIMIPCData **remote_data,
                                   T5AIHCIMessage **message) {
-  if (frame->object == 0) {
+  if (!t5ai_cp_mailbox_shared_range_valid((uintptr_t)frame->object,
+                                           sizeof(T5AIMIPCData))) {
     return E_ERROR;
   }
   *remote_data = (T5AIMIPCData *)(uintptr_t)frame->object;
@@ -340,7 +363,9 @@ static status_t prv_decode_remote(T5AIMIPCFrame *frame, T5AIMIPCData **remote_da
   /* The pinned BK7258 MIPC receiver reports CRC mismatches but deliberately
    * continues dispatching the object. Mirror that ABI here: mutable list and
    * result fields can race the diagnostic CRC across CPUs. */
-  if ((*remote_data)->data == 0 || (*remote_data)->size != sizeof(T5AIHCIMessage)) {
+  if ((*remote_data)->size != sizeof(T5AIHCIMessage) ||
+      !t5ai_cp_mailbox_shared_range_valid((uintptr_t)(*remote_data)->data,
+                                           sizeof(T5AIHCIMessage))) {
     return E_ERROR;
   }
   *message = (T5AIHCIMessage *)(uintptr_t)(*remote_data)->data;
@@ -396,7 +421,8 @@ static status_t prv_handle_command(T5AIMIPCFrame *frame, uint8_t expected, bool 
     uint8_t *payload = subtype == T5AI_HCI_EVENT_TO_HOST ? s_event_payload : s_acl_payload;
     const size_t capacity = subtype == T5AI_HCI_EVENT_TO_HOST ? sizeof(s_event_payload)
                                                               : sizeof(s_acl_payload);
-    if (request == 0 || request_length > capacity) {
+    if (request_length > capacity ||
+        !t5ai_cp_mailbox_shared_range_valid((uintptr_t)request, request_length)) {
       return E_ERROR;
     }
     dcache_invalidate((void *)(uintptr_t)request, request_length);
@@ -422,14 +448,11 @@ static status_t prv_handle_command(T5AIMIPCFrame *frame, uint8_t expected, bool 
 }
 
 static status_t prv_exchange(uint8_t subtype, const void *payload, size_t length) {
-  const bool runtime_exchange = prv_started();
   T5AIHCIOutbound *request = prv_allocate_request();
   if (request == NULL) {
     ++s_diagnostics.request_exhaustions;
     PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "T5AI HCI request slots exhausted: subtype=%u", subtype);
-    if (runtime_exchange) {
-      prv_mark_faulted();
-    }
+    prv_mark_faulted();
     return E_OUT_OF_RESOURCES;
   }
   request->message = (T5AIHCIMessage){.type = T5AI_HCI_TYPE, .subtype = subtype};
@@ -458,9 +481,7 @@ static status_t prv_exchange(uint8_t subtype, const void *payload, size_t length
     ++s_diagnostics.exchange_timeouts;
     PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "T5AI HCI exchange timed out: subtype=%u", subtype);
     __atomic_store_n(&s_expected_subtype, UINT8_MAX, __ATOMIC_RELEASE);
-    if (runtime_exchange) {
-      prv_mark_faulted();
-    }
+    prv_mark_faulted();
     return E_AGAIN;
   }
   __atomic_store_n(&s_expected_subtype, UINT8_MAX, __ATOMIC_RELEASE);
@@ -478,6 +499,7 @@ int t5ai_hci_ipc_start(const T5AIHCICallbacks *callbacks) {
   if (callbacks == NULL || callbacks->event == NULL || callbacks->acl == NULL || prv_started()) {
     return E_INVALID_ARGUMENT;
   }
+  const bool recovering = prv_faulted();
   s_callbacks = *callbacks;
   if (s_sync_mutex == NULL) {
     s_sync_mutex = mutex_create();
@@ -503,30 +525,46 @@ int t5ai_hci_ipc_start(const T5AIHCICallbacks *callbacks) {
     memset(&s_callbacks, 0, sizeof(s_callbacks));
     return E_OUT_OF_MEMORY;
   }
-  if (prv_faulted()) {
-    /* Timed-out request objects stay quarantined until the controller reset
-     * path starts a fresh transport generation. Never reuse them while a late
-     * logical ACK or response can still arrive. */
+  if (recovering) {
+    /* Let the persistent worker consume already-snapshotted ACKs before the
+     * route is replaced. Timed-out descriptor slots remain allocated: a late
+     * transport ACK may retire them, but no restart may reuse their address. */
+    (void)xSemaphoreGive(s_worker_wake);
+    const TickType_t drain_start = xTaskGetTickCount();
+    while (!prv_pending_empty() &&
+           xTaskGetTickCount() - drain_start < pdMS_TO_TICKS(50u)) {
+      vTaskDelay(pdMS_TO_TICKS(1u));
+    }
+    __atomic_store_n(&s_accept_frames, false, __ATOMIC_RELEASE);
     t5ai_cp_mailbox_unregister(T5AI_MIPC_RX_LOGICAL_CHANNEL);
-    __atomic_store_n(&s_faulted, false, __ATOMIC_RELEASE);
+    mutex_lock(s_async_mutex);
+    s_pending_frame_head = 0u;
+    s_pending_frame_count = 0u;
+    mutex_unlock(s_async_mutex);
+  } else {
+    s_pending_frame_head = 0u;
+    s_pending_frame_count = 0u;
+    memset(s_request_in_use, 0, sizeof(s_request_in_use));
+    memset(s_event_response_in_use, 0, sizeof(s_event_response_in_use));
   }
-  s_pending_frame_head = 0u;
-  s_pending_frame_count = 0u;
-  memset(s_request_in_use, 0, sizeof(s_request_in_use));
-  memset(s_event_response_in_use, 0, sizeof(s_event_response_in_use));
   status_t status = t5ai_cp_mailbox_register(T5AI_MIPC_RX_LOGICAL_CHANNEL, prv_route_frame, NULL);
   if (FAILED(status)) {
     memset(&s_callbacks, 0, sizeof(s_callbacks));
     return status;
   }
+  __atomic_store_n(&s_accept_frames, true, __ATOMIC_RELEASE);
   /* Reset first: Tuya's reset path deinitializes and reinitializes Bluetooth,
    * which clears the controller's HCI receive callbacks. */
   status = prv_locked_exchange(T5AI_HCI_RESET, NULL, 0);
   if (PASSED(status)) {
     status = prv_locked_exchange(T5AI_HCI_REGISTER_CALLBACKS, NULL, 0);
   }
+  if (PASSED(status)) {
+    __atomic_store_n(&s_faulted, false, __ATOMIC_RELEASE);
+  }
   prv_set_started(PASSED(status));
   if (!prv_started()) {
+    __atomic_store_n(&s_accept_frames, false, __ATOMIC_RELEASE);
     t5ai_cp_mailbox_unregister(T5AI_MIPC_RX_LOGICAL_CHANNEL);
     memset(&s_callbacks, 0, sizeof(s_callbacks));
   }
@@ -539,12 +577,30 @@ int t5ai_hci_ipc_stop(void) {
   }
   status_t status = prv_locked_exchange(T5AI_HCI_DEINIT, NULL, 0);
   prv_set_started(false);
+  if (FAILED(status)) {
+    prv_mark_faulted();
+    return status;
+  }
+  const TickType_t retirement_start = xTaskGetTickCount();
+  while (!prv_all_outbound_retired() &&
+         xTaskGetTickCount() - retirement_start < pdMS_TO_TICKS(250u)) {
+    (void)xSemaphoreGive(s_worker_wake);
+    vTaskDelay(pdMS_TO_TICKS(1u));
+  }
+  if (!prv_all_outbound_retired()) {
+    PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "T5AI HCI stop left CP-owned descriptors quarantined");
+    prv_mark_faulted();
+    return E_AGAIN;
+  }
+  __atomic_store_n(&s_accept_frames, false, __ATOMIC_RELEASE);
+  t5ai_cp_mailbox_unregister(T5AI_MIPC_RX_LOGICAL_CHANNEL);
+  mutex_lock(s_async_mutex);
   s_pending_frame_head = 0u;
   s_pending_frame_count = 0u;
   memset(s_request_in_use, 0, sizeof(s_request_in_use));
   memset(s_event_response_in_use, 0, sizeof(s_event_response_in_use));
-  t5ai_cp_mailbox_unregister(T5AI_MIPC_RX_LOGICAL_CHANNEL);
   memset(&s_callbacks, 0, sizeof(s_callbacks));
+  mutex_unlock(s_async_mutex);
   return status;
 }
 

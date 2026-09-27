@@ -43,6 +43,7 @@ typedef enum {
   RebootReasonCode_BtCoredump,
   RebootReasonCode_CoreDump,  // Core dump initiated without a more specific reason set
   RebootReasonCode_CoreDumpEntryFailed,
+  RebootReasonCode_MailboxTimeout,
 } RebootReasonCode;
 
 typedef struct PACKED {

@@ -3,10 +3,12 @@
 #include <pbl/mcu/cache.h>
 #include <pbl/os/mutex.h>
 #include <pbl/soc/t5ai/mailbox_channel.h>
+#include <pbl/soc/t5ai/reset.h>
 
 #include "FreeRTOS.h"
 #include "semphr.h"
 #include "task.h"
+#include "system/reboot_reason.h"
 #include <cmsis_core.h>
 
 #include <stdbool.h>
@@ -43,8 +45,14 @@
 #define MAILBOX_BOOT_POLL_MS 100u
 #define MAILBOX_BOOTSTRAP_DRAIN_LIMIT 8u
 #define MAILBOX_RUNTIME_DRAIN_LIMIT 8u
+#define MAILBOX_ACTIVE_TIMEOUT_MS 5000u
+#define MAILBOX_FAULT_POLL_MS 10u
 #define AON_RTC_LOW (*(volatile uint32_t *)0x4400020cu)
 #define AON_RTC_HZ 32000u
+#define T5AI_SRAM_BEGIN 0x28000000u
+#define T5AI_SRAM_END 0x29000000u
+#define T5AI_PSRAM_BEGIN 0x60000000u
+#define T5AI_PSRAM_END 0x61000000u
 
 typedef enum {
   TxState_Idle,
@@ -90,10 +98,24 @@ static uint8_t s_sequence;
 static int8_t s_active_channel = -1;
 static uint16_t s_pending_ack_mask;
 static bool s_initialized;
+static bool s_started;
+static bool s_faulted;
 static bool s_reset_sent;
+static uint32_t s_active_start;
 
 _Static_assert(sizeof(T5AIMailboxMessage) == T5AI_MAILBOX_FRAME_SIZE,
                "T5AI mailbox ABI changed");
+
+static void prv_send_reset(void);
+
+static NORETURN prv_reset_after_timeout(void) {
+  RebootReason reason = {
+      .code = RebootReasonCode_MailboxTimeout,
+      .extra.value = s_active_channel < 0 ? UINT32_MAX : (uint32_t)s_active_channel,
+  };
+  reboot_reason_set(&reason);
+  t5ai_force_whole_chip_reset();
+}
 
 static uint32_t prv_milliseconds_to_ticks(uint32_t milliseconds) {
   return (milliseconds * configTICK_RATE_HZ + 999u) / 1000u;
@@ -101,6 +123,15 @@ static uint32_t prv_milliseconds_to_ticks(uint32_t milliseconds) {
 
 static uint32_t prv_bootstrap_ticks(uint32_t milliseconds) {
   return (milliseconds * AON_RTC_HZ + 999u) / 1000u;
+}
+
+static bool prv_shared_range(uintptr_t address, size_t length) {
+  if (length == 0u || address > UINTPTR_MAX - length) {
+    return false;
+  }
+  const uintptr_t end = address + length;
+  return (address >= T5AI_SRAM_BEGIN && end <= T5AI_SRAM_END) ||
+         (address >= T5AI_PSRAM_BEGIN && end <= T5AI_PSRAM_END);
 }
 
 static bool prv_tx_channel(uint8_t channel, uint8_t *index) {
@@ -136,7 +167,7 @@ static bool prv_snapshot_rx(T5AIMailboxMessage *message) {
   (void)MBOX_CH1_RX_ID;
   const uintptr_t address = MBOX_CH1_RX_DATA0;
   const uint32_t length = MBOX_CH1_RX_DATA1;
-  if (address == 0u || length != sizeof(*message)) {
+  if (length != sizeof(*message) || !prv_shared_range(address, length)) {
     return false;
   }
   dcache_invalidate((void *)address, sizeof(*message));
@@ -230,6 +261,9 @@ static bool prv_publish_pending_acks(void) {
 }
 
 static status_t prv_schedule_tx(void) {
+  if (s_faulted) {
+    return E_INVALID_OPERATION;
+  }
   if (s_active_channel >= 0) {
     return S_SUCCESS;
   }
@@ -247,6 +281,7 @@ static status_t prv_schedule_tx(void) {
     }
     tx->state = TxState_Active;
     s_active_channel = (int8_t)index;
+    s_active_start = AON_RTC_LOW;
     return S_SUCCESS;
   }
   return S_SUCCESS;
@@ -265,7 +300,16 @@ static status_t prv_ensure_sync_channel(TxChannel *tx) {
 static void prv_mailbox_task(void *context) {
   (void)context;
   while (true) {
-    (void)xSemaphoreTake(s_wake, portMAX_DELAY);
+    const TickType_t wait = s_active_channel < 0
+                                ? portMAX_DELAY
+                                : prv_milliseconds_to_ticks(MAILBOX_FAULT_POLL_MS);
+    (void)xSemaphoreTake(s_wake, wait);
+    if (s_active_channel >= 0 &&
+        (uint32_t)(AON_RTC_LOW - s_active_start) >=
+            prv_bootstrap_ticks(MAILBOX_ACTIVE_TIMEOUT_MS)) {
+      s_faulted = true;
+      prv_reset_after_timeout();
+    }
     const bool rx_pending = prv_drain_rx();
     const bool ack_pending = !prv_publish_pending_acks();
     /* RX and TX use independent hardware FIFOs.  A sustained stream from CPU0
@@ -273,9 +317,14 @@ static void prv_mailbox_task(void *context) {
      * creates a feedback deadlock under simultaneous BlobDB/AppFetch traffic.
      * Physical ACKs still take priority because CPU0 cannot retire its current
      * receive slot until those are published. */
-    const status_t schedule_status = ack_pending ? E_BUSY : prv_schedule_tx();
+    bool reset_pending = false;
+    if (!s_reset_sent) {
+      prv_send_reset();
+      reset_pending = !s_reset_sent;
+    }
+    const status_t schedule_status = (ack_pending || reset_pending) ? E_BUSY : prv_schedule_tx();
     MBOX_CH1_CTRL |= MBOX_INTERRUPT_ENABLE;
-    if (rx_pending || ack_pending || schedule_status == E_BUSY) {
+    if (rx_pending || ack_pending || reset_pending || schedule_status == E_BUSY) {
       /* Blocking for a tick is essential here. This maximum-priority task must
        * not starve the tasks whose timeouts make mailbox failures recoverable,
        * even if CP traffic never leaves the receive FIFO empty. */
@@ -373,11 +422,22 @@ status_t t5ai_mailbox_channel_init(void) {
     return E_OUT_OF_MEMORY;
   }
   s_initialized = true;
+  return S_SUCCESS;
+}
+
+status_t t5ai_mailbox_channel_start(void) {
+  status_t status = t5ai_mailbox_channel_init();
+  if (FAILED(status)) {
+    return status;
+  }
+  if (s_started) {
+    return s_faulted ? E_INVALID_OPERATION : S_SUCCESS;
+  }
+  s_started = true;
   SYSTEM_CPU1_INT_32_63_ENABLE |= MAILBOX_SYSTEM_INTERRUPT_ENABLE;
   NVIC_SetPriority(MAILBOX_IRQ, configLIBRARY_MAX_SYSCALL_INTERRUPT_PRIORITY);
   NVIC_EnableIRQ(MAILBOX_IRQ);
   MBOX_CH1_CTRL |= MBOX_INTERRUPT_ENABLE;
-  prv_send_reset();
   (void)xSemaphoreGive(s_wake);
   return S_SUCCESS;
 }
@@ -411,7 +471,7 @@ void t5ai_mailbox_channel_unregister(uint8_t channel) {
 status_t t5ai_mailbox_channel_send_async(uint8_t channel, const T5AIMailboxMessage *message,
                                          T5AIMailboxTransmitHandler handler, void *context) {
   uint8_t index;
-  if (!s_initialized || !prv_tx_channel(channel, &index) || message == NULL) {
+  if (!s_started || s_faulted || !prv_tx_channel(channel, &index) || message == NULL) {
     return E_INVALID_ARGUMENT;
   }
   TxChannel *tx = &s_tx[index];
@@ -433,7 +493,7 @@ status_t t5ai_mailbox_channel_send_async(uint8_t channel, const T5AIMailboxMessa
 status_t t5ai_mailbox_channel_send(uint8_t channel, const T5AIMailboxMessage *message,
                                    T5AIMailboxMessage *ack, uint32_t timeout_ms) {
   uint8_t index;
-  if (!s_initialized || !prv_tx_channel(channel, &index) || message == NULL) {
+  if (!s_started || s_faulted || !prv_tx_channel(channel, &index) || message == NULL) {
     return E_INVALID_ARGUMENT;
   }
   TxChannel *tx = &s_tx[index];
@@ -463,10 +523,11 @@ status_t t5ai_mailbox_channel_send(uint8_t channel, const T5AIMailboxMessage *me
                                         ? portMAX_DELAY
                                         : prv_milliseconds_to_ticks(timeout_ms));
   if (taken != pdPASS) {
-    /* Generation quarantine is handled by the logical client. Do not recycle
-     * a descriptor that may still be visible to the CP. */
-    mutex_unlock(tx->mutex);
-    return E_AGAIN;
+    /* Returning would let the caller reuse memory which may still be visible
+     * through this descriptor. Recovery must reset both CPUs and the mailbox
+     * before any transaction storage is recycled. */
+    s_faulted = true;
+    prv_reset_after_timeout();
   }
   if (ack != NULL) {
     *ack = tx->ack;
@@ -474,6 +535,10 @@ status_t t5ai_mailbox_channel_send(uint8_t channel, const T5AIMailboxMessage *me
   const status_t status = (tx->ack.header & MBOX_COMMUNICATION_FAILED) == 0u ? S_SUCCESS : E_ERROR;
   mutex_unlock(tx->mutex);
   return status;
+}
+
+bool t5ai_mailbox_channel_faulted(void) {
+  return s_faulted;
 }
 
 status_t t5ai_mailbox_channel_bootstrap_send(uint8_t channel,

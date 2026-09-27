@@ -127,3 +127,4 @@ void t5ai_cp_mailbox_get_diagnostics(T5AICPMailboxDiagnostics *diagnostics);
 void t5ai_cp_mailbox_snapshot_failure(uint32_t context, status_t status);
 bool t5ai_cp_mailbox_get_failure_diagnostics(T5AICPMailboxFailureDiagnostics *diagnostics);
 void t5ai_cp_mailbox_clear_failure_diagnostics(void);
+bool t5ai_cp_mailbox_shared_range_valid(uintptr_t address, size_t length);

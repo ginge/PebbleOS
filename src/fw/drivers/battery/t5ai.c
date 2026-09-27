@@ -8,6 +8,9 @@
 #include "system/status_codes.h"
 #include <pbl/logging/logging.h>
 
+#include "FreeRTOS.h"
+#include "task.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -20,6 +23,11 @@ PBL_LOG_MODULE_DEFINE(driver_battery_t5ai, LOG_LEVEL_INFO);
 #define T5AI_BATTERY_DIVIDER_NUMERATOR 2510
 #define T5AI_BATTERY_DIVIDER_DENOMINATOR 510
 #define T5AI_BATTERY_DEFAULT_MV 3700
+#define T5AI_BATTERY_SAMPLE_INTERVAL_MS 60000u
+#define T5AI_BATTERY_STARTUP_DELAY_MS 30000u
+#define T5AI_BATTERY_RETRY_DELAY_MS 5000u
+#define T5AI_BATTERY_TASK_STACK_WORDS 512u
+#define T5AI_BATTERY_TASK_PRIORITY (tskIDLE_PRIORITY + 1u)
 
 static const InputConfig s_charge = {.pin = 30u};
 static int s_last_millivolts = T5AI_BATTERY_DEFAULT_MV;
@@ -32,25 +40,46 @@ static int prv_raw_to_millivolts(uint16_t raw) {
   return tap_mv * T5AI_BATTERY_DIVIDER_NUMERATOR / T5AI_BATTERY_DIVIDER_DENOMINATOR;
 }
 
+static void prv_battery_task(void *context) {
+  (void)context;
+  /* Battery initialization precedes CP service readiness. Do not mistake the
+   * CP's transient SARADC startup error for a permanently poisoned session. */
+  vTaskDelay(pdMS_TO_TICKS(T5AI_BATTERY_STARTUP_DELAY_MS));
+  for (;;) {
+    uint16_t peak;
+    status_t status =
+        t5ai_saradc_read_peak(T5AI_BATTERY_ADC_CHANNEL, T5AI_BATTERY_ADC_SAMPLES, &peak);
+    if (FAILED(status)) {
+      PBL_LOG_ERR("Battery ADC read failed: %ld", (long)status);
+      if (status == E_AGAIN || status == E_INVALID_OPERATION) {
+        /* A timed-out MB-IPC socket is quarantined until reboot because its
+         * command storage may still be owned by the CP. Avoid retry storms. */
+        vTaskDelete(NULL);
+        return;
+      }
+      vTaskDelay(pdMS_TO_TICKS(T5AI_BATTERY_RETRY_DELAY_MS));
+      continue;
+    }
+    const int millivolts = prv_raw_to_millivolts(peak);
+    if (millivolts < 2000 || millivolts > 5000) {
+      PBL_LOG_ERR("Battery ADC out of range: raw=%u mv=%d", peak, millivolts);
+    } else {
+      __atomic_store_n(&s_last_millivolts, millivolts, __ATOMIC_RELEASE);
+    }
+    vTaskDelay(pdMS_TO_TICKS(T5AI_BATTERY_SAMPLE_INTERVAL_MS));
+  }
+}
+
 void battery_init(void) {
   gpio_input_init_pull_up_down(&s_charge, GPIO_PuPd_UP);
+  if (xTaskCreate(prv_battery_task, "T5AI battery", T5AI_BATTERY_TASK_STACK_WORDS, NULL,
+                  T5AI_BATTERY_TASK_PRIORITY, NULL) != pdPASS) {
+    PBL_LOG_ERR("Failed to create T5AI battery sampling task");
+  }
 }
 
 int battery_get_millivolts(void) {
-  uint16_t peak;
-  status_t status =
-      t5ai_saradc_read_peak(T5AI_BATTERY_ADC_CHANNEL, T5AI_BATTERY_ADC_SAMPLES, &peak);
-  if (FAILED(status)) {
-    PBL_LOG_ERR("Battery ADC read failed: %ld", (long)status);
-    return s_last_millivolts;
-  }
-  const int millivolts = prv_raw_to_millivolts(peak);
-  if (millivolts < 2000 || millivolts > 5000) {
-    PBL_LOG_ERR("Battery ADC out of range: raw=%u mv=%d", peak, millivolts);
-    return s_last_millivolts;
-  }
-  s_last_millivolts = millivolts;
-  return millivolts;
+  return __atomic_load_n(&s_last_millivolts, __ATOMIC_ACQUIRE);
 }
 
 int battery_get_constants(BatteryConstants *constants) {

@@ -120,6 +120,10 @@ static void prv_hci_task(void *unused) {
   (void)unused;
   TickType_t last_trace_tick = xTaskGetTickCount();
   for (;;) {
+    if (prv_started() && t5ai_hci_ipc_faulted()) {
+      PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "T5AI HCI worker detected transport fault");
+      prv_schedule_reset();
+    }
     struct os_mbuf *acl;
     if (s_acl_tx_queue != NULL && xQueueReceive(s_acl_tx_queue, &acl, 0) == pdTRUE) {
       prv_send_queued_acl(acl);

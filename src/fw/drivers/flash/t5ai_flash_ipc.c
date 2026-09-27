@@ -19,8 +19,9 @@ PBL_LOG_MODULE_DECLARE(driver_flash, CONFIG_DRIVER_FLASH_LOG_LEVEL);
 #define FLASH_SERVER_PORT 1u
 #define SARADC_CLIENT_PORT 17u
 #define SARADC_SERVER_PORT 2u
-#define IPC_TIMEOUT_MS 2000u
-#define SARADC_IPC_TIMEOUT_MS 100u
+#define IPC_TIMEOUT_MS 5000u
+#define SARADC_IPC_TIMEOUT_MS 2000u
+#define IPC_STALE_RESPONSE_LIMIT 4u
 #define SARADC_NOTIFY_RX_CHANNEL 0x4cu
 #define SARADC_NOTIFY_ACK 2u
 
@@ -90,7 +91,7 @@ static PebbleMutex *s_saradc_mutex;
 static FlashCommand s_flash_command __attribute__((aligned(32)));
 static SaradcCommand s_saradc_command __attribute__((aligned(32)));
 static bool s_flash_available;
-static bool s_flash_reconnect_allowed;
+static bool s_saradc_available = true;
 
 #if UINTPTR_MAX == UINT32_MAX
 _Static_assert(sizeof(SaradcConfig) == 36u, "BK7258 SARADC config ABI changed");
@@ -149,39 +150,24 @@ status_t t5ai_flash_ipc_init(void) {
   }
   status = t5ai_mb_ipc_open(FLASH_CLIENT_PORT, FLASH_SERVER_PORT, &s_flash_socket);
   s_flash_available = PASSED(status);
-  /* CONNECT is idempotent and no flash operation has been issued yet. */
-  s_flash_reconnect_allowed = !s_flash_available;
   return status;
 }
 
 static void prv_flash_fault(status_t status, uint8_t command) {
-  s_flash_available = false;
-  /* A read can be issued again from the beginning. A write or erase may have
-   * reached flash before its response was lost, so mutations remain failed
-   * closed for the rest of the boot. */
-  s_flash_reconnect_allowed = command == FLASH_READ || command == FLASH_READ_DONE;
-  t5ai_mb_ipc_poison(s_flash_socket);
+  const bool ambiguous = status == E_AGAIN;
+  if (ambiguous) {
+    s_flash_available = false;
+    t5ai_mb_ipc_poison(s_flash_socket);
+  }
   t5ai_cp_mailbox_snapshot_failure(0x464c0000u | command, status);
-  PBL_LOG_ERR("T5AI flash IPC fault command=%u status=%ld recoverable=%u", command,
-              (long)status, s_flash_reconnect_allowed);
+  PBL_LOG_ERR("T5AI flash IPC fault command=%u status=%ld quarantined=%u", command,
+              (long)status, ambiguous);
 }
 
 static status_t prv_flash_transaction(uint8_t command) {
   if (!s_flash_available) {
-    if (!s_flash_reconnect_allowed) {
-      PBL_LOG_ERR("T5AI flash IPC unavailable for command %u", command);
-      return E_INVALID_OPERATION;
-    }
-    status_t status = t5ai_mb_ipc_open(FLASH_CLIENT_PORT, FLASH_SERVER_PORT,
-                                       &s_flash_socket);
-    s_flash_available = PASSED(status);
-    if (!s_flash_available) {
-      PBL_LOG_ERR("T5AI flash IPC reconnect failed command=%u status=%ld", command,
-                  (long)status);
-      return status;
-    }
-    s_flash_reconnect_allowed = false;
-    PBL_LOG_INFO("T5AI flash IPC reconnected before command %u", command);
+    PBL_LOG_ERR("T5AI flash IPC unavailable for command %u", command);
+    return E_INVALID_OPERATION;
   }
   t5ai_mb_ipc_discard(s_flash_socket);
   status_t status = t5ai_mb_ipc_send(s_flash_socket, command, &s_flash_command,
@@ -190,16 +176,36 @@ static status_t prv_flash_transaction(uint8_t command) {
     prv_flash_fault(status, command);
     return status;
   }
-  uint8_t received_command = UINT8_MAX;
-  status = t5ai_mb_ipc_receive(s_flash_socket, &received_command, &s_flash_command,
-                               sizeof(s_flash_command), IPC_TIMEOUT_MS);
-  if (FAILED(status) || received_command != command ||
-      (int16_t)(s_flash_command.length_and_status >> 16u) != 0) {
-    status = FAILED(status) ? status : E_ERROR;
-    prv_flash_fault(status, command);
-    return status;
+  for (unsigned stale = 0u; stale <= IPC_STALE_RESPONSE_LIMIT; ++stale) {
+    uint8_t received_command = UINT8_MAX;
+    FlashCommand response;
+    status = t5ai_mb_ipc_receive(s_flash_socket, &received_command, &response,
+                                 sizeof(response), IPC_TIMEOUT_MS);
+    if (FAILED(status)) {
+      PBL_LOG_ERR("T5AI flash completion failed expected=%u status=%ld", command,
+                  (long)status);
+      prv_flash_fault(status, command);
+      return status;
+    }
+    if (received_command != command) {
+      PBL_LOG_WRN("T5AI flash ignored stale completion expected=%u received=%u count=%u",
+                  command, received_command, stale + 1u);
+      continue;
+    }
+    s_flash_command = response;
+    const int16_t api_status = (int16_t)(response.length_and_status >> 16u);
+    if (api_status != 0) {
+      PBL_LOG_ERR("T5AI flash CP error command=%u api=%d length=%u buffer=%08lx", command,
+                  api_status, (unsigned)(uint16_t)response.length_and_status,
+                  (unsigned long)response.buffer);
+      prv_flash_fault(E_ERROR, command);
+      return E_ERROR;
+    }
+    return S_SUCCESS;
   }
-  return S_SUCCESS;
+  PBL_LOG_ERR("T5AI flash stale completion limit expected=%u", command);
+  prv_flash_fault(E_ERROR, command);
+  return E_ERROR;
 }
 
 status_t t5ai_flash_ipc_read(uint32_t offset, void *buffer, size_t length) {
@@ -212,8 +218,12 @@ status_t t5ai_flash_ipc_read(uint32_t offset, void *buffer, size_t length) {
       .length_and_status = (uint32_t)length,
   };
   status_t status = prv_flash_transaction(FLASH_READ);
-  if (FAILED(status) || s_flash_command.buffer == 0u) {
+  if (FAILED(status) ||
+      !t5ai_cp_mailbox_shared_range_valid((uintptr_t)s_flash_command.buffer, length)) {
     status = FAILED(status) ? status : E_ERROR;
+    if (s_flash_available) {
+      prv_flash_fault(status, FLASH_READ);
+    }
     goto out;
   }
   const void *source = (const void *)(uintptr_t)s_flash_command.buffer;
@@ -261,6 +271,9 @@ status_t t5ai_flash_ipc_erase_4k(uint32_t offset) {
 }
 
 static status_t prv_saradc_connect(void) {
+  if (!s_saradc_available) {
+    return E_INVALID_OPERATION;
+  }
   if (s_saradc_socket != NULL) {
     return S_SUCCESS;
   }
@@ -269,7 +282,7 @@ static status_t prv_saradc_connect(void) {
 
 static void prv_saradc_disconnect(void) {
   t5ai_mb_ipc_poison(s_saradc_socket);
-  s_saradc_socket = NULL;
+  s_saradc_available = false;
 }
 
 static status_t prv_saradc_transaction(uint8_t command) {
@@ -277,37 +290,55 @@ static status_t prv_saradc_transaction(uint8_t command) {
   status_t status = t5ai_mb_ipc_send(s_saradc_socket, command, &s_saradc_command,
                                      sizeof(s_saradc_command), SARADC_IPC_TIMEOUT_MS);
   if (FAILED(status)) {
+    if (status == E_AGAIN) {
+      prv_saradc_disconnect();
+    }
     return status;
   }
-  uint8_t received_command = UINT8_MAX;
-  status = t5ai_mb_ipc_receive(s_saradc_socket, &received_command, &s_saradc_command,
-                               sizeof(s_saradc_command), SARADC_IPC_TIMEOUT_MS);
-  if (FAILED(status) || received_command != command || s_saradc_command.status != 0) {
-    return FAILED(status) ? status : E_ERROR;
+  for (unsigned stale = 0u; stale <= IPC_STALE_RESPONSE_LIMIT; ++stale) {
+    uint8_t received_command = UINT8_MAX;
+    SaradcCommand response;
+    status = t5ai_mb_ipc_receive(s_saradc_socket, &received_command, &response,
+                                 sizeof(response), SARADC_IPC_TIMEOUT_MS);
+    if (FAILED(status)) {
+      if (status == E_AGAIN) {
+        prv_saradc_disconnect();
+      }
+      return status;
+    }
+    if (received_command != command) {
+      PBL_LOG_WRN("T5AI SARADC ignored stale completion expected=%u received=%u count=%u",
+                  command, received_command, stale + 1u);
+      continue;
+    }
+    s_saradc_command = response;
+    return response.status == 0 ? S_SUCCESS : E_ERROR;
   }
-  return S_SUCCESS;
+  return E_ERROR;
 }
 
 static status_t prv_saradc_cleanup(uint8_t channel, status_t result) {
+  if (!s_saradc_available) {
+    return result;
+  }
   status_t cleanup_status = S_SUCCESS;
   memset(&s_saradc_command, 0, sizeof(s_saradc_command));
   status_t status = prv_saradc_transaction(SARADC_STOP);
-  cleanup_status = FAILED(status) ? status : cleanup_status;
+  if (FAILED(status)) {
+    return status;
+  }
   s_saradc_command.config.channel = channel;
   status = prv_saradc_transaction(SARADC_DEINIT);
-  cleanup_status = FAILED(status) ? status : cleanup_status;
+  if (FAILED(status)) {
+    return status;
+  }
   status = prv_saradc_transaction(SARADC_RELEASE);
-  cleanup_status = FAILED(status) ? status : cleanup_status;
+  if (FAILED(status)) {
+    return status;
+  }
   s_saradc_command.config.channel = channel;
   status = prv_saradc_transaction(SARADC_DEINIT_GPIO);
   cleanup_status = FAILED(status) ? status : cleanup_status;
-  if (FAILED(result) || FAILED(cleanup_status)) {
-    /* Battery sampling runs from KernelBG. Never retain a possibly stale
-     * SARADC session after an IPC fault; the next periodic sample reconnects.
-     * The short per-command timeout bounds this entire cleanup below the task
-     * watchdog deadline. */
-    prv_saradc_disconnect();
-  }
   return FAILED(result) ? result : cleanup_status;
 }
 
@@ -320,7 +351,6 @@ static status_t prv_saradc_read_peak_locked(uint8_t channel, uint8_t samples, ui
   s_saradc_command.config.channel = channel;
   status = prv_saradc_transaction(SARADC_INIT_GPIO);
   if (FAILED(status)) {
-    prv_saradc_disconnect();
     return status;
   }
   status = prv_saradc_transaction(SARADC_ACQUIRE);
@@ -357,7 +387,7 @@ static status_t prv_saradc_read_peak_locked(uint8_t channel, uint8_t samples, ui
 
   memset(s_saradc_command.samples, 0, sizeof(s_saradc_command.samples));
   s_saradc_command.size = samples;
-  s_saradc_command.timeout = UINT32_MAX;
+  s_saradc_command.timeout = SARADC_IPC_TIMEOUT_MS;
   status = prv_saradc_transaction(SARADC_READ_RAW);
   if (PASSED(status) && s_saradc_command.size == samples &&
       prv_saradc_crc32(s_saradc_command.samples, samples * sizeof(uint16_t)) ==

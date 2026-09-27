@@ -27,7 +27,7 @@
 #define MB_IPC_ROUTE_UNMATCHED 4u
 #define MB_IPC_ROUTE_RX_BUSY 5u
 #define MB_IPC_SOCKET_COUNT 2u
-#define MB_IPC_PHYSICAL_TIMEOUT_MS 2000u
+#define MB_IPC_PHYSICAL_TIMEOUT_MS 5000u
 
 struct T5AIMbIpcSocket {
   uint8_t client_port;
@@ -37,6 +37,7 @@ struct T5AIMbIpcSocket {
   uint32_t generation;
   bool allocated;
   bool connected;
+  bool poisoned;
   bool tx_in_process;
   bool rx_in_process;
   T5AIMailboxMessage tx_message __attribute__((aligned(32)));
@@ -105,7 +106,8 @@ static void prv_set_route_status(T5AIMailboxMessage *message, uint8_t route_stat
 static T5AIMbIpcSocket *prv_find_receiver(const T5AIMailboxMessage *message) {
   for (size_t i = 0; i < MB_IPC_SOCKET_COUNT; ++i) {
     T5AIMbIpcSocket *socket = &s_sockets[i];
-    if (socket->allocated && prv_destination_cpu(message) == MB_IPC_CPU_AP &&
+    if (socket->allocated && !socket->poisoned &&
+        prv_destination_cpu(message) == MB_IPC_CPU_AP &&
         prv_source_cpu(message) == MB_IPC_CPU_CP &&
         prv_destination_port(message) == socket->client_port &&
         prv_source_port(message) == socket->server_port) {
@@ -182,6 +184,7 @@ static status_t prv_wait_for_logical_response(T5AIMbIpcSocket *socket, uint32_t 
   if (xSemaphoreTake(socket->tx_ready, pdMS_TO_TICKS(timeout_ms)) != pdPASS) {
     socket->tx_in_process = false;
     socket->connected = false;
+    socket->poisoned = true;
     ++socket->generation;
     return E_AGAIN;
   }
@@ -190,6 +193,11 @@ static status_t prv_wait_for_logical_response(T5AIMbIpcSocket *socket, uint32_t 
 
 static status_t prv_transmit(T5AIMbIpcSocket *socket, uint8_t command, uint8_t user_command,
                              const void *data, size_t length, uint32_t timeout_ms) {
+  if (socket->poisoned ||
+      (data != NULL && length != 0u &&
+       !t5ai_cp_mailbox_shared_range_valid((uintptr_t)data, length))) {
+    return socket->poisoned ? E_INVALID_OPERATION : E_RANGE;
+  }
   while (xSemaphoreTake(socket->tx_ready, 0u) == pdPASS) {
   }
   ++socket->tx_tag;
@@ -208,10 +216,8 @@ static status_t prv_transmit(T5AIMbIpcSocket *socket, uint8_t command, uint8_t u
     dcache_flush((void *)data, length);
   }
   T5AIMailboxMessage ack;
-  const uint32_t physical_timeout_ms =
-      timeout_ms < MB_IPC_PHYSICAL_TIMEOUT_MS ? timeout_ms : MB_IPC_PHYSICAL_TIMEOUT_MS;
   status_t status = t5ai_mailbox_channel_send(MB_IPC_TX_CHANNEL, &socket->tx_message, &ack,
-                                              physical_timeout_ms);
+                                              MB_IPC_PHYSICAL_TIMEOUT_MS);
   if (FAILED(status)) {
     PBL_LOG_D_ERR(LOG_DOMAIN_COMM,
                   "T5AI MIPC physical send failed: status=%ld cmd=%u user=%u tag=%u port=%u>%u",
@@ -245,6 +251,9 @@ status_t t5ai_mb_ipc_open(uint8_t client_port, uint8_t server_port,
   T5AIMbIpcSocket *socket = NULL;
   for (size_t i = 0; i < MB_IPC_SOCKET_COUNT; ++i) {
     if (s_sockets[i].allocated && s_sockets[i].client_port == client_port) {
+      if (s_sockets[i].server_port != server_port || s_sockets[i].poisoned) {
+        return E_INVALID_OPERATION;
+      }
       socket = &s_sockets[i];
       break;
     }
@@ -258,6 +267,7 @@ status_t t5ai_mb_ipc_open(uint8_t client_port, uint8_t server_port,
   mutex_lock(socket->mutex);
   socket->allocated = true;
   socket->connected = false;
+  socket->poisoned = false;
   socket->client_port = client_port;
   socket->server_port = server_port;
   socket->rx_in_process = false;
@@ -324,6 +334,11 @@ status_t t5ai_mb_ipc_receive(T5AIMbIpcSocket *socket, uint8_t *command, void *da
   if (socket->rx_in_process) {
     (void)xSemaphoreTake(socket->rx_ready, 0u);
   } else if (xSemaphoreTake(socket->rx_ready, pdMS_TO_TICKS(timeout_ms)) != pdPASS) {
+    /* The CP may still publish a completion which references the caller's
+     * transaction storage. Do not permit that storage to be reused. */
+    socket->connected = false;
+    socket->poisoned = true;
+    ++socket->generation;
     return E_AGAIN;
   }
   if (!socket->rx_in_process) {
@@ -333,6 +348,7 @@ status_t t5ai_mb_ipc_receive(T5AIMbIpcSocket *socket, uint8_t *command, void *da
   const size_t received_length = (uint16_t)request.parameter2;
   status_t status = S_SUCCESS;
   if ((uint8_t)request.header != MB_IPC_COMMAND_SEND || request.parameter3 == 0u ||
+      !t5ai_cp_mailbox_shared_range_valid((uintptr_t)request.parameter3, received_length) ||
       (data != NULL && received_length != length)) {
     status = E_ERROR;
   } else if (data != NULL && length != 0u) {
@@ -373,6 +389,7 @@ void t5ai_mb_ipc_discard(T5AIMbIpcSocket *socket) {
 void t5ai_mb_ipc_poison(T5AIMbIpcSocket *socket) {
   if (socket != NULL) {
     socket->connected = false;
+    socket->poisoned = true;
     socket->tx_in_process = false;
     socket->rx_in_process = false;
     ++socket->generation;

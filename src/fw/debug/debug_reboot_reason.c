@@ -103,6 +103,9 @@ void debug_reboot_reason_print(McuRebootReason mcu_reboot_reason) {
   case RebootReasonCode_BtCoredump:
     reason_string = "%s%sBT Coredump";
     break;
+  case RebootReasonCode_MailboxTimeout:
+    reason_string = "%s%sMailbox Timeout: channel 0x%"PRIx32;
+    break;
   default:
     reason_string = "%s%sUnrecognized Reason";
     break;

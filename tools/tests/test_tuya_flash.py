@@ -19,21 +19,17 @@ class TuyaFlashTest(unittest.TestCase):
         self.assertNotIn("prv_record_write_failure", flash)
         self.assertNotIn("prv_t5ai_capture_retained_failure", main)
 
-    def test_t5ai_flash_reconnects_only_after_non_mutating_faults(self):
+    def test_t5ai_flash_quarantines_ambiguous_transactions(self):
         flash = (ROOT / "src/fw/drivers/flash/t5ai_flash_ipc.c").read_text()
 
-        self.assertIn("static bool s_flash_reconnect_allowed;", flash)
-        self.assertIn(
-            "command == FLASH_READ || command == FLASH_READ_DONE", flash
-        )
-        self.assertIn(
-            "if (!s_flash_reconnect_allowed)", flash
-        )
-        self.assertIn(
-            "t5ai_mb_ipc_open(FLASH_CLIENT_PORT, FLASH_SERVER_PORT", flash
-        )
-        self.assertNotIn("command == FLASH_WRITE ||", flash)
-        self.assertNotIn("command == FLASH_ERASE_SECTOR ||", flash)
+        self.assertIn("t5ai_mb_ipc_poison(s_flash_socket)", flash)
+        self.assertIn("s_flash_available = false", flash)
+        self.assertIn("const bool ambiguous = status == E_AGAIN", flash)
+        self.assertIn("quarantined=%u", flash)
+        self.assertIn("ignored stale completion", flash)
+        self.assertIn("t5ai_cp_mailbox_shared_range_valid", flash)
+        self.assertNotIn("s_flash_reconnect_allowed", flash)
+        self.assertNotIn("T5AI flash IPC reconnected", flash)
 
     @unittest.skipUnless(shutil.which("cc"), "host C compiler required")
     def test_mipc_wire_format(self):

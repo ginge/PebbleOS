@@ -130,7 +130,9 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn('section(".t5ai_board_cache")', hci_ipc)
         self.assertIn("xTaskGenericCreate(prv_worker", hci_ipc)
         self.assertIn("xSemaphoreGive(s_exchange_ready)", hci_ipc)
-        self.assertIn("Timed-out request objects stay quarantined", hci_ipc)
+        self.assertIn("stop left CP-owned descriptors quarantined", hci_ipc)
+        self.assertIn("prv_all_outbound_retired()", hci_ipc)
+        self.assertIn("t5ai_cp_mailbox_shared_range_valid", hci_ipc)
         self.assertNotIn("t5ai_cp_mailbox_lock()", hci_ipc)
         hci_start = hci_ipc.split("int t5ai_hci_ipc_start(", 1)[1].split(
             "int t5ai_hci_ipc_stop(", 1
@@ -157,13 +159,13 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("t5ai_mb_ipc_discard(s_flash_socket)", flash_ipc)
         self.assertIn("prv_flash_transaction(FLASH_READ_DONE)", flash_ipc)
         self.assertIn("t5ai_mb_ipc_poison(s_flash_socket)", flash_ipc)
-        self.assertIn("#define SARADC_IPC_TIMEOUT_MS 100u", flash_ipc)
+        self.assertIn("#define SARADC_IPC_TIMEOUT_MS 2000u", flash_ipc)
         self.assertIn("t5ai_mb_ipc_poison(s_saradc_socket)", flash_ipc)
-        self.assertIn("s_saradc_socket = NULL", flash_ipc)
+        self.assertIn("s_saradc_available = false", flash_ipc)
         self.assertNotIn("t5ai_cp_mailbox_lock()", flash_ipc)
         mb_ipc = (ROOT / "src/fw/drivers/t5ai/mb_ipc.c").read_text()
-        self.assertIn("timeout_ms < MB_IPC_PHYSICAL_TIMEOUT_MS", mb_ipc)
-        self.assertIn("physical_timeout_ms", mb_ipc)
+        self.assertNotIn("timeout_ms < MB_IPC_PHYSICAL_TIMEOUT_MS", mb_ipc)
+        self.assertIn("socket->poisoned = true", mb_ipc)
         mailbox = (ROOT / "src/fw/drivers/t5ai/mailbox_channel.c").read_text()
         self.assertIn("static TxChannel s_tx[T5AI_MAILBOX_CHANNEL_COUNT]", mailbox)
         self.assertNotIn('section(".t5ai_board_cache")', mailbox)
@@ -659,7 +661,8 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("regular_timer_add_seconds_callback(&cp_heartbeat_timer)", main)
         heartbeat = mailbox.split("void t5ai_cp_mailbox_heartbeat(void)", 1)[1]
         heartbeat = heartbeat.split("static status_t prv_pm_request", 1)[0]
-        self.assertIn("t5ai_cp_mailbox_send(&s_control_message", heartbeat)
+        self.assertIn("t5ai_mailbox_channel_send_async(", heartbeat)
+        self.assertIn("s_heartbeat_in_flight", heartbeat)
         self.assertIn("sizeof(s_heartbeat_parameter)", heartbeat)
         self.assertNotIn("prv_control_request", heartbeat)
         self.assertIn(
@@ -671,6 +674,46 @@ class TuyaKernelCheckTest(unittest.TestCase):
             "#if defined(CONFIG_SOC_T5AI)\n#define configUSE_TICK_HOOK      1",
             config,
         )
+
+    def test_t5ai_mailbox_clients_quarantine_ambiguous_ownership(self):
+        physical = (ROOT / "src/fw/drivers/t5ai/mailbox_channel.c").read_text()
+        mailbox = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
+        mb_ipc = (ROOT / "src/fw/drivers/t5ai/mb_ipc.c").read_text()
+        flash = (ROOT / "src/fw/drivers/flash/t5ai_flash_ipc.c").read_text()
+        battery = (ROOT / "src/fw/drivers/battery/t5ai.c").read_text()
+        dbgserial = (ROOT / "src/fw/console/dbgserial_t5ai.c").read_text()
+        reset = (ROOT / "src/fw/drivers/watchdog/t5ai.c").read_text()
+
+        physical_init = physical.split("status_t t5ai_mailbox_channel_init", 1)[1].split(
+            "status_t t5ai_mailbox_channel_start", 1
+        )[0]
+        self.assertNotIn("NVIC_EnableIRQ", physical_init)
+        self.assertIn("t5ai_force_whole_chip_reset();", physical)
+        self.assertIn("#define MAILBOX_ACTIVE_TIMEOUT_MS 5000u", physical)
+        self.assertIn("RebootReasonCode_MailboxTimeout", physical)
+        self.assertIn("#define MB_IPC_PHYSICAL_TIMEOUT_MS 5000u", mb_ipc)
+        self.assertIn("#define CP_RUNTIME_TIMEOUT_MS 5000u", mailbox)
+        self.assertIn("#define IPC_TIMEOUT_MS 5000u", flash)
+        self.assertLess(
+            mailbox.index("t5ai_mailbox_channel_register(channel"),
+            mailbox.index("t5ai_mailbox_channel_start()"),
+        )
+        self.assertIn("socket->poisoned = true", mb_ipc)
+        self.assertIn("MB_IPC_PHYSICAL_TIMEOUT_MS);", mb_ipc)
+        self.assertNotIn("timeout_ms < MB_IPC_PHYSICAL_TIMEOUT_MS", mb_ipc)
+        self.assertIn("const bool ambiguous = status == E_AGAIN", flash)
+        self.assertIn("ignored stale completion", flash)
+        self.assertNotIn("reconnect", flash)
+        self.assertIn("t5ai_cp_mailbox_shared_range_valid", flash)
+        battery_get = battery.split("int battery_get_millivolts(void)", 1)[1].split(
+            "int battery_get_constants", 1
+        )[0]
+        self.assertIn("__atomic_load_n", battery_get)
+        self.assertNotIn("t5ai_saradc_read_peak", battery_get)
+        self.assertIn("xTaskCreate(prv_battery_task", battery)
+        self.assertIn("#define T5AI_BATTERY_STARTUP_DELAY_MS 30000u", battery)
+        self.assertIn("s_t5ai_mutex", dbgserial)
+        self.assertIn("T5AI_AON_PMU_R2", reset)
 
     def test_t5ai_holds_psram_power_for_the_compositor_framebuffer(self):
         initialization = (ROOT / "soc/t5ai/init.c").read_text()

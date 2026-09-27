@@ -17,6 +17,7 @@
 
 #ifdef CONFIG_SOC_T5AI
 #include <pbl/soc/t5ai/hci_ipc.h>
+#include <pbl/soc/t5ai/reset.h>
 #endif
 
 #ifdef CONFIG_SOC_SF32LB52
@@ -50,9 +51,7 @@ NORETURN system_reset(void) {
     if (t5ai_hci_ipc_request_system_reboot() == 0) {
       /* CPU0 owns whole-chip reset on T5AI. A local NVIC reset would leave the
        * CP and Bluetooth radio state alive across a user-requested reboot. */
-      while (true) {
-        __WFI();
-      }
+      vTaskDelay(pdMS_TO_TICKS(250u));
     }
 #endif
   }
@@ -74,7 +73,9 @@ NORETURN system_hard_reset(void) {
   // Don't do anything fancy here. We may be in a context where nothing works, not even
   // interrupts. Just reset us.
 
-#ifdef CONFIG_SOC_SF32LB52
+#ifdef CONFIG_SOC_T5AI
+  t5ai_force_whole_chip_reset();
+#elif defined(CONFIG_SOC_SF32LB52)
   HAL_PMU_Reboot();
 #else
   NVIC_SystemReset();
