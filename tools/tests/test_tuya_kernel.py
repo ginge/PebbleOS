@@ -180,6 +180,21 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertNotIn("T5AI_HCI_ACL_SEND_ATTEMPTS", hci_transport)
         self.assertIn("int result = BLE_ERR_MEM_CAPACITY;", hci_transport)
         self.assertIn("status=%d len=%u", hci_transport)
+        connect_params = (
+            ROOT / "src/fw/comm/ble/gap_le_connect_params_t5ai.c"
+        ).read_text()
+        self.assertIn("T5AI_SUPERVISION_TIMEOUT_10MS 2000u", connect_params)
+        self.assertIn("T5AI_PARAM_UPDATE_DELAY_MS 1000u", connect_params)
+        self.assertIn("T5AI_PARAM_UPDATE_WATCHDOG_MS 5000u", connect_params)
+        self.assertIn(
+            ".interval_min_1_25ms = connection->conn_params.conn_interval_1_25ms",
+            connect_params,
+        )
+        reconnect = (
+            ROOT / "src/fw/comm/ble/gap_le_slave_reconnect.c"
+        ).read_text()
+        self.assertIn("The BK7258 controller can stop responding", reconnect)
+        self.assertIn("#ifndef CONFIG_SOC_T5AI", reconnect)
         reversed_ppog = (
             ROOT / "src/bluetooth-fw/nimble/ppog_reversed_service.c"
         ).read_text()
@@ -509,7 +524,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("prv_display_update(nrcb, uccb, false, false);", display_driver)
         self.assertIn("prv_dcache_clean(s_panel_row, sizeof(s_panel_row));", display_driver)
         self.assertIn("framebuffer_pixel ^= 0x3fu", display_driver)
-        self.assertIn("prv_display_update(nrcb, uccb, use_dma, true);", display_driver)
+        self.assertIn("prv_display_update(nrcb, uccb, use_dma, false);", display_driver)
         self.assertIn("if (source_x != previous_source_x)", display_driver)
         self.assertIn("converted_pixel = s_rgb565[framebuffer_pixel]", display_driver)
         self.assertIn("#if defined(CONFIG_PLATFORM_GABBRO)", animation)

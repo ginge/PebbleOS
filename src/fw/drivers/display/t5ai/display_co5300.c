@@ -229,8 +229,6 @@ prv_convert_row(uint8_t *destination, const uint8_t *source, bool reverse,
     if (source_x != previous_source_x) {
       unsigned framebuffer_pixel = source[source_x] & 0x3fu;
       if (invert_colors) {
-        // Pebble's compositor output needs the panel assembly's inverted-polarity
-        // compensation. The early boot splash is already in panel polarity.
         framebuffer_pixel ^= 0x3fu;
       }
       converted_pixel = s_rgb565[framebuffer_pixel];
@@ -323,7 +321,8 @@ static bool prv_dma_self_test(void) {
   DMA_SRC_LOOP_END = source + sizeof(s_dma_test_source) + sizeof(uint32_t);
   DMA_REQ = prv_dma_request_configuration();
   DMA_CTRL = ((uint32_t)(sizeof(s_dma_test_source) - 1u) << 16) |
-             (2u << 4) | (2u << 6) | (1u << 8) | (1u << 9);
+             (2u << 4) | (2u << 6) | (1u << 8) | (1u << 9) |
+             (1u << 10) | (1u << 11);
   __asm volatile("dsb 0xf" ::: "memory");
   DMA_CTRL |= 1u;
 
@@ -342,7 +341,11 @@ static bool prv_pixel_stream_write_dma(const uint8_t *data, size_t length,
                                        size_t *aperture_word) {
   PBL_ASSERTN((length % sizeof(uint32_t)) == 0u);
   const uint32_t source = (uint32_t)(uintptr_t)data;
-  const uint32_t destination = (uint32_t)(uintptr_t)&QSPI_DATA_APERTURE[*aperture_word];
+  // The QSPI mapping is a streaming aperture, not a framebuffer. Match
+  // Tuya's LCD DMA path by starting every transaction at its fixed base;
+  // advancing the DMA destination between row-sized transactions leaks the
+  // aperture address into the pixel stream at the panel edge.
+  const uint32_t destination = (uint32_t)(uintptr_t)QSPI_DATA_APERTURE;
 
   DMA_CTRL = 0u;
   DMA_STATUS = (1u << 18) | (1u << 19) | (1u << 20);
@@ -356,7 +359,7 @@ static bool prv_pixel_stream_write_dma(const uint8_t *data, size_t length,
   // production QSPI display path.
   DMA_REQ = prv_dma_request_configuration();
   DMA_CTRL = ((uint32_t)(length - 1u) << 16) | (2u << 4) | (2u << 6) |
-             (1u << 8) | (1u << 9);
+             (1u << 8) | (1u << 9) | (1u << 10) | (1u << 11);
   __asm volatile("dsb 0xf" ::: "memory");
   DMA_CTRL |= 1u;
 
@@ -597,7 +600,7 @@ static void prv_display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb
 
 void display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
   const bool use_dma = s_dma_display_enabled && !s_dma_display_failed;
-  prv_display_update(nrcb, uccb, use_dma, true);
+  prv_display_update(nrcb, uccb, use_dma, false);
 }
 
 void display_co5300_update_cpu(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
