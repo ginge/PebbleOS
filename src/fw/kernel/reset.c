@@ -15,6 +15,10 @@
 
 #include <cmsis_core.h>
 
+#ifdef CONFIG_SOC_T5AI
+#include <pbl/soc/t5ai/hci_ipc.h>
+#endif
+
 #ifdef CONFIG_SOC_SF32LB52
 #include <bf0_hal.h>
 #endif
@@ -42,6 +46,15 @@ NORETURN system_reset(void) {
       (xTaskGetSchedulerState() == taskSCHEDULER_RUNNING)) {
     system_reset_prepare();
     reboot_reason_set_restarted_safely();
+#ifdef CONFIG_SOC_T5AI
+    if (t5ai_hci_ipc_request_system_reboot() == 0) {
+      /* CPU0 owns whole-chip reset on T5AI. A local NVIC reset would leave the
+       * CP and Bluetooth radio state alive across a user-requested reboot. */
+      while (true) {
+        __WFI();
+      }
+    }
+#endif
   }
 
   // If a software failure occcured, do a core dump before resetting
@@ -69,4 +82,3 @@ NORETURN system_hard_reset(void) {
 
   __builtin_unreachable();
 }
-

@@ -268,8 +268,12 @@ static void prv_mailbox_task(void *context) {
     (void)xSemaphoreTake(s_wake, portMAX_DELAY);
     const bool rx_pending = prv_drain_rx();
     const bool ack_pending = !prv_publish_pending_acks();
-    const status_t schedule_status =
-        (rx_pending || ack_pending) ? E_BUSY : prv_schedule_tx();
+    /* RX and TX use independent hardware FIFOs.  A sustained stream from CPU0
+     * must not prevent AP->CPU0 HCI responses from being scheduled; doing so
+     * creates a feedback deadlock under simultaneous BlobDB/AppFetch traffic.
+     * Physical ACKs still take priority because CPU0 cannot retire its current
+     * receive slot until those are published. */
+    const status_t schedule_status = ack_pending ? E_BUSY : prv_schedule_tx();
     MBOX_CH1_CTRL |= MBOX_INTERRUPT_ENABLE;
     if (rx_pending || ack_pending || schedule_status == E_BUSY) {
       /* Blocking for a tick is essential here. This maximum-priority task must

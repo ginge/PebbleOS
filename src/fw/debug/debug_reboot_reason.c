@@ -135,6 +135,11 @@ void debug_reboot_reason_print(McuRebootReason mcu_reboot_reason) {
     pbl_log(LOG_LEVEL_WARNING, __FILE__, __LINE__, reason_string,
             restarted_safely_string, rebooted_due_to, reason.extra.value);
   }
+#ifdef CONFIG_SOC_T5AI
+  if (reason.code == RebootReasonCode_HardFault) {
+    PBL_LOG_WRN("T5AI HardFault CFSR[15:0]: 0x%04x", reason.data16);
+  }
+#endif
 
   if (is_unread_coredump_available()) {
     PBL_LOG_INFO("Unread coredump file is present!");

@@ -20,6 +20,8 @@
 #define T5AI_MIPC_CPU_CP 0u
 #define T5AI_MIPC_SEND_FLAG_SYNC 1u
 #define T5AI_HCI_TYPE 0u
+#define T5AI_SYSTEM_TYPE 1u
+#define T5AI_SYSTEM_REBOOT 0u
 #define T5AI_HCI_MAX_EVENT_SIZE 257u
 #define T5AI_HCI_MAX_ACL_SIZE 1028u
 #define T5AI_HCI_PENDING_FRAME_CAPACITY 8u
@@ -65,6 +67,7 @@ static const char s_channel_name[] = "__tkl_ipc_handle";
 static T5AIHCIOutbound s_requests[T5AI_HCI_REQUEST_CAPACITY];
 static bool s_request_in_use[T5AI_HCI_REQUEST_CAPACITY];
 static T5AIHCIOutbound s_event_responses[T5AI_HCI_EVENT_RESPONSE_CAPACITY];
+static T5AIHCIOutbound s_system_reboot_request;
 static bool s_event_response_in_use[T5AI_HCI_EVENT_RESPONSE_CAPACITY];
 static T5AIHCICallbacks s_callbacks;
 static uint8_t s_sequence;
@@ -553,6 +556,20 @@ int t5ai_hci_ipc_send_command(const uint8_t *data, size_t length) {
 int t5ai_hci_ipc_send_acl(const uint8_t *data, size_t length) {
   return !prv_started() || prv_faulted() || data == NULL ? E_INVALID_OPERATION
                                     : prv_locked_exchange(T5AI_HCI_ACL, data, length);
+}
+
+int t5ai_hci_ipc_request_system_reboot(void) {
+  /* CPU1's local NVIC reset leaves CPU0 and the Bluetooth radio alive. Match
+   * Tuya's AP reset path by asking CPU0 to perform the whole-chip reboot. The
+   * request is intentionally asynchronous because a successful CPU0 handler
+   * reboots before it can return a logical response. */
+  s_system_reboot_request.message = (T5AIHCIMessage){
+      .type = T5AI_SYSTEM_TYPE,
+      .subtype = T5AI_SYSTEM_REBOOT,
+  };
+  return prv_prepare_outbound(&s_system_reboot_request,
+                              &s_system_reboot_request.message,
+                              sizeof(s_system_reboot_request.message), false);
 }
 
 bool t5ai_hci_ipc_faulted(void) {

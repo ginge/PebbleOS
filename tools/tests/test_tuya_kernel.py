@@ -17,6 +17,29 @@ spec.loader.exec_module(checker)
 
 
 class TuyaKernelCheckTest(unittest.TestCase):
+    def test_t5ai_safe_reset_requests_cpu0_whole_chip_reboot(self):
+        reset = (ROOT / "src/fw/kernel/reset.c").read_text()
+        hci_ipc = (
+            ROOT / "third_party/nimble/transport/t5ai_hci_ipc.c"
+        ).read_text()
+        hci_header = (ROOT / "include/pbl/soc/t5ai/hci_ipc.h").read_text()
+        self.assertIn("#ifdef CONFIG_SOC_T5AI", reset)
+        self.assertIn("t5ai_hci_ipc_request_system_reboot()", reset)
+        self.assertIn("T5AI_SYSTEM_TYPE 1u", hci_ipc)
+        self.assertIn("T5AI_SYSTEM_REBOOT 0u", hci_ipc)
+        self.assertIn("s_system_reboot_request", hci_ipc)
+        self.assertIn("prv_prepare_outbound(&s_system_reboot_request", hci_ipc)
+        self.assertIn("t5ai_hci_ipc_request_system_reboot", hci_header)
+
+    def test_t5ai_hardfault_retains_pc_when_lr_is_exception_return(self):
+        handler = (ROOT / "src/fw/hardfault_handler.c").read_text()
+        reboot_log = (ROOT / "src/fw/debug/debug_reboot_reason.c").read_text()
+        self.assertIn("#ifdef CONFIG_SOC_T5AI", handler)
+        self.assertIn("(stacked_lr & 0xfffffff0u) == 0xfffffff0u", handler)
+        self.assertIn("hardfault_args[6]", handler)
+        self.assertIn("reason.data16 = (uint16_t)SCB->CFSR", handler)
+        self.assertIn("T5AI HardFault CFSR[15:0]", reboot_log)
+
     def test_t5ai_cacheable_mpu_regions_are_non_shareable(self):
         mpu = (ROOT / "src/fw/drivers/mpu/mpu_armv8m.c").read_text()
         self.assertIn("#ifdef CONFIG_SOC_T5AI", mpu)

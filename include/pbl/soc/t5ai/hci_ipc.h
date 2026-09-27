@@ -44,6 +44,7 @@ int t5ai_hci_ipc_start(const T5AIHCICallbacks *callbacks);
 int t5ai_hci_ipc_stop(void);
 int t5ai_hci_ipc_send_command(const uint8_t *data, size_t length);
 int t5ai_hci_ipc_send_acl(const uint8_t *data, size_t length);
+int t5ai_hci_ipc_request_system_reboot(void);
 bool t5ai_hci_ipc_faulted(void);
 void t5ai_hci_ipc_poll(void);
 void t5ai_hci_ipc_get_diagnostics(T5AIHCIIpcDiagnostics *diagnostics);

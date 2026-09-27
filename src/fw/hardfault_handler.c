@@ -136,6 +136,14 @@ static void hard_fault_handler_c(unsigned int* hardfault_args) {
   // BFAR, MMFAR so crash reports always have a non-zero address to
   // fingerprint on.
   unsigned int stacked_lr = ((unsigned long) hardfault_args[5]);
+#ifdef CONFIG_SOC_T5AI
+  /* An exception-return token is context, not a call site.  T5AI can fault
+   * while servicing mailbox traffic, in which case LR is 0xfffffff* and the
+   * stacked PC is the only useful address to retain across reset. */
+  if ((stacked_lr & 0xfffffff0u) == 0xfffffff0u) {
+    stacked_lr = ((unsigned long) hardfault_args[6]);
+  }
+#endif
   if (stacked_lr == 0) {
     stacked_lr = ((unsigned long) hardfault_args[6]);
   }
@@ -146,6 +154,12 @@ static void hard_fault_handler_c(unsigned int* hardfault_args) {
     stacked_lr = SCB->MMFAR;
   }
   RebootReason reason = { .code = RebootReasonCode_HardFault, .extra = { .value = stacked_lr } };
+#ifdef CONFIG_SOC_T5AI
+  /* Preserve the MemManage and BusFault status bytes.  In particular this
+   * distinguishes exception stacking faults from an imprecise bus fault when
+   * the retained PC points at an interrupt entry. */
+  reason.data16 = (uint16_t)SCB->CFSR;
+#endif
   reboot_reason_set(&reason);
 
   // Yay, ripping stuff from the internet!

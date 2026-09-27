@@ -758,6 +758,11 @@ class GetafixBoardsTest(unittest.TestCase):
         mailbox_task = mailbox[mailbox.index("static void prv_mailbox_task"):]
         mailbox_task = mailbox_task[:mailbox_task.index("void MAILBOX_IRQHandler")]
         self.assertIn("const bool ack_pending = !prv_publish_pending_acks()", mailbox_task)
+        self.assertIn(
+            "const status_t schedule_status = ack_pending ? E_BUSY : prv_schedule_tx()",
+            mailbox_task,
+        )
+        self.assertNotIn("(rx_pending || ack_pending) ? E_BUSY", mailbox_task)
         self.assertIn("rx_pending || ack_pending || schedule_status == E_BUSY", mailbox_task)
         self.assertIn("vTaskDelay(pdMS_TO_TICKS(1u))", mailbox_task)
         self.assertIn("dcache_invalidate((void *)address", mailbox)
