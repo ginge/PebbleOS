@@ -209,10 +209,10 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("T5AI_SUPERVISION_TIMEOUT_10MS 2000u", connect_params)
         self.assertIn("T5AI_PARAM_UPDATE_DELAY_MS 1000u", connect_params)
         self.assertIn("T5AI_PARAM_UPDATE_WATCHDOG_MS 5000u", connect_params)
-        self.assertIn(
-            ".interval_min_1_25ms = connection->conn_params.conn_interval_1_25ms",
-            connect_params,
-        )
+        self.assertIn("T5AI_FAST_INTERVAL_1_25MS 12u", connect_params)
+        self.assertIn("T5AI_IDLE_INTERVAL_1_25MS 24u", connect_params)
+        self.assertIn(".interval_min_1_25ms = desired_interval", connect_params)
+        self.assertIn(".slave_latency_events = 0u", connect_params)
         reconnect = (
             ROOT / "src/fw/comm/ble/gap_le_slave_reconnect.c"
         ).read_text()

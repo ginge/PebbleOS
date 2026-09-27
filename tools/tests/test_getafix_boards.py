@@ -816,8 +816,11 @@ class GetafixBoardsTest(unittest.TestCase):
         t5_params = (
             ROOT / "src/fw/comm/ble/gap_le_connect_params_t5ai.c"
         ).read_text()
-        self.assertNotIn("bt_driver_le_connection_parameter_update", t5_params)
-        self.assertIn("T5AI retaining central connection parameters", t5_params)
+        self.assertIn("T5AI_FAST_INTERVAL_1_25MS 12u", t5_params)
+        self.assertIn("T5AI_IDLE_INTERVAL_1_25MS 24u", t5_params)
+        self.assertIn(".slave_latency_events = 0u", t5_params)
+        self.assertIn("bt_driver_le_connection_parameter_update", t5_params)
+        self.assertIn("T5AI connection parameters already match", t5_params)
         self.assertIn("conn_mgr_handle_desired_state_granted(connection, desired_state)",
                       t5_params)
         self.assertIn("T5AI conn param result", t5_params)
