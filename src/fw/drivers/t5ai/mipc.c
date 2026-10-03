@@ -11,7 +11,7 @@ uint8_t t5ai_mipc_crc8(const void *data, size_t length, uint8_t initial) {
   while (length-- != 0) {
     crc ^= *bytes++;
     for (unsigned bit = 0; bit < 8; ++bit) {
-      crc = (crc & 0x80u) ? (uint8_t)((crc << 1) ^ 0xf7u) : (uint8_t)(crc << 1);
+      crc = (crc & 1u) ? (uint8_t)((crc >> 1) ^ 0xabu) : (uint8_t)(crc >> 1);
     }
   }
   return crc;

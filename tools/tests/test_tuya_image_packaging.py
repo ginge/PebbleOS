@@ -92,7 +92,7 @@ class T5AIImagePackagingTest(unittest.TestCase):
         self.assertEqual(PEBBLE_SHARED_PRF_PHYSICAL_OFFSET, 0x4EA000)
         self.assertEqual(PEBBLE_SHARED_PRF_SIZE, 0x10000)
         self.assertEqual(PEBBLE_FILESYSTEM_PHYSICAL_OFFSET, 0x500000)
-        self.assertEqual(PEBBLE_FILESYSTEM_SIZE, 0x100000)
+        self.assertEqual(PEBBLE_FILESYSTEM_SIZE, 0x2C0000)
 
     def test_pebble_payload_is_bounded_below_factory_ap_capacity(self):
         self.assertLess(PEBBLE_EXPERIMENTAL_SLOT_SIZE, PRIMARY_AP_APP_LOGICAL_SIZE)

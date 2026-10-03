@@ -13,105 +13,32 @@
 #include "pbl/services/new_timer/new_timer.h"
 #include "pbl/services/system_task.h"
 
-#define T5AI_PARAM_UPDATE_DELAY_MS 1000u
-#define T5AI_PARAM_UPDATE_WATCHDOG_MS 5000u
-#define T5AI_SUPERVISION_TIMEOUT_10MS 2000u
 #define T5AI_FAST_INTERVAL_1_25MS 12u
 #define T5AI_IDLE_INTERVAL_1_25MS 24u
 
 extern void conn_mgr_handle_desired_state_granted(GAPLEConnection *hdl,
                                                   ResponseTimeState granted_state);
 
-static void prv_timer_callback(void *context);
-
-static uint16_t prv_interval_for_state(ResponseTimeState state) {
-  return state == ResponseTimeMin ? T5AI_FAST_INTERVAL_1_25MS
-                                  : T5AI_IDLE_INTERVAL_1_25MS;
-}
-
 static void prv_grant_current_state(GAPLEConnection *connection) {
   conn_mgr_handle_desired_state_granted(connection,
                                         conn_mgr_get_latency_for_le_connection(connection, NULL));
 }
 
-static void prv_timer_system_task_callback(void *context) {
-  bt_lock();
-  GAPLEConnection *connection = context;
-  if (!gap_le_connection_is_valid(connection)) {
-    bt_unlock();
-    return;
-  }
-
-  if (connection->param_update_info.is_request_pending) {
-    PBL_LOG_WRN("T5AI connection parameter update timed out; retaining current parameters");
-    connection->param_update_info.is_request_pending = false;
-    prv_grant_current_state(connection);
-    bt_unlock();
-    return;
-  }
-
-  const ResponseTimeState desired_state =
-      conn_mgr_get_latency_for_le_connection(connection, NULL);
-  const uint16_t desired_interval = prv_interval_for_state(desired_state);
-  if (connection->conn_params.conn_interval_1_25ms == desired_interval &&
-      connection->conn_params.slave_latency_events == 0u &&
-      connection->conn_params.supervision_timeout_10ms >= T5AI_SUPERVISION_TIMEOUT_10MS) {
-    conn_mgr_handle_desired_state_granted(connection, desired_state);
-    bt_unlock();
-    return;
-  }
-
-  const BleConnectionParamsUpdateReq request = {
-      .interval_min_1_25ms = desired_interval,
-      .interval_max_1_25ms = desired_interval,
-      .slave_latency_events = 0u,
-      .supervision_timeout_10ms = T5AI_SUPERVISION_TIMEOUT_10MS,
-  };
-  const bool accepted = bt_driver_le_connection_parameter_update(&connection->device, &request);
-  PBL_LOG_INFO(
-      "T5AI connection parameter update: interval=%u latency=%u "
-      "timeout=%u accepted=%u",
-      request.interval_min_1_25ms, request.slave_latency_events, request.supervision_timeout_10ms,
-      accepted);
-  if (accepted) {
-    connection->param_update_info.is_request_pending = true;
-    new_timer_start(connection->param_update_info.watchdog_timer, T5AI_PARAM_UPDATE_WATCHDOG_MS,
-                    prv_timer_callback, connection, 0);
-  } else {
-    prv_grant_current_state(connection);
-  }
-  bt_unlock();
-}
-
-static void prv_timer_callback(void *context) {
-  system_task_add_callback(prv_timer_system_task_callback, context);
-}
-
-/* Keep slave-latency transitions disabled on T5AI. Switch only between the
- * 15 ms transfer interval and 30 ms idle interval, while retaining a long
- * supervision timeout so mailbox pressure cannot tear the link down. */
+/* CPU0's peripheral-side L2CAP parameter-update path can stop servicing the
+ * live link when the central does not answer the request, ending in HCI
+ * supervision timeout 0x08. Keep the controller-negotiated parameters and
+ * grant the policy request locally until CPU0 exposes a reliable update ABI.
+ * This deliberately favours connection stability over idle power. */
 void gap_le_connect_params_request(GAPLEConnection *connection, ResponseTimeState desired_state) {
-  if (connection->param_update_info.is_request_pending) {
-    return;
-  }
   new_timer_stop(connection->param_update_info.watchdog_timer);
+  connection->param_update_info.is_request_pending = false;
   connection->param_update_info.attempts = 0;
-
-  const uint16_t desired_interval = prv_interval_for_state(desired_state);
-  if (connection->conn_params.conn_interval_1_25ms == desired_interval &&
-      connection->conn_params.slave_latency_events == 0u &&
-      connection->conn_params.supervision_timeout_10ms >= T5AI_SUPERVISION_TIMEOUT_10MS) {
-    PBL_LOG_INFO(
-        "T5AI connection parameters already match: interval=%u latency=%u "
-        "timeout=%u desired=%u",
-        connection->conn_params.conn_interval_1_25ms, connection->conn_params.slave_latency_events,
-        connection->conn_params.supervision_timeout_10ms, (unsigned)desired_state);
-    conn_mgr_handle_desired_state_granted(connection, desired_state);
-    return;
-  }
-
-  new_timer_start(connection->param_update_info.watchdog_timer, T5AI_PARAM_UPDATE_DELAY_MS,
-                  prv_timer_callback, connection, 0);
+  PBL_LOG_INFO("T5AI retaining controller connection parameters: interval=%u latency=%u "
+               "timeout=%u desired=%u",
+               connection->conn_params.conn_interval_1_25ms,
+               connection->conn_params.slave_latency_events,
+               connection->conn_params.supervision_timeout_10ms, (unsigned)desired_state);
+  conn_mgr_handle_desired_state_granted(connection, desired_state);
 }
 
 void gap_le_connect_params_setup_connection(GAPLEConnection *connection, TimerID timer) {
@@ -155,18 +82,6 @@ void bt_driver_handle_le_conn_params_update_event(const BleConnectionUpdateCompl
       PBL_ANALYTICS_ADD(ble_conn_param_update_count, 1);
     }
   }
-  const ResponseTimeState desired_state =
-      conn_mgr_get_latency_for_le_connection(connection, NULL);
-  if (event->status == HciStatusCode_Success &&
-      connection->conn_params.conn_interval_1_25ms == prv_interval_for_state(desired_state) &&
-      connection->conn_params.slave_latency_events == 0u &&
-      connection->conn_params.supervision_timeout_10ms >= T5AI_SUPERVISION_TIMEOUT_10MS) {
-    conn_mgr_handle_desired_state_granted(connection, desired_state);
-  } else {
-    /* A rejected or superseded request must not leave the response-time state
-     * pending forever. Re-evaluate after the mandatory peripheral pause. */
-    new_timer_start(connection->param_update_info.watchdog_timer, T5AI_PARAM_UPDATE_DELAY_MS,
-                    prv_timer_callback, connection, 0);
-  }
+  prv_grant_current_state(connection);
   bt_unlock();
 }

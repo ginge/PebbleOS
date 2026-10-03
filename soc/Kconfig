@@ -76,3 +76,19 @@ config MPU_TYPE_ARMV8M
 config MPU_TYPE_ARMV7M
     bool
     default y if !MPU_TYPE_ARMV8M
+
+config T5AI_PFS_HEADER_CACHE
+    bool "Cache T5AI PFS headers per page"
+    depends on SOC_T5AI
+    default y
+    help
+      Keep headers for the first 256 filesystem pages in 8224 bytes of SRAM.
+      When disabled, all filesystem reads use the bounded general flash cache.
+
+config T5AI_FLASH_CACHE_STATS
+    bool "Measure T5AI flash cache efficiency"
+    depends on SOC_T5AI
+    default n
+    help
+      Log cache mode at startup and hit/miss counters every 1024 successful
+      read chunks. Compare with the CP flash read timing summaries.

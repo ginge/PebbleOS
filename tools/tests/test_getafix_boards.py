@@ -737,8 +737,9 @@ class GetafixBoardsTest(unittest.TestCase):
 
         mailbox = (ROOT / "src/fw/drivers/t5ai/mailbox_channel.c").read_text()
         self.assertIn("static TxChannel s_tx[T5AI_MAILBOX_CHANNEL_COUNT]", mailbox)
-        self.assertIn("s_active_channel", mailbox)
-        self.assertIn("sequence != s_sequence", mailbox)
+        self.assertNotIn("s_active_channel", mailbox)
+        self.assertIn("sequence != tx->sequence", mailbox)
+        self.assertIn("tx->active_start", mailbox)
         self.assertIn(
             "MailboxOwnedSlot s_ack_slots[T5AI_MAILBOX_CHANNEL_COUNT]", mailbox
         )
@@ -759,11 +760,14 @@ class GetafixBoardsTest(unittest.TestCase):
         mailbox_task = mailbox_task[:mailbox_task.index("void MAILBOX_IRQHandler")]
         self.assertIn("const bool ack_pending = !prv_publish_pending_acks()", mailbox_task)
         self.assertIn(
-            "const status_t schedule_status = ack_pending ? E_BUSY : prv_schedule_tx()",
+            "(rx_pending || ack_pending || reset_pending) ? E_BUSY : prv_schedule_tx()",
             mailbox_task,
         )
         self.assertNotIn("(rx_pending || ack_pending) ? E_BUSY", mailbox_task)
-        self.assertIn("rx_pending || ack_pending || schedule_status == E_BUSY", mailbox_task)
+        self.assertIn(
+            "rx_pending || ack_pending || reset_pending || schedule_status == E_BUSY",
+            mailbox_task,
+        )
         self.assertIn("vTaskDelay(pdMS_TO_TICKS(1u))", mailbox_task)
         self.assertIn("dcache_invalidate((void *)address", mailbox)
         self.assertNotIn("dcache_flush((void *)address", mailbox)
@@ -774,7 +778,7 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertNotIn("while (prv_publish(&s_reset_slot)", reset)
         bootstrap = mailbox[mailbox.index("static void prv_bootstrap_resynchronize"):]
         bootstrap = bootstrap[:bootstrap.index("status_t t5ai_mailbox_channel_init")]
-        self.assertIn("*ack = message", bootstrap)
+        self.assertIn("prv_process_command(&message)", bootstrap)
         self.assertIn("MAILBOX_BOOTSTRAP_DRAIN_LIMIT", bootstrap)
         self.assertIn("drained < MAILBOX_BOOTSTRAP_DRAIN_LIMIT", bootstrap)
         self.assertIn("AON_RTC_LOW - start", bootstrap)
@@ -818,9 +822,8 @@ class GetafixBoardsTest(unittest.TestCase):
         ).read_text()
         self.assertIn("T5AI_FAST_INTERVAL_1_25MS 12u", t5_params)
         self.assertIn("T5AI_IDLE_INTERVAL_1_25MS 24u", t5_params)
-        self.assertIn(".slave_latency_events = 0u", t5_params)
-        self.assertIn("bt_driver_le_connection_parameter_update", t5_params)
-        self.assertIn("T5AI connection parameters already match", t5_params)
+        self.assertNotIn("bt_driver_le_connection_parameter_update", t5_params)
+        self.assertIn("T5AI retaining controller connection parameters", t5_params)
         self.assertIn("conn_mgr_handle_desired_state_granted(connection, desired_state)",
                       t5_params)
         self.assertIn("T5AI conn param result", t5_params)

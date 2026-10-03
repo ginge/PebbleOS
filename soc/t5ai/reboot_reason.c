@@ -6,6 +6,7 @@
 #include <pbl/logging/logging.h>
 #include "pbl/mcu/interrupts.h"
 #include <pbl/soc/t5ai/retained.h>
+#include <pbl/soc/t5ai/reset.h>
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -27,6 +28,9 @@ void reboot_reason_set(RebootReason *reason) {
   t5ai_retained_write(REBOOT_REASON_STUCK_TASK_PC, raw[1]);
   t5ai_retained_write(REBOOT_REASON_STUCK_TASK_LR, raw[2]);
   t5ai_retained_write(REBOOT_REASON_STUCK_TASK_CALLBACK, raw[3]);
+  if ((uint32_t)reason->code < (0x7fu - T5AI_RESET_REASON_PEBBLE_BASE)) {
+    t5ai_reset_reason_set_ap(T5AI_RESET_REASON_PEBBLE_BASE | (uint8_t)reason->code);
+  }
 }
 
 void reboot_reason_set_restarted_safely(void) {
@@ -44,6 +48,16 @@ void reboot_reason_get(RebootReason *reason) {
   raw[1] = t5ai_retained_read(REBOOT_REASON_STUCK_TASK_PC);
   raw[2] = t5ai_retained_read(REBOOT_REASON_STUCK_TASK_LR);
   raw[3] = t5ai_retained_read(REBOOT_REASON_STUCK_TASK_CALLBACK);
+  if (raw[0] == 0u) {
+    const uint8_t hardware_reason = t5ai_reset_reason_get_ap();
+    if ((hardware_reason & 0xf0u) == T5AI_RESET_REASON_MAILBOX_BASE) {
+      reason->code = RebootReasonCode_MailboxTimeout;
+      reason->extra.value = hardware_reason & 0x0fu;
+    } else if (hardware_reason >= T5AI_RESET_REASON_PEBBLE_BASE &&
+               hardware_reason < 0x7fu) {
+      reason->code = (RebootReasonCode)(hardware_reason - T5AI_RESET_REASON_PEBBLE_BASE);
+    }
+  }
 }
 
 void reboot_reason_clear(void) {
@@ -51,6 +65,10 @@ void reboot_reason_clear(void) {
   t5ai_retained_write(REBOOT_REASON_STUCK_TASK_PC, 0);
   t5ai_retained_write(REBOOT_REASON_STUCK_TASK_LR, 0);
   t5ai_retained_write(REBOOT_REASON_STUCK_TASK_CALLBACK, 0);
+  const uint8_t hardware_reason = t5ai_reset_reason_get_ap();
+  if (hardware_reason >= T5AI_RESET_REASON_MAILBOX_BASE) {
+    t5ai_reset_reason_set_ap(0u);
+  }
 }
 
 uint32_t reboot_get_slot_of_last_launched_app(void) {

@@ -24,6 +24,8 @@
 #define T5AI_AP_RESET_REASON_SHIFT 24u
 #define T5AI_AP_RESET_REASON_MASK (0x7fu << T5AI_AP_RESET_REASON_SHIFT)
 #define T5AI_RESET_SOURCE_WATCHDOG 0x02u
+#define T5AI_CP_RESET_REASON_SHIFT 4u
+#define T5AI_CP_RESET_REASON_MASK (0xffu << T5AI_CP_RESET_REASON_SHIFT)
 
 static bool s_started;
 static bool s_initialized;
@@ -36,12 +38,22 @@ static void prv_set_period(uint16_t period_ms) {
       (T5AI_AON_WDT_KEY_2 << T5AI_AON_WDT_KEY_SHIFT) | period_ms;
 }
 
-static void prv_set_ap_reset_reason(uint32_t reason) {
+void t5ai_reset_reason_set_ap(uint8_t reason) {
   uint32_t value = T5AI_AON_PMU_R0;
   value &= ~T5AI_AP_RESET_REASON_MASK;
-  value |= (reason << T5AI_AP_RESET_REASON_SHIFT) &
+  value |= ((uint32_t)reason << T5AI_AP_RESET_REASON_SHIFT) &
            T5AI_AP_RESET_REASON_MASK;
   T5AI_AON_PMU_R0 = value;
+}
+
+uint8_t t5ai_reset_reason_get_ap(void) {
+  return (uint8_t)((T5AI_AON_PMU_R0 & T5AI_AP_RESET_REASON_MASK) >>
+                   T5AI_AP_RESET_REASON_SHIFT);
+}
+
+uint8_t t5ai_reset_reason_get_cp(void) {
+  return (uint8_t)((T5AI_AON_PMU_R0 & T5AI_CP_RESET_REASON_MASK) >>
+                   T5AI_CP_RESET_REASON_SHIFT);
 }
 
 void watchdog_init(void) {
@@ -50,9 +62,7 @@ void watchdog_init(void) {
   }
   s_started = false;
   s_reset_reason = (McuRebootReason) { 0 };
-  const uint32_t reason =
-      (T5AI_AON_PMU_R0 & T5AI_AP_RESET_REASON_MASK) >>
-      T5AI_AP_RESET_REASON_SHIFT;
+  const uint32_t reason = t5ai_reset_reason_get_ap();
   s_reset_reason.independent_watchdog_reset =
       reason == T5AI_RESET_SOURCE_WATCHDOG;
   s_initialized = true;
@@ -60,7 +70,7 @@ void watchdog_init(void) {
 
 void watchdog_start(void) {
   s_started = true;
-  prv_set_ap_reset_reason(T5AI_RESET_SOURCE_WATCHDOG);
+  t5ai_reset_reason_set_ap(T5AI_RESET_SOURCE_WATCHDOG);
   prv_set_period(T5AI_AON_WDT_PERIOD_MS);
 }
 
@@ -85,7 +95,7 @@ McuRebootReason watchdog_clear_reset_flag(void) {
   const McuRebootReason reason = s_reset_reason;
   s_reset_reason = (McuRebootReason) { 0 };
   if (reason.independent_watchdog_reset) {
-    prv_set_ap_reset_reason(0);
+    t5ai_reset_reason_set_ap(0);
   }
   return reason;
 }
@@ -95,8 +105,10 @@ McuRebootReason watchdog_get_reset_flag(void) {
   return s_reset_reason;
 }
 
-NORETURN t5ai_force_whole_chip_reset(void) {
+NORETURN t5ai_force_whole_chip_reset(uint8_t reason) {
   __disable_irq();
+
+  t5ai_reset_reason_set_ap(reason);
 
   /* This is the pinned BK7258 wdt_hal_force_reboot sequence. Selecting DIVD
    * prevents a stopped ROSC from defeating recovery, and 0x26 makes watchdog

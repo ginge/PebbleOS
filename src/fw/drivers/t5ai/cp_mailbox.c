@@ -15,6 +15,10 @@
 #include <string.h>
 
 #define CP_CONTROL_CHANNEL 0x10u
+#define CP_CONTROL_RX_CHANNEL 0x40u
+#define CP_RESPONSE_FLAG 0x80u
+#define CP_ACK_STATE_PENDING 1u
+#define CP_ACK_STATE_COMPLETE 2u
 #define CP_POWER_UP_COMMAND 1u
 #define CP_HEARTBEAT_COMMAND 2u
 #define CP_PM_TX_CHANNEL 0x12u
@@ -42,6 +46,9 @@
 #define CP_FLASH_NOTIFY_REQUEST 1u
 #define CP_FLASH_NOTIFY_ACK 2u
 #define CP_RUNTIME_TIMEOUT_MS 5000u
+#define CP_HEARTBEAT_PERIOD_MS 1000u
+#define CP_HEARTBEAT_TASK_STACK_WORDS 256u
+#define CP_HEARTBEAT_TASK_PRIORITY (configMAX_PRIORITIES - 2u)
 #define CP_PM_TIMEOUT_MS 100u
 #define CP_STARTUP_TIMEOUT_MS 2000u
 #define CP_QUEUE_DEPTH 4u
@@ -73,6 +80,7 @@ static uint8_t s_log_buffer[CP_LOG_BUFFER_SIZE] __attribute__((aligned(32)));
 static uint32_t s_heartbeat_parameter __attribute__((aligned(32)));
 static uint8_t s_control_sequence;
 static bool s_heartbeat_in_flight;
+static TaskHandle_t s_heartbeat_task;
 static bool s_runtime_initialized;
 static bool s_pm_faulted;
 static bool s_log_faulted;
@@ -80,6 +88,18 @@ static T5AICPMailboxDiagnostics s_diagnostics;
 static T5AICPMailboxFailureDiagnostics s_failure;
 static bool s_failure_valid;
 static uint8_t s_trace_next;
+
+static void prv_heartbeat_task(void *context);
+
+static status_t prv_ensure_heartbeat_task(void) {
+  if (s_heartbeat_task != NULL) {
+    return S_SUCCESS;
+  }
+  return xTaskCreate(prv_heartbeat_task, "CPHeartbeat", CP_HEARTBEAT_TASK_STACK_WORDS, NULL,
+                     CP_HEARTBEAT_TASK_PRIORITY, &s_heartbeat_task) == pdPASS
+             ? S_SUCCESS
+             : E_OUT_OF_MEMORY;
+}
 
 #define T5AI_SHARED_SRAM_BEGIN 0x28000000u
 #define T5AI_SHARED_SRAM_END 0x29000000u
@@ -181,6 +201,18 @@ static void prv_receive(T5AIMailboxMessage *message, void *context) {
   const uint8_t index = channel & 0x0fu;
   ++s_diagnostics.rx_frames;
   prv_trace(T5AICPMailboxTraceEvent_Rx, message->header, message->parameter1, S_SUCCESS);
+  /* A pending control command may complete through a separate response. */
+  if (channel == CP_CONTROL_RX_CHANNEL &&
+      (uint8_t)message->header == (CP_HEARTBEAT_COMMAND | CP_RESPONSE_FLAG) &&
+      s_heartbeat_in_flight) {
+    s_heartbeat_in_flight = false;
+    message->parameter1 = 0u;
+    message->parameter2 = 0u;
+    message->parameter3 = CP_ACK_STATE_COMPLETE;
+    ++s_diagnostics.rx_routed;
+    prv_trace(T5AICPMailboxTraceEvent_Routed, message->header, message->parameter1, S_SUCCESS);
+    return;
+  }
   if (channel == CP_FLASH_NOTIFY_RX_CHANNEL) {
     if (message->parameter1 == CP_FLASH_NOTIFY_REQUEST) {
       message->parameter1 = CP_FLASH_NOTIFY_ACK;
@@ -229,7 +261,7 @@ static void prv_transmit_complete(const T5AIMailboxMessage *ack, status_t status
 
 static status_t prv_ensure_runtime(void) {
   if (s_runtime_initialized) {
-    return S_SUCCESS;
+    return prv_ensure_heartbeat_task();
   }
   s_pm_queue.ready = xSemaphoreCreateCounting(CP_QUEUE_DEPTH, 0u);
   if (s_pm_queue.ready == NULL) {
@@ -257,7 +289,7 @@ static status_t prv_ensure_runtime(void) {
     return status;
   }
   s_runtime_initialized = true;
-  return S_SUCCESS;
+  return prv_ensure_heartbeat_task();
 }
 
 status_t t5ai_cp_mailbox_lock(void) {
@@ -405,10 +437,12 @@ void t5ai_cp_mailbox_announce_power_up(void) {
 
 static void prv_heartbeat_complete(const T5AIMailboxMessage *ack, status_t status, void *context) {
   (void)context;
-  s_heartbeat_in_flight = false;
-  if (PASSED(status)) {
+  /* Tuya normally completes heartbeat processing in the physical ACK. */
+  if (PASSED(status) && ack != NULL && ack->parameter3 == CP_ACK_STATE_COMPLETE) {
+    s_heartbeat_in_flight = false;
     ++s_diagnostics.tx_retired;
-  } else {
+  } else if (FAILED(status) || ack == NULL || ack->parameter3 != CP_ACK_STATE_PENDING) {
+    s_heartbeat_in_flight = false;
     ++s_diagnostics.send_failures;
   }
   prv_tx_completed(ack == NULL ? 0u : ack->header, status);
@@ -439,6 +473,15 @@ void t5ai_cp_mailbox_heartbeat(void) {
   } else {
     ++s_diagnostics.tx_published;
     prv_tx_published(s_control_message.header, s_control_message.parameter1);
+  }
+}
+
+static void prv_heartbeat_task(void *context) {
+  (void)context;
+  TickType_t last_wake = xTaskGetTickCount();
+  for (;;) {
+    t5ai_cp_mailbox_heartbeat();
+    vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(CP_HEARTBEAT_PERIOD_MS));
   }
 }
 

@@ -214,22 +214,11 @@ static void prv_t5ai_bluetooth_init(void) {
   bt_ctl_init();
 }
 
-static void cp_heartbeat_timer_callback(void* data) {
-  (void)t5ai_cp_mailbox_process_pending();
-  t5ai_cp_mailbox_heartbeat();
-}
 #endif
 
 static void register_system_timers(void) {
   static RegularTimerInfo watchdog_timer = {.list_node = {0, 0}, .cb = watchdog_timer_callback};
   regular_timer_add_seconds_callback(&watchdog_timer);
-#ifdef CONFIG_SOC_T5AI
-  static RegularTimerInfo cp_heartbeat_timer = {
-      .list_node = {0, 0},
-      .cb = cp_heartbeat_timer_callback,
-  };
-  regular_timer_add_seconds_callback(&cp_heartbeat_timer);
-#endif
 }
 
 static void init_drivers(void) {
@@ -327,6 +316,14 @@ static NOINLINE void prv_main_task_init(void) {
   pebble_task_configure_idle_task();
 
   task_init();
+
+#ifdef CONFIG_SOC_T5AI
+  /* CP0 starts supervising CPU1 as soon as the pre-scheduler power-up
+   * indication is acknowledged. Start mailbox dispatch and its dedicated
+   * heartbeat task before storage/resource initialization can block
+   * KernelMain longer than CP0's watchdog window. */
+  t5ai_cp_mailbox_enable_rx_interrupt();
+#endif
 
   memory_layout_setup_mpu();
 
@@ -445,9 +442,6 @@ static NOINLINE void prv_main_task_init(void) {
 #ifdef CONFIG_SOC_T5AI
   t5ai_freertos_apply_systick_clock();
 
-  /* CP0's shell fallback is interrupt-scale. Defer mailbox dispatch from IRQ
-   * 63 to the high-priority NewTimer work queue after hardware bring-up. */
-  t5ai_cp_mailbox_enable_rx_interrupt();
 #endif
 
 #ifndef CONFIG_SOC_T5AI

@@ -179,7 +179,9 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("put_bytes_job_buffer_alloc(i, PUT_BYTES_PP_BUFFER_SIZE)", put_bytes)
         self.assertIn('section(".t5ai_board_cache")', put_bytes_buffers)
         self.assertIn("T5AI_PUT_BYTES_JOB_COUNT 3u", put_bytes_buffers)
-        self.assertIn("s_active_channel", mailbox)
+        self.assertIn("if (prv_any_active())", mailbox)
+        self.assertIn("sequence != tx->sequence", mailbox)
+        self.assertIn("tx->active_start", mailbox)
         self.assertIn(
             "MailboxOwnedSlot s_ack_slots[T5AI_MAILBOX_CHANNEL_COUNT]", mailbox
         )
@@ -218,13 +220,10 @@ class TuyaKernelCheckTest(unittest.TestCase):
         connect_params = (
             ROOT / "src/fw/comm/ble/gap_le_connect_params_t5ai.c"
         ).read_text()
-        self.assertIn("T5AI_SUPERVISION_TIMEOUT_10MS 2000u", connect_params)
-        self.assertIn("T5AI_PARAM_UPDATE_DELAY_MS 1000u", connect_params)
-        self.assertIn("T5AI_PARAM_UPDATE_WATCHDOG_MS 5000u", connect_params)
         self.assertIn("T5AI_FAST_INTERVAL_1_25MS 12u", connect_params)
         self.assertIn("T5AI_IDLE_INTERVAL_1_25MS 24u", connect_params)
-        self.assertIn(".interval_min_1_25ms = desired_interval", connect_params)
-        self.assertIn(".slave_latency_events = 0u", connect_params)
+        self.assertNotIn("bt_driver_le_connection_parameter_update", connect_params)
+        self.assertIn("T5AI retaining controller connection parameters", connect_params)
         reconnect = (
             ROOT / "src/fw/comm/ble/gap_le_slave_reconnect.c"
         ).read_text()
@@ -375,7 +374,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertNotIn("taskYIELD", receive_wait)
         self.assertIn("xSemaphoreTake(s_pm_queue.ready", receive_wait)
         self.assertNotIn("s_queues[", mailbox)
-        self.assertIn("t5ai_cp_mailbox_process_pending();", main)
+        self.assertNotIn("t5ai_cp_mailbox_process_pending();", main)
         self.assertNotIn("DbgSerialMailboxProbe_", dbgserial_input)
         self.assertNotIn("DbgSerialMailboxProbe_", main)
         self.assertNotIn("mailbox_probe", dbgserial_input)
@@ -657,8 +656,15 @@ class TuyaKernelCheckTest(unittest.TestCase):
         )
         self.assertIn("void vApplicationTickHook(void)", port)
         self.assertNotIn("t5ai_cp_mailbox_heartbeat();", port)
-        self.assertIn("t5ai_cp_mailbox_heartbeat();", main)
-        self.assertIn("regular_timer_add_seconds_callback(&cp_heartbeat_timer)", main)
+        self.assertNotIn("t5ai_cp_mailbox_heartbeat();", main)
+        self.assertNotIn("cp_heartbeat_timer", main)
+        self.assertIn("xTaskCreate(prv_heartbeat_task", mailbox)
+        self.assertIn("CP_HEARTBEAT_PERIOD_MS 1000u", mailbox)
+        self.assertIn("vTaskDelayUntil(&last_wake", mailbox)
+        self.assertLess(
+            main.index("t5ai_cp_mailbox_enable_rx_interrupt();"),
+            main.index("resource_init();"),
+        )
         heartbeat = mailbox.split("void t5ai_cp_mailbox_heartbeat(void)", 1)[1]
         heartbeat = heartbeat.split("static status_t prv_pm_request", 1)[0]
         self.assertIn("t5ai_mailbox_channel_send_async(", heartbeat)
@@ -675,6 +681,221 @@ class TuyaKernelCheckTest(unittest.TestCase):
             config,
         )
 
+    def test_t5ai_heartbeat_repeats_after_complete_physical_ack(self):
+        compiler = shutil.which("cc")
+        if not compiler:
+            self.skipTest("Host C compiler unavailable")
+        mailbox = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
+        callback = mailbox.split("static void prv_heartbeat_complete(", 1)[1]
+        callback = "static void prv_heartbeat_complete(" + callback.split(
+            "\nvoid t5ai_cp_mailbox_heartbeat", 1
+        )[0]
+        harness = r"""
+#include <assert.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+typedef int status_t;
+#define PASSED(s) ((s) >= 0)
+#define FAILED(s) ((s) < 0)
+#define CP_ACK_STATE_PENDING 1u
+#define CP_ACK_STATE_COMPLETE 2u
+typedef struct {
+  uint32_t header, parameter1, parameter2, parameter3;
+} T5AIMailboxMessage;
+static bool s_heartbeat_in_flight;
+static struct { unsigned tx_retired, send_failures; } s_diagnostics;
+static void prv_tx_completed(uint32_t header, status_t status) {
+  (void)header;
+  (void)status;
+}
+""" + callback + r"""
+int main(void) {
+  T5AIMailboxMessage ack = {.header = 2u, .parameter3 = 2u};
+  /* CPU0 completes each heartbeat directly; no logical response follows. */
+  for (unsigned i = 0; i < 10; ++i) {
+    assert(!s_heartbeat_in_flight);
+    s_heartbeat_in_flight = true;
+    prv_heartbeat_complete(&ack, 0, NULL);
+    assert(!s_heartbeat_in_flight);
+    assert(s_diagnostics.tx_retired == i + 1);
+  }
+  ack.parameter3 = 1u;
+  s_heartbeat_in_flight = true;
+  prv_heartbeat_complete(&ack, 0, NULL);
+  assert(s_heartbeat_in_flight);
+  assert(s_diagnostics.tx_retired == 10);
+  ack.parameter3 = 3u;
+  prv_heartbeat_complete(&ack, 0, NULL);
+  assert(!s_heartbeat_in_flight);
+  assert(s_diagnostics.send_failures == 1);
+  s_heartbeat_in_flight = true;
+  prv_heartbeat_complete(&ack, -1, NULL);
+  assert(!s_heartbeat_in_flight);
+  assert(s_diagnostics.send_failures == 2);
+  s_heartbeat_in_flight = true;
+  prv_heartbeat_complete(NULL, 0, NULL);
+  assert(!s_heartbeat_in_flight);
+  assert(s_diagnostics.send_failures == 3);
+  return 0;
+}
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "heartbeat.c"
+            binary = Path(directory) / "heartbeat"
+            source.write_text(harness)
+            subprocess.run(
+                [compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
+                 str(source), "-o", str(binary)],
+                check=True, capture_output=True, text=True,
+            )
+            subprocess.run([str(binary)], check=True, capture_output=True, text=True)
+
+    def test_t5ai_mailbox_physical_gate_and_bootstrap_interleaving(self):
+        compiler = shutil.which("cc")
+        if not compiler:
+            self.skipTest("Host C compiler unavailable")
+        source = (ROOT / "src/fw/drivers/t5ai/mailbox_channel.c").read_text()
+
+        def function(name):
+            start = source.index(name + "(")
+            start = source.rfind("\n", 0, start) + 1
+            brace = source.index("{", start)
+            depth = 1
+            end = brace + 1
+            while depth:
+                depth += (source[end] == "{") - (source[end] == "}")
+                end += 1
+            return source[start:end]
+
+        harness = r"""
+#include <assert.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <string.h>
+typedef int status_t;
+#define S_SUCCESS 0
+#define E_BUSY -1
+#define E_ERROR -2
+#define E_INVALID_OPERATION -3
+#define E_INVALID_ARGUMENT -4
+#define E_AGAIN -5
+#define T5AI_MAILBOX_CHANNEL_COUNT 16u
+#define T5AI_MAILBOX_TX_CHANNEL_BASE 0x10u
+#define T5AI_MAILBOX_RX_CHANNEL_BASE 0x40u
+#define MAILBOX_BOOT_POLL_MS 100u
+#define MBOX_ACK_BOX (1u << 12)
+#define MBOX_SYNC_TX (2u << 12)
+#define MBOX_COMMUNICATION_FAILED (1u << 8)
+#define MBOX_CH1_CTRL  (rx_head < rx_count ? MBOX_FIFO_NOT_EMPTY : 0u)
+#define MBOX_FIFO_NOT_EMPTY (1u << 19)
+#define AON_RTC_LOW (++now)
+typedef struct { uint32_t header, parameter1, parameter2, parameter3; } T5AIMailboxMessage;
+typedef void (*T5AIMailboxTransmitHandler)(const T5AIMailboxMessage *, status_t, void *);
+typedef void (*T5AIMailboxReceiveHandler)(T5AIMailboxMessage *, void *);
+typedef enum { TxState_Idle, TxState_Pending, TxState_Active, TxState_Complete } TxState;
+typedef struct {
+ T5AIMailboxMessage message, ack;
+ T5AIMailboxTransmitHandler handler;
+ void *context;
+ void *completion;
+ TxState state;
+ bool synchronous;
+ uint8_t sequence;
+ uint32_t active_start;
+} TxChannel;
+typedef struct { T5AIMailboxReceiveHandler handler; void *context; } RxChannel;
+typedef struct { T5AIMailboxMessage message; } MailboxOwnedSlot;
+static TxChannel s_tx[16];
+static RxChannel s_rx[16];
+static MailboxOwnedSlot s_ack_slots[16];
+static uint8_t s_sequence, s_next_tx_channel;
+static uint16_t s_pending_ack_mask;
+static bool s_faulted;
+static unsigned now, published_count, signalled, rx_head, rx_count;
+static T5AIMailboxMessage published[32], incoming[4];
+static int xSemaphoreGive(void *p) { (void)p; ++signalled; return 1; }
+static uint32_t prv_bootstrap_ticks(uint32_t ms) { return ms; }
+static status_t prv_publish(const T5AIMailboxMessage *m) {
+ assert(published_count < 32); published[published_count++] = *m; return S_SUCCESS;
+}
+static bool prv_snapshot_rx(T5AIMailboxMessage *m) {
+ if (rx_head == rx_count) return false;
+ *m = incoming[rx_head++]; return true;
+}
+static void prv_bootstrap_resynchronize(uint32_t ms) { (void)ms; }
+static bool prv_bootstrap_publish(const T5AIMailboxMessage *m, uint32_t ms) {
+ (void)ms; return prv_publish(m) == S_SUCCESS;
+}
+"""
+        for name in ("prv_any_active", "prv_tx_channel", "prv_rx_channel",
+                     "prv_finish_tx", "prv_process_ack", "prv_process_command",
+                     "prv_publish_pending_acks", "prv_schedule_tx",
+                     "t5ai_mailbox_channel_bootstrap_send"):
+            harness += "\n" + function(name)
+        harness += r"""
+int main(void) {
+ /* Concurrent logical producers must produce just one physical command. */
+ s_tx[0].state = s_tx[2].state = s_tx[14].state = TxState_Pending;
+ assert(prv_schedule_tx() == S_SUCCESS);
+ assert(published_count == 1 && s_tx[0].state == TxState_Active);
+ assert(prv_schedule_tx() == S_SUCCESS && published_count == 1);
+ /* Physical ACK bypasses the command gate without retiring our command. */
+ T5AIMailboxMessage command = {.header = (0x46u << 24) | (7u << 16) | 3u};
+ prv_process_command(&command);
+ assert(published_count == 2 && (published[1].header & MBOX_ACK_BOX));
+ assert(s_tx[0].state == TxState_Active);
+ T5AIMailboxMessage ack = published[0];
+ ack.header |= MBOX_ACK_BOX;
+ prv_process_ack(&ack);
+ assert(s_tx[0].state == TxState_Idle);
+ s_tx[0].state = TxState_Pending;
+ assert(prv_schedule_tx() == S_SUCCESS);
+ assert((published[2].header >> 24) == 0x12u);
+ /* Wrong sequence cannot release the physical gate. */
+ ack = published[2]; ack.header ^= 1u << 16; ack.header |= MBOX_ACK_BOX;
+ prv_process_ack(&ack);
+ assert(s_tx[2].state == TxState_Active);
+ ack = published[2]; ack.header |= MBOX_ACK_BOX;
+ s_tx[2].synchronous = true;
+ prv_process_ack(&ack);
+ assert(s_tx[2].state == TxState_Complete && signalled == 1);
+ assert(prv_schedule_tx() == S_SUCCESS);
+ assert((published[3].header >> 24) == 0x1eu);
+ /* The completed synchronous slot cannot be selected again. */
+ assert(s_tx[2].state == TxState_Complete);
+ /* Bootstrap must ACK an interleaved command before consuming its own ACK. */
+ memset(s_tx, 0, sizeof(s_tx));
+ published_count = 0; s_sequence = 20;
+ incoming[0] = (T5AIMailboxMessage){.header = (0x46u << 24) | (8u << 16) | 3u};
+ incoming[1] = (T5AIMailboxMessage){.header = (0x10u << 24) | (21u << 16) | MBOX_ACK_BOX | 1u};
+ rx_count = 2; rx_head = 0;
+ T5AIMailboxMessage boot = {.header = 1u};
+ assert(t5ai_mailbox_channel_bootstrap_send(0x10u, &boot, &ack, 100u) == S_SUCCESS);
+ assert(rx_head == 2 && published_count == 2);
+ assert((published[1].header & MBOX_ACK_BOX) != 0u);
+ assert((published[1].header & MBOX_COMMUNICATION_FAILED) != 0u);
+ /* Vendor fire-and-forget synchronous physical traffic gets no ACK. */
+ command.header = (0x46u << 24) | MBOX_SYNC_TX | 3u;
+ prv_process_command(&command);
+ assert(published_count == 2);
+ assert(prv_publish_pending_acks());
+ return 0;
+}
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            c_file = Path(directory) / "mailbox.c"
+            binary = Path(directory) / "mailbox"
+            c_file.write_text(harness)
+            subprocess.run([compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
+                            str(c_file), "-o", str(binary)],
+                           check=True, capture_output=True, text=True)
+            subprocess.run([str(binary)], check=True, capture_output=True, text=True)
+        task = function("prv_mailbox_task")
+        self.assertLess(task.index("prv_drain_rx()"), task.index("prv_expired_channel()"))
+        self.assertIn("rx_pending ? -1 : prv_expired_channel()", task)
+
     def test_t5ai_mailbox_clients_quarantine_ambiguous_ownership(self):
         physical = (ROOT / "src/fw/drivers/t5ai/mailbox_channel.c").read_text()
         mailbox = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
@@ -688,7 +909,8 @@ class TuyaKernelCheckTest(unittest.TestCase):
             "status_t t5ai_mailbox_channel_start", 1
         )[0]
         self.assertNotIn("NVIC_EnableIRQ", physical_init)
-        self.assertIn("t5ai_force_whole_chip_reset();", physical)
+        self.assertIn("t5ai_force_whole_chip_reset(T5AI_RESET_REASON_MAILBOX_BASE | channel);",
+                      physical)
         self.assertIn("#define MAILBOX_ACTIVE_TIMEOUT_MS 5000u", physical)
         self.assertIn("RebootReasonCode_MailboxTimeout", physical)
         self.assertIn("#define MB_IPC_PHYSICAL_TIMEOUT_MS 5000u", mb_ipc)
@@ -734,9 +956,10 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("CP_PM_SLEEP_COMMAND 3u", mailbox)
         self.assertIn("CP_PM_SLEEP_APP_MODULE 12u", mailbox)
         self.assertIn("t5ai_cp_mailbox_vote_app_sleep", mailbox)
-        vote = main.index("t5ai_cp_mailbox_vote_app_sleep(false)")
-        self.assertLess(main.index("init_drivers();"), vote)
-        self.assertLess(vote, main.index("prv_t5ai_bluetooth_init();"))
+        main_init = main.index("static NOINLINE void prv_main_task_init")
+        vote = main.index("t5ai_cp_mailbox_vote_app_sleep(false)", main_init)
+        self.assertLess(main.index("init_drivers();", main_init), vote)
+        self.assertLess(vote, main.index("prv_t5ai_bluetooth_init();", main_init))
         self.assertNotIn("PBLPM", main)
 
     def test_t5ai_core_clock_is_an_explicit_systick_contract(self):

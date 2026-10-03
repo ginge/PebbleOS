@@ -29,6 +29,7 @@
 #define MBOX_FIFO_NOT_EMPTY (1u << 19)
 #define MBOX_INTERRUPT_ENABLE (1u << 8)
 #define MBOX_ACK_BOX (1u << 12)
+#define MBOX_SYNC_TX (2u << 12)
 #define MBOX_RESET (4u << 12)
 #define MBOX_COMMUNICATION_FAILED (1u << 8)
 #define MBOX_CP_CPU_ID 0u
@@ -58,6 +59,7 @@ typedef enum {
   TxState_Idle,
   TxState_Pending,
   TxState_Active,
+  TxState_Complete,
 } TxState;
 
 typedef struct {
@@ -69,6 +71,8 @@ typedef struct {
   PebbleMutex *mutex;
   TxState state;
   bool synchronous;
+  uint8_t sequence;
+  uint32_t active_start;
 } TxChannel;
 
 typedef struct {
@@ -95,26 +99,48 @@ static T5AIMailboxMessage s_reset_slot __attribute__((aligned(32)));
 static SemaphoreHandle_t s_wake;
 static TaskHandle_t s_task;
 static uint8_t s_sequence;
-static int8_t s_active_channel = -1;
+static uint8_t s_next_tx_channel;
 static uint16_t s_pending_ack_mask;
 static bool s_initialized;
 static bool s_started;
 static bool s_faulted;
 static bool s_reset_sent;
-static uint32_t s_active_start;
 
 _Static_assert(sizeof(T5AIMailboxMessage) == T5AI_MAILBOX_FRAME_SIZE,
                "T5AI mailbox ABI changed");
 
 static void prv_send_reset(void);
+static uint32_t prv_bootstrap_ticks(uint32_t milliseconds);
 
-static NORETURN prv_reset_after_timeout(void) {
+static NORETURN prv_reset_after_timeout(uint8_t channel) {
   RebootReason reason = {
       .code = RebootReasonCode_MailboxTimeout,
-      .extra.value = s_active_channel < 0 ? UINT32_MAX : (uint32_t)s_active_channel,
+      .extra.value = channel,
   };
   reboot_reason_set(&reason);
-  t5ai_force_whole_chip_reset();
+  t5ai_force_whole_chip_reset(T5AI_RESET_REASON_MAILBOX_BASE | channel);
+}
+
+static bool prv_any_active(void) {
+  for (uint8_t index = 0u; index < T5AI_MAILBOX_CHANNEL_COUNT; ++index) {
+    if (s_tx[index].state == TxState_Active) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static int prv_expired_channel(void) {
+  const uint32_t now = AON_RTC_LOW;
+  for (uint8_t index = 0u; index < T5AI_MAILBOX_CHANNEL_COUNT; ++index) {
+    TxChannel *tx = &s_tx[index];
+    if (tx->state == TxState_Active &&
+        (uint32_t)(now - tx->active_start) >=
+            prv_bootstrap_ticks(MAILBOX_ACTIVE_TIMEOUT_MS)) {
+      return index;
+    }
+  }
+  return -1;
 }
 
 static uint32_t prv_milliseconds_to_ticks(uint32_t milliseconds) {
@@ -177,7 +203,7 @@ static bool prv_snapshot_rx(T5AIMailboxMessage *message) {
 
 static void prv_finish_tx(TxChannel *tx, const T5AIMailboxMessage *ack, status_t status) {
   tx->ack = *ack;
-  tx->state = TxState_Idle;
+  tx->state = tx->synchronous ? TxState_Complete : TxState_Idle;
   if (tx->synchronous) {
     (void)xSemaphoreGive(tx->completion);
   } else if (tx->handler != NULL) {
@@ -193,15 +219,14 @@ static void prv_process_ack(T5AIMailboxMessage *ack) {
   const uint8_t channel = (uint8_t)(ack->header >> 24u);
   const uint8_t sequence = (uint8_t)(ack->header >> 16u);
   uint8_t index;
-  if (!prv_tx_channel(channel, &index) || s_active_channel != (int8_t)index) {
+  if (!prv_tx_channel(channel, &index)) {
     return;
   }
   TxChannel *tx = &s_tx[index];
-  if (tx->state != TxState_Active || sequence != s_sequence) {
+  if (tx->state != TxState_Active || sequence != tx->sequence) {
     return;
   }
   ack->header &= 0x00000fffu;
-  s_active_channel = -1;
   const status_t status = (ack->header & MBOX_COMMUNICATION_FAILED) == 0u ? S_SUCCESS : E_ERROR;
   prv_finish_tx(tx, ack, status);
 }
@@ -217,10 +242,14 @@ static void prv_process_command(T5AIMailboxMessage *message) {
     message->header |= MBOX_COMMUNICATION_FAILED;
   }
 
+  if ((physical_header & MBOX_SYNC_TX) != 0u) {
+    return;
+  }
+
   T5AIMailboxMessage *ack = &s_ack_slots[channel & 0x0fu].message;
   *ack = *message;
   ack->header = (physical_header & 0xffff00ffu) | (message->header & 0x00000f00u) | MBOX_ACK_BOX;
-  /* ACKs bypass the ordinary single-frame scheduler and are never ACKed. Keep
+  /* ACKs bypass the ordinary transmit scheduler and are never ACKed. Keep
    * the vendor path's immediate attempt, but defer a busy ACK instead of
    * spinning at the maximum task priority. */
   if (prv_publish(ack) == E_BUSY) {
@@ -264,65 +293,70 @@ static status_t prv_schedule_tx(void) {
   if (s_faulted) {
     return E_INVALID_OPERATION;
   }
-  if (s_active_channel >= 0) {
+  /* CPU0 shares two adapter buffers between commands and ACKs. Match the
+   * vendor physical gate; logical channels keep independent pending slots. */
+  if (prv_any_active()) {
     return S_SUCCESS;
   }
-  for (uint8_t index = 0; index < T5AI_MAILBOX_CHANNEL_COUNT; ++index) {
+  for (uint8_t offset = 0; offset < T5AI_MAILBOX_CHANNEL_COUNT; ++offset) {
+    const uint8_t index = (s_next_tx_channel + offset) % T5AI_MAILBOX_CHANNEL_COUNT;
     TxChannel *tx = &s_tx[index];
     if (tx->state != TxState_Pending) {
       continue;
     }
     ++s_sequence;
+    tx->sequence = s_sequence;
     tx->message.header = (tx->message.header & 0xffu) |
-                         ((uint32_t)s_sequence << 16u) |
+                         ((uint32_t)tx->sequence << 16u) |
                          ((uint32_t)(T5AI_MAILBOX_TX_CHANNEL_BASE + index) << 24u);
     if (prv_publish(&tx->message) == E_BUSY) {
       return E_BUSY;
     }
     tx->state = TxState_Active;
-    s_active_channel = (int8_t)index;
-    s_active_start = AON_RTC_LOW;
+    tx->active_start = AON_RTC_LOW;
+    s_next_tx_channel = (index + 1u) % T5AI_MAILBOX_CHANNEL_COUNT;
     return S_SUCCESS;
   }
   return S_SUCCESS;
 }
 
 static status_t prv_ensure_sync_channel(TxChannel *tx) {
+  taskENTER_CRITICAL();
   if (tx->completion == NULL) {
     tx->completion = xSemaphoreCreateBinary();
   }
   if (tx->mutex == NULL) {
     tx->mutex = mutex_create();
   }
-  return tx->completion != NULL && tx->mutex != NULL ? S_SUCCESS : E_OUT_OF_MEMORY;
+  const status_t status =
+      tx->completion != NULL && tx->mutex != NULL ? S_SUCCESS : E_OUT_OF_MEMORY;
+  taskEXIT_CRITICAL();
+  return status;
 }
 
 static void prv_mailbox_task(void *context) {
   (void)context;
   while (true) {
-    const TickType_t wait = s_active_channel < 0
+    const TickType_t wait = !prv_any_active()
                                 ? portMAX_DELAY
                                 : prv_milliseconds_to_ticks(MAILBOX_FAULT_POLL_MS);
     (void)xSemaphoreTake(s_wake, wait);
-    if (s_active_channel >= 0 &&
-        (uint32_t)(AON_RTC_LOW - s_active_start) >=
-            prv_bootstrap_ticks(MAILBOX_ACTIVE_TIMEOUT_MS)) {
-      s_faulted = true;
-      prv_reset_after_timeout();
-    }
     const bool rx_pending = prv_drain_rx();
+    const int expired_channel = rx_pending ? -1 : prv_expired_channel();
+    if (expired_channel >= 0) {
+      s_faulted = true;
+      prv_reset_after_timeout((uint8_t)expired_channel);
+    }
     const bool ack_pending = !prv_publish_pending_acks();
-    /* RX and TX use independent hardware FIFOs.  A sustained stream from CPU0
-     * must not prevent AP->CPU0 HCI responses from being scheduled; doing so
-     * creates a feedback deadlock under simultaneous BlobDB/AppFetch traffic.
-     * Physical ACKs still take priority because CPU0 cannot retire its current
-     * receive slot until those are published. */
+    /* Retire queued RX frames before ordinary TX can make CPU0 reuse an
+     * adapter slot. Physical ACKs bypass the single-command gate. */
     bool reset_pending = false;
     if (!s_reset_sent) {
       prv_send_reset();
       reset_pending = !s_reset_sent;
     }
-    const status_t schedule_status = (ack_pending || reset_pending) ? E_BUSY : prv_schedule_tx();
+    const status_t schedule_status =
+        (rx_pending || ack_pending || reset_pending) ? E_BUSY : prv_schedule_tx();
     MBOX_CH1_CTRL |= MBOX_INTERRUPT_ENABLE;
     if (rx_pending || ack_pending || reset_pending || schedule_status == E_BUSY) {
       /* Blocking for a tick is essential here. This maximum-priority task must
@@ -374,7 +408,7 @@ static bool prv_bootstrap_publish(const T5AIMailboxMessage *message, uint32_t ti
 
 static void prv_bootstrap_resynchronize(uint32_t timeout_ms) {
   /* CP0 can publish before CPU1 reaches its scheduler, and it survives an
-   * AP-only reset. Retire every such frame from an AP-owned cache line before
+   * AP-only reset. Reject unhandled frames from an AP-owned cache line before
    * opening the power-up transaction. Never clean or republish the CP pointer.
    *
    * CP0 remains live while this runs and may publish new work as slots are
@@ -391,15 +425,10 @@ static void prv_bootstrap_resynchronize(uint32_t timeout_ms) {
     if (!prv_snapshot_rx(&message) || (message.header & MBOX_ACK_BOX) != 0u) {
       continue;
     }
-    const uint8_t channel = (uint8_t)(message.header >> 24u);
-    T5AIMailboxMessage *ack = &s_ack_slots[channel & 0x0fu].message;
-    *ack = message;
-    ack->header = (ack->header & ~(0x0fu << 8u)) | MBOX_ACK_BOX;
-    do {
-      if (prv_publish(ack) == S_SUCCESS) {
-        break;
-      }
-    } while ((uint32_t)(AON_RTC_LOW - start) < timeout_ticks);
+    prv_process_command(&message);
+    while (!prv_publish_pending_acks() &&
+           (uint32_t)(AON_RTC_LOW - start) < timeout_ticks) {
+    }
     if ((uint32_t)(AON_RTC_LOW - start) >= timeout_ticks) {
       break;
     }
@@ -527,12 +556,15 @@ status_t t5ai_mailbox_channel_send(uint8_t channel, const T5AIMailboxMessage *me
      * through this descriptor. Recovery must reset both CPUs and the mailbox
      * before any transaction storage is recycled. */
     s_faulted = true;
-    prv_reset_after_timeout();
+    prv_reset_after_timeout(index);
   }
   if (ack != NULL) {
     *ack = tx->ack;
   }
   const status_t status = (tx->ack.header & MBOX_COMMUNICATION_FAILED) == 0u ? S_SUCCESS : E_ERROR;
+  taskENTER_CRITICAL();
+  tx->state = TxState_Idle;
+  taskEXIT_CRITICAL();
   mutex_unlock(tx->mutex);
   return status;
 }
@@ -563,7 +595,17 @@ status_t t5ai_mailbox_channel_bootstrap_send(uint8_t channel,
   do {
     if ((MBOX_CH1_CTRL & MBOX_FIFO_NOT_EMPTY) != 0u) {
       T5AIMailboxMessage response;
-      if (prv_snapshot_rx(&response) && (response.header & MBOX_ACK_BOX) != 0u &&
+      if (!prv_snapshot_rx(&response)) {
+        continue;
+      }
+      if ((response.header & MBOX_ACK_BOX) == 0u) {
+        prv_process_command(&response);
+        while (!prv_publish_pending_acks() &&
+               (uint32_t)(AON_RTC_LOW - start) < timeout_ticks) {
+        }
+        continue;
+      }
+      if ((response.header & MBOX_ACK_BOX) != 0u &&
           (uint8_t)(response.header >> 24u) == channel &&
           (uint8_t)(response.header >> 16u) == s_sequence) {
         response.header &= 0x00000fffu;
