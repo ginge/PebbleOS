@@ -1,24 +1,23 @@
-# DVT3 Bluetooth RF PLL candidate
+# DVT3 Bluetooth RF PLL initialization candidate
 
-The source policy is `ble_rf_mode.c`: the CP Bluetooth adapter selects mode 0,
-its dedicated Bluetooth PLL, for every controller event. Stock mode selection
-reads the previous global RF configuration and selects the shared Wi-Fi PLL
-when it is 0x101. A stuck-radio trace showed no watch advertisements although
-CP event counters advanced; the vendor `rfconfig ble_btpll` command restored
-phone encryption and PPoG without resetting either CPU. This supports testing
-the Bluetooth PLL path; it does not yet prove the precise PLL failure or
-long-term stability.
+`ble_rf_init.c` calls the vendor physical RF configurator with `0x0202`
+(`rfconfig ble_btpll`) immediately after a successful Bluetooth initialization.
+This runs in the existing CP HCI-reset thread context and reports the effective
+configuration on UART. The live command recovered a stuck radio and restored
+bonded PPoG without a watch reset. Startup data-only and RF-mode callback-only
+candidates were tested and rejected: PHY overwrites the initializer, and the
+callback alone still failed at seven minutes. They are not stability fixes.
 
-The vendor CP is pinned and its RF library is supplied as an archive. The
-production integration is `tools/patch_t5ai_cp_rf.py`, which verifies the whole
-stock image SHA256 and the complete original callback signature, then installs
-the compiled four-byte leaf function at the same address. All other code and
-data, CP SRAM layout and AP interfaces remain identical. Unknown CP images
-are rejected. This is an explicit binary integration of the source policy,
-not a full CP source rebuild. Do not enable this override for a Wi-Fi product
-without separate coexistence validation.
+`tools/patch_t5ai_cp_rf.py` builds this source hook and integrates it into the
+exact pinned vendor CP image. It verifies the complete input SHA-256 and
+original reset function, appends the hook in unused space inside the CP
+partition, and redirects only the existing Bluetooth-init BL instruction.
+All existing code/data addresses and the AP ABI remain stock. The hook calls
+the original initializer before configuring RF; initialization failure returns
+without changing RF. Unknown CP images and oversized hooks are rejected.
+This is a source-backed binary integration, not a full vendor CP rebuild.
 
-Build from the unmodified pinned CP image:
+Build with the ARM compiler on PATH:
 
 ```
 python3 tools/patch_t5ai_cp_rf.py --stock /path/to/pinned/app.bin --out /tmp/cp-ble-pll/app.bin
@@ -26,12 +25,18 @@ python3 tools/flash_t5ai_cp_firmware.py --raw /tmp/cp-ble-pll/app.bin --protecte
 ```
 
 The second command only validates until `--flash` is added. It restricts writes
-to the CP partition, preserving AP, resources, PFS and bonds. Rollback uses
-the same CP-only flasher with the stock CP image and regenerated stock CRC
-payload. A data-initializer-only candidate was rejected because PHY startup
-overwrites that initializer; do not substitute it for the callback override.
+to CP, preserving AP, resources, PFS and bonds. Rollback uses the same CP-only
+flasher with the stock image and regenerated stock CRC payload. Do not use
+this DVT3 BLE policy in a Wi-Fi product without coexistence validation.
 
-Required hardware validation: bonded reconnect after installation and cold
-boot; connected idle longer than prior 6–8 minute failures with UI interaction;
-25 disconnect/reconnect cycles; then overnight soak. Preserve the first failed
-trace. Neither reconnect success nor a short soak establishes complete stability.
+Hardware validation on 2026-10-03: UART confirmed effective configuration
+`0x0202`; bonded encrypted PPoG remained connected for 15 minutes without
+observed disconnect, assertion or uncommanded AP reset. A commanded hardware
+reset reapplied the configuration and restored the bonded session. This was
+not a verified power-off cold boot. Final-image scrolling, 25 disconnect/reconnect
+cycles, true cold boot and overnight soak remain pending. Preserve the first
+failed trace; this run does not establish long-term stability.
+
+See the [Bluetooth, power and scrolling checkpoint](../../../../docs/boards/getafix_dvt3_bt_power_scroll_checkpoint.md)
+for the failed/control RF evidence, installed image hashes, power policy,
+scrolling fixes and outstanding validation.

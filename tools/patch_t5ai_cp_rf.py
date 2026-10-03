@@ -1,54 +1,108 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Select the BLE BT PLL in the exact pinned vendor CP image.
+"""Build and install the DVT3 BLE/BT-PLL initialization hook in pinned CP.
 
-The board override is boards/getafix/tuya/cp/ble_rf_mode.c. Install its leaf
-function at the existing get_rf_mode address without relinking the vendor CP;
-all other code, data and addresses remain stock. A whole-image digest and the
-original function bytes guard this replacement. Another CP release requires
-matching ELF analysis and a newly reviewed integration.
+Refuses unknown images and verifies the original complete reset function.
+Compile the source hook into unused CP flash and redirect only the reset's
+Bluetooth-init call. Preserve every existing code/data address and AP ABI.
 """
 import argparse
 import hashlib
 from pathlib import Path
+import shutil
+import struct
+import subprocess
 import sys
+import tempfile
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from tools.t5ai_image import encode_protected_blocks
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from tools.t5ai_image import encode_protected_blocks, PRIMARY_CP_APP_LOGICAL_SIZE
 
 STOCK_SHA256 = "0edde387b5694ac6687e04d318e4f7346acd29e585b699eba28ed70540d91856"
-# Matching app.elf: .text.get_rf_mode VMA/LMA 0x02079998;
-# CP XIP starts at 0x02020000. Compile ble_rf_mode.c with -Os -mthumb
-# -mcpu=cortex-m33: movs r0, #0; bx lr (AAPCS, no stack or callee-save use).
-RF_MODE_OFFSET = 0x59998
-STOCK_RF_MODE = bytes.fromhex("064b1b6803f00f00012805d003f0f003102b14bf00200220704700bf3a810628")
-BLE_RF_MODE = bytes.fromhex("00207047")
+CP_XIP = 0x02020000
+RESET_OFFSET = 0x542B8
+STOCK_RESET = bytes.fromhex("08b505f09ffa642000f0b6f905f046fa002008bd")
+INIT_CALL_OFFSET = 0x542C4
+INIT_XIP = 0x02079754
+RF_CONFIG_XIP = 0x020CE93C
+PRINTF_XIP = 0x0206AFBC
+RF_CONFIG_RAM = 0x2806813A
+SOURCE = ROOT / "boards/getafix/tuya/cp/ble_rf_init.c"
 
 
-def select_ble_pll(image: bytes) -> bytes:
+def thumb_bl(source: int, target: int) -> bytes:
+    delta = (target & ~1) - (source + 4)
+    if source & 1 or delta & 1 or not -(1 << 24) <= delta < (1 << 24):
+        raise ValueError("BL target is unaligned or outside Thumb branch range")
+    sign = (delta >> 24) & 1
+    j1 = (1 ^ ((delta >> 23) & 1)) ^ sign
+    j2 = (1 ^ ((delta >> 22) & 1)) ^ sign
+    return struct.pack("<HH", 0xF000 | sign << 10 | ((delta >> 12) & 0x3FF),
+                       0xD000 | j1 << 13 | j2 << 11 | ((delta >> 1) & 0x7FF))
+
+
+def verify_stock(image: bytes):
     if hashlib.sha256(image).hexdigest() != STOCK_SHA256:
         raise ValueError("CP image does not match the pinned stock SHA256")
-    if image[RF_MODE_OFFSET:RF_MODE_OFFSET + len(STOCK_RF_MODE)] != STOCK_RF_MODE:
-        raise ValueError("CP RF callback does not match the verified ELF")
+    if image[RESET_OFFSET:RESET_OFFSET + len(STOCK_RESET)] != STOCK_RESET:
+        raise ValueError("CP reset function does not match the verified ELF")
+
+
+def install_hook(image: bytes, hook: bytes) -> bytes:
+    verify_stock(image)
+    if not hook or len(hook) > 512:
+        raise ValueError("Unexpected CP hook size")
+    offset = (len(image) + 15) & ~15
+    if offset + len(hook) > PRIMARY_CP_APP_LOGICAL_SIZE:
+        raise ValueError("CP hook exceeds the existing CP partition")
     result = bytearray(image)
-    result[RF_MODE_OFFSET:RF_MODE_OFFSET + len(BLE_RF_MODE)] = BLE_RF_MODE
+    result[INIT_CALL_OFFSET:INIT_CALL_OFFSET + 4] = thumb_bl(CP_XIP + INIT_CALL_OFFSET, CP_XIP + offset)
+    result.extend(b"\xff" * (offset - len(result)))
+    result.extend(hook)
     return bytes(result)
+
+
+def compile_hook(address: int, compiler: str) -> bytes:
+    gcc = shutil.which(compiler)
+    if gcc is None:
+        raise ValueError("ARM compiler unavailable")
+    objcopy = Path(gcc).with_name("arm-none-eabi-objcopy")
+    with tempfile.TemporaryDirectory() as folder:
+        folder = Path(folder)
+        linker = folder / "hook.ld"
+        linker.write_text(f'''ENTRY(pebble_ble_init_bt_pll)
+SECTIONS {{ . = 0x{address:x}; .hook : {{ *(.text*) *(.rodata*) }}
+/DISCARD/ : {{ *(.ARM.exidx*) *(.ARM.extab*) *(.comment*) *(.eh_frame*) }} }}
+bk_bluetooth_init = 0x{INIT_XIP | 1:x};
+rwnx_cal_set_rfconfig = 0x{RF_CONFIG_XIP | 1:x};
+bk_printf = 0x{PRINTF_XIP | 1:x};
+rwnx_rfconfig = 0x{RF_CONFIG_RAM:x};
+''')
+        elf, raw = folder / "hook.elf", folder / "hook.bin"
+        subprocess.run([gcc, "-Os", "-mthumb", "-mcpu=cortex-m33", "-mfloat-abi=soft", "-fno-unwind-tables", "-fno-asynchronous-unwind-tables", "-nostdlib", "-Wl,--build-id=none", "-T", str(linker), str(SOURCE), "-o", str(elf)], check=True)
+        subprocess.run([str(objcopy), "-O", "binary", "-j", ".hook", str(elf), str(raw)], check=True)
+        return raw.read_bytes()
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--stock", type=Path, required=True)
-    parser.add_argument("--out", type=Path, required=True, help="New raw CP image; .crc.bin is also written")
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--cc", default="arm-none-eabi-gcc")
     args = parser.parse_args()
     if args.stock.resolve() == args.out.resolve():
         parser.error("output must not overwrite the stock CP image")
-    image = select_ble_pll(args.stock.read_bytes())
-    protected = encode_protected_blocks(image)
+    stock = args.stock.read_bytes()
+    verify_stock(stock)
+    address = CP_XIP + ((len(stock) + 15) & ~15)
+    hook = compile_hook(address, args.cc)
+    image = install_hook(stock, hook)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_bytes(image)
-    args.out.with_suffix(".crc.bin").write_bytes(protected)
+    args.out.with_suffix(".crc.bin").write_bytes(encode_protected_blocks(image))
     print(f"BLE PLL CP: {len(image)} bytes sha256={hashlib.sha256(image).hexdigest()}")
-    print("Configuration candidate; validate boot selection and radio stability on hardware.")
+    print(f"Source hook: {len(hook)} bytes at 0x{address:x}; stock reset BL replaced")
 
 
 if __name__ == "__main__":

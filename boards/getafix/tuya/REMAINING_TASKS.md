@@ -8,14 +8,21 @@ PebbleOS source tree.
 
 ## Current checkpoint — 2026-10-03
 
-The [CP and storage checkpoint](../../../docs/boards/getafix_dvt3_cp_storage_checkpoint.md) records
-implemented mailbox/CRC and NOR-cache fixes, 2.75 MiB PFS migration, six loaded
-faces and five successful encrypted reconnects. Later diagnostic runs reproduced
-supervision loss and an App privileged-code stall/reset. Root causes and reliable
-Bluetooth recovery remain unresolved; a subsequent stable interval is not a fix.
-The latest recorded image is diagnostic. Capture state is a dated observation,
-not proof of current monitoring; verify device visibility and received bytes.
-Cold-boot persistence, overnight soak and power behavior remain open.
+The [CP and storage checkpoint](../../../docs/boards/getafix_dvt3_cp_storage_checkpoint.md)
+records mailbox/CRC and NOR-cache fixes, PFS migration and watchface transfers.
+The latest [Bluetooth, power and scrolling checkpoint](../../../docs/boards/getafix_dvt3_bt_power_scroll_checkpoint.md)
+records the physical CP RF PLL fix and retained evidence, the Round 2 style
+240 MHz active-clock/WFI policy, display DMA batching, and touch queue-pressure
+and release-ordering fixes. The installed PLL image passed 15 minutes connected
+and bonded reconnection after a commanded hardware reset. Earlier initializer
+and callback-only PLL candidates were rejected and are not the current fix.
+
+Still required: post-cleanup watchface regression, 25 reconnect cycles, true
+power-off cold boot with bond/selected-face restoration, overnight connected-idle
+soak, and final-image scrolling validation. End-to-end 30 fps and energy savings
+are not proven; deeper sleep/wake remains unfinished. The separate App
+privileged-code stall remains unresolved. Current images retain diagnostics.
+Capture state is a dated observation, not proof of live monitoring; verify RX.
 
 See the [implementation-gap inventory](../../../docs/boards/getafix_dvt3.md#implementation-gaps-and-explicit-stubs--2026-10-03)
 for explicit low-power/RTC-alarm, console-input, flash-logging, boot-version and

@@ -34,13 +34,13 @@ runs Pebble's NimBLE host against the CP-owned Bluetooth controller.
 | GPIO and Back/Select buttons | Proven |
 | I2C0 and PCF85063 RTC | Proven |
 | CO5300 AMOLED and native QSPI transport | Proven with colour bands and display off/on tests |
-| CST9217 touch | Proven |
+| CST9217 touch | Queue-pressure and release-ordering fix validated by repeated Settings scrolling |
 | QMI8658 accelerometer | Proven |
 | SARADC and charger-status input | Transactions proven; battery behavior blocked because no cell is fitted |
 | Bluetooth HCI command/event and ACL transport | Proven |
 | Connectable advertising and BlueZ connection | Proven |
 | Pebble GATT service discovery | Proven |
-| Pairing, bonding, reconnect, and Pebble protocol session setup | Functional path proven; later supervision loss and unreliable recovery remain unresolved |
+| Pairing, bonding, reconnect, and Pebble protocol session setup | Physical RF PLL fix installed; 15-minute connected run and bonded hardware-reset reconnection passed; long-term qualification pending |
 | Device identity | Phone recognizes the watch as Round 2; further compatibility remains under test |
 | Sustained phone sync and watchface transfer | Six transfers completed and all faces loaded; clean-image startup verified |
 | Sleep/wake and low-power operation | Not yet validated |
@@ -56,24 +56,26 @@ to Pebble's shared `GColor` values.
 The current [CP and storage checkpoint](getafix_dvt3_cp_storage_checkpoint.md)
 covers serialized physical mailbox ownership, CP-compatible CRCs, flash-buffer
 lease scheduling, NOR header-cache correctness, and the 2.75 MiB PFS migration.
-The operator confirmed six faces loaded and accepted five successful reconnect
-cycles as sufficient for now. The clean firmware reached normal startup. Later diagnostic images reproduced
-supervision loss and an App privileged-code stall/reset; the latest recorded
-stability observation does not establish a root-cause fix. Consult the checkpoint
-for dated image and capture state; recheck live hardware before claiming a trace
-is running. Cold-boot persistence and overnight soak remain open. The September
-[phone-sync incident](getafix_dvt3_phone_sync_incident.md) is historical evidence,
-not the current paused state.
+The operator confirmed six faces loaded and five successful reconnect cycles at
+that earlier checkpoint. The latest [Bluetooth, power and scrolling checkpoint](getafix_dvt3_bt_power_scroll_checkpoint.md)
+records the physical CP RF PLL fix, one-time 240 MHz active-clock policy with
+scheduler WFI, faster display DMA transfers, and touch queue backpressure.
+A 15-minute connected run and bonded reconnection after a commanded hardware
+reset passed. Full 30 fps rendering, 25 reconnect cycles, true cold-boot
+persistence and overnight soak remain open. The separate App privileged-code
+stall is unresolved. Current test images are diagnostic; verify live received
+bytes before claiming monitoring. The September
+[phone-sync incident](getafix_dvt3_phone_sync_incident.md) is historical evidence.
 
 ## Implementation gaps and explicit stubs — 2026-10-03
 
 This inventory distinguishes missing capabilities from working features that
 still need validation. Dated investigation sections below retain historical
-claims; this inventory and the latest CP/storage checkpoint control current status.
+claims; this inventory and the latest Bluetooth/power/scroll and CP/storage checkpoints control current status.
 
 | Area | Current implementation and remaining work |
 | --- | --- |
-| Bluetooth stability/recovery | Command/event/ACL transport, pairing, bonding and protocol sessions work. Later diagnostics reproduced supervision loss; root cause and reliable recovery remain unresolved. CP event scheduling continued without successful synchronization, which does not establish correct RF transmission/reception. |
+| Bluetooth stability/recovery | Physical BLE/BT PLL configuration is applied after CP Bluetooth initialization. Live RF reconfiguration recovered the failed state; the installed fix passed 15 minutes connected and bonded reconnection after hardware reset. Exact internal failure mechanism and long-term stability remain unproven; see the latest checkpoint. |
 | App/watchface stall | The captured whole-chip reset followed the process-manager assertion for an App task stuck in privileged code. The initiating blocked operation is unknown; fault-context instrumentation is diagnostic, not a fix. |
 | Low power and wake alarms | `soc/t5ai/freertos.c` idles with WFI but ignores the requested idle duration; `vPortEnableTimer()` returns false. `rtc_alarm_set()` ignores its deadline and `rtc_alarm_is_initialized()` returns false. Tick suppression, hardware alarm/wake routing and deeper sleep remain unfinished. |
 | Serial console input | `src/fw/console/dbgserial_input_t5ai.c` contains no-op initialization, callback registration and input/DMA enable functions. UART logging and CP-shell AP commands work; a general bidirectional console is not established. |
