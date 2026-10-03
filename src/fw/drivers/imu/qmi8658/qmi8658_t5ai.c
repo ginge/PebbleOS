@@ -85,12 +85,26 @@ static int16_t prv_to_mg(const uint8_t *raw) {
   return (int16_t)(((int32_t)value * 1000) / QMI8658_COUNTS_PER_G);
 }
 
-static bool prv_read_sample(AccelDriverSample *sample) {
+typedef enum {
+  QMI8658_SAMPLE_ERROR,
+  QMI8658_SAMPLE_NOT_READY,
+  QMI8658_SAMPLE_READY,
+} QMI8658SampleResult;
+
+static QMI8658SampleResult prv_read_sample(AccelDriverSample *sample) {
   uint8_t status;
   uint8_t raw[6];
-  if (!prv_read(QMI8658_STATUS0, &status, 1) || !(status & QMI8658_ACCEL_DATA_READY) ||
-      !prv_read(QMI8658_AX_L, raw, sizeof(raw))) {
-    return false;
+  if (!prv_read(QMI8658_STATUS0, &status, 1)) {
+    PBL_LOG_ERR("QMI8658 status read failed");
+    return QMI8658_SAMPLE_ERROR;
+  }
+  // Polling and sensor conversions are asynchronous; a clear bit is normal.
+  if (!(status & QMI8658_ACCEL_DATA_READY)) {
+    return QMI8658_SAMPLE_NOT_READY;
+  }
+  if (!prv_read(QMI8658_AX_L, raw, sizeof(raw))) {
+    PBL_LOG_ERR("QMI8658 sample data read failed");
+    return QMI8658_SAMPLE_ERROR;
   }
   const int16_t sensor_x = prv_to_mg(&raw[0]);
   const int16_t sensor_y = prv_to_mg(&raw[2]);
@@ -102,7 +116,7 @@ static bool prv_read_sample(AccelDriverSample *sample) {
     sample->y = -sample->y;
   }
   sample->timestamp_us = prv_time_us();
-  return true;
+  return QMI8658_SAMPLE_READY;
 }
 
 static void prv_poll(void *context) {
@@ -112,8 +126,7 @@ static void prv_poll(void *context) {
     return;
   }
   AccelDriverSample sample;
-  if (!prv_read_sample(&sample)) {
-    PBL_LOG_ERR("QMI8658 sample read failed");
+  if (prv_read_sample(&sample) != QMI8658_SAMPLE_READY) {
     return;
   }
   s_last_sample = sample;
@@ -223,7 +236,7 @@ int accel_peek(AccelDriverSample *data) {
     // The first conversions after power-up are saturated startup transients.
     psleep(QMI8658_STARTUP_SETTLE_MS);
   }
-  const bool result = prv_read_sample(data);
+  const bool result = prv_read_sample(data) == QMI8658_SAMPLE_READY;
   if (temporary_enable) {
     (void)prv_write(QMI8658_CTRL7, 0u);
   }

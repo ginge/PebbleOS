@@ -13,10 +13,3 @@ config T5AI_CP_BLE_TRACE
       Diagnostic only. Requires the vendor CP ELF documented in the DVT3
       Bluetooth incident report; its SRAM ABI is not stable across CP builds.
       Retains eight seconds of read-only samples and logs them on disconnect.
-
-config T5AI_APP_LOAD_TRACE
-    bool "Measure app launch through first frame"
-    default n
-    help
-      T5AI-only linker wrappers record lifecycle timestamps in RAM and
-      report them after rendering, without logging on the measured path.
