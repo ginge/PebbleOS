@@ -10,6 +10,7 @@
 #include <pbl/logging/logging.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include "system/passert.h"
+#include "system/profiler.h"
 
 #include <cmsis_core.h>
 
@@ -17,11 +18,13 @@
 #include <stdint.h>
 #include <string.h>
 
-PBL_LOG_MODULE_DEFINE(driver_display_co5300, CONFIG_DRIVER_DISPLAY_LOG_LEVEL);
+PBL_LOG_MODULE_DEFINE(driver_display_co5300, LOG_LEVEL_DEBUG);
 
 #define PANEL_WIDTH 466u
 #define PANEL_HEIGHT 466u
 #define PANEL_ROW_BYTES (PANEL_WIDTH * 2u)
+#define PANEL_DMA_ROWS ((PANEL_HEIGHT + PBL_DISPLAY_HEIGHT - 1u) / PBL_DISPLAY_HEIGHT)
+#define PANEL_DMA_BUFFER_BYTES ((PANEL_ROW_BYTES * PANEL_DMA_ROWS + 31u) & ~31u)
 #define PANEL_X_OFFSET 6u
 #define PANEL_RESET_PIN 29u
 #define QSPI_BASE 0x46040000u
@@ -88,6 +91,17 @@ static uint8_t s_panel_row[PANEL_ROW_BYTES] __attribute__((aligned(32)));
 static uint32_t s_dma_test_source[8] __attribute__((aligned(32)));
 static uint32_t s_dma_test_destination[8] __attribute__((aligned(32)));
 static uint16_t s_panel_source_x[PANEL_WIDTH];
+static uint8_t s_dma_rows[2][PANEL_DMA_BUFFER_BYTES] __attribute__((aligned(32)));
+static bool s_dma_pending;
+static unsigned s_dma_buffer;
+
+// Read-only diagnostics via the CP console; no per-frame UART traffic.
+volatile T5AIDrawStats g_t5ai_draw_stats;
+static uint32_t s_last_frame_start;
+static bool s_have_frame_start;
+static uint32_t prv_draw_ticks(void) {
+  return *(volatile uint32_t *)0x4400020cu;
+}
 static uint16_t s_rgb565[64];
 static bool s_dma_display_enabled;
 static bool s_dma_display_failed;
@@ -337,8 +351,9 @@ static bool prv_dma_self_test(void) {
   return matches && timeout != 0u && (status & (1u << 20)) == 0u;
 }
 
-static bool prv_pixel_stream_write_dma(const uint8_t *data, size_t length,
-                                       size_t *aperture_word) {
+static void prv_pixel_stream_start_dma(const uint8_t *data, size_t length) {
+  PBL_ASSERTN(!s_dma_pending);
+  PBL_ASSERTN(length != 0u && length <= 65536u);
   PBL_ASSERTN((length % sizeof(uint32_t)) == 0u);
   const uint32_t source = (uint32_t)(uintptr_t)data;
   // The QSPI mapping is a streaming aperture, not a framebuffer. Match
@@ -363,15 +378,31 @@ static bool prv_pixel_stream_write_dma(const uint8_t *data, size_t length,
   __asm volatile("dsb 0xf" ::: "memory");
   DMA_CTRL |= 1u;
 
+  s_dma_pending = true;
+}
+
+static bool prv_pixel_stream_finish_dma(size_t *aperture_word, size_t length) {
+  if (!s_dma_pending) {
+    return true;
+  }
   unsigned timeout = 1000000u;
   while ((DMA_CTRL & 1u) && --timeout) {
   }
   const bool complete = timeout != 0u && (DMA_STATUS & (1u << 20)) == 0u;
   DMA_CTRL = 0u;
+  s_dma_pending = false;
   if (complete) {
     *aperture_word += length / sizeof(uint32_t);
+  } else {
+    ++g_t5ai_draw_stats.dma_failures;
   }
   return complete;
+}
+
+static size_t s_dma_pending_bytes;
+
+static bool prv_finish_row_dma(size_t *aperture_word) {
+  return prv_pixel_stream_finish_dma(aperture_word, s_dma_pending_bytes);
 }
 
 static bool prv_send_panel_row(void) {
@@ -417,13 +448,20 @@ static bool prv_stream_logical_row(uint16_t logical_y, const uint8_t *data,
     return true;
   }
 
-  prv_convert_row(s_panel_row, data, false, invert_colors);
-  prv_dcache_clean(s_panel_row, sizeof(s_panel_row));
-  for (uint16_t y = y0; y <= y1; ++y) {
-    if (!prv_pixel_stream_write_dma(s_panel_row, sizeof(s_panel_row), aperture_word)) {
-      return false;
-    }
+  // The other buffer remains owned by GDMA while this row is prepared.
+  uint8_t *buffer = s_dma_rows[s_dma_buffer];
+  const size_t length = (y1 - y0 + 1u) * PANEL_ROW_BYTES;
+  prv_convert_row(buffer, data, false, invert_colors);
+  for (uint16_t y = y0 + 1u; y <= y1; ++y) {
+    memcpy(buffer + (y - y0) * PANEL_ROW_BYTES, buffer, PANEL_ROW_BYTES);
   }
+  prv_dcache_clean(buffer, length);
+  if (!prv_finish_row_dma(aperture_word)) {
+    return false;
+  }
+  prv_pixel_stream_start_dma(buffer, length);
+  s_dma_pending_bytes = length;
+  s_dma_buffer ^= 1u;
   return true;
 }
 
@@ -552,6 +590,12 @@ static void prv_display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb
                                bool use_dma, bool invert_colors) {
   PBL_ASSERTN(!s_updating);
   s_updating = true;
+  const uint32_t frame_start = prv_draw_ticks();
+  if (s_have_frame_start) {
+    g_t5ai_draw_stats.last_interval_ticks = frame_start - s_last_frame_start;
+  }
+  s_have_frame_start = true;
+  s_last_frame_start = frame_start;
   DisplayRow row;
   bool full_stream = false;
   size_t aperture_word = 0u;
@@ -582,6 +626,11 @@ static void prv_display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb
       expected_row++;
     } else {
       if (full_stream) {
+        if (!prv_finish_row_dma(&aperture_word)) {
+          s_dma_display_failed = true;
+          s_dma_display_enabled = false;
+          break;
+        }
         prv_pixel_stream_end();
         full_stream = false;
       }
@@ -591,7 +640,37 @@ static void prv_display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb
     }
   }
   if (full_stream) {
+    if (!prv_finish_row_dma(&aperture_word)) {
+      s_dma_display_failed = true;
+      s_dma_display_enabled = false;
+    }
     prv_pixel_stream_end();
+  }
+  const uint32_t elapsed = prv_draw_ticks() - frame_start;
+  ++g_t5ai_draw_stats.frames;
+  g_t5ai_draw_stats.total_update_ticks += elapsed;
+  g_t5ai_draw_stats.last_update_ticks = elapsed;
+  if (elapsed > g_t5ai_draw_stats.max_update_ticks) {
+    g_t5ai_draw_stats.max_update_ticks = elapsed;
+  }
+  if ((g_t5ai_draw_stats.frames & 15u) == 0u) {
+    PBL_LOG_DBG("DRAW frames=%lu ticks=%lu last=%lu max=%lu interval=%lu dma_fail=%lu hz=%lu",
+                (unsigned long)g_t5ai_draw_stats.frames,
+                (unsigned long)g_t5ai_draw_stats.total_update_ticks,
+                (unsigned long)g_t5ai_draw_stats.last_update_ticks,
+                (unsigned long)g_t5ai_draw_stats.max_update_ticks,
+                (unsigned long)g_t5ai_draw_stats.last_interval_ticks,
+                (unsigned long)g_t5ai_draw_stats.dma_failures,
+                (unsigned long)SystemCoreClock);
+  }
+  if ((g_t5ai_draw_stats.frames & 15u) == 0u) {
+    PBL_LOG_DBG("RENDER count=%lu last=%lu total=%lu comp=%lu font=%lu/%lu",
+                (unsigned long)PROFILER_NODE_GET_COUNT(render_app),
+                (unsigned long)PROFILER_NODE_GET_LAST_CYCLES(render_app),
+                (unsigned long)PROFILER_NODE_GET_TOTAL_CYCLES(render_app),
+                (unsigned long)PROFILER_NODE_GET_LAST_CYCLES(compositor),
+                (unsigned long)PROFILER_NODE_GET_TOTAL_CYCLES(text_render_flash),
+                (unsigned long)PROFILER_NODE_GET_COUNT(text_render_flash));
   }
   s_updating = false;
   prv_apply_brightness();
@@ -627,5 +706,6 @@ void display_update_boot_frame(uint8_t *framebuffer) {
       break;
     }
   }
+  (void)prv_finish_row_dma(&aperture_word);
   prv_pixel_stream_end();
 }

@@ -12,12 +12,15 @@
 #include <pbl/drivers/i2c.h>
 #include <pbl/os/tick.h>
 #include "kernel/util/sleep.h"
+#include "kernel/events.h"
+#include "kernel/pebble_tasks.h"
 #include "pbl/services/touch/touch.h"
 #include <pbl/logging/logging.h>
 #include <pbl/util/math.h>
 
 #include "FreeRTOS.h"
 #include "semphr.h"
+#include "queue.h"
 #include "task.h"
 
 PBL_LOG_MODULE_DEFINE(driver_touch_cst92xx, CONFIG_DRIVER_TOUCH_LOG_LEVEL);
@@ -30,6 +33,7 @@ PBL_LOG_MODULE_DEFINE(driver_touch_cst92xx, CONFIG_DRIVER_TOUCH_LOG_LEVEL);
 #define CST92XX_TOUCH_STATUS 0x06u
 #define CST92XX_NATIVE_SIZE 466u
 #define CST92XX_POLL_MS 20u
+#define CST92XX_MOTION_INTERVAL_MS 33u
 #define CST92XX_TASK_STACK_WORDS 768u
 // Stay above KernelMain so polling remains responsive, but leave NewTimer at the sole maximum
 // priority. NewTimer owns watchdog and mailbox work that must be able to preempt I2C recovery.
@@ -37,8 +41,11 @@ PBL_LOG_MODULE_DEFINE(driver_touch_cst92xx, CONFIG_DRIVER_TOUCH_LOG_LEVEL);
 
 static volatile bool s_enabled;
 static bool s_finger_down;
+static bool s_contact_active;
+static bool s_release_pending;
 static int16_t s_last_x;
 static int16_t s_last_y;
+static TickType_t s_last_motion_ticks;
 static uint32_t s_read_failures;
 static uint8_t s_consecutive_read_failures;
 static SemaphoreHandle_t s_touch_wake;
@@ -83,9 +90,31 @@ static int16_t prv_map_coordinate(uint16_t coordinate, int16_t display_size) {
   return (int16_t)(coordinate * display_size / CST92XX_NATIVE_SIZE);
 }
 
+// A frame-rate limit alone still outruns a slow app. Keep motion in the driver
+// while either delivery stage is backed up, leaving queue space for liftoff and
+// unrelated services. Inspect handles with scheduling stopped so app teardown
+// cannot delete its queue between the lookup and the occupancy check.
+static bool prv_delivery_ready(void) {
+  taskENTER_CRITICAL();
+  QueueHandle_t app = pebble_task_get_to_queue(PebbleTask_App);
+  QueueHandle_t worker = pebble_task_get_to_queue(PebbleTask_Worker);
+  QueueHandle_t kernel = event_get_to_kernel_queue(PebbleTask_KernelBackground);
+  const bool ready = (!app || uxQueueMessagesWaiting(app) < 2u) &&
+                     (!worker || uxQueueMessagesWaiting(worker) < 2u) &&
+                     (!kernel || uxQueueMessagesWaiting(kernel) < 2u);
+  taskEXIT_CRITICAL();
+  return ready;
+}
+
 static bool prv_poll(void) {
   if (!s_enabled) {
     return true;
+  }
+  if (s_release_pending && prv_delivery_ready()) {
+    touch_handle_update(TouchState_FingerDown, s_last_x, s_last_y);
+    touch_handle_update(TouchState_FingerUp, s_last_x, s_last_y);
+    s_finger_down = false;
+    s_release_pending = false;
   }
   uint8_t report[CST92XX_REPORT_LENGTH] = {0};
   if (!prv_read_report(report)) {
@@ -113,16 +142,33 @@ static bool prv_poll(void) {
                         prv_map_coordinate(native_x, PBL_DISPLAY_WIDTH);
       const int16_t y = PBL_DISPLAY_HEIGHT - 1 -
                         prv_map_coordinate(native_y, PBL_DISPLAY_HEIGHT);
+      s_contact_active = true;
+      if (s_release_pending) {
+        return true;
+      }
       s_last_x = x;
       s_last_y = y;
-      touch_handle_update(TouchState_FingerDown, s_last_x, s_last_y);
-      s_finger_down = true;
+      const TickType_t now = xTaskGetTickCount();
+      // Sample every report, but bound event delivery to the UI frame budget.
+      // Touchdown is immediate; liftoff flushes the latest sampled position.
+      if (prv_delivery_ready() && (!s_finger_down ||
+          now - s_last_motion_ticks >= pdMS_TO_TICKS(CST92XX_MOTION_INTERVAL_MS))) {
+        touch_handle_update(TouchState_FingerDown, s_last_x, s_last_y);
+        s_last_motion_ticks = now;
+        s_finger_down = true;
+      }
       return true;
     }
     PBL_LOG_WRN("CST92xx coordinate out of range: %u,%u", (unsigned)native_x, (unsigned)native_y);
   }
 
+  s_contact_active = false;
+  if (s_finger_down && !prv_delivery_ready()) {
+    s_release_pending = true;
+    return true;
+  }
   if (s_finger_down) {
+    touch_handle_update(TouchState_FingerDown, s_last_x, s_last_y);
     touch_handle_update(TouchState_FingerUp, s_last_x, s_last_y);
     s_finger_down = false;
   }
@@ -160,7 +206,7 @@ static void prv_touch_task(void *context) {
         continue;
       }
 
-      if (!s_finger_down && gpio_input_read(&s_interrupt_input)) {
+      if (!s_finger_down && !s_contact_active && gpio_input_read(&s_interrupt_input)) {
         break;
       }
 
@@ -203,9 +249,12 @@ void touch_sensor_set_enabled(bool enabled) {
     exti_disable(s_interrupt);
     (void)xSemaphoreGive(s_touch_wake);
     if (s_finger_down) {
+      touch_handle_update(TouchState_FingerDown, s_last_x, s_last_y);
       touch_handle_update(TouchState_FingerUp, s_last_x, s_last_y);
       s_finger_down = false;
     }
+    s_contact_active = false;
+    s_release_pending = false;
     prv_reset(false);
   }
 }

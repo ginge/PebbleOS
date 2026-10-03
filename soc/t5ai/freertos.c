@@ -2,6 +2,7 @@
 #include "console/prompt.h"
 #include "pbl/drivers/task_watchdog.h"
 #include "pbl/soc/t5ai/freertos.h"
+#include "pbl/soc/t5ai/power.h"
 #include "pbl/drivers/rtc.h"
 #include "pbl/services/analytics/analytics.h"
 
@@ -46,8 +47,9 @@ bool vPortEnableTimer(void) {
 }
 
 void t5ai_freertos_apply_systick_clock(void) {
-  /* SysTick follows CPU1 DVFS. Recalculate its period whenever the elected
-   * core clock changes so FreeRTOS time remains at Pebble's 1 kHz cadence. */
+  // Elect the active clock once and use its actual hardware rate. Idle WFI
+  // leaves that clock unchanged, matching Round 2's active/scheduler model.
+  t5ai_power_init();
   PBL_ASSERTN((SystemCoreClock % RTC_TICKS_HZ) == 0u);
   const uint32_t reload = SystemCoreClock / RTC_TICKS_HZ - 1u;
   PBL_ASSERTN(reload <= SysTick_LOAD_RELOAD_Msk);

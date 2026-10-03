@@ -5,6 +5,7 @@ bld.objects(
     source=[
         'init.c',
         'freertos.c',
+        'power.c',
         'retained.c',
         'bootbits.c',
         'reboot_reason.c',

@@ -364,15 +364,8 @@ static NOINLINE void prv_main_task_init(void) {
     PBL_LOG_ERR("T5AI app sleep vote failed: %ld", (long)app_sleep_vote_status);
   }
 
-  /* Run CPU1 at its lowest normal active frequency. */
-  const status_t cpu_clock_vote_status =
-      t5ai_cp_mailbox_vote_cpu1_frequency(T5AICpuFrequency_120MHz);
-  if (cpu_clock_vote_status == S_SUCCESS) {
-    SystemCoreClock = 120000000u;
-    t5ai_freertos_apply_systick_clock();
-  } else {
-    PBL_LOG_ERR("T5AI CPU clock vote failed: %ld", (long)cpu_clock_vote_status);
-  }
+  // T5AI elects its active clock once; the scheduler uses WFI for idle.
+  t5ai_freertos_apply_systick_clock();
   boot_splash_start();
   backlight_set_brightness(BOARD_CONFIG.backlight_on_percent);
 #endif
