@@ -33,11 +33,6 @@ void gap_le_connect_params_request(GAPLEConnection *connection, ResponseTimeStat
   new_timer_stop(connection->param_update_info.watchdog_timer);
   connection->param_update_info.is_request_pending = false;
   connection->param_update_info.attempts = 0;
-  PBL_LOG_INFO("T5AI retaining controller connection parameters: interval=%u latency=%u "
-               "timeout=%u desired=%u",
-               connection->conn_params.conn_interval_1_25ms,
-               connection->conn_params.slave_latency_events,
-               connection->conn_params.supervision_timeout_10ms, (unsigned)desired_state);
   conn_mgr_handle_desired_state_granted(connection, desired_state);
 }
 

@@ -4,7 +4,7 @@
 [T5-E1-Touch-AMOLED-1.75](https://www.waveshare.com/wiki/T5-E1-Touch-AMOLED-1.75),
 which uses the Tuya T5AI/BK7258. This page is the operator handoff for the
 hardware currently under test. It reflects the state observed through
-2026-09-19.
+2026-10-03.
 
 The only PebbleOS source of truth is:
 
@@ -40,11 +40,11 @@ runs Pebble's NimBLE host against the CP-owned Bluetooth controller.
 | Bluetooth HCI command/event and ACL transport | Proven |
 | Connectable advertising and BlueZ connection | Proven |
 | Pebble GATT service discovery | Proven |
-| Pairing, bonding, reconnect, and Pebble protocol session setup | Mostly stable; connection setup occasionally fails and can reboot the AP |
+| Pairing, bonding, reconnect, and Pebble protocol session setup | Functional path proven; later supervision loss and unreliable recovery remain unresolved |
 | Device identity | Phone recognizes the watch as Round 2; further compatibility remains under test |
-| Sustained phone sync and watchface transfer | One stock-RXW17 watchface transfer and launch proven stable; cleaned-image regression pending |
+| Sustained phone sync and watchface transfer | Six transfers completed and all faces loaded; clean-image startup verified |
 | Sleep/wake and low-power operation | Not yet validated |
-| Writable PFS | Watchface AppFetch write and launch proven once; broader repetition and recovery soak pending |
+| Writable PFS | NOR cache corruption fixed; 2.75 MiB PFS migrated and readback verified |
 | OTA, recovery, and general writable flash | Deliberately disabled pending a safe storage/recovery contract |
 
 The fitted CO5300/panel assembly presents inverted polarity on all three RGB222
@@ -53,20 +53,49 @@ DVT3 display driver's RGB222-to-RGB565 table applies `pixel ^ 0x3f` before
 conversion. This is panel compensation, not a theme, PFS setting, or a change
 to Pebble's shared `GColor` values.
 
-The normal T5AI path retains board-specific hardware sequencing in
-`src/fw/main.c`, then initializes the complete normal service set. Native
-startup progresses through the PebbleOS splash into the launcher, and the
-phone opens an encrypted reversed-PPoG session. The 2026-09-14 flash/reboot
-failure has been superseded by board-local mailbox, flash recovery, resource
-backend, memory-layout, and interrupt-safe logging fixes. On 2026-09-19 the
-phone transferred and launched a 23,817-byte watchface with the stock RX window
-of 17, and the watch remained stable. See the
-[phone-sync incident handoff](getafix_dvt3_phone_sync_incident.md) for the full
-fault chain. Repetition, reconnect, and long-duration soak coverage remain.
-Bluetooth is mostly stable after a clean connection, but connection setup still
-occasionally fails instead of reaching a usable protocol session. At least one
-such failure mode can reboot the AP. Treat reconnect and failed-connect reboot
-coverage as open reliability work rather than considering Bluetooth complete.
+The current [CP and storage checkpoint](getafix_dvt3_cp_storage_checkpoint.md)
+covers serialized physical mailbox ownership, CP-compatible CRCs, flash-buffer
+lease scheduling, NOR header-cache correctness, and the 2.75 MiB PFS migration.
+The operator confirmed six faces loaded and accepted five successful reconnect
+cycles as sufficient for now. The clean firmware reached normal startup. Later diagnostic images reproduced
+supervision loss and an App privileged-code stall/reset; the latest recorded
+stability observation does not establish a root-cause fix. Consult the checkpoint
+for dated image and capture state; recheck live hardware before claiming a trace
+is running. Cold-boot persistence and overnight soak remain open. The September
+[phone-sync incident](getafix_dvt3_phone_sync_incident.md) is historical evidence,
+not the current paused state.
+
+## Implementation gaps and explicit stubs — 2026-10-03
+
+This inventory distinguishes missing capabilities from working features that
+still need validation. Dated investigation sections below retain historical
+claims; this inventory and the latest CP/storage checkpoint control current status.
+
+| Area | Current implementation and remaining work |
+| --- | --- |
+| Bluetooth stability/recovery | Command/event/ACL transport, pairing, bonding and protocol sessions work. Later diagnostics reproduced supervision loss; root cause and reliable recovery remain unresolved. CP event scheduling continued without successful synchronization, which does not establish correct RF transmission/reception. |
+| App/watchface stall | The captured whole-chip reset followed the process-manager assertion for an App task stuck in privileged code. The initiating blocked operation is unknown; fault-context instrumentation is diagnostic, not a fix. |
+| Low power and wake alarms | `soc/t5ai/freertos.c` idles with WFI but ignores the requested idle duration; `vPortEnableTimer()` returns false. `rtc_alarm_set()` ignores its deadline and `rtc_alarm_is_initialized()` returns false. Tick suppression, hardware alarm/wake routing and deeper sleep remain unfinished. |
+| Serial console input | `src/fw/console/dbgserial_input_t5ai.c` contains no-op initialization, callback registration and input/DMA enable functions. UART logging and CP-shell AP commands work; a general bidirectional console is not established. |
+| Persistent flash logging | The build selects `src/fw/debug/flash_logging_unavailable.c`: writes fail and dump requests report no saved logs. Serial logging remains available. |
+| Persistent coredumps | Disabled pending a validated partition/recovery contract. Current fault evidence relies on UART diagnostics. A writable flash region alone does not enable this service. |
+| Bootloader version | `soc/t5ai/bootbits.c` returns zero from `boot_version_read()`; version reporting is a placeholder. |
+| Manufacturing OTP | Unprovisioned service rejects writes and provides no stored identity; manufacturing uses its dummy identity. The separate MCU factory eFuse serial reader is implemented. |
+| Audio and optional peripherals | Speaker/microphone integration remains disabled; a safe I2S/codec/audio path is still needed if supported. Haptics, ambient light and temperature have absent interfaces; magnetometer, pressure and PMIC features are disabled. Absent hardware does not itself require implementation. |
+| Firmware update/recovery | OTA, firmware/recovery object updates and arbitrary flash writes remain gated. Define packaging, metadata, slots, rollback, interruption recovery and factory restoration before enabling them. AP-only lab programming is implemented and must preserve PFS during routine updates. |
+
+Display, touch, buttons, accelerometer, RTC timekeeping, RNG, MCU serial,
+watchdog, bounded flash/PFS and Bluetooth transport have native implementations;
+they are not stubbed merely because validation is incomplete. Device identity
+now reports Round 2; older factory/unknown-platform notes are superseded.
+
+Remaining validation includes cold-boot bond and selected-face persistence,
+overnight connected-idle stability, broader reconnect coverage, wake interrupts,
+RTC drift, isolation/privilege transitions, and storage corruption/interrupted-write
+recovery. Battery calibration, charge/unplug transitions and power measurements
+require a fitted cell. Glyph/resource-check and missing app-entry warnings remain
+unresolved despite successful face loading. Any uncommanded AP reset remains a
+release blocker; retain the complete first-failure trace and matching dictionary.
 
 ## Device and USB ports
 
@@ -84,8 +113,8 @@ ACM numbers can change. Prefer the stable by-id paths containing
 If the CP becomes wedged after a failed mailbox or Bluetooth sequence, an AP
 reset or reflash may not recover it. Disconnect the shared USB-C cable for five
 seconds and reconnect it to power-cycle both cores and the dual-UART bridge.
-After the 2026-09-14 incident this is mandatory before the next session; do not
-attempt another phone sync until the mailbox/flash architecture is corrected.
+The mailbox corrections are now implemented; power-cycle only if CP remains
+wedged or the programming handshake cannot recover normally.
 
 ## Build
 
@@ -142,12 +171,17 @@ The pinned partition places the AP at physical flash offset `0x132000`, mapped
 to logical XIP address `0x02120000`. Pebble links into a `0x190000`-byte
 protected firmware region followed by a 1 MiB protected system-resource bank.
 Together they occupy AP physical flash `0x132000..0x3eb000`. The CP flash
-service accesses the PFS as raw physical data, so the 1 MiB PFS is a separate
-image at physical `0x500000..0x600000`, inside the otherwise-unused factory OTA
+service accesses the PFS as raw physical data, so the 2.75 MiB PFS is a separate
+image at physical `0x500000..0x7c0000` (704 pages), inside the otherwise-unused factory OTA
 data partition. This preserves the shared-PRF area at `0x4ea000..0x4fa000` and
 the factory bootloader, CP, configuration, and RF-calibration partitions.
 
-For an already-backed-up lab board, `pbl flash` builds two exact-range images:
+Use `tools/flash_t5ai_firmware.py --flash` for routine updates to preserve
+existing resources and PFS. The one-off migration retained live file contents;
+its exact expanded readback is recorded in the current checkpoint.
+
+For deliberate empty-filesystem provisioning on an already-backed-up lab board,
+`pbl flash` replaces existing PFS contents and builds two exact-range images:
 the protected AP image contains firmware and system resources (including stored
 base apps), while a second raw image contains a preformatted empty PFS. The PFS
 image writes the same active-low page headers as `pfs_format(true)`, so
@@ -198,45 +232,16 @@ picocom --baud 460800 /dev/ttyACM1
 the sole AP-side Bluetooth host; the vendor Bluetooth host must not be started
 alongside it.
 
-### TODO: restore low-power BLE connection parameters
+### Current connection policy and remaining power work
 
-The T5AI NimBLE backend currently keeps an established phone connection at
-the active 15 ms, zero-slave-latency parameters. It deliberately declines the
-stock transition to the 30--45 ms, three-event-slave-latency idle state. This
-is a temporary reliability workaround in
-`src/bluetooth-fw/nimble/responsiveness_t5ai.c`; the shared Pebble connection
-manager and protocol services remain unchanged.
-
-Hardware traces on 2026-09-14 showed two related failures after entering the
-idle state:
-
-- AppFetch requested the active parameters before a watchface transfer, the
-  BK7258 controller reported HCI Connection Timeout (`0x08`, surfaced by
-  NimBLE as `0x0208`), and the link disconnected before PutBytes endpoint
-  `0xBEEF` began.
-- A reconnected link later timed out under sustained full Blob DB traffic
-  while using the idle parameters.
-
-Keeping the active parameters preserves the complete AppFetch, PutBytes,
-Blob DB, and large-object paths. It is not a payload-dropping workaround. The
-known cost is increased Bluetooth radio duty cycle and therefore reduced
-battery life for as long as a phone is connected. Battery impact has not yet
-been measured, and the board under current test has no battery fitted.
-
-The same T5AI-local backend raises the active-link supervision timeout from
-the stock 6 seconds to 20 seconds. Hardware also lost otherwise healthy active
-links after a roughly six-second controller stall while preparing AppFetch.
-This setting does not increase radio duty cycle, but it delays detection of a
-genuinely lost phone by up to 14 additional seconds. Revert it separately once
-the controller/mailbox stall is fixed and six-second supervision survives the
-same sustained transfer tests.
-
-Remove this workaround only after the T5 controller path can repeatedly move
-from 15 ms/latency 0 to the stock idle state and back without a disconnect,
-then complete sustained Blob DB and watchface PutBytes transfers. Follow that
-with connected-idle current and battery-life measurements comparing active
-and stock parameter policies. Keep the change T5AI-local unless evidence
-shows a defect in shared Pebble code.
+The T5AI-local `src/fw/comm/ble/gap_le_connect_params_t5ai.c` keeps
+controller-negotiated parameters and grants logical responsiveness requests
+locally, avoiding the CP peripheral-side L2CAP update path that previously
+stalled links. This supersedes the older enforced 15 ms / 20-second-supervision
+policy. The current regression observed 30 ms, zero latency, 5-second
+supervision. Five reconnects restored encryption and protocol sessions.
+Low-power transitions and battery cost remain unvalidated; changing this policy
+requires renewed sustained transfer/reconnect and power measurements.
 
 The physical AP-to-CP mailbox permits only one ordinary frame in its hardware
 send slot at a time. The native transmit queue now owns copies until physical
@@ -247,12 +252,10 @@ frame. An eight-entry FIFO then preserves interleaved physical ACKs, HCI
 events, ACL data, MIPC object ACKs, and application replies. Asynchronous
 callback-response descriptors remain owned until their logical MIPC ACK. These
 ownership rules fixed descriptor overwrite, double-ACK, and several
-command-order failures found during bring-up. They are not a complete logical
-IPC concurrency design: flash and HCI still share one transaction-wide global
-mailbox mutex. The final phone-sync trace failed a flash write during BlobDB
-activity, then inherited a wedged CP across AP resets. The incident handoff
-documents the required per-channel dispatcher and per-client transaction
-ownership model.
+command-order failures found during bring-up. The later CP/storage checkpoint
+records serialized physical ownership, flash lease scheduling and corrected CRC
+handling. Earlier transaction-wide mutex and flash-failure diagnoses below are
+historical; supervision loss and reliable recovery still remain unresolved.
 
 The final diagnostics-free image completed all legacy advertising commands:
 LE Set Advertising Data (`0x2008`), LE Set Scan Response Data (`0x2009`), LE
@@ -1366,9 +1369,13 @@ cd /home/baz/coredevices/pebbleos
   tools.tests.test_tuya_memory
 ```
 
-The latest pre-flash 2026-09-16 run passed all 90 tests. Those tests do not yet
-model concurrent HCI/flash mailbox clients or CP recovery. Finish a handoff
-with:
+The 2026-10-03 instrumentation cleanup passed 85 relevant tests and the DVT3
+build. Earlier CP/storage/packaging validation passed 92 focused tests. The
+compiled mailbox regression covers serialization, ACK/descriptor ownership and
+bootstrap behavior; the compiled flash regression covers both header-cache
+settings and the last expanded page. Host tests do not replace hardware recovery
+or soak coverage. See the current checkpoint for the accepted six-face/five-cycle
+hardware run and exact flashed build. Finish a handoff with:
 
 ```sh
 git diff --check
@@ -1377,25 +1384,25 @@ git status --short --branch
 
 ## Next work
 
-Continue in this order:
+1. Resolve supervision loss and reliable reconnect/recovery using the latest
+   CP-history evidence and on-air observations. Preserve the first failure.
+2. Identify the App operation behind the privileged-code stall/reset using
+   bounded T5AI-local fault diagnostics; keep shared process management stock.
+3. Investigate glyph/resource-check and missing app-entry warnings without
+   reformatting the migrated PFS to hide them.
+4. Cold boot and verify bond restoration, phone reconnect and selected-face
+   persistence; run overnight connected-idle and broader reconnect validation.
+   Five earlier cycles passed and the operator deferred the proposed 25 cycles,
+   but later failures prevent treating short-run success as stability proof.
+5. Implement hardware wake/alarm routing and proper low-power entry, then
+   measure BLE/battery cost with a fitted cell. Validate storage interruption
+   and corruption recovery, RTC drift and privilege/isolation behavior.
+6. Define rollback, update containers and factory restoration before enabling
+   OTA or firmware/recovery writes. Routine AP-only updates preserve PFS.
 
-1. Physically power-cycle both AP and CP before reconnecting the board.
-2. With fresh explicit approval, flash the exact validated combined image
-   recorded in the phone-sync incident. It replaces the AP firmware/resources
-   and provisions an empty PFS while preserving CP, bootloader, and PRF data.
-3. Trace idle bring-up, phone connection, one watchface sync, watchface launch,
-   and one reconnect. Stop on the first flash or transport fault.
-4. If a genuine CP flash error remains, add a T5AI storage-unavailable/read-only
-   state so it cannot cause an assertion/reboot loop.
-5. Run interleaved HCI/flash tests and repeated large watchface sync soaks.
-6. Repair the trace tool's idle-reconnect receive-thread shutdown race.
-7. Restore and measure stock low-power BLE parameters only after sync is
-   reliable.
-8. Validate sleep/wake, Bluetooth low-power operation, and peripheral resume.
-9. Fit a battery and validate voltage calibration, charging transitions,
-   retention, and state of charge against external measurements.
-10. Leave OTA, resource-bank writes, and general flash mutation until the image,
-   rollback, and recovery design is complete.
+The latest recorded image is diagnostic. Capture observations are dated in the
+[checkpoint](getafix_dvt3_cp_storage_checkpoint.md); verify actual received bytes
+and process/device state before reporting that monitoring is active.
 
 ## Source and reference map
 

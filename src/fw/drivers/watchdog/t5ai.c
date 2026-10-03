@@ -2,6 +2,7 @@
 
 #include <pbl/drivers/watchdog.h>
 #include <pbl/soc/t5ai/reset.h>
+#include <pbl/soc/t5ai/hci_ipc.h>
 
 #include <cmsis_core.h>
 
@@ -24,8 +25,6 @@
 #define T5AI_AP_RESET_REASON_SHIFT 24u
 #define T5AI_AP_RESET_REASON_MASK (0x7fu << T5AI_AP_RESET_REASON_SHIFT)
 #define T5AI_RESET_SOURCE_WATCHDOG 0x02u
-#define T5AI_CP_RESET_REASON_SHIFT 4u
-#define T5AI_CP_RESET_REASON_MASK (0xffu << T5AI_CP_RESET_REASON_SHIFT)
 
 static bool s_started;
 static bool s_initialized;
@@ -49,11 +48,6 @@ void t5ai_reset_reason_set_ap(uint8_t reason) {
 uint8_t t5ai_reset_reason_get_ap(void) {
   return (uint8_t)((T5AI_AON_PMU_R0 & T5AI_AP_RESET_REASON_MASK) >>
                    T5AI_AP_RESET_REASON_SHIFT);
-}
-
-uint8_t t5ai_reset_reason_get_cp(void) {
-  return (uint8_t)((T5AI_AON_PMU_R0 & T5AI_CP_RESET_REASON_MASK) >>
-                   T5AI_CP_RESET_REASON_SHIFT);
 }
 
 void watchdog_init(void) {
@@ -106,6 +100,12 @@ McuRebootReason watchdog_get_reset_flag(void) {
 }
 
 NORETURN t5ai_force_whole_chip_reset(uint8_t reason) {
+#if CONFIG_T5AI_CP_BLE_TRACE
+  /* UART context capture is only safe before interrupt-masked reset paths. */
+  if (__get_PRIMASK() == 0u && __get_IPSR() == 0u) {
+    t5ai_hci_report_fault_context();
+  }
+#endif
   __disable_irq();
 
   t5ai_reset_reason_set_ap(reason);

@@ -9,6 +9,7 @@ bld.objects(
         'bootbits.c',
         'reboot_reason.c',
         'flash_translation.c',
+        *(['app_load_trace.c'] if bld.env.CONFIG_T5AI_APP_LOAD_TRACE else []),
     ],
     use=['fw_includes'],
 )
@@ -16,3 +17,16 @@ bld.linker_sources('footer', 'linker.ld')
 bld.linker_sources('memory', 'psram-memory.ld')
 bld.linker_sources('ram-sections', 'retained.ld')
 bld.linker_sources('ram-sections', 'framebuffer.ld')
+
+if bld.env.CONFIG_T5AI_APP_LOAD_TRACE:
+    for symbol in (
+        'app_manager_close_current_app',
+        'app_manager_launch_new_app',
+        'process_manager_init_context',
+        'process_loader_load',
+        'app_state_init',
+        'compositor_app_render_ready',
+        'compositor_display_update',
+        'process_manager_send_event_to_process',
+    ):
+        bld.env.append_value('LINKFLAGS', '-Wl,--wrap=' + symbol)

@@ -16,9 +16,6 @@
 #include "pbl/services/analytics/analytics.h"
 #include <pbl/logging/logging.h>
 #include "system/reboot_reason.h"
-#ifdef CONFIG_SOC_T5AI
-#include <pbl/soc/t5ai/reset.h>
-#endif
 
 static RebootReasonCode s_last_reboot_reason_code = RebootReasonCode_Unknown;
 RebootReasonCode reboot_reason_get_last_reboot_reason(void) {
@@ -146,8 +143,6 @@ void debug_reboot_reason_print(McuRebootReason mcu_reboot_reason) {
             restarted_safely_string, rebooted_due_to, reason.extra.value);
   }
 #ifdef CONFIG_SOC_T5AI
-  PBL_LOG_INFO("T5AI reset sources: AP=0x%02x CP=0x%02x",
-               t5ai_reset_reason_get_ap(), t5ai_reset_reason_get_cp());
   if (reason.code == RebootReasonCode_HardFault) {
     PBL_LOG_WRN("T5AI HardFault CFSR[15:0]: 0x%04x", reason.data16);
     PBL_LOG_WRN("T5AI HardFault LR: 0x%08"PRIx32" xPSR: 0x%08"PRIx32,

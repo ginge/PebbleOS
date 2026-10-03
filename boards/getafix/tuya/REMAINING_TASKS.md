@@ -6,32 +6,33 @@ T5-E1 Touch AMOLED 1.75 board. Continue in the only valid source checkout,
 `/home/baz/Documents/ChatGPT/pebble` is reference and artifact storage, not a
 PebbleOS source tree.
 
-## Current priority: repeat and soak the successful stock-window sync path
+## Current checkpoint — 2026-10-03
 
-The unsafe 2026-09-14 flash/reboot state is superseded. On 2026-09-19 the phone
-completed a 23,817-byte watchface transfer over reversed PPoG with `TXW: 4
-RXW: 17`, the watch validated and launched the face, and the UI remained
-stable. The fixes cover T5AI-local transport and flash recovery, app-resource
-backend registration, AP-only NimBLE pool relocation to PSRAM, and preventing
-synchronous CP debug logging from entering a task mutex in interrupt context.
-Shared PPoG behavior remains stock and no receive-window Kconfig is active.
+The [CP and storage checkpoint](../../../docs/boards/getafix_dvt3_cp_storage_checkpoint.md) records
+implemented mailbox/CRC and NOR-cache fixes, 2.75 MiB PFS migration, six loaded
+faces and five successful encrypted reconnects. Later diagnostic runs reproduced
+supervision loss and an App privileged-code stall/reset. Root causes and reliable
+Bluetooth recovery remain unresolved; a subsequent stable interval is not a fix.
+The latest recorded image is diagnostic. Capture state is a dated observation,
+not proof of current monitoring; verify device visibility and received bytes.
+Cold-boot persistence, overnight soak and power behavior remain open.
 
-The investigation-only packet, heap, progress, stage, and PFS boot traces have
-now been removed. The cleaned AP image was flashed successfully on 2026-09-19;
-its raw SHA-256 is
-`19bd10aaac8fd6097b8e51dc99e1195b0c6a7a0957e7aae3a7651e04b99b846d`,
-and its exact protected physical range is `0x132000..0x215c3e`. The immediate
-next task is one post-cleanup watchface transfer and launch, followed by repeat
-transfer, disconnect/reconnect, cold-boot bond restoration, and idle/active
-soak testing. Do not reformat PFS: it is destructive and still requires
-explicit operator approval after the exact partition range is checked.
+See the [implementation-gap inventory](../../../docs/boards/getafix_dvt3.md#implementation-gaps-and-explicit-stubs--2026-10-03)
+for explicit low-power/RTC-alarm, console-input, flash-logging, boot-version and
+OTP placeholders, disabled coredumps/audio/optional hardware, and gated updates.
+Native watchdog and primary peripheral paths are implemented; device identity
+reports Round 2. Older image hashes and implementation claims below are historical.
+Shared-code cleanup remains paused unless explicitly resumed.
 
-Bluetooth is mostly stable once connected, but it is not yet reliable at the
-connection boundary. A phone connection occasionally fails to establish a
-clean protocol session, and the failure path can cause an AP reboot. Preserve
-the first failure evidence and include repeated connect/disconnect/reconnect
-cycles in the next validation run; a successful watchface transfer alone does
-not close this remaining Bluetooth reliability issue.
+Routine firmware updates must preserve PFS; `pbl flash` provisions an empty
+filesystem and is not the routine update path. Preserve future first failures;
+uncommanded AP resets remain release blockers.
+
+## Historical investigation and earlier task notes
+
+The following dated material records earlier checkpoints. Its image hashes,
+old 1 MiB PFS ranges and experimental parameter/priority policies are historical;
+the October checkpoint above controls the current implementation.
 
 The shared event loop, app manager, and SystemTask now use their stock task
 priorities: app priority 2 and KernelBG priority 1, with the existing temporary
@@ -1488,13 +1489,12 @@ implementation.
 
 ## Remaining work, in recommended order
 
-The broad host-side port and primary peripheral bring-up are complete. Bluetooth
-pairing and Pebble protocol data transfer over the NimBLE/CP transport are now
-proven. Resolve the `factory`/unknown-platform identity reported by the phone,
-then perform longer reconnect and power-cycle soak testing. Several persistence gates are already
-enabled in the current source; validate their bounds and recovery behavior
-before relying on them. OTA and arbitrary/destructive flash paths remain out of
-scope.
+The primary native peripheral paths are implemented. Prioritize unresolved
+Bluetooth supervision loss/recovery and the App privileged-code stall/reset,
+then cold-boot persistence, soak and power validation. Device identity now
+reports Round 2. Use the [current implementation inventory](../../../docs/boards/getafix_dvt3.md#implementation-gaps-and-explicit-stubs--2026-10-03)
+and [latest diagnostic evidence](../../../docs/boards/getafix_dvt3_cp_storage_checkpoint.md)
+over historical checklist claims below. OTA and firmware/recovery updates remain gated.
 
 ### 1. Audit the working tree — complete; repeat before material changes
 
@@ -1573,7 +1573,9 @@ works; these are separate recovery and runtime-storage contracts.
   boot-owned clock.
 - CPU1 is the Pebble application core; keep unused cores quiescent.
 - Validate MPU regions, privilege transitions, syscall wrappers, MSPLIM/PSPLIM, and fault handlers.
-- Implement watchdog and low-power entry through existing Pebble services.
+- The native watchdog is implemented. Low-power entry is incomplete: idle is
+  WFI-only, requested idle duration is ignored, and RTC hardware alarm/wake
+  routing is unavailable. Implement these through existing Pebble services.
 - Validate the native microsecond delay, hardware RNG, factory device ID, and
   runtime CPU statistics on target. Define a safe manufacturing OTP allocation.
 - Avoid pulling vendor scheduler/runtime initialization into Pebble startup.
@@ -1651,7 +1653,7 @@ Verify all pins from the schematic/BSP before hardware testing.
   safe transport boundary. With no ALS fitted, the ambient-light driver
   explicitly reports unavailable/unknown rather than emulating a sensor.
 
-### 9. Touch — interrupt-driven native path implemented; final physical check pending
+### 9. Touch — interrupt-driven native path hardware-proven
 
 - The CST9217/CST92xx controller is implemented at address `0x5a` using I2C0,
   GPIO42 falling-edge interrupt, GPIO43 reset, validated report framing, and
@@ -1756,9 +1758,9 @@ Verify all pins from the schematic/BSP before hardware testing.
   Pebble and freed as discovery proceeds. The shared discovery implementation
   remains stock. The T5AI host mbuf pool is 35 blocks, matching the established
   nRF52 configuration and providing pairing/discovery headroom.
-- The phone app reaches a stable connected state but identifies the watch as
-  `connected(factory)` and reports an unknown platform. Device/platform identity
-  metadata is the next functional issue. Longer reconnect cycling, cold
+- The phone app identifies the watch as Round 2. Earlier `connected(factory)`/unknown-platform observations are
+  superseded. Supervision loss and reliable recovery remain unresolved.
+  Longer reconnect cycling, cold
   power-cycle retention, sustained payload transfer, and Bluetooth low-power
   behavior remain to be measured.
 - Replace polling with IRQ delivery and validate Bluetooth low-power behavior
@@ -1956,7 +1958,7 @@ and recovery updates, raw arbitrary flash access, and OTA remain disabled.
   (physical `0x002db000..0x003eb000`). Runtime writes to this bank are now
   permitted, but there is no redundant bank or validated rollback path. The
   PFS is a raw CP-flash partition at physical
-  `0x00500000..0x00600000`, inside the otherwise-unused factory OTA-data
+  `0x00500000..0x007c0000` (expanded 2026-10-03), inside the otherwise-unused factory OTA-data
   allocation and disjoint from the shared-PRF block.
 - The mandatory T5AI pre-objcopy map gate now verifies the exact FLASH, kernel,
   worker, app, and display-memory regions; the 0x140-byte vector table at slot

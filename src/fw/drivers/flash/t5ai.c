@@ -54,27 +54,6 @@ static FlashAddress s_flash_read_cache_address[T5AI_FLASH_READ_CACHE_LINES];
 static bool s_flash_read_cache_valid[T5AI_FLASH_READ_CACHE_LINES];
 static unsigned s_flash_read_cache_next;
 
-#if defined(CONFIG_T5AI_FLASH_CACHE_STATS)
-static struct {
-  uint32_t accesses, hits, misses, pfs_misses, header_hits, header_misses;
-} s_cache_stats;
-#define CACHE_STAT(field) (++s_cache_stats.field)
-static void prv_report_cache_stats(void) {
-  if (++s_cache_stats.accesses != 1024u) {
-    return;
-  }
-  PBL_LOG_INFO("T5AI cache chunks=1024 hits=%lu misses=%lu pfs_misses=%lu header_hits=%lu header_misses=%lu",
-               (unsigned long)s_cache_stats.hits, (unsigned long)s_cache_stats.misses,
-               (unsigned long)s_cache_stats.pfs_misses,
-               (unsigned long)s_cache_stats.header_hits,
-               (unsigned long)s_cache_stats.header_misses);
-  memset(&s_cache_stats, 0, sizeof(s_cache_stats));
-}
-#else
-#define CACHE_STAT(field) ((void)0)
-#endif
-
-
 static bool prv_range_valid(FlashAddress address, size_t length) {
   const uint32_t offset = address - FLASH_REGION_BASE_ADDRESS;
   return address >= FLASH_REGION_BASE_ADDRESS && length > 0 && length <= BOARD_NOR_FLASH_SIZE &&
@@ -208,10 +187,6 @@ static status_t prv_read_cached(FlashAddress address, void *buffer, size_t lengt
   }
 
   if (line == T5AI_FLASH_READ_CACHE_LINES) {
-    CACHE_STAT(misses);
-    if (address >= FLASH_REGION_FILESYSTEM_BEGIN && address < FLASH_REGION_FILESYSTEM_END) {
-      CACHE_STAT(pfs_misses);
-    }
     line = s_flash_read_cache_next;
     s_flash_read_cache_next = (s_flash_read_cache_next + 1u) % T5AI_FLASH_READ_CACHE_LINES;
     status_t status = prv_read_with_retry(prv_offset(line_address), s_flash_read_cache[line],
@@ -222,10 +197,6 @@ static status_t prv_read_cached(FlashAddress address, void *buffer, size_t lengt
     }
     s_flash_read_cache_address[line] = line_address;
     s_flash_read_cache_valid[line] = true;
-  }
-
-  else {
-    CACHE_STAT(hits);
   }
 
   const size_t line_offset = address - line_address;
@@ -258,7 +229,6 @@ static status_t prv_read_pfs_header(FlashAddress address, void *buffer, size_t l
   }
 
   if (!prv_pfs_header_cached(page)) {
-    CACHE_STAT(header_misses);
     const FlashAddress page_address =
         FLASH_REGION_FILESYSTEM_BEGIN + page * T5AI_PFS_PAGE_SIZE;
     status_t status = prv_read_with_retry(prv_offset(page_address),
@@ -275,8 +245,6 @@ static status_t prv_read_pfs_header(FlashAddress address, void *buffer, size_t l
       return status;
     }
     prv_pfs_header_mark_cached(page);
-  } else {
-    CACHE_STAT(header_hits);
   }
 
   *bytes_read = length < T5AI_PFS_HEADER_SIZE - header_offset
@@ -393,14 +361,6 @@ status_t flash_impl_init(bool coredump_mode) {
 #endif
   memset(s_flash_read_cache_valid, 0, sizeof(s_flash_read_cache_valid));
   s_flash_read_cache_next = 0;
-#if defined(CONFIG_T5AI_FLASH_CACHE_STATS)
-  memset(&s_cache_stats, 0, sizeof(s_cache_stats));
-#if defined(CONFIG_T5AI_PFS_HEADER_CACHE)
-  PBL_LOG_INFO("T5AI per-page header cache enabled: SRAM=8224 bytes");
-#else
-  PBL_LOG_INFO("T5AI per-page header cache disabled: SRAM=0 bytes");
-#endif
-#endif
   return t5ai_flash_ipc_init();
 }
 
@@ -423,9 +383,6 @@ status_t flash_impl_read_sync(void *buffer, FlashAddress address, size_t length)
     if (FAILED(status)) {
       return status;
     }
-#if defined(CONFIG_T5AI_FLASH_CACHE_STATS)
-    prv_report_cache_stats();
-#endif
     address += chunk;
     output += chunk;
     length -= chunk;

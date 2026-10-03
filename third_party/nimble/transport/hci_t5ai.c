@@ -1,7 +1,11 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <pbl/logging/logging.h>
+#include <pbl/mcu/cache.h>
+#include <pbl/mcu/syscall_abi.h>
+#include <pbl/mcu/interrupts.h>
 #include <pbl/soc/t5ai/hci_ipc.h>
+#include <pbl/soc/t5ai/flash_ipc.h>
 
 #include <kernel/pebble_tasks.h>
 
@@ -31,6 +35,103 @@
 #define T5AI_HCI_LE_SET_ADV_ENABLE_OPCODE \
   BLE_HCI_OP(BLE_HCI_OGF_LE, BLE_HCI_OCF_LE_SET_ADV_ENABLE)
 
+#if CONFIG_T5AI_CP_BLE_TRACE
+/* Matching vendor app.elf: lld_con_env[1], lld_con_env_tag DWARF offsets.
+ * Read-only, racy observations. Never use these samples to control the CP. */
+#define CP_BLE_ENV_SLOT_ADDRESS 0x2806e62cu
+#define CP_BLE_SRAM_END 0x2809e6f8u
+#define CP_BLE_TRACE_COUNT 32u
+#define CP_BLE_TRACE_PERIOD_MS 250u
+
+typedef struct {
+  uint32_t tick;
+  uint32_t environment;
+  uint32_t sync_tick;
+  uint16_t event;
+  uint16_t increment;
+  uint16_t synced;
+  uint16_t flags;
+  uint8_t priority;
+  uint8_t state;
+} CPBleSample;
+
+static CPBleSample s_cp_ble_trace[CP_BLE_TRACE_COUNT];
+static unsigned s_cp_ble_trace_next;
+static unsigned s_cp_ble_trace_used;
+static TickType_t s_cp_ble_trace_tick;
+
+static void prv_sample_cp_connection(void) {
+  const TickType_t now = xTaskGetTickCount();
+  if (now - s_cp_ble_trace_tick < pdMS_TO_TICKS(CP_BLE_TRACE_PERIOD_MS)) {
+    return;
+  }
+  s_cp_ble_trace_tick = now;
+  dcache_invalidate((void *)CP_BLE_ENV_SLOT_ADDRESS, sizeof(uint32_t));
+  const uintptr_t environment = *(volatile uint32_t *)CP_BLE_ENV_SLOT_ADDRESS;
+  if ((environment & 3u) != 0u || environment < 0x28000000u ||
+      environment > CP_BLE_SRAM_END - 160u) {
+    return;
+  }
+  dcache_invalidate((void *)environment, 160u);
+  const volatile uint8_t *bytes = (const void *)environment;
+  if (bytes[142] != 1u) {
+    return;
+  }
+  CPBleSample sample = {
+    .tick = now,
+    .environment = environment,
+    .sync_tick = *(const volatile uint32_t *)(bytes + 84u),
+    .event = *(const volatile uint16_t *)(bytes + 120u),
+    .increment = *(const volatile uint16_t *)(bytes + 122u),
+    .synced = *(const volatile uint16_t *)(bytes + 124u),
+    .flags = *(const volatile uint16_t *)(bytes + 130u),
+    .priority = bytes[26],
+    .state = bytes[143],
+  };
+  s_cp_ble_trace[s_cp_ble_trace_next] = sample;
+  s_cp_ble_trace_next = (s_cp_ble_trace_next + 1u) % CP_BLE_TRACE_COUNT;
+  if (s_cp_ble_trace_used < CP_BLE_TRACE_COUNT) {
+    ++s_cp_ble_trace_used;
+  }
+}
+
+static void prv_log_cp_connection_trace(void) {
+  PBL_LOG_D_INFO(LOG_DOMAIN_COMM, "T5AI CP BLE history: samples=%u now=%lu",
+      s_cp_ble_trace_used, (unsigned long)xTaskGetTickCount());
+  const unsigned first = (s_cp_ble_trace_next + CP_BLE_TRACE_COUNT -
+                          s_cp_ble_trace_used) % CP_BLE_TRACE_COUNT;
+  for (unsigned i = 0u; i < s_cp_ble_trace_used; ++i) {
+    const CPBleSample *sample = &s_cp_ble_trace[(first + i) % CP_BLE_TRACE_COUNT];
+    PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
+        "T5AI CP BLE sample: tick=%lu ptr=%lx sync_tick=%lu evt=%u inc=%u synced=%u",
+        (unsigned long)sample->tick, (unsigned long)sample->environment,
+        (unsigned long)sample->sync_tick, sample->event, sample->increment, sample->synced);
+    PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
+        "T5AI CP BLE state: tick=%lu prio=%u state=%u flags=%x",
+        (unsigned long)sample->tick, sample->priority, sample->state, sample->flags);
+  }
+}
+#endif
+
+static void prv_log_flash_operation(const char *name, const T5AIFlashOperationDiagnostics *sample) {
+  PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
+      "T5AI flash timing: op=%s count=%lu max_ms=%lu last_ms=%lu tick=%lu offset=%lx len=%lu",
+      name, (unsigned long)sample->count, (unsigned long)sample->max_ms,
+      (unsigned long)sample->last_ms, (unsigned long)sample->last_tick,
+      (unsigned long)sample->last_offset, (unsigned long)sample->last_length);
+}
+
+static void prv_log_flash_diagnostics(void) {
+  T5AIFlashDiagnostics diagnostics;
+  t5ai_flash_ipc_get_diagnostics(&diagnostics);
+  prv_log_flash_operation("read", &diagnostics.read);
+  prv_log_flash_operation("write", &diagnostics.write);
+  prv_log_flash_operation("erase", &diagnostics.erase);
+  PBL_LOG_D_INFO(LOG_DOMAIN_COMM, "T5AI flash active: command=%lu tick=%lu now=%lu",
+      (unsigned long)diagnostics.active_command, (unsigned long)diagnostics.active_tick,
+      (unsigned long)xTaskGetTickCount());
+}
+
 static bool s_started;
 static bool s_reset_scheduled;
 static uint8_t s_active_connections;
@@ -48,6 +149,34 @@ static void prv_log_task_state(PebbleTask task) {
                  pebble_task_get_char(task), (unsigned)eTaskGetState(handle),
                  (unsigned)uxTaskPriorityGet(handle),
                  (unsigned)uxTaskGetStackHighWaterMark(handle));
+}
+
+void t5ai_hci_report_fault_context(void) {
+#if CONFIG_T5AI_CP_BLE_TRACE
+  static bool reporting;
+  if (reporting || mcu_state_is_isr() || portIN_CRITICAL() ||
+      xTaskGetSchedulerState() != taskSCHEDULER_RUNNING) {
+    return;
+  }
+  reporting = true;
+  TaskHandle_t handle = pebble_task_get_handle_for_task(PebbleTask_App);
+  if (handle != NULL && handle != xTaskGetCurrentTaskHandle()) {
+    taskENTER_CRITICAL();
+    const uint32_t control = ulTaskDebugGetStackedControl(handle);
+    const uintptr_t pc = ulTaskDebugGetStackedPC(handle);
+    const uintptr_t lr = ulTaskDebugGetStackedLR(handle);
+    const uintptr_t syscall_lr = (uintptr_t)pvTaskGetThreadLocalStoragePointer(
+        handle, PBL_SYSCALL_TLS_LR);
+    const uintptr_t syscall_sp = (uintptr_t)pvTaskGetThreadLocalStoragePointer(
+        handle, PBL_SYSCALL_TLS_SP);
+    taskEXIT_CRITICAL();
+    PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
+        "T5AI fault app: control=%lx pc=%lx lr=%lx syscall_lr=%lx syscall_sp=%lx",
+        (unsigned long)control, (unsigned long)pc, (unsigned long)lr,
+        (unsigned long)syscall_lr, (unsigned long)syscall_sp);
+  }
+  prv_log_cp_connection_trace();
+#endif
 }
 
 static bool prv_started(void) {
@@ -124,6 +253,9 @@ static void prv_hci_task(void *unused) {
       PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "T5AI HCI worker detected transport fault");
       prv_schedule_reset();
     }
+#if CONFIG_T5AI_CP_BLE_TRACE
+    prv_sample_cp_connection();
+#endif
     struct os_mbuf *acl;
     if (s_acl_tx_queue != NULL && xQueueReceive(s_acl_tx_queue, &acl, 0) == pdTRUE) {
       prv_send_queued_acl(acl);
@@ -148,6 +280,15 @@ static void prv_hci_task(void *unused) {
                      (unsigned long)diagnostics.acl_received,
                      (unsigned long)diagnostics.commands_received,
                      (unsigned long)diagnostics.send_busy_retries);
+      prv_log_flash_diagnostics();
+#if CONFIG_T5AI_CP_BLE_TRACE
+      const CPBleSample *sample = &s_cp_ble_trace[
+          (s_cp_ble_trace_next + CP_BLE_TRACE_COUNT - 1u) % CP_BLE_TRACE_COUNT];
+      PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
+          "T5AI CP BLE sampler: count=%u ptr=%lx evt=%u synced=%u prio=%u",
+          s_cp_ble_trace_used, (unsigned long)sample->environment,
+          sample->event, sample->synced, sample->priority);
+#endif
       last_trace_tick = now;
     }
     vTaskDelay(pdMS_TO_TICKS(5));
@@ -172,7 +313,20 @@ static void prv_receive_event(const uint8_t *data, size_t length) {
     }
   }
 
+  if (data[0] == 0x3eu && length >= 21u && data[2] == 0x01u) {
+    PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
+                   "T5AI link result: status=%u handle=%u interval=%u latency=%u timeout=%u",
+                   data[3], data[4] | ((unsigned)data[5] << 8),
+                   data[14] | ((unsigned)data[15] << 8),
+                   data[16] | ((unsigned)data[17] << 8),
+                   data[18] | ((unsigned)data[19] << 8));
+  }
+
   if (data[0] == 0x05u) {
+#if CONFIG_T5AI_CP_BLE_TRACE
+    prv_log_cp_connection_trace();
+#endif
+    prv_log_flash_diagnostics();
     T5AIHCIIpcDiagnostics diagnostics;
     t5ai_hci_ipc_get_diagnostics(&diagnostics);
     PBL_LOG_D_INFO(
@@ -212,6 +366,14 @@ static void prv_receive_event(const uint8_t *data, size_t length) {
 
   if (data[0] == 0x0eu && length >= 6u) {
     const uint16_t opcode = (uint16_t)data[3] | ((uint16_t)data[4] << 8);
+    if (data[5] != 0u) {
+      PBL_LOG_D_WRN(LOG_DOMAIN_COMM, "T5AI HCI command rejected: opcode=%04x status=%u",
+                    opcode, data[5]);
+    }
+    if (opcode == 0x1009u && length >= 12u && data[5] == 0u) {
+      PBL_LOG_D_INFO(LOG_DOMAIN_COMM, "T5AI controller address: %02x:%02x:%02x:%02x:%02x:%02x",
+                     data[11], data[10], data[9], data[8], data[7], data[6]);
+    }
     if (opcode == T5AI_HCI_LE_SET_ADV_ENABLE_OPCODE) {
       PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
                      "T5AI HCI advertising command complete: status=%u", data[5]);
@@ -286,7 +448,11 @@ void ble_transport_ll_init(void) {
     TaskParameters_t parameters = {
         .pvTaskCode = prv_hci_task,
         .pcName = "T5AIHCI",
+#if CONFIG_T5AI_CP_BLE_TRACE
+        .usStackDepth = 1536 / sizeof(StackType_t),
+#else
         .usStackDepth = 1024 / sizeof(StackType_t),
+#endif
         .uxPriority = (tskIDLE_PRIORITY + 3) | portPRIVILEGE_BIT,
     };
     pebble_task_create(PebbleTask_BTHCI, &parameters, &s_hci_task);
@@ -303,6 +469,9 @@ void ble_transport_ll_deinit(void) {
     PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "T5AI controller stop failed");
   }
   if (s_acl_tx_queue != NULL) {
+#if CONFIG_T5AI_CP_BLE_TRACE
+    prv_sample_cp_connection();
+#endif
     struct os_mbuf *acl;
     while (xQueueReceive(s_acl_tx_queue, &acl, 0) == pdTRUE) {
       os_mbuf_free_chain(acl);
@@ -314,6 +483,14 @@ int ble_transport_to_ll_cmd_impl(void *buf) {
   const struct ble_hci_cmd *command = buf;
   const size_t length = sizeof(*command) + command->length;
   int result = BLE_ERR_MEM_CAPACITY;
+
+  if (command->opcode == 0x2006u && command->length == 15u) {
+    const uint8_t *p = command->data;
+    PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
+                   "T5AI advertising parameters: min=%u max=%u type=%u addr=%u channels=%u filter=%u",
+                   p[0] | ((unsigned)p[1] << 8), p[2] | ((unsigned)p[3] << 8),
+                   p[4], p[5], p[13], p[14]);
+  }
 
   const bool is_advert_enable =
       command->opcode == T5AI_HCI_LE_SET_ADV_ENABLE_OPCODE && command->length >= 1u;

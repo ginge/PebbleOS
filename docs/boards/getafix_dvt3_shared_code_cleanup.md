@@ -1,5 +1,24 @@
 # Getafix DVT3 shared-code cleanup
 
+## Latest checkpoint — 2026-10-03
+
+The [CP and storage checkpoint](getafix_dvt3_cp_storage_checkpoint.md) records
+implemented mailbox/CRC and NOR-cache fixes, 2.75 MiB PFS migration, six loaded
+faces and five successful encrypted reconnects. Later diagnostic runs reproduced
+supervision loss and an App privileged-code stall/reset. Root causes and reliable
+Bluetooth recovery remain unresolved; a subsequent stable interval is not a fix.
+The latest recorded image is diagnostic. Capture state is a dated observation,
+not proof of current monitoring; verify device visibility and received bytes.
+Cold-boot persistence, overnight soak and power behavior remain open.
+
+See the [implementation-gap inventory](getafix_dvt3.md#implementation-gaps-and-explicit-stubs--2026-10-03)
+for explicit low-power/RTC-alarm, console-input, flash-logging, boot-version and
+OTP placeholders, disabled coredumps/audio/optional hardware, and gated updates.
+Native watchdog and primary peripheral paths are implemented; device identity
+reports Round 2. Older image hashes and implementation claims below are historical.
+Shared-code cleanup remains paused unless explicitly resumed.
+
+
 ## Goal
 
 Reduce the DVT3/T5AI port to the smallest practical delta from stock PebbleOS.
@@ -13,12 +32,12 @@ existing stock files. Eighty-nine modified files were production sources
 outside obvious build, documentation, and test glue, and 69 modified stock
 files contained T5AI-specific conditionals.
 
-## Current status — paused 2026-09-19
+## Historical shared-code cleanup status — paused 2026-09-19
 
 Shared-code cleanup is paused at the user's request. Do not start another
 cleanup slice until it is explicitly resumed.
 
-The accepted source state is based on `e68bf6ba1`. The watch currently runs
+The accepted source state is based on `e68bf6ba1`. At that checkpoint the watch ran
 the restored fast resource-validator build: raw SHA-256
 `b98f7def2600b11a25582346e2de7d108a62299ca5704f5a36a64cd64ef421f9`,
 protected SHA-256
@@ -196,21 +215,16 @@ Reapply each justified generic change independently with focused unit tests and
 representative stock-platform builds. Drop fixes that cannot be justified
 without the T5AI port.
 
-### 5. Deferred: localize the T5AI priority exception
+### 5. Priority exception follow-up — superseded diagnosis
 
-The hardware-proven priority ordering is required for now: T5AI KernelBG runs
-at the blocking maximum priority and its app/render task runs at priority 1.
-Do not remove or weaken that ordering during the current cleanup.
-
-As non-urgent follow-up work, determine why stock priorities allow the CP flash
-write used by AppFetch to fail. Instrument task readiness and the T5AI mailbox
-route result narrowly enough to distinguish AP scheduling starvation from a CP
-busy/rejection condition. Then move the policy into the T5AI FreeRTOS port,
-board configuration, or another platform-local priority provider so
-`services/system_task/service.c` and `process_management/app_manager.c` can
-return to stock. Accept that cleanup only after repeated stock-window AppFetch,
-launch, reconnect, and idle-soak tests pass without a flash IPC fault or AP
-reboot.
+The October CP/flash work keeps changes local to T5AI transport and the flash
+driver. Flash reads retain the priority boost through copy/CRC and READ_DONE;
+ordinary physical commands are serialized across logical channels. Shared
+app/SystemTask priorities and timer behavior remain stock. The earlier proposed
+broad readiness instrumentation is not the next required task and session
+measurement probes have been removed. Future scheduling localization must
+preserve these ownership and lease guarantees and undergo transfer/reconnect
+validation. Longer soak coverage remains outstanding.
 
 ### 6. Deferred: resource and update capability cleanup
 

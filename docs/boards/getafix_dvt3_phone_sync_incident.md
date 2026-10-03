@@ -1,9 +1,28 @@
 # Getafix DVT3 phone-sync incident: 2026-09-14 through 2026-09-15
 
-## Paused checkpoint: end of 2026-09-15
+## Latest checkpoint — 2026-10-03
 
-Work is intentionally paused. Do not infer the current state from the older
-chronological notes below without reading this checkpoint first.
+The [CP and storage checkpoint](getafix_dvt3_cp_storage_checkpoint.md) records
+implemented mailbox/CRC and NOR-cache fixes, 2.75 MiB PFS migration, six loaded
+faces and five successful encrypted reconnects. Later diagnostic runs reproduced
+supervision loss and an App privileged-code stall/reset. Root causes and reliable
+Bluetooth recovery remain unresolved; a subsequent stable interval is not a fix.
+The latest recorded image is diagnostic. Capture state is a dated observation,
+not proof of current monitoring; verify device visibility and received bytes.
+Cold-boot persistence, overnight soak and power behavior remain open.
+
+See the [implementation-gap inventory](getafix_dvt3.md#implementation-gaps-and-explicit-stubs--2026-10-03)
+for explicit low-power/RTC-alarm, console-input, flash-logging, boot-version and
+OTP placeholders, disabled coredumps/audio/optional hardware, and gated updates.
+Native watchdog and primary peripheral paths are implemented; device identity
+reports Round 2. Older image hashes and implementation claims below are historical.
+Shared-code cleanup remains paused unless explicitly resumed.
+
+
+## Historical paused checkpoint: end of 2026-09-15
+
+This section records the September pause. Use the October checkpoint above
+for current state; retain these notes as failure evidence.
 
 The most recent phone sync failed before AppFetch, PutBytes, or any flash write
 began. The trace contains only the reversed PPoG session opening and small

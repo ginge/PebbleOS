@@ -94,6 +94,42 @@ static PebbleMutex *s_flash_mutex;
 static PebbleMutex *s_saradc_mutex;
 static FlashCommand s_flash_command __attribute__((aligned(32)));
 static SaradcCommand s_saradc_command __attribute__((aligned(32)));
+static T5AIFlashDiagnostics s_flash_diagnostics = {.active_command = UINT32_MAX};
+
+static void prv_sample_operation(T5AIFlashOperationDiagnostics *sample,
+                                 uint32_t elapsed_ms, uint32_t offset, uint32_t length) {
+  __atomic_fetch_add(&sample->count, 1u, __ATOMIC_RELAXED);
+  if (elapsed_ms > __atomic_load_n(&sample->max_ms, __ATOMIC_RELAXED)) {
+    __atomic_store_n(&sample->max_ms, elapsed_ms, __ATOMIC_RELAXED);
+  }
+  __atomic_store_n(&sample->last_ms, elapsed_ms, __ATOMIC_RELAXED);
+  __atomic_store_n(&sample->last_offset, offset, __ATOMIC_RELAXED);
+  __atomic_store_n(&sample->last_length, length, __ATOMIC_RELAXED);
+  __atomic_store_n(&sample->last_tick, xTaskGetTickCount(), __ATOMIC_RELAXED);
+}
+
+static void prv_get_operation(const T5AIFlashOperationDiagnostics *source,
+                              T5AIFlashOperationDiagnostics *target) {
+#define SAMPLE_FIELD(field) target->field = __atomic_load_n(&source->field, __ATOMIC_RELAXED)
+  SAMPLE_FIELD(count);
+  SAMPLE_FIELD(max_ms);
+  SAMPLE_FIELD(last_ms);
+  SAMPLE_FIELD(last_tick);
+  SAMPLE_FIELD(last_offset);
+  SAMPLE_FIELD(last_length);
+#undef SAMPLE_FIELD
+}
+
+void t5ai_flash_ipc_get_diagnostics(T5AIFlashDiagnostics *diagnostics) {
+  prv_get_operation(&s_flash_diagnostics.read, &diagnostics->read);
+  prv_get_operation(&s_flash_diagnostics.write, &diagnostics->write);
+  prv_get_operation(&s_flash_diagnostics.erase, &diagnostics->erase);
+  diagnostics->active_command =
+      __atomic_load_n(&s_flash_diagnostics.active_command, __ATOMIC_RELAXED);
+  diagnostics->active_tick =
+      __atomic_load_n(&s_flash_diagnostics.active_tick, __ATOMIC_RELAXED);
+}
+
 static bool s_flash_available;
 static bool s_saradc_available = true;
 
@@ -257,6 +293,11 @@ static status_t prv_flash_transaction(uint8_t command) {
    * called from KernelBG while app and Bluetooth work is runnable, so keep the
    * client just below the physical mailbox worker until that handshake is
    * complete. Blocking waits still yield normally. */
+  const TickType_t trace_start = xTaskGetTickCount();
+  const uint32_t trace_offset = s_flash_command.part_and_address >> 8u;
+  const uint32_t trace_length = (uint16_t)s_flash_command.length_and_status;
+  __atomic_store_n(&s_flash_diagnostics.active_tick, trace_start, __ATOMIC_RELAXED);
+  __atomic_store_n(&s_flash_diagnostics.active_command, command, __ATOMIC_RELAXED);
   const UBaseType_t previous_priority = prv_boost_client_priority();
   t5ai_mb_ipc_discard(s_flash_socket);
   status_t status = t5ai_mb_ipc_send(s_flash_socket, command, &s_flash_command,
@@ -298,17 +339,17 @@ static status_t prv_flash_transaction(uint8_t command) {
   prv_flash_fault(E_ERROR, command);
   status = E_ERROR;
 out:
+  const uint32_t elapsed_ms = (xTaskGetTickCount() - trace_start) * portTICK_PERIOD_MS;
+  T5AIFlashOperationDiagnostics *sample = command == FLASH_READ ? &s_flash_diagnostics.read :
+      command == FLASH_WRITE ? &s_flash_diagnostics.write :
+      command == FLASH_ERASE_SECTOR ? &s_flash_diagnostics.erase : NULL;
+  if (sample != NULL) {
+    prv_sample_operation(sample, elapsed_ms, trace_offset, trace_length);
+  }
+  __atomic_store_n(&s_flash_diagnostics.active_command, UINT32_MAX, __ATOMIC_RELAXED);
   prv_restore_client_priority(previous_priority);
   return status;
 }
-
-#define FLASH_TIMING_RTC_LOW (*(volatile uint32_t *)0x4400020cu)
-#define FLASH_TIMING_WINDOW 64u
-
-/* RTC ticks are 1/32000 second; report outside the shared-buffer lease. */
-static struct {
-  uint32_t reads, bytes, failures, total, maximum, response, copy, done;
-} s_read_timing;
 
 status_t t5ai_flash_ipc_read(uint32_t offset, void *buffer, size_t length) {
   if (buffer == NULL || length == 0u || length > 0xffffu) {
@@ -318,18 +359,11 @@ status_t t5ai_flash_ipc_read(uint32_t offset, void *buffer, size_t length) {
   /* CPU0's read buffer remains leased until READ_DONE. Keep copying and CRC
    * validation inside the same priority boost as both handshakes. */
   const UBaseType_t previous_priority = prv_boost_client_priority();
-  const uint32_t started = FLASH_TIMING_RTC_LOW;
-  uint32_t responded = started;
-  uint32_t copied = started;
-  bool received = false;
-  bool consumed = false;
   s_flash_command = (FlashCommand){
       .part_and_address = offset << 8u,
       .length_and_status = (uint32_t)length,
   };
   status_t status = prv_flash_transaction(FLASH_READ);
-  responded = FLASH_TIMING_RTC_LOW;
-  received = PASSED(status);
   if (FAILED(status) ||
       !t5ai_cp_mailbox_shared_range_valid((uintptr_t)s_flash_command.buffer, length)) {
     status = FAILED(status) ? status : E_ERROR;
@@ -346,32 +380,10 @@ status_t t5ai_flash_ipc_read(uint32_t offset, void *buffer, size_t length) {
     goto out;
   }
   memcpy(buffer, source, length);
-  copied = FLASH_TIMING_RTC_LOW;
-  consumed = true;
 
   memset(&s_flash_command, 0, sizeof(s_flash_command));
   status = prv_flash_transaction(FLASH_READ_DONE);
 out:
-  const uint32_t finished = FLASH_TIMING_RTC_LOW;
-  const uint32_t elapsed = finished - started;
-  ++s_read_timing.reads;
-  s_read_timing.bytes += length;
-  s_read_timing.failures += FAILED(status);
-  s_read_timing.total += elapsed;
-  if (elapsed > s_read_timing.maximum) {
-    s_read_timing.maximum = elapsed;
-  }
-  s_read_timing.response += responded - started;
-  s_read_timing.copy += received ? (consumed ? copied : finished) - responded : 0u;
-  s_read_timing.done += consumed ? finished - copied : 0u;
-  if (s_read_timing.reads == FLASH_TIMING_WINDOW) {
-    PBL_LOG_INFO("T5AI flash timing reads=64 bytes=%lu fail=%lu ticks=%lu max=%lu response=%lu copy=%lu done=%lu",
-                 (unsigned long)s_read_timing.bytes,
-                 (unsigned long)s_read_timing.failures, (unsigned long)s_read_timing.total,
-                 (unsigned long)s_read_timing.maximum, (unsigned long)s_read_timing.response,
-                 (unsigned long)s_read_timing.copy, (unsigned long)s_read_timing.done);
-    memset(&s_read_timing, 0, sizeof(s_read_timing));
-  }
   prv_restore_client_priority(previous_priority);
   mutex_unlock(s_flash_mutex);
   return status;

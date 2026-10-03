@@ -14,3 +14,23 @@ status_t t5ai_flash_ipc_init(void);
 status_t t5ai_flash_ipc_read(uint32_t offset, void *buffer, size_t length);
 status_t t5ai_flash_ipc_write(uint32_t offset, const void *buffer, size_t length);
 status_t t5ai_flash_ipc_erase_4k(uint32_t offset);
+
+/* Lock-free diagnostic samples; fields may span adjacent transactions. */
+typedef struct {
+  uint32_t count;
+  uint32_t max_ms;
+  uint32_t last_ms;
+  uint32_t last_tick;
+  uint32_t last_offset;
+  uint32_t last_length;
+} T5AIFlashOperationDiagnostics;
+
+typedef struct {
+  T5AIFlashOperationDiagnostics read;
+  T5AIFlashOperationDiagnostics write;
+  T5AIFlashOperationDiagnostics erase;
+  uint32_t active_command;
+  uint32_t active_tick;
+} T5AIFlashDiagnostics;
+
+void t5ai_flash_ipc_get_diagnostics(T5AIFlashDiagnostics *diagnostics);
