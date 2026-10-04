@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -16,6 +17,32 @@ spec.loader.exec_module(builder)
 
 
 class TuyaHardwareTest(unittest.TestCase):
+    def test_sdk_staging_uses_private_platform_copy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            sdk, platform, output = root / "TuyaOpen", root / "T5AI", root / "output"
+            sdk.mkdir()
+            platform.mkdir()
+            (sdk / "tos.py").write_text("reference")
+            (platform / "source.c").write_text("stock")
+            for repo in (sdk, platform):
+                subprocess.run(["git", "init", "-q", str(repo)], check=True)
+                subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+                subprocess.run(["git", "-C", str(repo), "-c", "user.name=Test",
+                                "-c", "user.email=test@example.com", "commit", "-qm", "fixture"],
+                               check=True)
+            with patch.object(builder, "platform_path", return_value=platform):
+                staged = builder.stage_sdk(sdk, output)
+                self.assertEqual((staged / "platform/T5AI/source.c").read_text(), "stock")
+                self.assertTrue((staged / "platform/T5AI/.git").is_dir())
+                (staged / "platform/T5AI/source.c").write_text("generated")
+                (staged / "obsolete.c").write_text("old")
+                builder.stage_sdk(sdk, output)
+                self.assertEqual((platform / "source.c").read_text(), "stock")
+                self.assertFalse((staged / "obsolete.c").exists())
+                with self.assertRaises(ValueError):
+                    builder.stage_sdk(sdk, sdk / "output")
+
     @unittest.skipUnless(shutil.which("cc"), "host C compiler required")
     def test_hardware_core(self):
         with tempfile.TemporaryDirectory() as directory:

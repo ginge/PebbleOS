@@ -169,8 +169,6 @@ def make_runner(env, options):
     resources_file = None
     if getattr(options, "resources", False) and env.VARIANT != "prf":
         resources_file = pbpack()
-    if env.CONFIG_SOC_T5AI:
-        resources_file = pbpack()
 
     cfg = runners.RunnerConfig(
         board_dir=os.path.join("boards", env.BOARD_NAME),

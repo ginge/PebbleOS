@@ -40,3 +40,9 @@
 [submodule "third_party/mbedtls/mbedtls"]
 	path = third_party/mbedtls/mbedtls
 	url = https://github.com/Mbed-TLS/mbedtls.git
+[submodule "third_party/hal_tuya/TuyaOpen-T5AI"]
+	path = third_party/hal_tuya/TuyaOpen-T5AI
+	url = https://github.com/tuya/TuyaOpen-T5AI.git
+[submodule "third_party/hal_tuya/TuyaOpen"]
+	path = third_party/hal_tuya/TuyaOpen
+	url = https://github.com/tuya/TuyaOpen.git

@@ -150,6 +150,8 @@ def options(opt):
     # Runner-specific arguments (e.g. --tty for sftool) are contributed by the
     # runners themselves, mirroring Zephyr's west do_add_parser().
     pebble_runners.register_args(_OptParserAdapter(opt))
+    opt.add_option('--tuya-python', help='Python interpreter for optional Tuya reference builds')
+    opt.add_option('--t5ai-cp-stock', help='Pinned stock CP image for t5ai_cp')
     opt.add_option('--compile_commands', action='store_true', help='Create a clang compile_commands.json')
     opt.add_option('--onlysdk', action='store_true', help="only build the sdk")
     opt.add_option('--variant', action='store', default='normal',
@@ -904,8 +906,6 @@ def _create_runner(ctx, want_resources=False):
     resources_file = None
     if want_resources and ctx.options.resources and ctx.env.VARIANT != 'prf':
         resources_file = ctx.get_pbpack_node().path_from(ctx.path)
-    if ctx.env.CONFIG_SOC_T5AI:
-        resources_file = ctx.get_pbpack_node().path_from(ctx.path)
 
     fw = ctx.get_pebbleos_node()
     cfg = pebble_runners.RunnerConfig(
@@ -984,5 +984,38 @@ class build_tools(BuildContext):
     """build all tools in tools/ dir"""
     cmd = 'build_tools'
     variant = 'tools'
+
+class T5aiCPContext(BuildContext):
+    cmd = 't5ai_cp'
+    fun = 't5ai_cp'
+
+
+def t5ai_cp(ctx):
+    from tools.t5ai_cp import build_cp
+    if ctx.env.BOARD != 'getafix@dvt3':
+        ctx.fatal('t5ai_cp requires getafix@dvt3 and its validated CP ABI')
+    if not ctx.options.t5ai_cp_stock:
+        ctx.fatal('Pass --t5ai-cp-stock with the pinned stock CP image')
+    try:
+        build_cp(ctx.options.t5ai_cp_stock, ctx.bldnode.abspath(),
+                 ctx.env.CC[-1], 'arm-none-eabi-objcopy')
+    except (ValueError, OSError, subprocess.CalledProcessError) as error:
+        ctx.fatal(str(error))
+
+
+class TuyaReferenceContext(BuildContext):
+    cmd = 'tuya_reference'
+    fun = 'tuya_reference'
+
+
+def tuya_reference(ctx):
+    if not ctx.env.CONFIG_SOC_T5AI:
+        ctx.fatal('tuya_reference requires a configured T5AI board')
+    command = [sys.executable, 'tools/build_tuya_hardware.py',
+               '--out', ctx.bldnode.make_node('getafix_dvt3_hw').abspath()]
+    if ctx.options.tuya_python:
+        command.extend(['--python', ctx.options.tuya_python])
+    if subprocess.call(command, cwd=ctx.path.abspath()):
+        ctx.fatal('Tuya reference build failed')
 
 # vim:filetype=python

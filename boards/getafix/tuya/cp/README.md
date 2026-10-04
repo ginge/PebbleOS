@@ -17,7 +17,19 @@ the original initializer before configuring RF; initialization failure returns
 without changing RF. Unknown CP images and oversized hooks are rejected.
 This is a source-backed binary integration, not a full vendor CP rebuild.
 
-Build with the ARM compiler on PATH:
+The native build/flash entry points are now available from the configured
+PebbleOS checkout:
+
+```
+python pbl waf t5ai_cp --t5ai-cp-stock /path/to/pinned/app.bin
+python pbl flash --dry-run --t5ai-cp --tyutool /path/to/tyutool_cli --tyutool-tty /dev/serial/by-id/programming-uart
+```
+
+The runner updates AP and explicitly selected CP, preserving PFS. Remove
+`--dry-run` to program; use the standalone CP-only guard below for CP rollback.
+See `docs/boards/getafix_dvt3_tooling.md` for dependencies and provisioning.
+
+Build with the ARM compiler on PATH (legacy standalone workflow):
 
 ```
 python3 tools/patch_t5ai_cp_rf.py --stock /path/to/pinned/app.bin --out /tmp/cp-ble-pll/app.bin

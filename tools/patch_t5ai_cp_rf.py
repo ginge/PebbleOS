@@ -63,11 +63,11 @@ def install_hook(image: bytes, hook: bytes) -> bytes:
     return bytes(result)
 
 
-def compile_hook(address: int, compiler: str) -> bytes:
+def compile_hook(address: int, compiler: str, objcopy_tool: str | None = None) -> bytes:
     gcc = shutil.which(compiler)
     if gcc is None:
         raise ValueError("ARM compiler unavailable")
-    objcopy = Path(gcc).with_name("arm-none-eabi-objcopy")
+    objcopy = objcopy_tool or Path(gcc).with_name("arm-none-eabi-objcopy")
     with tempfile.TemporaryDirectory() as folder:
         folder = Path(folder)
         linker = folder / "hook.ld"

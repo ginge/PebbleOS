@@ -127,7 +127,7 @@ Run all commands from the real PebbleOS checkout:
 cd /home/baz/coredevices/pebbleos
 . .venv/bin/activate
 python pbl configure --board getafix@dvt3
-python ./waf build
+python pbl build
 ```
 
 The diagnostics-free checkpoint build on 2026-09-13 succeeded with these
@@ -147,26 +147,21 @@ reflashed after the successful phone session.
 The build emits `build/pebbleos.t5ai-crc.bin`, an AP-only protected-block
 payload. It is not a complete QIO, UA, UG, factory, recovery, or OTA image.
 
-To validate or flash firmware without modifying resources, the filesystem,
-Tuya bootloader, or CP image, use the dedicated guard script. It verifies every
-34:32 CRC block, decodes the protected artifact and compares it byte-for-byte
-with `pebbleos.bin`, checks erased padding and Cortex-M vectors, enforces the AP
-slot bound, and derives the exclusive physical end address from the protected
-file. Validation is the default; an actual write requires `--flash`:
+Routine updates use the native runner and preserve system resources, PFS and
+bonds. Preview the exact write range before programming:
 
 ```sh
-.venv/bin/python tools/flash_t5ai_firmware.py \
-  --tyutool /path/to/tyutool_cli \
-  --port /dev/serial/by-id/usb-1a86_USB_Dual_Serial_5C75025844-if00
-
-.venv/bin/python tools/flash_t5ai_firmware.py \
-  --tyutool /path/to/tyutool_cli \
-  --port /dev/serial/by-id/usb-1a86_USB_Dual_Serial_5C75025844-if00 \
-  --flash
+python pbl flash --dry-run --tyutool /path/to/tyutool_cli --tyutool-tty /dev/serial/by-id/usb-1a86_USB_Dual_Serial_5C75025844-if00
+python pbl flash --tyutool /path/to/tyutool_cli --tyutool-tty /dev/serial/by-id/usb-1a86_USB_Dual_Serial_5C75025844-if00
 ```
 
-Never pass `build/pebbleos.bin` directly to tyutool: it is the logical image,
-not the CRC-protected physical-flash representation.
+`--resources` additionally updates system resources; it preserves PFS.
+`--t5ai-provision --resources` explicitly writes an empty PFS and destroys its
+stored apps/data. `--t5ai-cp` additionally writes the validated CP artifacts
+produced by `python pbl waf t5ai_cp --t5ai-cp-stock /path/to/stock/app.bin`.
+The legacy AP/CP guard scripts remain available for rollback and validation.
+See [dependency and tooling alignment](getafix_dvt3_tooling.md) for setup and CP inputs.
+Never pass logical `build/pebbleos.bin` directly to tyutool.
 
 ## AP-only lab flashing
 
@@ -184,7 +179,7 @@ existing resources and PFS. The one-off migration retained live file contents;
 its exact expanded readback is recorded in the current checkpoint.
 
 For deliberate empty-filesystem provisioning on an already-backed-up lab board,
-`pbl flash` replaces existing PFS contents and builds two exact-range images:
+`pbl flash --resources --t5ai-provision` replaces existing PFS contents and builds two exact-range images:
 the protected AP image contains firmware and system resources (including stored
 base apps), while a second raw image contains a preformatted empty PFS. The PFS
 image writes the same active-low page headers as `pfs_format(true)`, so
@@ -192,7 +187,7 @@ filesystem provisioning is deterministic before normal resource and launcher
 startup. The factory bootloader and CP partitions remain untouched:
 
 ```sh
-python pbl flash \
+python pbl flash --resources --t5ai-provision \
   --tyutool /path/to/tyutool_cli \
   --tyutool-tty /dev/ttyACM0
 ```
@@ -1426,9 +1421,9 @@ Key native files:
 - `docs/boards/getafix_dvt3_phone_sync_incident.md`: final 2026-09-14 crash
   evidence, mailbox/flash diagnosis, recovery guardrails, and next-session plan.
 
-Pinned vendor references are under
-`/home/baz/Documents/ChatGPT/pebble/.vendor/tuyaopen`; revisions are recorded in
-`boards/getafix/tuya/sdk.lock.json`. Useful mailbox comparisons include
+Pinned vendor references are submodules under `third_party/hal_tuya/`:
+`TuyaOpen-T5AI` contains the platform and `TuyaOpen` the optional reference SDK.
+Revisions are also recorded in `boards/getafix/tuya/sdk.lock.json`. Useful mailbox comparisons include
 `bk_api_ipc.c`, `tkl_ipc.c`, `tkl_hci_0.c`, and `tkl_hci_1.c` in that pinned
 tree.
 
