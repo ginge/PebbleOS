@@ -3,6 +3,7 @@
 #include <pbl/mcu/cache.h>
 #include <pbl/logging/logging.h>
 #include <pbl/os/mutex.h>
+#include <pbl/soc/t5ai/memory.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/hci_ipc.h>
 #include <pbl/soc/t5ai/mipc.h>
@@ -17,7 +18,6 @@
 #include "task.h"
 
 // Shared objects must start on a BK7258 data-cache line.
-#define T5AI_HCI_SHARED_ALIGNMENT 32u
 #define T5AI_HCI_MESSAGE_WIRE_SIZE 20u
 #define T5AI_HCI_WORKER_PRIORITY (configMAX_PRIORITIES - 2u)
 // Bounded waits for the persistent worker to drain frames and retire CP ownership.
@@ -67,9 +67,9 @@ typedef struct {
 typedef struct {
   T5AIMIPCChannelConfig config;
   T5AIMIPCHandle handle;
-  T5AIMIPCData data __attribute__((aligned(T5AI_HCI_SHARED_ALIGNMENT)));
-  T5AIMIPCFrame frame __attribute__((aligned(T5AI_HCI_SHARED_ALIGNMENT)));
-  T5AIHCIMessage message __attribute__((aligned(T5AI_HCI_SHARED_ALIGNMENT)));
+  T5AIMIPCData data __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
+  T5AIMIPCFrame frame __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
+  T5AIHCIMessage message __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
 } T5AIHCIOutbound;
 
 typedef struct {
@@ -94,16 +94,15 @@ static SemaphoreHandle_t s_worker_wake;
 static SemaphoreHandle_t s_exchange_ready;
 static TaskHandle_t s_worker_task;
 static StackType_t s_worker_stack[T5AI_HCI_WORKER_STACK_WORDS]
-    __attribute__((section(".t5ai_board_cache"), aligned(T5AI_HCI_SHARED_ALIGNMENT)));
+    __attribute__((section(".t5ai_board_cache"), aligned(T5AI_SHARED_ALIGNMENT)));
 static volatile uint8_t s_expected_subtype = T5AI_HCI_NO_EXPECTED_SUBTYPE;
 static T5AIHCIPendingFrame s_pending_frames[T5AI_HCI_PENDING_FRAME_CAPACITY]
-    __attribute__((aligned(T5AI_HCI_SHARED_ALIGNMENT)));
+    __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
 static uint8_t s_pending_frame_head;
 static uint8_t s_pending_frame_count;
 static uint8_t s_event_payload[T5AI_HCI_MAX_EVENT_SIZE]
-    __attribute__((aligned(T5AI_HCI_SHARED_ALIGNMENT)));
-static uint8_t s_acl_payload[T5AI_HCI_MAX_ACL_SIZE]
-    __attribute__((aligned(T5AI_HCI_SHARED_ALIGNMENT)));
+    __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
+static uint8_t s_acl_payload[T5AI_HCI_MAX_ACL_SIZE] __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
 static T5AIHCIIpcDiagnostics s_diagnostics;
 
 _Static_assert(sizeof(T5AIHCIMessage) == T5AI_HCI_MESSAGE_WIRE_SIZE, "T5AI HCI IPC ABI changed");

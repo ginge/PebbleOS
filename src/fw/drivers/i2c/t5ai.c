@@ -24,6 +24,36 @@ typedef volatile struct {
   uint32_t extended_config;
 } T5AII2CRegisters;
 
+// BK7258 I2C0 clock, register fields and pin mux from the pinned BSP.
+#define T5AI_I2C0_BASE 0x45850000u
+#define T5AI_I2C_SOURCE_HZ 26000000u
+#define T5AI_I2C_GLOBAL_RESET_RELEASE (1u << 0)
+#define T5AI_I2C_GLOBAL_CLOCK_GATE_BYPASS (1u << 1)
+#define T5AI_I2C_CLOCK_ENABLE (1u << 0)
+#define T5AI_I2C_BACKUP_POWER_DOWN (1u << 4)
+#define T5AI_I2C0_INTERRUPT_ENABLE (1u << 6)
+#define T5AI_I2C_IRQ_PRIORITY 6u
+#define T5AI_I2C_DIVIDER_MAX 0x3ffu
+#define T5AI_I2C_IDLE_CONTROL (3u << 0)
+#define T5AI_I2C_SCL_CONTROL (4u << 3)
+#define T5AI_I2C_CLOCK_SOURCE (3u << 26)
+#define T5AI_I2C_EXT_DATA_OUTPUT_ENABLE (1u << 0)
+#define T5AI_I2C_EXT_ADDRESS_OUTPUT_ENABLE (1u << 1)
+#define T5AI_I2C_ENABLE_SETTLE_US 5u
+#define T5AI_I2C_BUS_FREE_US 5u
+#define T5AI_I2C_GPIO_BASE ((volatile uint32_t *)0x44000400u)
+#define T5AI_I2C_GPIO_CONFIG_MASK 0x3fffu
+#define T5AI_I2C_GPIO_OUTPUT_DISABLE (1u << 3)
+#define T5AI_I2C_GPIO_PULL_UP (1u << 4)
+#define T5AI_I2C_GPIO_PULL_ENABLE (1u << 5)
+#define T5AI_I2C_GPIO_SECOND_FUNCTION (1u << 6)
+#define T5AI_I2C_PINS_PER_FUNCTION_WORD 8u
+#define T5AI_I2C_FUNCTION_BITS 4u
+#define T5AI_I2C_FUNCTION_MASK 0xfu
+// Vendor SCL formula: source clocks = 3 * (divider + 1) + 6.
+#define T5AI_I2C_SCL_FIXED_CLOCKS 6u
+#define T5AI_I2C_SCL_DIVIDER_CLOCKS 3u
+
 #define T5AI_I2C_STATUS_INTERRUPT (1u << 0)
 #define T5AI_I2C_STATUS_TIMEOUT (1u << 1)
 #define T5AI_I2C_STATUS_ARB_LOST (1u << 3)
@@ -66,48 +96,54 @@ static void prv_start_address(T5AII2CRegisters *regs, uint16_t address, bool rea
 }
 
 static void prv_configure_pin(uint8_t pin) {
-  volatile uint32_t *gpio = (volatile uint32_t *)0x44000400u;
-  const uint32_t pull_up = (1u << 4) | (1u << 5);
-  gpio[pin] = (gpio[pin] & ~0x3fffu) | (1u << 3) | pull_up | (1u << 6);
+  volatile uint32_t *gpio = T5AI_I2C_GPIO_BASE;
+  const uint32_t pull_up = T5AI_I2C_GPIO_PULL_UP | T5AI_I2C_GPIO_PULL_ENABLE;
+  gpio[pin] = (gpio[pin] & ~T5AI_I2C_GPIO_CONFIG_MASK) | T5AI_I2C_GPIO_OUTPUT_DISABLE | pull_up |
+              T5AI_I2C_GPIO_SECOND_FUNCTION;
 
-  volatile uint32_t *function = &T5AI_SYSTEM_GPIO_FUNCTION_BASE[pin / 8u];
-  const uint32_t shift = (pin % 8u) * 4u;
-  *function &= ~(0xfu << shift);  // I2C0 is peripheral function zero on P20/P21.
+  volatile uint32_t *function =
+      &T5AI_SYSTEM_GPIO_FUNCTION_BASE[pin / T5AI_I2C_PINS_PER_FUNCTION_WORD];
+  const uint32_t shift = (pin % T5AI_I2C_PINS_PER_FUNCTION_WORD) * T5AI_I2C_FUNCTION_BITS;
+  *function &= ~(T5AI_I2C_FUNCTION_MASK << shift);  // I2C0 is peripheral function zero on P20/P21.
 }
 
 void i2c_hal_init(I2CBus *bus) {
-  PBL_ASSERTN(bus->hal->base == 0x45850000u);
+  PBL_ASSERTN(bus->hal->base == T5AI_I2C0_BASE);
   PBL_ASSERTN(bus->hal->frequency != 0u);
   prv_configure_pin(bus->hal->scl_pin);
   prv_configure_pin(bus->hal->sda_pin);
 
   // BAKP owns I2C0. The boot-stage CP PM service is not yet response-ready
   // here, so reproduce its authoritative zero-is-powered domain operation.
-  T5AI_SYSTEM_POWER_SLEEP_WAKEUP &= ~(1u << 4);
-  T5AI_SYSTEM_DEVICE_CLOCK_ENABLE |= 1u;
+  T5AI_SYSTEM_POWER_SLEEP_WAKEUP &= ~T5AI_I2C_BACKUP_POWER_DOWN;
+  T5AI_SYSTEM_DEVICE_CLOCK_ENABLE |= T5AI_I2C_CLOCK_ENABLE;
   T5AII2CRegisters *regs = prv_regs(bus);
   // BK7258 names bit 0 soft_reset, but its HAL leaves it asserted as the
   // reset-release state and adds clock-gate bypass in bit 1.
-  regs->global_control = (1u << 0) | (1u << 1);
-  const uint32_t source_hz = 26000000u;
+  regs->global_control = T5AI_I2C_GLOBAL_RESET_RELEASE | T5AI_I2C_GLOBAL_CLOCK_GATE_BYPASS;
+  const uint32_t source_hz = T5AI_I2C_SOURCE_HZ;
   const uint32_t clocks = (source_hz + bus->hal->frequency - 1u) / bus->hal->frequency;
-  const uint32_t divider = ((clocks - 6u) + 2u) / 3u - 1u;
-  PBL_ASSERTN(divider <= 0x3ffu);
-  regs->config = (3u << 0) | (4u << 3) | (divider << T5AI_I2C_CONFIG_FREQ_DIV_SHIFT) | (3u << 26) |
+  const uint32_t divider =
+      ((clocks - T5AI_I2C_SCL_FIXED_CLOCKS) + T5AI_I2C_SCL_DIVIDER_CLOCKS - 1u) /
+          T5AI_I2C_SCL_DIVIDER_CLOCKS -
+      1u;
+  PBL_ASSERTN(divider <= T5AI_I2C_DIVIDER_MAX);
+  regs->config = T5AI_I2C_IDLE_CONTROL | T5AI_I2C_SCL_CONTROL |
+                 (divider << T5AI_I2C_CONFIG_FREQ_DIV_SHIFT) | T5AI_I2C_CLOCK_SOURCE |
                  T5AI_I2C_CONFIG_TIMEOUT_ENABLE | T5AI_I2C_CONFIG_IDLE_DETECT_ENABLE;
-  regs->extended_config = 3u;
+  regs->extended_config = T5AI_I2C_EXT_DATA_OUTPUT_ENABLE | T5AI_I2C_EXT_ADDRESS_OUTPUT_ENABLE;
 
-  T5AI_SYSTEM_CPU1_INTERRUPT_ENABLE |= 1u << 6;
+  T5AI_SYSTEM_CPU1_INTERRUPT_ENABLE |= T5AI_I2C0_INTERRUPT_ENABLE;
   NVIC_ClearPendingIRQ(bus->hal->irqn);
-  NVIC_SetPriority(bus->hal->irqn, 6u);
+  NVIC_SetPriority(bus->hal->irqn, T5AI_I2C_IRQ_PRIORITY);
   NVIC_EnableIRQ(bus->hal->irqn);
 }
 
 void i2c_hal_enable(I2CBus *bus) {
-  T5AI_SYSTEM_DEVICE_CLOCK_ENABLE |= 1u;
-  prv_regs(bus)->global_control |= 1u << 1;
+  T5AI_SYSTEM_DEVICE_CLOCK_ENABLE |= T5AI_I2C_CLOCK_ENABLE;
+  prv_regs(bus)->global_control |= T5AI_I2C_GLOBAL_CLOCK_GATE_BYPASS;
   prv_regs(bus)->config |= T5AI_I2C_CONFIG_ENABLE;
-  delay_us(5u);
+  delay_us(T5AI_I2C_ENABLE_SETTLE_US);
 }
 
 void i2c_hal_disable(I2CBus *bus) {
@@ -140,7 +176,7 @@ void i2c_hal_start_transfer(I2CBus *bus) {
   /* Completion is reported when STOP is requested, before the external bus
    * free interval is guaranteed. Leave margin above the 400 kHz tBUF minimum
    * before issuing another START. */
-  delay_us(5u);
+  delay_us(T5AI_I2C_BUS_FREE_US);
   transfer->idx = 0u;
   if (transfer->direction == I2CTransferDirection_Read &&
       transfer->type == I2CTransferType_NoRegisterAddress) {

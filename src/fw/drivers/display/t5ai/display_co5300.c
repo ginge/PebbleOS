@@ -1,6 +1,10 @@
 /* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include <pbl/soc/t5ai/rtc.h>
+
+#include <pbl/soc/t5ai/memory.h>
+
 #include <pbl/drivers/display/display.h>
 #include <pbl/drivers/display/t5ai.h>
 
@@ -20,11 +24,109 @@
 
 PBL_LOG_MODULE_DEFINE(driver_display_co5300, LOG_LEVEL_DEBUG);
 
+#define DISPLAY_CACHE_LINE_MASK (T5AI_SHARED_ALIGNMENT - 1u)
+#define PANEL_RGB565_BYTES_PER_PIXEL 2u
+#define PANEL_MAX_BRIGHTNESS UINT8_MAX
+#define PANEL_RESET_PRECHARGE_US 20000u
+#define PANEL_RESET_ASSERT_US 200000u
+#define PANEL_RESET_SETTLE_US 120000u
+#define PANEL_SLEEP_OUT_SETTLE_US 200000u
+#define PANEL_DCS_SLEEP_OUT 0x11u
+#define PANEL_DCS_NORMAL_MODE 0x13u
+#define PANEL_DCS_INVERSION_OFF 0x20u
+#define PANEL_DCS_DISPLAY_OFF 0x28u
+#define PANEL_DCS_DISPLAY_ON 0x29u
+#define PANEL_DCS_COLUMN_ADDRESS 0x2au
+#define PANEL_DCS_ROW_ADDRESS 0x2bu
+#define PANEL_DCS_MEMORY_WRITE 0x2cu
+#define PANEL_DCS_BRIGHTNESS 0x51u
+#define PANEL_DCS_PIXEL_FORMAT 0x3au
+#define PANEL_DCS_TEARING_ON 0x35u
+#define PANEL_DCS_CONTROL_DISPLAY 0x53u
+#define PANEL_PIXEL_FORMAT_RGB565 0x55u
+#define PANEL_CONTROL_BRIGHTNESS_ENABLE 0x20u
+#define PANEL_SPI_REGISTER_WRITE 0x02u
+#define PANEL_SPI_QUAD_WRITE 0x32u
+#define QSPI_COMMAND_BYTE_SHIFT 16u
+#define QSPI_COMMAND_C_FIFO_CONFIG 0x300u
+#define QSPI_COMMAND_A_LINE_CONFIG 0x3u
+#define QSPI_COMMAND_LENGTH_SHIFT 2u
+#define QSPI_COMMAND_POLL_COUNT 10000u
+#define QSPI_COMMAND_POLL_DELAY_US 1u
+#define QSPI_CLOCK_DIVIDER_SHIFT 6u
+#define QSPI_CLOCK_DIVIDER_MASK (0x0fu << QSPI_CLOCK_DIVIDER_SHIFT)
+#define QSPI_CLOCK_DIVIDER_80MHZ 5u
+#define QSPI_CLOCK_SOURCE_PLL (1u << 10)
+#define QSPI0_CLOCK_ENABLE (1u << 20)
+#define QSPI0_INTERRUPT_ENABLE (1u << 20)
+#define QSPI_RESET_RELEASE (1u << 0)
+#define DISPLAY_POWER_SETTLE_US 10u
+#define DISPLAY_BACKUP_POWER_DOWN (1u << 4)
+#define DISPLAY_GDMA_POWER_DOWN (1u << 30)
+#define DISPLAY_QSPI_POWER_DOWN (1u << 6)
+#define DISPLAY_GPIO_CONFIG_MASK 0x3fffu
+#define DISPLAY_GPIO_OUTPUT_DISABLE (1u << 3)
+#define DISPLAY_GPIO_PULL_UP (1u << 4)
+#define DISPLAY_GPIO_PULL_ENABLE (1u << 5)
+#define DISPLAY_GPIO_SECOND_FUNCTION (1u << 6)
+#define DISPLAY_GPIO_DRIVE_MAX (3u << 8)
+#define DISPLAY_GPIO_FUNCTION_MASK 0x0fu
+#define DISPLAY_GPIO_FUNCTION_BITS 4u
+#define DISPLAY_GPIO_PINS_PER_FUNCTION_WORD 8u
+#define DISPLAY_QSPI_GPIO_FUNCTION 3u
+#define DISPLAY_QSPI_CLOCK_PIN 22u
+#define DISPLAY_QSPI_LAST_PIN 27u
+#define DISPLAY_DRAW_LOG_FRAME_MASK 15u  // One diagnostic sample per 16 frames.
+#define DISPLAY_SCB_DCCMVAC (*(volatile uint32_t *)0xe000ef68u)
+#define DISPLAY_SCB_DCIMVAC (*(volatile uint32_t *)0xe000ef5cu)
+// GColor8 stores three two-bit components; the panel consumes RGB565.
+#define DISPLAY_COLOR_MASK 0x3fu
+#define DISPLAY_COLOR_COUNT 64u
+#define DISPLAY_COLOR_COMPONENT_MASK 3u
+#define DISPLAY_COLOR_RED_SHIFT 4u
+#define DISPLAY_COLOR_GREEN_SHIFT 2u
+#define DISPLAY_RGB565_RED_SHIFT 11u
+#define DISPLAY_RGB565_GREEN_SHIFT 5u
+#define DISPLAY_RGB565_GREEN_STEP 21u
+#define DISPLAY_DMA_BUFFER_COUNT 2u
+#define DISPLAY_DMA_TEST_WORDS 8u
+// Fixed pattern exercises different bytes and every word of one cache line.
+#define DISPLAY_DMA_TEST_TAG 0x5a000000u
+#define DISPLAY_DMA_TEST_STEP 0x010101u
+#define DISPLAY_DMA_TEST_SEED 0x1234u
+// DMA length is encoded as byte count minus one in a 16-bit field.
+#define DISPLAY_DMA_MAX_TRANSFER_BYTES 65536u
+#define DISPLAY_DMA_POLL_COUNT 1000000u
+#define DISPLAY_DMA_LENGTH_SHIFT 16u
+#define DISPLAY_DMA_ENABLE (1u << 0)
+#define DISPLAY_DMA_RESET_RELEASE (1u << 0)
+#define DISPLAY_DMA_CLOCK_GATE_BYPASS (1u << 1)
+#define DISPLAY_DMA_CHANNEL0_ATTRIBUTE (1u << 0)
+#define DISPLAY_DMA_SRC_WIDTH_32 (2u << 4)
+#define DISPLAY_DMA_DEST_WIDTH_32 (2u << 6)
+#define DISPLAY_DMA_SRC_INCREMENT (1u << 8)
+#define DISPLAY_DMA_DEST_INCREMENT (1u << 9)
+#define DISPLAY_DMA_SRC_LOOP (1u << 10)
+#define DISPLAY_DMA_DEST_LOOP (1u << 11)
+#define DISPLAY_DMA_SRC_SECURE (1u << 20)
+#define DISPLAY_DMA_DEST_SECURE (1u << 21)
+#define DISPLAY_DMA_SRC_BURST_INC16 (3u << 24)
+#define DISPLAY_DMA_DEST_BURST_INC16 (3u << 26)
+#define DISPLAY_DMA_STATUS_FINISH (1u << 18)
+#define DISPLAY_DMA_STATUS_HALF_FINISH (1u << 19)
+#define DISPLAY_DMA_STATUS_BUS_ERROR (1u << 20)
+#define DISPLAY_DMA_STATUS_CLEAR \
+  (DISPLAY_DMA_STATUS_FINISH | DISPLAY_DMA_STATUS_HALF_FINISH | DISPLAY_DMA_STATUS_BUS_ERROR)
+#define DISPLAY_DMA_TRANSFER_CONTROL                                                  \
+  (DISPLAY_DMA_SRC_WIDTH_32 | DISPLAY_DMA_DEST_WIDTH_32 | DISPLAY_DMA_SRC_INCREMENT | \
+   DISPLAY_DMA_DEST_INCREMENT | DISPLAY_DMA_SRC_LOOP | DISPLAY_DMA_DEST_LOOP)
+
 #define PANEL_WIDTH 466u
 #define PANEL_HEIGHT 466u
-#define PANEL_ROW_BYTES (PANEL_WIDTH * 2u)
+#define PANEL_ROW_BYTES (PANEL_WIDTH * PANEL_RGB565_BYTES_PER_PIXEL)
 #define PANEL_DMA_ROWS ((PANEL_HEIGHT + PBL_DISPLAY_HEIGHT - 1u) / PBL_DISPLAY_HEIGHT)
-#define PANEL_DMA_BUFFER_BYTES ((PANEL_ROW_BYTES * PANEL_DMA_ROWS + 31u) & ~31u)
+#define PANEL_DMA_BUFFER_BYTES \
+  ((PANEL_ROW_BYTES * PANEL_DMA_ROWS + DISPLAY_CACHE_LINE_MASK) & ~DISPLAY_CACHE_LINE_MASK)
 #define PANEL_X_OFFSET 6u
 #define PANEL_RESET_PIN 29u
 #define QSPI_BASE 0x46040000u
@@ -85,13 +187,16 @@ static bool s_initialized;
 static bool s_enabled;
 static bool s_updating;
 static bool s_rotated;
-static uint8_t s_brightness = 0xffu;
+static uint8_t s_brightness = PANEL_MAX_BRIGHTNESS;
 static bool s_brightness_dirty;
-static uint8_t s_panel_row[PANEL_ROW_BYTES] __attribute__((aligned(32)));
-static uint32_t s_dma_test_source[8] __attribute__((aligned(32)));
-static uint32_t s_dma_test_destination[8] __attribute__((aligned(32)));
+static uint8_t s_panel_row[PANEL_ROW_BYTES] __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
+static uint32_t s_dma_test_source[DISPLAY_DMA_TEST_WORDS]
+    __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
+static uint32_t s_dma_test_destination[DISPLAY_DMA_TEST_WORDS]
+    __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
 static uint16_t s_panel_source_x[PANEL_WIDTH];
-static uint8_t s_dma_rows[2][PANEL_DMA_BUFFER_BYTES] __attribute__((aligned(32)));
+static uint8_t s_dma_rows[DISPLAY_DMA_BUFFER_COUNT][PANEL_DMA_BUFFER_BYTES]
+    __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
 static bool s_dma_pending;
 static unsigned s_dma_buffer;
 
@@ -100,9 +205,9 @@ volatile T5AIDrawStats g_t5ai_draw_stats;
 static uint32_t s_last_frame_start;
 static bool s_have_frame_start;
 static uint32_t prv_draw_ticks(void) {
-  return *(volatile uint32_t *)0x4400020cu;
+  return T5AI_AON_RTC_COUNT_LOW;
 }
-static uint16_t s_rgb565[64];
+static uint16_t s_rgb565[DISPLAY_COLOR_COUNT];
 static bool s_dma_display_enabled;
 static bool s_dma_display_failed;
 
@@ -114,33 +219,33 @@ static void prv_dma_init(void) {
   // GDMA resides in the backup power domain. PebbleOS leaves that domain
   // powered down, whereas Tuya's platform power manager enables it before
   // peripheral drivers run.
-  SYSTEM_POWER_SLEEP_WAKEUP &= ~(1u << 4);
-  SYSTEM_DEVICE_MEM_CTRL1 &= ~(1u << 30);
-  SYSTEM_DEVICE_MEM_CTRL2 &= ~(1u << 30);
-  delay_us(10);
-  DMA_GLOBAL_CTRL = (1u << 0) | (1u << 1);
+  SYSTEM_POWER_SLEEP_WAKEUP &= ~DISPLAY_BACKUP_POWER_DOWN;
+  SYSTEM_DEVICE_MEM_CTRL1 &= ~DISPLAY_GDMA_POWER_DOWN;
+  SYSTEM_DEVICE_MEM_CTRL2 &= ~DISPLAY_GDMA_POWER_DOWN;
+  delay_us(DISPLAY_POWER_SETTLE_US);
+  DMA_GLOBAL_CTRL = DISPLAY_DMA_RESET_RELEASE | DISPLAY_DMA_CLOCK_GATE_BYPASS;
   // PebbleOS runs in the secure privileged AP world. Tuya's CONFIG_SPE DMA
   // initialization marks allocated channels secure and privileged.
-  DMA_SECURE_ATTR |= 1u;
-  DMA_PRIVILEGED_ATTR |= 1u;
+  DMA_SECURE_ATTR |= DISPLAY_DMA_CHANNEL0_ATTRIBUTE;
+  DMA_PRIVILEGED_ATTR |= DISPLAY_DMA_CHANNEL0_ATTRIBUTE;
   DMA_CTRL = 0u;
 }
 
 static void prv_power_up(void) {
-  SYSTEM_DEVICE_MEM_CTRL1 &= ~(1u << 6);
-  SYSTEM_DEVICE_MEM_CTRL2 &= ~(1u << 6);
-  SYSTEM_DEVICE_CLK_ENABLE |= 1u << 20;
+  SYSTEM_DEVICE_MEM_CTRL1 &= ~DISPLAY_QSPI_POWER_DOWN;
+  SYSTEM_DEVICE_MEM_CTRL2 &= ~DISPLAY_QSPI_POWER_DOWN;
+  SYSTEM_DEVICE_CLK_ENABLE |= QSPI0_CLOCK_ENABLE;
 }
 
 static bool prv_wait_command(void) {
-  for (unsigned i = 0; i < 10000u; ++i) {
+  for (unsigned i = 0; i < QSPI_COMMAND_POLL_COUNT; ++i) {
     const uint32_t status = *prv_qspi(QSPI_STATUS);
     if (status & QSPI_CMD_DONE) {
       *prv_qspi(QSPI_STATUS_CLR) = QSPI_CMD_DONE;
       *prv_qspi(QSPI_STATUS_CLR) = 0;
       return true;
     }
-    delay_us(1);
+    delay_us(QSPI_COMMAND_POLL_DELAY_US);
   }
   PBL_LOG_ERR("QSPI0 command timeout status=0x%08lx", (unsigned long)*prv_qspi(QSPI_STATUS));
   return false;
@@ -152,7 +257,8 @@ static bool prv_command(uint8_t command, const uint8_t *data, size_t length, boo
   // CO5300 framing uses 02h for registers and 32h for quad pixel data,
   // followed by 00h, register, 00h.
   *prv_qspi(QSPI_CMD_C_L) = 0;
-  *prv_qspi(QSPI_CMD_C_H) = (quad_data ? 0x32u : 0x02u) | ((uint32_t)command << 16);
+  *prv_qspi(QSPI_CMD_C_H) = (quad_data ? PANEL_SPI_QUAD_WRITE : PANEL_SPI_REGISTER_WRITE) |
+                            ((uint32_t)command << QSPI_COMMAND_BYTE_SHIFT);
   *prv_qspi(QSPI_CMD_C_CFG1) = 0u;
   *prv_qspi(QSPI_CMD_C_CFG2) = 0u;
 
@@ -167,8 +273,9 @@ static bool prv_command(uint8_t command, const uint8_t *data, size_t length, boo
     memcpy(&word, data + offset, remaining < sizeof(word) ? remaining : sizeof(word));
     fifo[offset / sizeof(word)] = word;
   }
-  *prv_qspi(QSPI_CMD_C_CFG1) = 0x300u;
-  *prv_qspi(QSPI_CMD_C_CFG2) = ((uint32_t)length << 2) | (quad_data ? QSPI_DATA_LINE_4 : 0u);
+  *prv_qspi(QSPI_CMD_C_CFG1) = QSPI_COMMAND_C_FIFO_CONFIG;
+  *prv_qspi(QSPI_CMD_C_CFG2) =
+      ((uint32_t)length << QSPI_COMMAND_LENGTH_SHIFT) | (quad_data ? QSPI_DATA_LINE_4 : 0u);
   *prv_qspi(QSPI_CMD_C_CFG2) |= QSPI_CMD_START;
   const bool result = prv_wait_command();
   *prv_qspi(QSPI_CMD_C_CFG1) = 0;
@@ -182,14 +289,14 @@ static bool prv_register(uint8_t command, const uint8_t *data, size_t length) {
 
 static void prv_apply_brightness(void) {
   if (s_initialized && !s_updating && s_brightness_dirty &&
-      prv_register(0x51u, &s_brightness, 1u)) {
+      prv_register(PANEL_DCS_BRIGHTNESS, &s_brightness, 1u)) {
     s_brightness_dirty = false;
   }
 }
 
 void display_co5300_set_brightness(uint8_t level) {
   (void)level;
-  s_brightness = 0xffu;
+  s_brightness = PANEL_MAX_BRIGHTNESS;
   s_brightness_dirty = true;
   prv_apply_brightness();
 }
@@ -207,16 +314,23 @@ static bool prv_set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
       (uint8_t)(y1 >> 8),
       (uint8_t)y1,
   };
-  return prv_register(0x2au, columns, sizeof(columns)) && prv_register(0x2bu, rows, sizeof(rows));
+  return prv_register(PANEL_DCS_COLUMN_ADDRESS, columns, sizeof(columns)) &&
+         prv_register(PANEL_DCS_ROW_ADDRESS, rows, sizeof(rows));
 }
 
 static void prv_init_conversion_tables(void) {
+  // Rounded expansion of 2-bit red/blue to 5 bits: 0, 10, 21, 31.
   static const uint8_t red_blue[4] = {0u, 10u, 21u, 31u};
-  for (unsigned framebuffer_pixel = 0u; framebuffer_pixel < 64u; ++framebuffer_pixel) {
-    const uint16_t red = red_blue[(framebuffer_pixel >> 4) & 3u];
-    const uint16_t green = ((framebuffer_pixel >> 2) & 3u) * 21u;
-    const uint16_t blue = red_blue[framebuffer_pixel & 3u];
-    const uint16_t rgb565 = (red << 11) | (green << 5) | blue;
+  for (unsigned framebuffer_pixel = 0u; framebuffer_pixel < DISPLAY_COLOR_COUNT;
+       ++framebuffer_pixel) {
+    const uint16_t red =
+        red_blue[(framebuffer_pixel >> DISPLAY_COLOR_RED_SHIFT) & DISPLAY_COLOR_COMPONENT_MASK];
+    const uint16_t green =
+        ((framebuffer_pixel >> DISPLAY_COLOR_GREEN_SHIFT) & DISPLAY_COLOR_COMPONENT_MASK) *
+        DISPLAY_RGB565_GREEN_STEP;
+    const uint16_t blue = red_blue[framebuffer_pixel & DISPLAY_COLOR_COMPONENT_MASK];
+    const uint16_t rgb565 =
+        (red << DISPLAY_RGB565_RED_SHIFT) | (green << DISPLAY_RGB565_GREEN_SHIFT) | blue;
     // Store in the byte order consumed by the panel so the conversion loop
     // can emit one aligned halfword instead of two byte stores.
     s_rgb565[framebuffer_pixel] = (uint16_t)((rgb565 >> 8) | (rgb565 << 8));
@@ -241,9 +355,9 @@ prv_convert_row(uint8_t *destination, const uint8_t *source, bool reverse,
     // The framebuffer is in PSRAM, so avoid rereading and reconverting a pixel
     // while the nearest-neighbour mapping still selects the same source x.
     if (source_x != previous_source_x) {
-      unsigned framebuffer_pixel = source[source_x] & 0x3fu;
+      unsigned framebuffer_pixel = source[source_x] & DISPLAY_COLOR_MASK;
       if (invert_colors) {
-        framebuffer_pixel ^= 0x3fu;
+        framebuffer_pixel ^= DISPLAY_COLOR_MASK;
       }
       converted_pixel = s_rgb565[framebuffer_pixel];
       previous_source_x = source_x;
@@ -254,7 +368,7 @@ prv_convert_row(uint8_t *destination, const uint8_t *source, bool reverse,
 
 static bool prv_pixel_stream_begin(void) {
   *prv_qspi(QSPI_CONFIG) |= QSPI_FORCE_CS_LOW;
-  if (!prv_command(0x2cu, NULL, 0u, true)) {
+  if (!prv_command(PANEL_DCS_MEMORY_WRITE, NULL, 0u, true)) {
     *prv_qspi(QSPI_CONFIG) &= ~QSPI_FORCE_CS_LOW;
     return false;
   }
@@ -285,11 +399,12 @@ static void prv_dcache_clean(const void *address, size_t size) {
   if ((SCB->CCR & SCB_CCR_DC_Msk) == 0u) {
     return;
   }
-  const uintptr_t first = (uintptr_t)address & ~(uintptr_t)31u;
-  const uintptr_t end = ((uintptr_t)address + size + 31u) & ~(uintptr_t)31u;
+  const uintptr_t first = (uintptr_t)address & ~(uintptr_t)DISPLAY_CACHE_LINE_MASK;
+  const uintptr_t end =
+      ((uintptr_t)address + size + DISPLAY_CACHE_LINE_MASK) & ~(uintptr_t)DISPLAY_CACHE_LINE_MASK;
   __asm volatile("dsb 0xf" ::: "memory");
-  for (uintptr_t line = first; line < end; line += 32u) {
-    *(volatile uint32_t *)0xe000ef68u = (uint32_t)line;  // SCB DCCMVAC
+  for (uintptr_t line = first; line < end; line += T5AI_SHARED_ALIGNMENT) {
+    DISPLAY_SCB_DCCMVAC = (uint32_t)line;  // SCB DCCMVAC
   }
   __asm volatile("dsb 0xf\nisb 0xf" ::: "memory");
 }
@@ -298,11 +413,12 @@ static void prv_dcache_invalidate(const void *address, size_t size) {
   if ((SCB->CCR & SCB_CCR_DC_Msk) == 0u) {
     return;
   }
-  const uintptr_t first = (uintptr_t)address & ~(uintptr_t)31u;
-  const uintptr_t end = ((uintptr_t)address + size + 31u) & ~(uintptr_t)31u;
+  const uintptr_t first = (uintptr_t)address & ~(uintptr_t)DISPLAY_CACHE_LINE_MASK;
+  const uintptr_t end =
+      ((uintptr_t)address + size + DISPLAY_CACHE_LINE_MASK) & ~(uintptr_t)DISPLAY_CACHE_LINE_MASK;
   __asm volatile("dsb 0xf" ::: "memory");
-  for (uintptr_t line = first; line < end; line += 32u) {
-    *(volatile uint32_t *)0xe000ef5cu = (uint32_t)line;  // SCB DCIMVAC
+  for (uintptr_t line = first; line < end; line += T5AI_SHARED_ALIGNMENT) {
+    DISPLAY_SCB_DCIMVAC = (uint32_t)line;  // SCB DCIMVAC
   }
   __asm volatile("dsb 0xf\nisb 0xf" ::: "memory");
 }
@@ -312,12 +428,14 @@ static uint32_t prv_dma_request_configuration(void) {
   // transactions secure in addition to the controller-wide channel security.
   // PebbleOS executes from secure SRAM and accesses QSPI through its secure AP
   // aperture, so omitting these bits silently targets the wrong bus aliases.
-  return (1u << 20) | (1u << 21) | (3u << 24) | (3u << 26);
+  return DISPLAY_DMA_SRC_SECURE | DISPLAY_DMA_DEST_SECURE | DISPLAY_DMA_SRC_BURST_INC16 |
+         DISPLAY_DMA_DEST_BURST_INC16;
 }
 
 static bool prv_dma_self_test(void) {
-  for (unsigned i = 0u; i < 8u; ++i) {
-    s_dma_test_source[i] = 0x5a000000u | (i * 0x010101u + 0x1234u);
+  for (unsigned i = 0u; i < DISPLAY_DMA_TEST_WORDS; ++i) {
+    s_dma_test_source[i] =
+        DISPLAY_DMA_TEST_TAG | (i * DISPLAY_DMA_TEST_STEP + DISPLAY_DMA_TEST_SEED);
     s_dma_test_destination[i] = 0u;
   }
   prv_dcache_clean(s_dma_test_source, sizeof(s_dma_test_source));
@@ -326,7 +444,7 @@ static bool prv_dma_self_test(void) {
   const uint32_t source = (uint32_t)(uintptr_t)s_dma_test_source;
   const uint32_t destination = (uint32_t)(uintptr_t)s_dma_test_destination;
   DMA_CTRL = 0u;
-  DMA_STATUS = (1u << 18) | (1u << 19) | (1u << 20);
+  DMA_STATUS = DISPLAY_DMA_STATUS_CLEAR;
   DMA_DEST = destination;
   DMA_SRC = source;
   DMA_DEST_LOOP_START = destination;
@@ -334,26 +452,25 @@ static bool prv_dma_self_test(void) {
   DMA_SRC_LOOP_START = source;
   DMA_SRC_LOOP_END = source + sizeof(s_dma_test_source) + sizeof(uint32_t);
   DMA_REQ = prv_dma_request_configuration();
-  DMA_CTRL = ((uint32_t)(sizeof(s_dma_test_source) - 1u) << 16) |
-             (2u << 4) | (2u << 6) | (1u << 8) | (1u << 9) |
-             (1u << 10) | (1u << 11);
+  DMA_CTRL = ((uint32_t)(sizeof(s_dma_test_source) - 1u) << DISPLAY_DMA_LENGTH_SHIFT) |
+             DISPLAY_DMA_TRANSFER_CONTROL;
   __asm volatile("dsb 0xf" ::: "memory");
-  DMA_CTRL |= 1u;
+  DMA_CTRL |= DISPLAY_DMA_ENABLE;
 
-  unsigned timeout = 1000000u;
-  while ((DMA_CTRL & 1u) && --timeout) {
+  unsigned timeout = DISPLAY_DMA_POLL_COUNT;
+  while ((DMA_CTRL & DISPLAY_DMA_ENABLE) && --timeout) {
   }
   const uint32_t status = DMA_STATUS;
   DMA_CTRL = 0u;
   prv_dcache_invalidate(s_dma_test_destination, sizeof(s_dma_test_destination));
   const bool matches = memcmp(s_dma_test_source, s_dma_test_destination,
                               sizeof(s_dma_test_source)) == 0;
-  return matches && timeout != 0u && (status & (1u << 20)) == 0u;
+  return matches && timeout != 0u && (status & DISPLAY_DMA_STATUS_BUS_ERROR) == 0u;
 }
 
 static void prv_pixel_stream_start_dma(const uint8_t *data, size_t length) {
   PBL_ASSERTN(!s_dma_pending);
-  PBL_ASSERTN(length != 0u && length <= 65536u);
+  PBL_ASSERTN(length != 0u && length <= DISPLAY_DMA_MAX_TRANSFER_BYTES);
   PBL_ASSERTN((length % sizeof(uint32_t)) == 0u);
   const uint32_t source = (uint32_t)(uintptr_t)data;
   // The QSPI mapping is a streaming aperture, not a framebuffer. Match
@@ -363,7 +480,7 @@ static void prv_pixel_stream_start_dma(const uint8_t *data, size_t length) {
   const uint32_t destination = (uint32_t)(uintptr_t)QSPI_DATA_APERTURE;
 
   DMA_CTRL = 0u;
-  DMA_STATUS = (1u << 18) | (1u << 19) | (1u << 20);
+  DMA_STATUS = DISPLAY_DMA_STATUS_CLEAR;
   DMA_DEST = destination;
   DMA_SRC = source;
   DMA_DEST_LOOP_START = destination;
@@ -373,10 +490,9 @@ static void prv_pixel_stream_start_dma(const uint8_t *data, size_t length) {
   // DTCM is Tuya's generic memory request (mux zero). INC16 bursts match its
   // production QSPI display path.
   DMA_REQ = prv_dma_request_configuration();
-  DMA_CTRL = ((uint32_t)(length - 1u) << 16) | (2u << 4) | (2u << 6) |
-             (1u << 8) | (1u << 9) | (1u << 10) | (1u << 11);
+  DMA_CTRL = ((uint32_t)(length - 1u) << DISPLAY_DMA_LENGTH_SHIFT) | DISPLAY_DMA_TRANSFER_CONTROL;
   __asm volatile("dsb 0xf" ::: "memory");
-  DMA_CTRL |= 1u;
+  DMA_CTRL |= DISPLAY_DMA_ENABLE;
 
   s_dma_pending = true;
 }
@@ -385,10 +501,10 @@ static bool prv_pixel_stream_finish_dma(size_t *aperture_word, size_t length) {
   if (!s_dma_pending) {
     return true;
   }
-  unsigned timeout = 1000000u;
-  while ((DMA_CTRL & 1u) && --timeout) {
+  unsigned timeout = DISPLAY_DMA_POLL_COUNT;
+  while ((DMA_CTRL & DISPLAY_DMA_ENABLE) && --timeout) {
   }
-  const bool complete = timeout != 0u && (DMA_STATUS & (1u << 20)) == 0u;
+  const bool complete = timeout != 0u && (DMA_STATUS & DISPLAY_DMA_STATUS_BUS_ERROR) == 0u;
   DMA_CTRL = 0u;
   s_dma_pending = false;
   if (complete) {
@@ -480,34 +596,38 @@ static bool prv_qspi_init(void) {
     PBL_LOG_WRN("QSPI0 CP power/clock request failed, using AP fallback: %ld", (long)status);
   }
   prv_power_up();
-  delay_us(10);
-  for (unsigned pin = 22; pin <= 27; ++pin) {
+  delay_us(DISPLAY_POWER_SETTLE_US);
+  for (unsigned pin = DISPLAY_QSPI_CLOCK_PIN; pin <= DISPLAY_QSPI_LAST_PIN; ++pin) {
     // Match Tuya's gpio_dev_map(): bit 3 is the active-low GPIO output enable,
     // so set it to disable GPIO ownership before selecting the peripheral.
     // Use maximum drive on every signal and pull up CS/IO0-IO3.
-    GPIO_BASE[pin] = (GPIO_BASE[pin] & ~0x3fffu) | (1u << 3) | (1u << 6) | (3u << 8);
-    if (pin != 22u) {
-      GPIO_BASE[pin] |= (1u << 4) | (1u << 5);
+    GPIO_BASE[pin] = (GPIO_BASE[pin] & ~DISPLAY_GPIO_CONFIG_MASK) | DISPLAY_GPIO_OUTPUT_DISABLE |
+                     DISPLAY_GPIO_SECOND_FUNCTION | DISPLAY_GPIO_DRIVE_MAX;
+    if (pin != DISPLAY_QSPI_CLOCK_PIN) {
+      GPIO_BASE[pin] |= DISPLAY_GPIO_PULL_UP | DISPLAY_GPIO_PULL_ENABLE;
     }
-    volatile uint32_t *function = &SYSTEM_GPIO_FUNCTION_BASE[pin / 8u];
-    const unsigned shift = (pin % 8u) * 4u;
-    *function = (*function & ~(0x0fu << shift)) | (3u << shift);
+    volatile uint32_t *function =
+        &SYSTEM_GPIO_FUNCTION_BASE[pin / DISPLAY_GPIO_PINS_PER_FUNCTION_WORD];
+    const unsigned shift = (pin % DISPLAY_GPIO_PINS_PER_FUNCTION_WORD) * DISPLAY_GPIO_FUNCTION_BITS;
+    *function = (*function & ~(DISPLAY_GPIO_FUNCTION_MASK << shift)) |
+                (DISPLAY_QSPI_GPIO_FUNCTION << shift);
   }
 
   // Match the exact compiled Tuya ordering. Enable the controller before
   // selecting its source clock, program command-A, then release soft reset.
   // Tuya also opens the system QSPI0 interrupt route here. Completion remains
   // polled, so the NVIC line itself stays disabled.
-  SYSTEM_CPU1_INTERRUPT_ENABLE |= 1u << 20;
+  SYSTEM_CPU1_INTERRUPT_ENABLE |= QSPI0_INTERRUPT_ENABLE;
   *prv_qspi(QSPI_CONFIG) = QSPI_CS_HIGH_WAIT | QSPI_ENABLE | QSPI_IO23_ENABLE;
-  SYSTEM_CLK_MODE2 = (SYSTEM_CLK_MODE2 & ~((0x0fu << 6) | (1u << 10))) | (5u << 6) |
-                     (1u << 10);  // 480 MHz / (5 + 1) = 80 MHz.
+  SYSTEM_CLK_MODE2 = (SYSTEM_CLK_MODE2 & ~(QSPI_CLOCK_DIVIDER_MASK | QSPI_CLOCK_SOURCE_PLL)) |
+                     (QSPI_CLOCK_DIVIDER_80MHZ << QSPI_CLOCK_DIVIDER_SHIFT) |
+                     QSPI_CLOCK_SOURCE_PLL;  // 480 MHz / (5 + 1) = 80 MHz.
   *prv_qspi(QSPI_CMD_A_L) = 0;
   *prv_qspi(QSPI_CMD_A_H) = 0;
-  *prv_qspi(QSPI_CMD_A_CFG1) = 0x3u;
+  *prv_qspi(QSPI_CMD_A_CFG1) = QSPI_COMMAND_A_LINE_CONFIG;
   *prv_qspi(QSPI_CMD_A_CFG2) = QSPI_DATA_LINE_4;
   *prv_qspi(QSPI_RST_CFG) = 0u;
-  *prv_qspi(QSPI_GLB_CTRL) |= 1u;
+  *prv_qspi(QSPI_GLB_CTRL) |= QSPI_RESET_RELEASE;
   return true;
 }
 
@@ -515,33 +635,43 @@ static bool prv_panel_init(void) {
   const OutputConfig reset = {.pin = PANEL_RESET_PIN, .active_high = true};
   gpio_output_init(&reset, GPIO_OType_PP);
   gpio_output_set(&reset, true);
-  delay_us(20000);
+  delay_us(PANEL_RESET_PRECHARGE_US);
   gpio_output_set(&reset, false);
-  delay_us(200000);
+  delay_us(PANEL_RESET_ASSERT_US);
   gpio_output_set(&reset, true);
-  delay_us(120000);
+  delay_us(PANEL_RESET_SETTLE_US);
 
   static const struct {
     uint8_t command;
     uint8_t value;
   } init[] = {
-      {0xfe, 0x20}, {0x19, 0x10}, {0x1c, 0xa0}, {0xfe, 0x00}, {0xc4, 0x80},
-      {0x3a, 0x55}, {0x35, 0x00}, {0x53, 0x20}, {0x51, 0xff}, {0x63, 0xff},
+      // Pinned Waveshare CO5300 page/tuning sequence; vendor bytes remain table data.
+      {0xfe, 0x20},
+      {0x19, 0x10},
+      {0x1c, 0xa0},
+      {0xfe, 0x00},
+      {0xc4, 0x80},
+      {PANEL_DCS_PIXEL_FORMAT, PANEL_PIXEL_FORMAT_RGB565},
+      {PANEL_DCS_TEARING_ON, 0x00},
+      {PANEL_DCS_CONTROL_DISPLAY, PANEL_CONTROL_BRIGHTNESS_ENABLE},
+      {PANEL_DCS_BRIGHTNESS, PANEL_MAX_BRIGHTNESS},
+      {0x63, 0xff},
   };
   for (unsigned i = 0; i < sizeof(init) / sizeof(init[0]); ++i) {
     if (!prv_register(init[i].command, &init[i].value, 1)) {
       return false;
     }
   }
-  if (!prv_register(0x11u, NULL, 0)) {
+  if (!prv_register(PANEL_DCS_SLEEP_OUT, NULL, 0)) {
     return false;
   }
-  delay_us(200000);
+  delay_us(PANEL_SLEEP_OUT_SETTLE_US);
   // Do not rely on the controller's retained/default inversion state across
   // an AP-only reboot. DCS 0x20 selects non-inverted pixels, while 0x13 exits
   // partial mode and 0x29 enables output.
-  return prv_register(0x20u, NULL, 0) && prv_register(0x13u, NULL, 0) &&
-         prv_register(0x29u, NULL, 0);
+  return prv_register(PANEL_DCS_INVERSION_OFF, NULL, 0) &&
+         prv_register(PANEL_DCS_NORMAL_MODE, NULL, 0) &&
+         prv_register(PANEL_DCS_DISPLAY_ON, NULL, 0);
 }
 
 void display_init(void) {
@@ -577,7 +707,7 @@ void display_set_enabled(bool enabled) {
   if (!s_initialized || enabled == s_enabled) {
     return;
   }
-  if (prv_register(enabled ? 0x29u : 0x28u, NULL, 0)) {
+  if (prv_register(enabled ? PANEL_DCS_DISPLAY_ON : PANEL_DCS_DISPLAY_OFF, NULL, 0)) {
     s_enabled = enabled;
   }
 }
@@ -653,7 +783,7 @@ static void prv_display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb
   if (elapsed > g_t5ai_draw_stats.max_update_ticks) {
     g_t5ai_draw_stats.max_update_ticks = elapsed;
   }
-  if ((g_t5ai_draw_stats.frames & 15u) == 0u) {
+  if ((g_t5ai_draw_stats.frames & DISPLAY_DRAW_LOG_FRAME_MASK) == 0u) {
     PBL_LOG_DBG("DRAW frames=%lu ticks=%lu last=%lu max=%lu interval=%lu dma_fail=%lu hz=%lu",
                 (unsigned long)g_t5ai_draw_stats.frames,
                 (unsigned long)g_t5ai_draw_stats.total_update_ticks,
@@ -663,7 +793,7 @@ static void prv_display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb
                 (unsigned long)g_t5ai_draw_stats.dma_failures,
                 (unsigned long)SystemCoreClock);
   }
-  if ((g_t5ai_draw_stats.frames & 15u) == 0u) {
+  if ((g_t5ai_draw_stats.frames & DISPLAY_DRAW_LOG_FRAME_MASK) == 0u) {
     PBL_LOG_DBG("RENDER count=%lu last=%lu total=%lu comp=%lu font=%lu/%lu",
                 (unsigned long)PROFILER_NODE_GET_COUNT(render_app),
                 (unsigned long)PROFILER_NODE_GET_LAST_CYCLES(render_app),

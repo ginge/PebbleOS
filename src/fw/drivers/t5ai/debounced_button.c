@@ -17,10 +17,12 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#define RESET_HOLD_MS 5000u
+
 #define DEBOUNCE_PERIOD_MS 2u
 #define NUM_DEBOUNCE_SAMPLES 20u
 #define RESET_BUTTONS ((1u << BUTTON_ID_SELECT) | (1u << BUTTON_ID_BACK))
-#define RESET_THRESHOLD_SAMPLES (5000u / DEBOUNCE_PERIOD_MS)
+#define RESET_THRESHOLD_SAMPLES (RESET_HOLD_MS / DEBOUNCE_PERIOD_MS)
 
 static TimerID s_debounce_timer = TIMER_INVALID_ID;
 static uint32_t s_sample_counts[NUM_BUTTONS];

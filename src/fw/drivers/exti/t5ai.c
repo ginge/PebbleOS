@@ -11,12 +11,17 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#define T5AI_GPIO_INPUT (1u << 0)
+#define T5AI_GPIO_INTERRUPT_TYPE_SHIFT 10u
+#define T5AI_GPIO_STATUS_BANK_BITS 32u
+#define T5AI_GPIO_IRQ_PRIORITY 6u
+
 #define T5AI_GPIO_BASE 0x44000400u
 #define T5AI_GPIO_COUNT 56u
 #define T5AI_GPIO_STATUS_0_31 (*(volatile uint32_t *)(T5AI_GPIO_BASE + 0x100u))
 #define T5AI_GPIO_STATUS_32_55 (*(volatile uint32_t *)(T5AI_GPIO_BASE + 0x104u))
 
-#define T5AI_GPIO_INTERRUPT_TYPE_MASK (3u << 10)
+#define T5AI_GPIO_INTERRUPT_TYPE_MASK (3u << T5AI_GPIO_INTERRUPT_TYPE_SHIFT)
 #define T5AI_GPIO_INTERRUPT_ENABLE (1u << 12)
 #define T5AI_GPIO_INTERRUPT_CLEAR (1u << 13)
 
@@ -68,15 +73,15 @@ static uint32_t prv_interrupt_type(uint8_t pin, ExtiTrigger trigger) {
 
   // Hardware has no both-edge mode. Arm the transition away from the current
   // input level and reverse it after each interrupt.
-  return ((*prv_pin_register(pin) & 1u) != 0u) ? T5AI_GPIO_INT_FALLING_EDGE
-                                               : T5AI_GPIO_INT_RISING_EDGE;
+  return ((*prv_pin_register(pin) & T5AI_GPIO_INPUT) != 0u) ? T5AI_GPIO_INT_FALLING_EDGE
+                                                            : T5AI_GPIO_INT_RISING_EDGE;
 }
 
 static void prv_set_interrupt_type(uint8_t pin, ExtiTrigger trigger) {
   volatile uint32_t *reg = prv_pin_register(pin);
   uint32_t value = *reg;
   value &= ~T5AI_GPIO_INTERRUPT_TYPE_MASK;
-  value |= prv_interrupt_type(pin, trigger) << 10;
+  value |= prv_interrupt_type(pin, trigger) << T5AI_GPIO_INTERRUPT_TYPE_SHIFT;
   *reg = value;
 }
 
@@ -97,7 +102,7 @@ void exti_configure_pin(ExtiConfig cfg, ExtiTrigger trigger, ExtiHandlerCallback
 
   T5AI_SYSTEM_CPU1_INT_32_63_ENABLE |= T5AI_SYSTEM_GPIO_INTERRUPT_ENABLE;
   NVIC_ClearPendingIRQ(GPIO_IRQn);
-  NVIC_SetPriority(GPIO_IRQn, 6u);
+  NVIC_SetPriority(GPIO_IRQn, T5AI_GPIO_IRQ_PRIORITY);
   NVIC_EnableIRQ(GPIO_IRQn);
   prv_unlock(primask);
 }
@@ -128,8 +133,8 @@ void GPIO_IRQHandler(void) {
   bool should_context_switch = false;
 
   for (uint8_t pin = 0; pin < T5AI_GPIO_COUNT; ++pin) {
-    const uint32_t status = pin < 32u ? status_low : status_high;
-    const uint8_t bit = pin < 32u ? pin : pin - 32u;
+    const uint32_t status = pin < T5AI_GPIO_STATUS_BANK_BITS ? status_low : status_high;
+    const uint8_t bit = pin < T5AI_GPIO_STATUS_BANK_BITS ? pin : pin - T5AI_GPIO_STATUS_BANK_BITS;
     if ((status & (1u << bit)) == 0u) {
       continue;
     }

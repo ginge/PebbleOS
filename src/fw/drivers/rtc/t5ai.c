@@ -11,10 +11,28 @@
 #include <stddef.h>
 #include <string.h>
 
-#define T5AI_AON_RTC_BASE 0x44000200u
-#define T5AI_AON_RTC_COUNT_LOW (*(volatile uint32_t *)(T5AI_AON_RTC_BASE + 0x0cu))
-#define T5AI_AON_RTC_COUNT_HIGH (*(volatile uint32_t *)(T5AI_AON_RTC_BASE + 0x28u))
-#define T5AI_AON_RTC_HZ 32000u
+// External RTC stores years 00..37 relative to 2000; struct tm counts from 1900.
+#define PCF85063_TM_YEAR_BASE 100
+#define PCF85063_MAX_YEAR 37
+#define PCF85063_TM_YEAR_MAX (PCF85063_TM_YEAR_BASE + PCF85063_MAX_YEAR)
+#define PCF85063_TIME_REGISTER_COUNT 7u
+#define PCF85063_SECONDS_OFFSET 0u
+#define PCF85063_MINUTES_OFFSET 1u
+#define PCF85063_HOURS_OFFSET 2u
+#define PCF85063_DAYS_OFFSET 3u
+#define PCF85063_WEEKDAYS_OFFSET 4u
+#define PCF85063_MONTHS_OFFSET 5u
+#define PCF85063_YEARS_OFFSET 6u
+#define PCF85063_SECONDS_MASK 0x7fu
+#define PCF85063_MINUTES_MASK 0x7fu
+#define PCF85063_HOURS_MASK 0x3fu
+#define PCF85063_DAYS_MASK 0x3fu
+#define PCF85063_WEEKDAYS_MASK 0x07u
+#define PCF85063_MONTHS_MASK 0x1fu
+#define RTC_BCD_DIGIT_MASK 0x0fu
+#define RTC_BCD_TENS_SHIFT 4u
+#define T5AI_RTC_TIMEZONE_WORDS 5u
+
 // Match services_normal's activity threshold so an empty/invalid external RTC
 // initializes Activity during boot, before T5AI starts advertising. The phone's
 // later SetTime then remains a lightweight clock-change event.
@@ -56,29 +74,33 @@ static void prv_set_retained_time(time_t time) {
 }
 
 static bool prv_decode_bcd(uint8_t raw, uint8_t minimum, uint8_t maximum, uint8_t *value) {
-  if ((raw & 0x0fu) > 9u || (raw >> 4) > 9u) {
+  if ((raw & RTC_BCD_DIGIT_MASK) > 9u || (raw >> RTC_BCD_TENS_SHIFT) > 9u) {
     return false;
   }
-  *value = (raw >> 4) * 10u + (raw & 0x0fu);
+  *value = (raw >> RTC_BCD_TENS_SHIFT) * 10u + (raw & RTC_BCD_DIGIT_MASK);
   return *value >= minimum && *value <= maximum;
 }
 
 static uint8_t prv_encode_bcd(unsigned value) {
-  return (uint8_t)(((value / 10u) << 4) | (value % 10u));
+  return (uint8_t)(((value / 10u) << RTC_BCD_TENS_SHIFT) | (value % 10u));
 }
 
-static bool prv_external_rtc_read_raw(uint8_t *control, uint8_t registers[7]) {
+static bool prv_external_rtc_read_raw(uint8_t *control,
+                                      uint8_t registers[PCF85063_TIME_REGISTER_COUNT]) {
   i2c_use(I2C_PCF85063);
   const bool read_control = i2c_read_register(I2C_PCF85063, PCF85063_REG_CONTROL1, control);
   const bool read_time =
-      read_control && i2c_read_register_block(I2C_PCF85063, PCF85063_REG_SECONDS, 7u, registers);
+      read_control && i2c_read_register_block(I2C_PCF85063, PCF85063_REG_SECONDS,
+                                              PCF85063_TIME_REGISTER_COUNT, registers);
   i2c_release(I2C_PCF85063);
   return read_time;
 }
 
-static bool prv_external_rtc_decode(uint8_t control, const uint8_t registers[7], time_t *time) {
+static bool prv_external_rtc_decode(uint8_t control,
+                                    const uint8_t registers[PCF85063_TIME_REGISTER_COUNT],
+                                    time_t *time) {
   if ((control & (PCF85063_CONTROL1_STOP | PCF85063_CONTROL1_12_24)) ||
-      (registers[0] & PCF85063_SECONDS_OS)) {
+      (registers[PCF85063_SECONDS_OFFSET] & PCF85063_SECONDS_OS)) {
     return false;
   }
 
@@ -88,13 +110,14 @@ static bool prv_external_rtc_decode(uint8_t control, const uint8_t registers[7],
   uint8_t day;
   uint8_t month;
   uint8_t year;
-  const uint8_t weekday = registers[4] & 0x07u;
-  if (!prv_decode_bcd(registers[0] & 0x7fu, 0, 59, &second) ||
-      !prv_decode_bcd(registers[1] & 0x7fu, 0, 59, &minute) ||
-      !prv_decode_bcd(registers[2] & 0x3fu, 0, 23, &hour) ||
-      !prv_decode_bcd(registers[3] & 0x3fu, 1, 31, &day) || weekday > 6u ||
-      !prv_decode_bcd(registers[5] & 0x1fu, 1, 12, &month) ||
-      !prv_decode_bcd(registers[6], 0, 37, &year)) {
+  const uint8_t weekday = registers[PCF85063_WEEKDAYS_OFFSET] & PCF85063_WEEKDAYS_MASK;
+  if (!prv_decode_bcd(registers[PCF85063_SECONDS_OFFSET] & PCF85063_SECONDS_MASK, 0, 59, &second) ||
+      !prv_decode_bcd(registers[PCF85063_MINUTES_OFFSET] & PCF85063_MINUTES_MASK, 0, 59, &minute) ||
+      !prv_decode_bcd(registers[PCF85063_HOURS_OFFSET] & PCF85063_HOURS_MASK, 0, 23, &hour) ||
+      !prv_decode_bcd(registers[PCF85063_DAYS_OFFSET] & PCF85063_DAYS_MASK, 1, 31, &day) ||
+      weekday > 6u ||
+      !prv_decode_bcd(registers[PCF85063_MONTHS_OFFSET] & PCF85063_MONTHS_MASK, 1, 12, &month) ||
+      !prv_decode_bcd(registers[PCF85063_YEARS_OFFSET], 0, PCF85063_MAX_YEAR, &year)) {
     return false;
   }
 
@@ -104,13 +127,13 @@ static bool prv_external_rtc_decode(uint8_t control, const uint8_t registers[7],
       .tm_hour = hour,
       .tm_mday = day,
       .tm_mon = month - 1,
-      .tm_year = year + 100,
+      .tm_year = year + PCF85063_TM_YEAR_BASE,
       .tm_isdst = 0,
   };
   const time_t result = mktime(&decoded);
   if (decoded.tm_sec != second || decoded.tm_min != minute || decoded.tm_hour != hour ||
-      decoded.tm_mday != day || decoded.tm_mon != month - 1 || decoded.tm_year != year + 100 ||
-      decoded.tm_wday != weekday) {
+      decoded.tm_mday != day || decoded.tm_mon != month - 1 ||
+      decoded.tm_year != year + PCF85063_TM_YEAR_BASE || decoded.tm_wday != weekday) {
     return false;
   }
   *time = result;
@@ -119,7 +142,7 @@ static bool prv_external_rtc_decode(uint8_t control, const uint8_t registers[7],
 
 static bool prv_external_rtc_read(time_t *time) {
   uint8_t control;
-  uint8_t registers[7];
+  uint8_t registers[PCF85063_TIME_REGISTER_COUNT];
   return prv_external_rtc_read_raw(&control, registers) &&
          prv_external_rtc_decode(control, registers, time);
 }
@@ -127,18 +150,18 @@ static bool prv_external_rtc_read(time_t *time) {
 static bool prv_external_rtc_write(time_t time) {
   struct tm encoded;
   gmtime_r(&time, &encoded);
-  if (encoded.tm_year < 100 || encoded.tm_year > 137) {
+  if (encoded.tm_year < PCF85063_TM_YEAR_BASE || encoded.tm_year > PCF85063_TM_YEAR_MAX) {
     return false;
   }
 
-  const uint8_t registers[7] = {
+  const uint8_t registers[PCF85063_TIME_REGISTER_COUNT] = {
       prv_encode_bcd(encoded.tm_sec),
       prv_encode_bcd(encoded.tm_min),
       prv_encode_bcd(encoded.tm_hour),
       prv_encode_bcd(encoded.tm_mday),
       (uint8_t)encoded.tm_wday,
       prv_encode_bcd(encoded.tm_mon + 1),
-      prv_encode_bcd(encoded.tm_year - 100),
+      prv_encode_bcd(encoded.tm_year - PCF85063_TM_YEAR_BASE),
   };
 
   uint8_t control;
@@ -179,7 +202,7 @@ void rtc_calibrate_frequency(uint32_t frequency) {
 void rtc_init_timers(void) {
   s_external_rtc_ready = false;
   uint8_t control;
-  uint8_t registers[7];
+  uint8_t registers[PCF85063_TIME_REGISTER_COUNT];
   if (!prv_external_rtc_read_raw(&control, registers)) {
     return;
   }
@@ -239,12 +262,12 @@ void rtc_get_time_tm(struct tm *time_tm) {
 }
 
 bool rtc_sanitize_struct_tm(struct tm *time_tm) {
-  if (time_tm->tm_year < 100) {
-    time_tm->tm_year = 100;
+  if (time_tm->tm_year < PCF85063_TM_YEAR_BASE) {
+    time_tm->tm_year = PCF85063_TM_YEAR_BASE;
     return true;
   }
-  if (time_tm->tm_year > 137) {
-    time_tm->tm_year = 137;
+  if (time_tm->tm_year > PCF85063_TM_YEAR_MAX) {
+    time_tm->tm_year = PCF85063_TM_YEAR_MAX;
     return true;
   }
   return false;
@@ -278,16 +301,16 @@ bool rtc_alarm_is_initialized(void) {
 
 void rtc_set_timezone(TimezoneInfo *timezone) {
   const uint32_t *words = (const uint32_t *)timezone;
-  _Static_assert(sizeof(TimezoneInfo) <= 5u * sizeof(uint32_t),
+  _Static_assert(sizeof(TimezoneInfo) <= T5AI_RTC_TIMEZONE_WORDS * sizeof(uint32_t),
                  "TimezoneInfo exceeds retained RTC allocation");
-  for (unsigned i = 0; i < 5; ++i) {
+  for (unsigned i = 0; i < T5AI_RTC_TIMEZONE_WORDS; ++i) {
     t5ai_retained_write(RTC_TIMEZONE_ABBR_START + i, words[i]);
   }
 }
 
 void rtc_get_timezone(TimezoneInfo *timezone) {
   uint32_t *words = (uint32_t *)timezone;
-  for (unsigned i = 0; i < 5; ++i) {
+  for (unsigned i = 0; i < T5AI_RTC_TIMEZONE_WORDS; ++i) {
     words[i] = t5ai_retained_read(RTC_TIMEZONE_ABBR_START + i);
   }
 }
@@ -301,7 +324,7 @@ bool rtc_is_timezone_set(void) {
 }
 
 void rtc_timezone_clear(void) {
-  for (unsigned i = 0; i < 5; ++i) {
+  for (unsigned i = 0; i < T5AI_RTC_TIMEZONE_WORDS; ++i) {
     t5ai_retained_write(RTC_TIMEZONE_ABBR_START + i, 0);
   }
 }

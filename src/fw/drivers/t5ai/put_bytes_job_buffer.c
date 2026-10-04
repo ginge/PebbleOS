@@ -3,6 +3,8 @@
 
 #include <string.h>
 
+#define T5AI_PUT_BYTES_BUFFER_ALIGNMENT 32u
+
 #define T5AI_PUT_BYTES_JOB_COUNT 3u
 #define T5AI_PUT_BYTES_JOB_CAPACITY 2080u
 
@@ -11,7 +13,7 @@
  * the AP/CP mailbox cache-ownership protocol. Keep them out of the scarce and
  * fragmentation-sensitive internal kernel heap. */
 static uint8_t s_job_buffers[T5AI_PUT_BYTES_JOB_COUNT][T5AI_PUT_BYTES_JOB_CAPACITY]
-    __attribute__((section(".t5ai_board_cache"), aligned(32)));
+    __attribute__((section(".t5ai_board_cache"), aligned(T5AI_PUT_BYTES_BUFFER_ALIGNMENT)));
 
 uint8_t *put_bytes_job_buffer_alloc(size_t slot, size_t size) {
   if (slot >= T5AI_PUT_BYTES_JOB_COUNT || size > T5AI_PUT_BYTES_JOB_CAPACITY) {

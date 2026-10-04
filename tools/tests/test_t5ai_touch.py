@@ -22,13 +22,8 @@ typedef unsigned *QueueHandle_t;
 #define PebbleTask_App 0
 #define PebbleTask_Worker 1
 #define PebbleTask_KernelBackground 2
-#define CST92XX_REPORT_LENGTH 10
-#define CST92XX_REPORT_ACK 0xab
-#define CST92XX_TOUCH_STATUS 6
-#define CST92XX_NATIVE_SIZE 466
 #define PBL_DISPLAY_WIDTH 260
 #define PBL_DISPLAY_HEIGHT 260
-#define CST92XX_MOTION_INTERVAL_MS 33
 #define pdMS_TO_TICKS(x) (x)
 #define PBL_LOG_ERR(...) ((void)0)
 #define PBL_LOG_WRN(...) ((void)0)
@@ -57,6 +52,10 @@ static void touch_handle_update(int state,int x,int y){
  (void)y;assert(count<20);states[count]=state;xs[count++]=x;
 }
 """
+        # Pull constants from the driver while retaining literal report bytes below.
+        constants = source[source.index("#define CST92XX_RESET_ASSERT_MS"):
+                           source.index("static volatile bool s_enabled")]
+        harness += constants
         checks = r"""
 int main(void){
  assert(prv_poll()); assert(count==1 && states[0]==1);

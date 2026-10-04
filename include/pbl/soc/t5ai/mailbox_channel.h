@@ -7,10 +7,7 @@
 
 #include "system/status_codes.h"
 
-#define T5AI_MAILBOX_FRAME_SIZE 16u
-#define T5AI_MAILBOX_TX_CHANNEL_BASE 0x10u
-#define T5AI_MAILBOX_RX_CHANNEL_BASE 0x40u
-#define T5AI_MAILBOX_CHANNEL_COUNT 16u
+#include <pbl/soc/t5ai/mailbox_protocol.h>
 
 typedef struct {
   uint32_t header;

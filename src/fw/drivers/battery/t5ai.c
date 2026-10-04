@@ -16,10 +16,19 @@
 
 PBL_LOG_MODULE_DEFINE(driver_battery_t5ai, LOG_LEVEL_INFO);
 
+#define T5AI_BATTERY_CHARGE_PIN 30u
+#define T5AI_BATTERY_CAL_LOW_MV 1000
+#define T5AI_BATTERY_CAL_SPAN_MV 1000
+// Reject implausible pack readings before replacing the last valid sample.
+#define T5AI_BATTERY_MIN_VALID_MV 2000
+#define T5AI_BATTERY_MAX_VALID_MV 5000
+
 #define T5AI_BATTERY_ADC_CHANNEL 15u
 #define T5AI_BATTERY_ADC_SAMPLES 16u
+// Meter-calibrated low/span values from the Waveshare board configuration.
 #define T5AI_BATTERY_CAL_LOW 2716
 #define T5AI_BATTERY_CAL_SPAN 2854
+// Battery divider ratio: (2000 + 510) / 510.
 #define T5AI_BATTERY_DIVIDER_NUMERATOR 2510
 #define T5AI_BATTERY_DIVIDER_DENOMINATOR 510
 #define T5AI_BATTERY_DEFAULT_MV 3700
@@ -29,11 +38,13 @@ PBL_LOG_MODULE_DEFINE(driver_battery_t5ai, LOG_LEVEL_INFO);
 #define T5AI_BATTERY_TASK_STACK_WORDS 512u
 #define T5AI_BATTERY_TASK_PRIORITY (tskIDLE_PRIORITY + 1u)
 
-static const InputConfig s_charge = {.pin = 30u};
+static const InputConfig s_charge = {.pin = T5AI_BATTERY_CHARGE_PIN};
 static int s_last_millivolts = T5AI_BATTERY_DEFAULT_MV;
 
 static int prv_raw_to_millivolts(uint16_t raw) {
-  int32_t tap_mv = ((int32_t)raw - T5AI_BATTERY_CAL_LOW) * 1000 / T5AI_BATTERY_CAL_SPAN + 1000;
+  int32_t tap_mv =
+      ((int32_t)raw - T5AI_BATTERY_CAL_LOW) * T5AI_BATTERY_CAL_SPAN_MV / T5AI_BATTERY_CAL_SPAN +
+      T5AI_BATTERY_CAL_LOW_MV;
   if (tap_mv < 0) {
     tap_mv = 0;
   }
@@ -61,7 +72,7 @@ static void prv_battery_task(void *context) {
       continue;
     }
     const int millivolts = prv_raw_to_millivolts(peak);
-    if (millivolts < 2000 || millivolts > 5000) {
+    if (millivolts < T5AI_BATTERY_MIN_VALID_MV || millivolts > T5AI_BATTERY_MAX_VALID_MV) {
       PBL_LOG_ERR("Battery ADC out of range: raw=%u mv=%d", peak, millivolts);
     } else {
       __atomic_store_n(&s_last_millivolts, millivolts, __ATOMIC_RELEASE);

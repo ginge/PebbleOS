@@ -25,6 +25,23 @@
 
 PBL_LOG_MODULE_DEFINE(driver_touch_cst92xx, CONFIG_DRIVER_TOUCH_LOG_LEVEL);
 
+#define CST92XX_RESET_ASSERT_MS 5u
+#define CST92XX_RESET_SETTLE_MS 50u
+#define CST92XX_READ_RETRY_MS 80u
+#define CST92XX_RESET_FAILURE_THRESHOLD 3u
+#define CST92XX_FAILURE_LOG_MASK 0x3fu  // Report every 64 failures after the first.
+#define CST92XX_DELIVERY_QUEUE_LIMIT 2u
+// CST9217 report packs each 12-bit coordinate into a high byte and low nibble.
+#define CST92XX_STATUS_OFFSET 0u
+#define CST92XX_X_HIGH_OFFSET 1u
+#define CST92XX_Y_HIGH_OFFSET 2u
+#define CST92XX_XY_LOW_OFFSET 3u
+#define CST92XX_POINTS_OFFSET 5u
+#define CST92XX_ACK_OFFSET 6u
+#define CST92XX_POINTS_MASK 0x7fu
+#define CST92XX_NIBBLE_MASK 0x0fu
+#define CST92XX_NIBBLE_BITS 4u
+
 #define CST92XX_INTERRUPT_PIN 42u
 #define CST92XX_RESET_PIN 43u
 #define CST92XX_DATA_REGISTER 0xd000u
@@ -67,9 +84,9 @@ static void prv_reset(bool run) {
     return;
   }
   gpio_output_set(&s_reset, false);
-  psleep(5);
+  psleep(CST92XX_RESET_ASSERT_MS);
   gpio_output_set(&s_reset, true);
-  psleep(50);
+  psleep(CST92XX_RESET_SETTLE_MS);
 }
 
 static bool prv_read_report(uint8_t report[CST92XX_REPORT_LENGTH]) {
@@ -99,9 +116,9 @@ static bool prv_delivery_ready(void) {
   QueueHandle_t app = pebble_task_get_to_queue(PebbleTask_App);
   QueueHandle_t worker = pebble_task_get_to_queue(PebbleTask_Worker);
   QueueHandle_t kernel = event_get_to_kernel_queue(PebbleTask_KernelBackground);
-  const bool ready = (!app || uxQueueMessagesWaiting(app) < 2u) &&
-                     (!worker || uxQueueMessagesWaiting(worker) < 2u) &&
-                     (!kernel || uxQueueMessagesWaiting(kernel) < 2u);
+  const bool ready = (!app || uxQueueMessagesWaiting(app) < CST92XX_DELIVERY_QUEUE_LIMIT) &&
+                     (!worker || uxQueueMessagesWaiting(worker) < CST92XX_DELIVERY_QUEUE_LIMIT) &&
+                     (!kernel || uxQueueMessagesWaiting(kernel) < CST92XX_DELIVERY_QUEUE_LIMIT);
   taskEXIT_CRITICAL();
   return ready;
 }
@@ -120,21 +137,24 @@ static bool prv_poll(void) {
   if (!prv_read_report(report)) {
     ++s_read_failures;
     ++s_consecutive_read_failures;
-    if (s_read_failures == 1u || (s_read_failures & 0x3fu) == 0u) {
+    if (s_read_failures == 1u || (s_read_failures & CST92XX_FAILURE_LOG_MASK) == 0u) {
       PBL_LOG_ERR("CST92xx report read failed (%lu total)", (unsigned long)s_read_failures);
     }
-    if (s_consecutive_read_failures >= 3u) {
+    if (s_consecutive_read_failures >= CST92XX_RESET_FAILURE_THRESHOLD) {
       prv_reset(true);
       s_consecutive_read_failures = 0u;
     }
     return false;
   }
   s_consecutive_read_failures = 0u;
-  const uint8_t points = report[5] & 0x7fu;
-  const uint8_t status = report[0] & 0x0fu;
-  if (report[6] == CST92XX_REPORT_ACK && points != 0u && status == CST92XX_TOUCH_STATUS) {
-    const uint16_t native_x = ((uint16_t)report[1] << 4) | (report[3] >> 4);
-    const uint16_t native_y = ((uint16_t)report[2] << 4) | (report[3] & 0x0fu);
+  const uint8_t points = report[CST92XX_POINTS_OFFSET] & CST92XX_POINTS_MASK;
+  const uint8_t status = report[CST92XX_STATUS_OFFSET] & CST92XX_NIBBLE_MASK;
+  if (report[CST92XX_ACK_OFFSET] == CST92XX_REPORT_ACK && points != 0u &&
+      status == CST92XX_TOUCH_STATUS) {
+    const uint16_t native_x = ((uint16_t)report[CST92XX_X_HIGH_OFFSET] << CST92XX_NIBBLE_BITS) |
+                              (report[CST92XX_XY_LOW_OFFSET] >> CST92XX_NIBBLE_BITS);
+    const uint16_t native_y = ((uint16_t)report[CST92XX_Y_HIGH_OFFSET] << CST92XX_NIBBLE_BITS) |
+                              (report[CST92XX_XY_LOW_OFFSET] & CST92XX_NIBBLE_MASK);
     if (native_x < CST92XX_NATIVE_SIZE && native_y < CST92XX_NATIVE_SIZE) {
       // The panel is mounted with both touch axes mirrored. This matches the exact Waveshare board
       // configuration and was confirmed by physical path telemetry (finger-up read as increasing Y).
@@ -202,7 +222,7 @@ static void prv_touch_task(void *context) {
           // rather than turning a disconnected panel into a polling loop.
           break;
         }
-        (void)xSemaphoreTake(s_touch_wake, milliseconds_to_ticks(80u));
+        (void)xSemaphoreTake(s_touch_wake, milliseconds_to_ticks(CST92XX_READ_RETRY_MS));
         continue;
       }
 

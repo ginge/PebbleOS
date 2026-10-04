@@ -10,6 +10,8 @@
 
 // BK7258 AON GPIO register layout from the pinned T5AI BSP. Each pin has one
 // configuration register; output-enable is active low.
+#define T5AI_GPIO_INPUT (1u << 0)
+
 #define T5AI_GPIO_BASE 0x44000400u
 #define T5AI_GPIO_COUNT 56u
 
@@ -120,5 +122,5 @@ void gpio_input_init(const InputConfig *input_cfg) {
 }
 
 bool gpio_input_read(const InputConfig *input_cfg) {
-  return (*prv_pin_register(input_cfg->pin) & 1u) != 0u;
+  return (*prv_pin_register(input_cfg->pin) & T5AI_GPIO_INPUT) != 0u;
 }

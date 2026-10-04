@@ -724,7 +724,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertIn(
             "MailboxOwnedSlot s_ack_slots[T5AI_MAILBOX_CHANNEL_COUNT]", mailbox
         )
-        self.assertIn("s_ack_slots[channel & 0x0fu]", mailbox)
+        self.assertIn("s_ack_slots[channel & T5AI_MAILBOX_CHANNEL_INDEX_MASK]", mailbox)
         command = mailbox[mailbox.index("static void prv_process_command"):]
         command = command[:command.index("static bool prv_drain_rx")]
         self.assertIn("s_pending_ack_mask |=", command)
@@ -749,7 +749,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
             "rx_pending || ack_pending || reset_pending || schedule_status == E_BUSY",
             mailbox_task,
         )
-        self.assertIn("vTaskDelay(pdMS_TO_TICKS(1u))", mailbox_task)
+        self.assertIn("vTaskDelay(pdMS_TO_TICKS(MAILBOX_BUSY_RETRY_MS))", mailbox_task)
         self.assertIn("dcache_invalidate((void *)address", mailbox)
         self.assertNotIn("dcache_flush((void *)address", mailbox)
         self.assertIn("prv_bootstrap_resynchronize(poll_ms)", mailbox)
@@ -762,7 +762,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertIn("prv_process_command(&message)", bootstrap)
         self.assertIn("MAILBOX_BOOTSTRAP_DRAIN_LIMIT", bootstrap)
         self.assertIn("drained < MAILBOX_BOOTSTRAP_DRAIN_LIMIT", bootstrap)
-        self.assertIn("AON_RTC_LOW - start", bootstrap)
+        self.assertIn("T5AI_AON_RTC_COUNT_LOW - start", bootstrap)
         self.assertNotIn(
             "while ((MBOX_CH1_CTRL & MBOX_FIFO_NOT_EMPTY) != 0u)", bootstrap
         )
@@ -860,7 +860,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertLess(status, sample)
         self.assertIn("sample->x = sensor_y;", imu_source)
         self.assertIn("sample->y = -sensor_x;", imu_source)
-        self.assertIn("sample->z = prv_to_mg(&raw[4]);", imu_source)
+        self.assertIn("sample->z = prv_to_mg(&raw[QMI8658_ACCEL_Z_OFFSET]);", imu_source)
 
         battery_source = (ROOT / "src/fw/drivers/battery/t5ai.c").read_text()
         self.assertIn(

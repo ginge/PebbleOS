@@ -176,7 +176,7 @@ int main(void) {
         self.assertIn(
             "MailboxOwnedSlot s_ack_slots[T5AI_MAILBOX_CHANNEL_COUNT]", transport
         )
-        self.assertIn("s_ack_slots[channel & 0x0fu]", transport)
+        self.assertIn("s_ack_slots[channel & T5AI_MAILBOX_CHANNEL_INDEX_MASK]", transport)
         self.assertIn("dcache_invalidate((void *)address", transport)
         self.assertNotIn("dcache_flush((void *)address", transport)
         self.assertIn("sequence != tx->sequence", transport)

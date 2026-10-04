@@ -7,6 +7,13 @@
 
 #include <stdint.h>
 
+// Force-reboot values reproduce wdt_hal_force_reboot(), including both key writes.
+#define T5AI_WDT_CLOCK_SOURCE_MASK 0x3u
+#define T5AI_WDT_RESET_CONTROL_MASK 0x3fu
+#define T5AI_WDT_WHOLE_CHIP_RESET_CONTROL 0x26u
+#define T5AI_NMI_WDT_CLOCK_GATE_BYPASS (1u << 1)
+#define T5AI_WDT_FORCE_RESET_PERIOD 10u
+
 /* BK7258 AP register addresses from the pinned T5AI BSP. */
 #define T5AI_AON_PMU_R0 (*(volatile uint32_t *)0x44000000u)
 #define T5AI_AON_WDT_CTRL (*(volatile uint32_t *)0x44000600u)
@@ -106,13 +113,16 @@ NORETURN t5ai_force_whole_chip_reset(uint8_t reason) {
   /* This is the pinned BK7258 wdt_hal_force_reboot sequence. Selecting DIVD
    * prevents a stopped ROSC from defeating recovery, and 0x26 makes watchdog
    * expiry reset the complete device instead of CPU1 alone. */
-  T5AI_AON_PMU_R41 &= ~0x3u;
-  T5AI_AON_PMU_R2 = (T5AI_AON_PMU_R2 & ~0x3fu) | 0x26u;
-  T5AI_NMI_WDT_CTRL |= 1u << 1u;
-  T5AI_NMI_WDT_PERIOD = 0x5a000au;
-  T5AI_NMI_WDT_PERIOD = 0xa5000au;
-  T5AI_AON_WDT_CTRL = 0x5a000au;
-  T5AI_AON_WDT_CTRL = 0xa5000au;
+  T5AI_AON_PMU_R41 &= ~T5AI_WDT_CLOCK_SOURCE_MASK;
+  T5AI_AON_PMU_R2 =
+      (T5AI_AON_PMU_R2 & ~T5AI_WDT_RESET_CONTROL_MASK) | T5AI_WDT_WHOLE_CHIP_RESET_CONTROL;
+  T5AI_NMI_WDT_CTRL |= T5AI_NMI_WDT_CLOCK_GATE_BYPASS;
+  T5AI_NMI_WDT_PERIOD =
+      (T5AI_AON_WDT_KEY_1 << T5AI_AON_WDT_KEY_SHIFT) | T5AI_WDT_FORCE_RESET_PERIOD;
+  T5AI_NMI_WDT_PERIOD =
+      (T5AI_AON_WDT_KEY_2 << T5AI_AON_WDT_KEY_SHIFT) | T5AI_WDT_FORCE_RESET_PERIOD;
+  T5AI_AON_WDT_CTRL = (T5AI_AON_WDT_KEY_1 << T5AI_AON_WDT_KEY_SHIFT) | T5AI_WDT_FORCE_RESET_PERIOD;
+  T5AI_AON_WDT_CTRL = (T5AI_AON_WDT_KEY_2 << T5AI_AON_WDT_KEY_SHIFT) | T5AI_WDT_FORCE_RESET_PERIOD;
   __DSB();
   while (true) {
     __WFI();

@@ -5,14 +5,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "system/status_codes.h"
+#include <pbl/soc/t5ai/mailbox_channel.h>
 
 typedef struct {
   uintptr_t address;
   size_t length;
   /* Every frame is an AP-owned snapshot. Foreign CP storage is invalidated and
    * copied once, then never modified, cleaned, or republished. */
-  uint8_t snapshot[16];
+  uint8_t snapshot[T5AI_MAILBOX_FRAME_SIZE];
 } T5AICPMailboxFrame;
 
 typedef void (*T5AICPMailboxReceiveCallback)(uint8_t logical_channel,

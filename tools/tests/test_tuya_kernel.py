@@ -185,7 +185,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn(
             "MailboxOwnedSlot s_ack_slots[T5AI_MAILBOX_CHANNEL_COUNT]", mailbox
         )
-        self.assertIn("s_ack_slots[channel & 0x0fu]", mailbox)
+        self.assertIn("s_ack_slots[channel & T5AI_MAILBOX_CHANNEL_INDEX_MASK]", mailbox)
         self.assertIn("configMAX_PRIORITIES - 1u", mailbox)
         hci_transport = (
             ROOT / "third_party/nimble/transport/hci_t5ai.c"
@@ -381,31 +381,36 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertNotIn("mailbox_probe", main)
         self.assertIn("boot_splash_start();", main)
         self.assertIn("prv_qspi_init() && prv_panel_init()", display)
-        self.assertIn("prv_register(0x20u, NULL, 0) && prv_register(0x13u, NULL, 0)", display)
+        self.assertIn(
+            "prv_register(PANEL_DCS_INVERSION_OFF,NULL,0)&&"
+            "prv_register(PANEL_DCS_NORMAL_MODE,NULL,0)",
+            "".join(display.split()),
+        )
         panel_init = display.split("static bool prv_panel_init(void)", 1)[1].split(
             "void display_init(void)", 1
         )[0]
-        self.assertLess(panel_init.index("prv_register(0x20u"), panel_init.index("prv_register(0x29u"))
+        self.assertLess(panel_init.index("prv_register(PANEL_DCS_INVERSION_OFF"), panel_init.index("prv_register(PANEL_DCS_DISPLAY_ON"))
         self.assertNotIn("prv_register(0x23u", panel_init)
         self.assertIn("exact compiled Tuya ordering", display)
         self.assertIn(
-            "GPIO_BASE[pin] = (GPIO_BASE[pin] & ~0x3fffu) | (1u << 3) | (1u << 6) | (3u << 8)",
-            display,
+            "GPIO_BASE[pin]=(GPIO_BASE[pin]&~DISPLAY_GPIO_CONFIG_MASK)|"
+            "DISPLAY_GPIO_OUTPUT_DISABLE|DISPLAY_GPIO_SECOND_FUNCTION|DISPLAY_GPIO_DRIVE_MAX",
+            "".join(display.split()),
         )
-        self.assertIn("*prv_qspi(QSPI_CMD_C_CFG1) = 0x300u", display)
+        self.assertIn("*prv_qspi(QSPI_CMD_C_CFG1) = QSPI_COMMAND_C_FIFO_CONFIG", display)
         self.assertNotIn("0x3u << ((length + 4u) * 2u)", display)
-        brightness = display.index("{0x51, 0xff}")
-        sleep_out = display.index("prv_register(0x11u")
+        brightness = display.index("{PANEL_DCS_BRIGHTNESS, PANEL_MAX_BRIGHTNESS}")
+        sleep_out = display.index("prv_register(PANEL_DCS_SLEEP_OUT")
         self.assertLess(brightness, sleep_out)
         self.assertIn(
             "*prv_qspi(QSPI_CONFIG) = QSPI_CS_HIGH_WAIT | QSPI_ENABLE | QSPI_IO23_ENABLE",
             display,
         )
         self.assertIn("#define QSPI_CS_HIGH_WAIT (8u << 24)", display)
-        self.assertIn("SYSTEM_CPU1_INTERRUPT_ENABLE |= 1u << 20", display)
+        self.assertIn("SYSTEM_CPU1_INTERRUPT_ENABLE |= QSPI0_INTERRUPT_ENABLE", display)
         self.assertNotIn("NVIC_EnableIRQ(QSPI0_IRQn)", display)
-        self.assertIn("*prv_qspi(QSPI_GLB_CTRL) |= 1u", display)
-        self.assertIn("(5u << 6)", display)
+        self.assertIn("*prv_qspi(QSPI_GLB_CTRL) |= QSPI_RESET_RELEASE", display)
+        self.assertIn("(QSPI_CLOCK_DIVIDER_80MHZ << QSPI_CLOCK_DIVIDER_SHIFT)", display)
         self.assertIn("*prv_qspi(QSPI_RST_CFG) = 0u", display)
         self.assertNotIn("display_co5300_bitbang_probe", display)
         self.assertNotIn("display_co5300_log_diagnostics", display)
@@ -413,7 +418,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertNotIn("PBLBIT", display)
         self.assertNotIn("PBLDSP", display)
         self.assertNotIn("PBLREG", display)
-        self.assertIn("return 100u", backlight)
+        self.assertIn("return T5AI_BACKLIGHT_FULL_PERCENT", backlight)
         self.assertNotIn("display_co5300_set_brightness", backlight)
         self.assertIn("Do not issue QSPI commands", backlight)
         self.assertNotIn("* 255u", backlight)
@@ -428,7 +433,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
             touch,
         )
         poll = touch[touch.index("static bool prv_poll") : touch.index("static void prv_touch_task")]
-        self.assertIn("s_consecutive_read_failures >= 3u", poll)
+        self.assertIn("s_consecutive_read_failures >= CST92XX_RESET_FAILURE_THRESHOLD", poll)
         self.assertNotIn("i2c_bitbang_recovery(I2C_CST92XX)", poll)
         self.assertIn("prv_reset(true);", poll)
         self.assertIn("CST92XX_TASK_PRIORITY (configMAX_PRIORITIES - 2)", touch)
@@ -558,7 +563,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("display_co5300_update_cpu", display_driver)
         self.assertIn("prv_display_update(nrcb, uccb, false, false);", display_driver)
         self.assertIn("prv_dcache_clean(buffer, length);", display_driver)
-        self.assertIn("framebuffer_pixel ^= 0x3fu", display_driver)
+        self.assertIn("framebuffer_pixel ^= DISPLAY_COLOR_MASK", display_driver)
         self.assertIn("prv_display_update(nrcb, uccb, use_dma, false);", display_driver)
         self.assertIn("if (source_x != previous_source_x)", display_driver)
         self.assertIn("converted_pixel = s_rgb565[framebuffer_pixel]", display_driver)
@@ -646,12 +651,12 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("CP_POWER_UP_COMMAND 1u", mailbox)
         self.assertIn("CP_HEARTBEAT_COMMAND 2u", mailbox)
         self.assertIn("CP_STARTUP_TIMEOUT_MS 2000u", mailbox)
-        self.assertIn("((uint32_t)s_control_sequence << 16u)", mailbox)
+        self.assertIn("((uint32_t)s_control_sequence << T5AI_MAILBOX_HEADER_SEQUENCE_SHIFT)", mailbox)
         self.assertIn("response->parameter1 == 0u", mailbox)
         self.assertIn("CP_PM_TX_CHANNEL 0x12u", mailbox)
         self.assertIn("CP_PM_RX_CHANNEL 0x42u", mailbox)
         self.assertNotIn(
-            "message->header >> 16u) == s_control_sequence", mailbox
+            "message->header >> T5AI_MAILBOX_HEADER_SEQUENCE_SHIFT) == s_control_sequence", mailbox
         )
         self.assertIn("void vApplicationTickHook(void)", port)
         self.assertNotIn("t5ai_cp_mailbox_heartbeat();", port)
@@ -786,10 +791,10 @@ typedef int status_t;
 #define MAILBOX_BOOT_POLL_MS 100u
 #define MBOX_ACK_BOX (1u << 12)
 #define MBOX_SYNC_TX (2u << 12)
-#define MBOX_COMMUNICATION_FAILED (1u << 8)
+#define T5AI_MAILBOX_HEADER_COMMUNICATION_FAILED (1u << 8)
 #define MBOX_CH1_CTRL  (rx_head < rx_count ? MBOX_FIFO_NOT_EMPTY : 0u)
 #define MBOX_FIFO_NOT_EMPTY (1u << 19)
-#define AON_RTC_LOW (++now)
+#define T5AI_AON_RTC_COUNT_LOW (++now)
 typedef struct { uint32_t header, parameter1, parameter2, parameter3; } T5AIMailboxMessage;
 typedef void (*T5AIMailboxTransmitHandler)(const T5AIMailboxMessage *, status_t, void *);
 typedef void (*T5AIMailboxReceiveHandler)(T5AIMailboxMessage *, void *);
@@ -828,6 +833,11 @@ static bool prv_bootstrap_publish(const T5AIMailboxMessage *m, uint32_t ms) {
  (void)ms; return prv_publish(m) == S_SUCCESS;
 }
 """
+        # Reuse production wire constants; keep test frames literal to check the ABI.
+        harness += (ROOT / "include/pbl/soc/t5ai/memory.h").read_text().replace("#pragma once", "")
+        harness += (ROOT / "include/pbl/soc/t5ai/mailbox_protocol.h").read_text().replace("#pragma once", "")
+        harness += source[source.index("#define MAILBOX_HEADER_COMMAND_MASK"):
+                          source.index("#define MBOX_BASE")]
         for name in ("prv_any_active", "prv_tx_channel", "prv_rx_channel",
                      "prv_finish_tx", "prv_process_ack", "prv_process_command",
                      "prv_publish_pending_acks", "prv_schedule_tx",
@@ -874,7 +884,7 @@ int main(void) {
  assert(t5ai_mailbox_channel_bootstrap_send(0x10u, &boot, &ack, 100u) == S_SUCCESS);
  assert(rx_head == 2 && published_count == 2);
  assert((published[1].header & MBOX_ACK_BOX) != 0u);
- assert((published[1].header & MBOX_COMMUNICATION_FAILED) != 0u);
+ assert((published[1].header & T5AI_MAILBOX_HEADER_COMMUNICATION_FAILED) != 0u);
  /* Vendor fire-and-forget synchronous physical traffic gets no ACK. */
  command.header = (0x46u << 24) | MBOX_SYNC_TX | 3u;
  prv_process_command(&command);
@@ -1008,7 +1018,7 @@ int main(void) {
         driver = (ROOT / "src/fw/drivers/uart/t5ai.c").read_text()
         self.assertIn("t5ai_cp_mailbox_log", console)
         self.assertNotIn("uart_set_baud_rate", console)
-        self.assertIn("uart->global_ctrl = (1u << 0) | (1u << 1);", driver)
+        self.assertIn("uart->global_ctrl = UART_GLOBAL_RESET_RELEASE | UART_GLOBAL_CLOCK_GATE_BYPASS;", driver)
         self.assertIn(
             "T5AI_SYSTEM_CPU0_INTERRUPT_ENABLE |= T5AI_UART0_INTERRUPT_ENABLE",
             driver,
@@ -1102,22 +1112,22 @@ int main(void) {
     def test_t5ai_i2c_and_external_rtc(self):
         rtc = (ROOT / "src/fw/drivers/rtc/t5ai.c").read_text()
         i2c = (ROOT / "src/fw/drivers/i2c/t5ai.c").read_text()
-        self.assertIn("T5AI_SYSTEM_CPU1_INTERRUPT_ENABLE |= 1u << 6", i2c)
+        self.assertIn("T5AI_SYSTEM_CPU1_INTERRUPT_ENABLE |= T5AI_I2C0_INTERRUPT_ENABLE", i2c)
         self.assertNotIn("T5AI_SYSTEM_CPU0_INTERRUPT_ENABLE", i2c)
         enable = i2c.split("void i2c_hal_enable", 1)[1].split(
             "void i2c_hal_disable", 1
         )[0]
-        self.assertIn("delay_us(5u);", enable)
+        self.assertIn("delay_us(T5AI_I2C_ENABLE_SETTLE_US);", enable)
         start = i2c.split("void i2c_hal_start_transfer", 1)[1].split(
             "void i2c_irq_handler", 1
         )[0]
-        self.assertIn("delay_us(5u);", start)
+        self.assertIn("delay_us(T5AI_I2C_BUS_FREE_US);", start)
         disable = i2c.split("void i2c_hal_disable", 1)[1].split(
             "bool i2c_hal_is_busy", 1
         )[0]
         self.assertNotIn("i2c_hal_abort_transfer", disable)
         self.assertIn("~T5AI_I2C_CONFIG_ENABLE", disable)
-        self.assertIn("NVIC_SetPriority(bus->hal->irqn, 6u)", i2c)
+        self.assertIn("NVIC_SetPriority(bus->hal->irqn, T5AI_I2C_IRQ_PRIORITY)", i2c)
         common_i2c = (ROOT / "src/fw/drivers/i2c/common.c").read_text()
         self.assertIn("#define I2C_ERROR_TIMEOUT_MS  (1000)", common_i2c)
         self.assertIn("#define I2C_NACK_COUNT_MAX    (1000)", common_i2c)
@@ -1158,7 +1168,8 @@ int main(void) {
         t5ai_interface = interface.split("#elif defined(CONFIG_SOC_T5AI)", 1)[1]
         t5ai_interface = t5ai_interface.split("#else", 1)[0]
         self.assertIn("#define RTC_TICKS_HZ (1000u)", t5ai_interface)
-        self.assertIn("#define T5AI_AON_RTC_HZ 32000u", implementation)
+        self.assertIn("#define T5AI_AON_RTC_HZ 32000u",
+                      (ROOT / "include/pbl/soc/t5ai/rtc.h").read_text())
         self.assertIn(
             "return prv_raw_ticks() / (T5AI_AON_RTC_HZ / RTC_TICKS_HZ);",
             implementation,

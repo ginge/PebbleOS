@@ -3,6 +3,7 @@
 #include <pbl/mcu/cache.h>
 #include <pbl/logging/logging.h>
 #include <pbl/os/mutex.h>
+#include <pbl/soc/t5ai/memory.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/flash_ipc.h>
 #include <pbl/soc/t5ai/mb_ipc.h>
@@ -17,6 +18,30 @@
 #include "task.h"
 
 PBL_LOG_MODULE_DECLARE(driver_flash, CONFIG_DRIVER_FLASH_LOG_LEVEL);
+
+// Pinned CP service ABI: flash address is above an 8-bit partition field;
+// transfer length and signed API status occupy the low/high 16-bit halves.
+#define FLASH_ADDRESS_SHIFT 8u
+#define FLASH_STATUS_SHIFT 16u
+#define FLASH_MAX_TRANSFER_BYTES UINT16_MAX
+#define FLASH_ERASE_BLOCK_BYTES 4096u
+#define FLASH_FAILURE_CONTEXT 0x464c0000u  // ASCII FL, followed by service command.
+#define SARADC_MAX_CHANNEL 15u
+#define SARADC_MAX_SAMPLES 32u
+#define SARADC_CONFIG_WIRE_SIZE 36u
+#define SARADC_COMMAND_WIRE_SIZE 132u
+#define SARADC_NOTIFY_WORDS 4u
+#define SARADC_NOTIFY_ACK_WORD 1u
+// Preserve the raw vendor clock configuration and continuous sampling setup.
+#define SARADC_CLOCK_CONFIG 0x30a0c5u
+#define SARADC_MODE_CONTINUOUS 3u
+#define SARADC_SOURCE_XTAL 1u
+#define SARADC_SATURATE_MODE 4u
+#define SARADC_STEADY_COUNT 7u
+// Vendor SARADC uses a 32-bit MSB-first accumulator with polynomial 0x31.
+#define SARADC_CRC_HIGH_BIT 0x80000000u
+#define SARADC_CRC_POLYNOMIAL 0x31u
+#define SARADC_CRC_BITS_PER_BYTE 8u
 
 #define FLASH_CLIENT_PORT 16u
 #define FLASH_SERVER_PORT 1u
@@ -61,7 +86,7 @@ typedef struct {
 
 typedef struct {
   uint32_t parameter;
-  uint16_t samples[32];
+  uint16_t samples[SARADC_MAX_SAMPLES];
   uint32_t size;
   uint32_t timeout;
   int16_t status;
@@ -92,8 +117,8 @@ static T5AIMbIpcSocket *s_flash_socket;
 static T5AIMbIpcSocket *s_saradc_socket;
 static PebbleMutex *s_flash_mutex;
 static PebbleMutex *s_saradc_mutex;
-static FlashCommand s_flash_command __attribute__((aligned(32)));
-static SaradcCommand s_saradc_command __attribute__((aligned(32)));
+static FlashCommand s_flash_command __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
+static SaradcCommand s_saradc_command __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
 static T5AIFlashDiagnostics s_flash_diagnostics = {.active_command = UINT32_MAX};
 
 static void prv_sample_operation(T5AIFlashOperationDiagnostics *sample,
@@ -148,8 +173,9 @@ static void prv_restore_client_priority(UBaseType_t previous) {
 }
 
 #if UINTPTR_MAX == UINT32_MAX
-_Static_assert(sizeof(SaradcConfig) == 36u, "BK7258 SARADC config ABI changed");
-_Static_assert(sizeof(SaradcCommand) == 132u, "BK7258 SARADC command ABI changed");
+_Static_assert(sizeof(SaradcConfig) == SARADC_CONFIG_WIRE_SIZE, "BK7258 SARADC config ABI changed");
+_Static_assert(sizeof(SaradcCommand) == SARADC_COMMAND_WIRE_SIZE,
+               "BK7258 SARADC command ABI changed");
 #endif
 
 /* Vendor flash CRC: reflected CRC-32, seed zero, no final XOR. */
@@ -234,8 +260,8 @@ static uint32_t prv_saradc_crc32(const void *data, size_t length) {
   uint32_t crc = 0u;
   while (length-- != 0u) {
     crc ^= *bytes++;
-    for (unsigned bit = 0; bit < 8u; ++bit) {
-      crc = (crc & 0x80000000u) != 0u ? (crc << 1u) ^ 0x31u : crc << 1u;
+    for (unsigned bit = 0; bit < SARADC_CRC_BITS_PER_BYTE; ++bit) {
+      crc = (crc & SARADC_CRC_HIGH_BIT) != 0u ? (crc << 1u) ^ SARADC_CRC_POLYNOMIAL : crc << 1u;
     }
   }
   return crc;
@@ -244,12 +270,12 @@ static uint32_t prv_saradc_crc32(const void *data, size_t length) {
 static void prv_saradc_notify(uint8_t channel, const T5AICPMailboxFrame *frame, void *context) {
   (void)channel;
   (void)context;
-  if (frame->length != 16u) {
+  if (frame->length != SARADC_NOTIFY_WORDS * sizeof(uint32_t)) {
     (void)t5ai_cp_mailbox_acknowledge_frame(frame, false);
     return;
   }
   uint32_t *words = (uint32_t *)(uintptr_t)frame->address;
-  words[1] = SARADC_NOTIFY_ACK;
+  words[SARADC_NOTIFY_ACK_WORD] = SARADC_NOTIFY_ACK;
   (void)t5ai_cp_mailbox_acknowledge_frame(frame, true);
 }
 
@@ -278,7 +304,7 @@ static void prv_flash_fault(status_t status, uint8_t command) {
     s_flash_available = false;
     t5ai_mb_ipc_poison(s_flash_socket);
   }
-  t5ai_cp_mailbox_snapshot_failure(0x464c0000u | command, status);
+  t5ai_cp_mailbox_snapshot_failure(FLASH_FAILURE_CONTEXT | command, status);
   PBL_LOG_ERR("T5AI flash IPC fault command=%u status=%ld quarantined=%u", command,
               (long)status, ambiguous);
 }
@@ -294,7 +320,7 @@ static status_t prv_flash_transaction(uint8_t command) {
    * client just below the physical mailbox worker until that handshake is
    * complete. Blocking waits still yield normally. */
   const TickType_t trace_start = xTaskGetTickCount();
-  const uint32_t trace_offset = s_flash_command.part_and_address >> 8u;
+  const uint32_t trace_offset = s_flash_command.part_and_address >> FLASH_ADDRESS_SHIFT;
   const uint32_t trace_length = (uint16_t)s_flash_command.length_and_status;
   __atomic_store_n(&s_flash_diagnostics.active_tick, trace_start, __ATOMIC_RELAXED);
   __atomic_store_n(&s_flash_diagnostics.active_command, command, __ATOMIC_RELAXED);
@@ -323,7 +349,7 @@ static status_t prv_flash_transaction(uint8_t command) {
       continue;
     }
     s_flash_command = response;
-    const int16_t api_status = (int16_t)(response.length_and_status >> 16u);
+    const int16_t api_status = (int16_t)(response.length_and_status >> FLASH_STATUS_SHIFT);
     if (api_status != 0) {
       PBL_LOG_ERR("T5AI flash CP error command=%u api=%d length=%u buffer=%08lx", command,
                   api_status, (unsigned)(uint16_t)response.length_and_status,
@@ -352,7 +378,7 @@ out:
 }
 
 status_t t5ai_flash_ipc_read(uint32_t offset, void *buffer, size_t length) {
-  if (buffer == NULL || length == 0u || length > 0xffffu) {
+  if (buffer == NULL || length == 0u || length > FLASH_MAX_TRANSFER_BYTES) {
     return E_INVALID_ARGUMENT;
   }
   mutex_lock(s_flash_mutex);
@@ -360,7 +386,7 @@ status_t t5ai_flash_ipc_read(uint32_t offset, void *buffer, size_t length) {
    * validation inside the same priority boost as both handshakes. */
   const UBaseType_t previous_priority = prv_boost_client_priority();
   s_flash_command = (FlashCommand){
-      .part_and_address = offset << 8u,
+      .part_and_address = offset << FLASH_ADDRESS_SHIFT,
       .length_and_status = (uint32_t)length,
   };
   status_t status = prv_flash_transaction(FLASH_READ);
@@ -390,12 +416,12 @@ out:
 }
 
 status_t t5ai_flash_ipc_write(uint32_t offset, const void *buffer, size_t length) {
-  if (buffer == NULL || length == 0u || length > 0xffffu) {
+  if (buffer == NULL || length == 0u || length > FLASH_MAX_TRANSFER_BYTES) {
     return E_INVALID_ARGUMENT;
   }
   mutex_lock(s_flash_mutex);
   s_flash_command = (FlashCommand){
-      .part_and_address = offset << 8u,
+      .part_and_address = offset << FLASH_ADDRESS_SHIFT,
       .buffer = (uint32_t)(uintptr_t)buffer,
       .length_and_status = (uint32_t)length,
       .crc = prv_crc32(buffer, length),
@@ -407,11 +433,11 @@ status_t t5ai_flash_ipc_write(uint32_t offset, const void *buffer, size_t length
 }
 
 status_t t5ai_flash_ipc_erase_4k(uint32_t offset) {
-  if ((offset & 0xfffu) != 0u) {
+  if ((offset & (FLASH_ERASE_BLOCK_BYTES - 1u)) != 0u) {
     return E_INVALID_ARGUMENT;
   }
   mutex_lock(s_flash_mutex);
-  s_flash_command = (FlashCommand){.part_and_address = offset << 8u};
+  s_flash_command = (FlashCommand){.part_and_address = offset << FLASH_ADDRESS_SHIFT};
   const status_t status = prv_flash_transaction(FLASH_ERASE_SECTOR);
   mutex_unlock(s_flash_mutex);
   return status;
@@ -516,12 +542,12 @@ static status_t prv_saradc_read_peak_locked(uint8_t channel, uint8_t samples, ui
   }
 
   memset(&s_saradc_command.config, 0, sizeof(s_saradc_command.config));
-  s_saradc_command.config.clock = 0x30a0c5u;
-  s_saradc_command.config.mode = 3u;
-  s_saradc_command.config.source_clock = 1u;
+  s_saradc_command.config.clock = SARADC_CLOCK_CONFIG;
+  s_saradc_command.config.mode = SARADC_MODE_CONTINUOUS;
+  s_saradc_command.config.source_clock = SARADC_SOURCE_XTAL;
   s_saradc_command.config.channel = channel;
-  s_saradc_command.config.saturate_mode = 4u;
-  s_saradc_command.config.steady = 7u;
+  s_saradc_command.config.saturate_mode = SARADC_SATURATE_MODE;
+  s_saradc_command.config.steady = SARADC_STEADY_COUNT;
   s_saradc_command.config.output_buffer = s_saradc_command.samples;
   s_saradc_command.config.output_length = samples;
   status = prv_saradc_transaction(SARADC_SET_CONFIG);
@@ -559,7 +585,8 @@ static status_t prv_saradc_read_peak_locked(uint8_t channel, uint8_t samples, ui
 }
 
 status_t t5ai_saradc_read_peak(uint8_t channel, uint8_t samples, uint16_t *peak) {
-  if (peak == NULL || channel > 15u || samples == 0u || samples > 32u) {
+  if (peak == NULL || channel > SARADC_MAX_CHANNEL || samples == 0u ||
+      samples > SARADC_MAX_SAMPLES) {
     return E_INVALID_ARGUMENT;
   }
   mutex_lock(s_saradc_mutex);

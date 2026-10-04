@@ -3,6 +3,7 @@
 #include <pbl/mcu/cache.h>
 #include <pbl/logging/logging.h>
 #include <pbl/os/mutex.h>
+#include <pbl/soc/t5ai/memory.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/mailbox_channel.h>
 #include <pbl/soc/t5ai/mb_ipc.h>
@@ -13,6 +14,30 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+
+// MB-IPC parameter1: dst port/CPU, src port/CPU, tag, API status, route status.
+#define MB_IPC_PORT_MASK 0x3fu
+#define MB_IPC_CPU_MASK 3u
+#define MB_IPC_DEST_CPU_SHIFT 6u
+#define MB_IPC_SOURCE_PORT_SHIFT 8u
+#define MB_IPC_SOURCE_CPU_SHIFT 14u
+#define MB_IPC_TAG_SHIFT 16u
+#define MB_IPC_API_STATUS_SHIFT 24u
+#define MB_IPC_ROUTE_STATUS_SHIFT 28u
+#define MB_IPC_STATUS_MASK 0x0fu
+#define MB_IPC_ROUTE_STATUS_MASK (MB_IPC_STATUS_MASK << MB_IPC_ROUTE_STATUS_SHIFT)
+// parameter2: 16-bit byte length, CRC-8, then the service command.
+#define MB_IPC_CRC_SHIFT 16u
+#define MB_IPC_USER_COMMAND_SHIFT 24u
+#define MB_IPC_MAX_PAYLOAD_BYTES UINT16_MAX
+#define MB_IPC_CLIENT_PORT_MIN 16u
+#define MB_IPC_CLIENT_PORT_MAX 63u
+#define MB_IPC_SERVER_PORT_MAX 15u
+#define MB_IPC_CONNECT_TIMEOUT_MS 500u
+// Vendor MSB-first CRC-8, seed zero, no final XOR.
+#define MB_IPC_CRC_POLYNOMIAL 0x31u
+#define MB_IPC_CRC_HIGH_BIT 0x80u
+#define MB_IPC_CRC_BITS 8u
 
 #define MB_IPC_TX_CHANNEL 0x11u
 #define MB_IPC_RX_CHANNEL 0x41u
@@ -40,7 +65,7 @@ struct T5AIMbIpcSocket {
   bool poisoned;
   bool tx_in_process;
   bool rx_in_process;
-  T5AIMailboxMessage tx_message __attribute__((aligned(32)));
+  T5AIMailboxMessage tx_message __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
   T5AIMailboxMessage rx_message;
   status_t tx_status;
   PebbleMutex *mutex;
@@ -56,8 +81,9 @@ static uint8_t prv_crc8(const void *data, size_t length) {
   uint8_t crc = 0u;
   while (length-- != 0u) {
     crc ^= *bytes++;
-    for (unsigned bit = 0; bit < 8u; ++bit) {
-      crc = (crc & 0x80u) != 0u ? (uint8_t)((crc << 1u) ^ 0x31u) : (uint8_t)(crc << 1u);
+    for (unsigned bit = 0; bit < MB_IPC_CRC_BITS; ++bit) {
+      crc = (crc & MB_IPC_CRC_HIGH_BIT) != 0u ? (uint8_t)((crc << 1u) ^ MB_IPC_CRC_POLYNOMIAL)
+                                              : (uint8_t)(crc << 1u);
     }
   }
   return crc;
@@ -65,42 +91,45 @@ static uint8_t prv_crc8(const void *data, size_t length) {
 
 static uint32_t prv_address(uint8_t destination_cpu, uint8_t destination_port,
                             uint8_t source_cpu, uint8_t source_port, uint8_t tag) {
-  return (destination_port & 0x3fu) | ((uint32_t)(destination_cpu & 3u) << 6u) |
-         ((uint32_t)(source_port & 0x3fu) << 8u) | ((uint32_t)(source_cpu & 3u) << 14u) |
-         ((uint32_t)tag << 16u);
+  return (destination_port & MB_IPC_PORT_MASK) |
+         ((uint32_t)(destination_cpu & MB_IPC_CPU_MASK) << MB_IPC_DEST_CPU_SHIFT) |
+         ((uint32_t)(source_port & MB_IPC_PORT_MASK) << MB_IPC_SOURCE_PORT_SHIFT) |
+         ((uint32_t)(source_cpu & MB_IPC_CPU_MASK) << MB_IPC_SOURCE_CPU_SHIFT) |
+         ((uint32_t)tag << MB_IPC_TAG_SHIFT);
 }
 
 static uint8_t prv_destination_cpu(const T5AIMailboxMessage *message) {
-  return (uint8_t)(message->parameter1 >> 6u) & 3u;
+  return (uint8_t)(message->parameter1 >> MB_IPC_DEST_CPU_SHIFT) & MB_IPC_CPU_MASK;
 }
 
 static uint8_t prv_destination_port(const T5AIMailboxMessage *message) {
-  return (uint8_t)message->parameter1 & 0x3fu;
+  return (uint8_t)message->parameter1 & MB_IPC_PORT_MASK;
 }
 
 static uint8_t prv_source_cpu(const T5AIMailboxMessage *message) {
-  return (uint8_t)(message->parameter1 >> 14u) & 3u;
+  return (uint8_t)(message->parameter1 >> MB_IPC_SOURCE_CPU_SHIFT) & MB_IPC_CPU_MASK;
 }
 
 static uint8_t prv_source_port(const T5AIMailboxMessage *message) {
-  return (uint8_t)(message->parameter1 >> 8u) & 0x3fu;
+  return (uint8_t)(message->parameter1 >> MB_IPC_SOURCE_PORT_SHIFT) & MB_IPC_PORT_MASK;
 }
 
 static uint8_t prv_tag(const T5AIMailboxMessage *message) {
-  return (uint8_t)(message->parameter1 >> 16u);
+  return (uint8_t)(message->parameter1 >> MB_IPC_TAG_SHIFT);
 }
 
 static uint8_t prv_route_status(const T5AIMailboxMessage *message) {
-  return (uint8_t)(message->parameter1 >> 28u);
+  return (uint8_t)(message->parameter1 >> MB_IPC_ROUTE_STATUS_SHIFT);
 }
 
 static uint8_t prv_api_status(const T5AIMailboxMessage *message) {
-  return (uint8_t)(message->parameter1 >> 24u) & 0x0fu;
+  return (uint8_t)(message->parameter1 >> MB_IPC_API_STATUS_SHIFT) & MB_IPC_STATUS_MASK;
 }
 
 static void prv_set_route_status(T5AIMailboxMessage *message, uint8_t route_status) {
-  message->parameter1 = (message->parameter1 & 0x0fffffffu) |
-                        ((uint32_t)(route_status & 0x0fu) << 28u);
+  message->parameter1 =
+      (message->parameter1 & ~MB_IPC_ROUTE_STATUS_MASK) |
+      ((uint32_t)(route_status & MB_IPC_STATUS_MASK) << MB_IPC_ROUTE_STATUS_SHIFT);
 }
 
 static T5AIMbIpcSocket *prv_find_receiver(const T5AIMailboxMessage *message) {
@@ -208,8 +237,8 @@ static status_t prv_transmit(T5AIMbIpcSocket *socket, uint8_t command, uint8_t u
       .header = command,
       .parameter1 = prv_address(MB_IPC_CPU_CP, socket->server_port, MB_IPC_CPU_AP,
                                 socket->client_port, socket->tx_tag),
-      .parameter2 = (uint32_t)length | ((uint32_t)prv_crc8(data, length) << 16u) |
-                    ((uint32_t)user_command << 24u),
+      .parameter2 = (uint32_t)length | ((uint32_t)prv_crc8(data, length) << MB_IPC_CRC_SHIFT) |
+                    ((uint32_t)user_command << MB_IPC_USER_COMMAND_SHIFT),
       .parameter3 = (uint32_t)(uintptr_t)data,
   };
   if (data != NULL && length != 0u) {
@@ -240,8 +269,8 @@ static status_t prv_transmit(T5AIMbIpcSocket *socket, uint8_t command, uint8_t u
 
 status_t t5ai_mb_ipc_open(uint8_t client_port, uint8_t server_port,
                           T5AIMbIpcSocket **socket_out) {
-  if (client_port < 16u || client_port > 63u || server_port == 0u || server_port > 15u ||
-      socket_out == NULL) {
+  if (client_port < MB_IPC_CLIENT_PORT_MIN || client_port > MB_IPC_CLIENT_PORT_MAX ||
+      server_port == 0u || server_port > MB_IPC_SERVER_PORT_MAX || socket_out == NULL) {
     return E_INVALID_ARGUMENT;
   }
   status_t status = t5ai_mb_ipc_init();
@@ -271,7 +300,7 @@ status_t t5ai_mb_ipc_open(uint8_t client_port, uint8_t server_port,
   socket->client_port = client_port;
   socket->server_port = server_port;
   socket->rx_in_process = false;
-  status = prv_transmit(socket, MB_IPC_COMMAND_CONNECT, 0u, NULL, 0u, 500u);
+  status = prv_transmit(socket, MB_IPC_COMMAND_CONNECT, 0u, NULL, 0u, MB_IPC_CONNECT_TIMEOUT_MS);
   socket->connected = PASSED(status);
   mutex_unlock(socket->mutex);
   if (FAILED(status)) {
@@ -283,7 +312,7 @@ status_t t5ai_mb_ipc_open(uint8_t client_port, uint8_t server_port,
 
 status_t t5ai_mb_ipc_send(T5AIMbIpcSocket *socket, uint8_t command, const void *data,
                           size_t length, uint32_t timeout_ms) {
-  if (socket == NULL || data == NULL || length == 0u || length > 0xffffu) {
+  if (socket == NULL || data == NULL || length == 0u || length > MB_IPC_MAX_PAYLOAD_BYTES) {
     return E_INVALID_ARGUMENT;
   }
   mutex_lock(socket->mutex);
@@ -313,13 +342,13 @@ static status_t prv_respond(T5AIMbIpcSocket *socket, T5AIMailboxMessage *request
   if (FAILED(status)) {
     PBL_LOG_D_ERR(LOG_DOMAIN_COMM,
                   "T5AI MIPC response physical send failed: status=%ld user=%u tag=%u port=%u>%u",
-                  (long)status, (unsigned)(request->parameter2 >> 24u), prv_tag(request),
-                  socket->client_port, socket->server_port);
+                  (long)status, (unsigned)(request->parameter2 >> MB_IPC_USER_COMMAND_SHIFT),
+                  prv_tag(request), socket->client_port, socket->server_port);
   } else if (prv_route_status(&ack) != MB_IPC_ROUTE_OK) {
     PBL_LOG_D_WRN(LOG_DOMAIN_COMM,
                   "T5AI MIPC response route rejected: route=%u api=%u user=%u tag=%u port=%u>%u",
                   prv_route_status(&ack), prv_api_status(&ack),
-                  (unsigned)(request->parameter2 >> 24u), prv_tag(request),
+                  (unsigned)(request->parameter2 >> MB_IPC_USER_COMMAND_SHIFT), prv_tag(request),
                   socket->client_port, socket->server_port);
     status = E_INVALID_OPERATION;
   }
@@ -354,14 +383,14 @@ status_t t5ai_mb_ipc_receive(T5AIMbIpcSocket *socket, uint8_t *command, void *da
   } else if (data != NULL && length != 0u) {
     const void *source = (const void *)(uintptr_t)request.parameter3;
     dcache_invalidate((void *)source, received_length);
-    if (prv_crc8(source, received_length) != (uint8_t)(request.parameter2 >> 16u)) {
+    if (prv_crc8(source, received_length) != (uint8_t)(request.parameter2 >> MB_IPC_CRC_SHIFT)) {
       status = E_ERROR;
     } else {
       memcpy(data, source, received_length);
     }
   }
   if (command != NULL) {
-    *command = (uint8_t)(request.parameter2 >> 24u);
+    *command = (uint8_t)(request.parameter2 >> MB_IPC_USER_COMMAND_SHIFT);
   }
   /* Match Tuya's mb_ipc_recv_async semantics: once the request payload has
    * been received and validated, the response route status is diagnostic

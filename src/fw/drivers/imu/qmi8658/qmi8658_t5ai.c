@@ -18,6 +18,18 @@
 
 PBL_LOG_MODULE_DEFINE(driver_accel_qmi8658, CONFIG_DRIVER_IMU_LOG_LEVEL);
 
+#define QMI8658_DEFAULT_INTERVAL_US 8000u
+#define QMI8658_ACCEL_SAMPLE_BYTES 6u
+#define QMI8658_ACCEL_X_OFFSET 0u
+#define QMI8658_ACCEL_Y_OFFSET 2u
+#define QMI8658_ACCEL_Z_OFFSET 4u
+#define QMI8658_ODR_125HZ 0x06u
+#define QMI8658_ODR_62_5HZ 0x07u
+#define QMI8658_ODR_31_25HZ 0x08u
+#define QMI8658_ODR_LOW_POWER_21HZ 0x0du
+#define QMI8658_ODR_LOW_POWER_11HZ 0x0eu
+#define QMI8658_ODR_LOW_POWER_3HZ 0x0fu
+
 #define QMI8658_WHO_AM_I 0x00u
 #define QMI8658_CTRL1 0x02u
 #define QMI8658_CTRL2 0x03u
@@ -29,6 +41,7 @@ PBL_LOG_MODULE_DEFINE(driver_accel_qmi8658, CONFIG_DRIVER_IMU_LOG_LEVEL);
 #define QMI8658_ID 0x05u
 #define QMI8658_RESET_COMMAND 0xb0u
 #define QMI8658_RESET_SETTLE_MS 10u
+// CTRL1 startup configuration matches the pinned Waveshare sensor driver.
 #define QMI8658_CTRL1_INIT 0x60u
 #define QMI8658_ACCEL_RANGE_4G 0x10u
 #define QMI8658_ACCEL_ENABLE 0x01u
@@ -41,13 +54,18 @@ typedef struct {
   uint8_t odr;
 } QMI8658Rate;
 
+// Poll intervals approximate the sensor ODRs; preserve the existing rounded periods.
 static const QMI8658Rate s_rates[] = {
-    {8000u, 0x06u},  {16000u, 0x07u}, {32000u, 0x08u},
-    {48000u, 0x0du}, {91000u, 0x0eu}, {333000u, 0x0fu},
+    {QMI8658_DEFAULT_INTERVAL_US, QMI8658_ODR_125HZ},
+    {16000u, QMI8658_ODR_62_5HZ},
+    {32000u, QMI8658_ODR_31_25HZ},
+    {48000u, QMI8658_ODR_LOW_POWER_21HZ},
+    {91000u, QMI8658_ODR_LOW_POWER_11HZ},
+    {333000u, QMI8658_ODR_LOW_POWER_3HZ},
 };
 
 static TimerID s_timer = TIMER_INVALID_ID;
-static uint32_t s_interval_us = 8000u;
+static uint32_t s_interval_us = QMI8658_DEFAULT_INTERVAL_US;
 static uint32_t s_num_samples;
 static bool s_initialized;
 static bool s_poll_pending;
@@ -93,7 +111,7 @@ typedef enum {
 
 static QMI8658SampleResult prv_read_sample(AccelDriverSample *sample) {
   uint8_t status;
-  uint8_t raw[6];
+  uint8_t raw[QMI8658_ACCEL_SAMPLE_BYTES];
   if (!prv_read(QMI8658_STATUS0, &status, 1)) {
     PBL_LOG_ERR("QMI8658 status read failed");
     return QMI8658_SAMPLE_ERROR;
@@ -106,11 +124,11 @@ static QMI8658SampleResult prv_read_sample(AccelDriverSample *sample) {
     PBL_LOG_ERR("QMI8658 sample data read failed");
     return QMI8658_SAMPLE_ERROR;
   }
-  const int16_t sensor_x = prv_to_mg(&raw[0]);
-  const int16_t sensor_y = prv_to_mg(&raw[2]);
+  const int16_t sensor_x = prv_to_mg(&raw[QMI8658_ACCEL_X_OFFSET]);
+  const int16_t sensor_y = prv_to_mg(&raw[QMI8658_ACCEL_Y_OFFSET]);
   sample->x = sensor_y;
   sample->y = -sensor_x;
-  sample->z = prv_to_mg(&raw[4]);
+  sample->z = prv_to_mg(&raw[QMI8658_ACCEL_Z_OFFSET]);
   if (s_rotated) {
     sample->x = -sample->x;
     sample->y = -sample->y;

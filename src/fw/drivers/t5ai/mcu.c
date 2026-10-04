@@ -9,6 +9,8 @@
 #include <stdint.h>
 
 /* BK7258 AP eFuse registers and factory device-ID allocation. */
+#define T5AI_EFUSE_WRITE_MODE (1u << 1)
+
 #define T5AI_SYSTEM_DEVICE_CLOCK_ENABLE (*(volatile uint32_t *)0x44010030u)
 #define T5AI_EFUSE_BASE 0x44880000u
 #define T5AI_EFUSE_GLOBAL_CTRL (*(volatile uint32_t *)(T5AI_EFUSE_BASE + 0x08u))
@@ -27,8 +29,7 @@
 
 static bool prv_read_byte(uint8_t address, uint8_t *value) {
   uint32_t ctrl = T5AI_EFUSE_CTRL;
-  ctrl &= ~(T5AI_EFUSE_OPERATION_ENABLE | (1u << 1) |
-            T5AI_EFUSE_ADDRESS_MASK);
+  ctrl &= ~(T5AI_EFUSE_OPERATION_ENABLE | T5AI_EFUSE_WRITE_MODE | T5AI_EFUSE_ADDRESS_MASK);
   ctrl |= (uint32_t)address << T5AI_EFUSE_ADDRESS_SHIFT;
   T5AI_EFUSE_CTRL = ctrl | T5AI_EFUSE_OPERATION_ENABLE;
 

@@ -23,6 +23,23 @@ enum {
   UART_INT_RX_FINISH = 1u << 6,
 };
 
+#define UART_GLOBAL_RESET_RELEASE (1u << 0)
+#define UART_GLOBAL_CLOCK_GATE_BYPASS (1u << 1)
+#define UART_ALL_INTERRUPT_FLAGS 0xffu
+#define UART_BAUD_DIVISOR_SHIFT 8u
+#define UART_BAUD_DIVISOR_MASK (0xffffu << UART_BAUD_DIVISOR_SHIFT)
+#define UART_BAUD_DIVISOR_MIN 5u
+#define UART_BAUD_DIVISOR_MAX 65536u
+#define UART_FIFO_RX_DATA_SHIFT 8u
+#define UART_GPIO_BASE ((volatile uint32_t *)0x44000400u)
+#define UART_GPIO_FUNCTION_BASE ((volatile uint32_t *)0x440100c0u)
+#define UART_GPIO_CONFIG_MASK 0x3fffu
+#define UART_GPIO_OUTPUT_DISABLE (1u << 3)
+#define UART_GPIO_SECOND_FUNCTION (1u << 6)
+// UART0 is mux function zero on GPIO10/11 (word 1, fields 2/3).
+#define UART0_GPIO_FUNCTION_WORD 1u
+#define UART0_GPIO_FUNCTION_MASK ((0xfu << 8) | (0xfu << 12))
+
 #define T5AI_SYSTEM_CPU0_INTERRUPT_ENABLE (*(volatile uint32_t *)0x44010080u)
 #define T5AI_SYSTEM_CPU1_INTERRUPT_ENABLE (*(volatile uint32_t *)0x44010088u)
 #define T5AI_UART0_INTERRUPT_ENABLE (1u << 4)
@@ -32,15 +49,15 @@ static T5AIUartRegisters *prv_regs(UARTDevice *dev) {
 }
 
 static void prv_configure_pins(UARTDevice *dev) {
-  volatile uint32_t *gpio = (volatile uint32_t *)0x44000400u;
-  volatile uint32_t *const function_select = (volatile uint32_t *)0x440100c0u;
-  const uint32_t peripheral_mode = (1u << 3) | (1u << 6);
+  volatile uint32_t *gpio = UART_GPIO_BASE;
+  volatile uint32_t *const function_select = UART_GPIO_FUNCTION_BASE;
+  const uint32_t peripheral_mode = UART_GPIO_OUTPUT_DISABLE | UART_GPIO_SECOND_FUNCTION;
 
   /* UART0 is function index zero for GPIO10/11. Disable the ordinary GPIO
    * drivers and pulls before handing both pins to the peripheral. */
-  function_select[1] &= ~((0xfu << 8) | (0xfu << 12));
-  gpio[dev->tx_pin] = (gpio[dev->tx_pin] & ~0x3fffu) | peripheral_mode;
-  gpio[dev->rx_pin] = (gpio[dev->rx_pin] & ~0x3fffu) | peripheral_mode;
+  function_select[UART0_GPIO_FUNCTION_WORD] &= ~UART0_GPIO_FUNCTION_MASK;
+  gpio[dev->tx_pin] = (gpio[dev->tx_pin] & ~UART_GPIO_CONFIG_MASK) | peripheral_mode;
+  gpio[dev->rx_pin] = (gpio[dev->rx_pin] & ~UART_GPIO_CONFIG_MASK) | peripheral_mode;
 }
 
 static void prv_init(UARTDevice *dev, bool tx, bool rx) {
@@ -49,14 +66,14 @@ static void prv_init(UARTDevice *dev, bool tx, bool rx) {
   prv_configure_pins(dev);
   /* BK7258 calls bit 0 soft_reset, but the vendor HAL asserts it to release
    * the UART. Bit 1 bypasses the peripheral's local clock gate. */
-  uart->global_ctrl = (1u << 0) | (1u << 1);
+  uart->global_ctrl = UART_GLOBAL_RESET_RELEASE | UART_GLOBAL_CLOCK_GATE_BYPASS;
   uart->int_enable = 0;
-  uart->int_status = 0xffu;
+  uart->int_status = UART_ALL_INTERRUPT_FLAGS;
   uart->fifo_config = 0;
   const uint32_t divisor = (dev->clock_hz + dev->baud_rate / 2u) / dev->baud_rate;
-  PBL_ASSERTN(divisor >= 5u && divisor <= 65536u);
+  PBL_ASSERTN(divisor >= UART_BAUD_DIVISOR_MIN && divisor <= UART_BAUD_DIVISOR_MAX);
   uart->config = (tx ? UART_CONFIG_TX_ENABLE : 0u) | (rx ? UART_CONFIG_RX_ENABLE : 0u) |
-                 UART_CONFIG_DATA_BITS_8 | ((divisor - 1u) << 8);
+                 UART_CONFIG_DATA_BITS_8 | ((divisor - 1u) << UART_BAUD_DIVISOR_SHIFT);
   dev->state->initialized = true;
 }
 
@@ -82,9 +99,10 @@ void uart_deinit(UARTDevice *dev) {
 void uart_set_baud_rate(UARTDevice *dev, uint32_t baud_rate) {
   PBL_ASSERTN(dev->state->initialized && baud_rate);
   const uint32_t divisor = (dev->clock_hz + baud_rate / 2u) / baud_rate;
-  PBL_ASSERTN(divisor >= 5u && divisor <= 65536u);
+  PBL_ASSERTN(divisor >= UART_BAUD_DIVISOR_MIN && divisor <= UART_BAUD_DIVISOR_MAX);
   T5AIUartRegisters *uart = prv_regs(dev);
-  uart->config = (uart->config & ~(0xffffu << 8)) | ((divisor - 1u) << 8);
+  uart->config =
+      (uart->config & ~UART_BAUD_DIVISOR_MASK) | ((divisor - 1u) << UART_BAUD_DIVISOR_SHIFT);
 }
 void uart_write_byte(UARTDevice *dev, uint8_t data) {
   while (!uart_is_tx_ready(dev)) {
@@ -92,7 +110,7 @@ void uart_write_byte(UARTDevice *dev, uint8_t data) {
   prv_regs(dev)->fifo_port = data;
 }
 uint8_t uart_read_byte(UARTDevice *dev) {
-  return (uint8_t)(prv_regs(dev)->fifo_port >> 8);
+  return (uint8_t)(prv_regs(dev)->fifo_port >> UART_FIFO_RX_DATA_SHIFT);
 }
 bool uart_is_rx_ready(UARTDevice *dev) {
   return !(prv_regs(dev)->fifo_status & UART_FIFO_RX_EMPTY);
@@ -156,7 +174,7 @@ void uart_set_tx_interrupt_enabled(UARTDevice *dev, bool enabled) {
   prv_update_nvic(dev);
 }
 void uart_clear_all_interrupt_flags(UARTDevice *dev) {
-  prv_regs(dev)->int_status = 0xffu;
+  prv_regs(dev)->int_status = UART_ALL_INTERRUPT_FLAGS;
 }
 void uart_irq_handler(UARTDevice *dev) {
   bool switch_required = false;
