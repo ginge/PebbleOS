@@ -5,6 +5,7 @@
 #include <pbl/drivers/watchdog.h>
 #include <pbl/drivers/i2c.h>
 #include <pbl/drivers/gpio.h>
+#include <pbl/drivers/mic/t5ai/definitions.h>
 #include <pbl/soc/t5ai/memory.h>
 
 #define T5AI_GPIO_BASE 0x44000400u
@@ -50,6 +51,19 @@ static const OutputConfig s_amplifier_enable = {
     .pin = 28u,
     .active_high = false,
 };
+
+#ifdef CONFIG_MIC
+static MicDeviceState s_mic_state;
+static const MicDevice s_mic_device = {
+    .state = &s_mic_state,
+    .base = 0x47800000u,
+    .irq = GDMA_IRQn,
+    .irq_priority = 6u,
+    .analog_gain = 8u,
+};
+MicDevice *const MIC = &s_mic_device;
+IRQ_MAP(GDMA, t5ai_mic_dma_irq_handler, MIC)
+#endif
 
 static UARTDeviceState s_dbg_uart_state;
 static UARTDevice s_dbg_uart_device = {

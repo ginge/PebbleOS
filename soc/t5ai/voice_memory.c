@@ -1,0 +1,55 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
+#include <pbl/soc/t5ai/voice_memory.h>
+#include <pbl/util/heap.h>
+#include "system/passert.h"
+#include "FreeRTOS.h"
+#include "task.h"
+
+static unsigned char s_arena[T5AI_VOICE_ARENA_BYTES]
+    __attribute__((section(".t5ai_board_cache"), aligned(32)));
+static Heap s_heap;
+static bool s_initialized;
+
+static void prv_init(void) {
+  if (!s_initialized) {
+    heap_init(&s_heap, s_arena, s_arena + sizeof(s_arena), false);
+    s_initialized = true;
+  }
+}
+
+void *t5ai_voice_malloc_check(size_t size) {
+  taskENTER_CRITICAL();
+  prv_init();
+  void *ptr = heap_malloc(&s_heap, size, 0u);
+  taskEXIT_CRITICAL();
+  PBL_ASSERTN(ptr);
+  return ptr;
+}
+
+void *t5ai_voice_zalloc_check(size_t size) {
+  taskENTER_CRITICAL();
+  prv_init();
+  void *ptr = heap_zalloc(&s_heap, size, 0u);
+  taskEXIT_CRITICAL();
+  PBL_ASSERTN(ptr);
+  return ptr;
+}
+
+void *t5ai_voice_realloc(void *ptr, size_t size) {
+  taskENTER_CRITICAL();
+  prv_init();
+  void *result = heap_realloc(&s_heap, ptr, size, 0u);
+  taskEXIT_CRITICAL();
+  return result;
+}
+
+void t5ai_voice_free(void *ptr) {
+  if (!ptr) {
+    return;
+  }
+  taskENTER_CRITICAL();
+  PBL_ASSERTN(s_initialized && heap_contains_address(&s_heap, ptr));
+  heap_free(&s_heap, ptr, 0u);
+  taskEXIT_CRITICAL();
+}

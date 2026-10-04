@@ -41,6 +41,8 @@ typedef volatile struct {
 #define T5AI_I2C_EXT_ADDRESS_OUTPUT_ENABLE (1u << 1)
 #define T5AI_I2C_ENABLE_SETTLE_US 5u
 #define T5AI_I2C_BUS_FREE_US 5u
+#define T5AI_I2C_RECOVERY_CLOCKS 9u
+#define T5AI_I2C_RECOVERY_STRETCH_US 100u
 #define T5AI_I2C_GPIO_BASE ((volatile uint32_t *)0x44000400u)
 #define T5AI_I2C_GPIO_CONFIG_MASK 0x3fffu
 #define T5AI_I2C_GPIO_OUTPUT_DISABLE (1u << 3)
@@ -72,6 +74,8 @@ typedef volatile struct {
 #define T5AI_SYSTEM_POWER_SLEEP_WAKEUP (*(volatile uint32_t *)0x44010040u)
 #define T5AI_SYSTEM_CPU1_INTERRUPT_ENABLE (*(volatile uint32_t *)0x44010088u)
 #define T5AI_SYSTEM_GPIO_FUNCTION_BASE ((volatile uint32_t *)0x440100c0u)
+
+static volatile bool s_recovery_required;
 
 static T5AII2CRegisters *prv_regs(I2CBus *bus) {
   return (T5AII2CRegisters *)bus->hal->base;
@@ -107,20 +111,68 @@ static void prv_configure_pin(uint8_t pin) {
   *function &= ~(T5AI_I2C_FUNCTION_MASK << shift);  // I2C0 is peripheral function zero on P20/P21.
 }
 
+// Called with the bus mutex held, never from an interrupt.
+static bool prv_wait_scl(const InputConfig *scl) {
+  for (unsigned us = 0; us < T5AI_I2C_RECOVERY_STRETCH_US; ++us) {
+    if (gpio_input_read(scl)) {
+      return true;
+    }
+    delay_us(1u);
+  }
+  return false;
+}
+
+static void prv_clear_bus(I2CBus *bus) {
+  const OutputConfig scl = {.pin = bus->hal->scl_pin, .active_high = false};
+  const OutputConfig sda = {.pin = bus->hal->sda_pin, .active_high = false};
+  const InputConfig scl_input = {.pin = bus->hal->scl_pin};
+  const InputConfig sda_input = {.pin = bus->hal->sda_pin};
+  gpio_output_init(&scl, GPIO_OType_OD);
+  gpio_output_init(&sda, GPIO_OType_OD);
+  T5AI_I2C_GPIO_BASE[bus->hal->scl_pin] |= T5AI_I2C_GPIO_PULL_UP | T5AI_I2C_GPIO_PULL_ENABLE;
+  T5AI_I2C_GPIO_BASE[bus->hal->sda_pin] |= T5AI_I2C_GPIO_PULL_UP | T5AI_I2C_GPIO_PULL_ENABLE;
+  if (prv_wait_scl(&scl_input)) {
+    for (unsigned i = 0; i < T5AI_I2C_RECOVERY_CLOCKS && !gpio_input_read(&sda_input); ++i) {
+      gpio_output_set(&scl, true);
+      delay_us(T5AI_I2C_BUS_FREE_US);
+      gpio_output_set(&scl, false);
+      if (!prv_wait_scl(&scl_input)) {
+        break;
+      }
+      delay_us(T5AI_I2C_BUS_FREE_US);
+    }
+    // Generate STOP without ever driving either line high.
+    gpio_output_set(&scl, true);
+    gpio_output_set(&sda, true);
+    delay_us(T5AI_I2C_BUS_FREE_US);
+    gpio_output_set(&scl, false);
+    if (prv_wait_scl(&scl_input)) {
+      delay_us(T5AI_I2C_BUS_FREE_US);
+    }
+    gpio_output_set(&sda, false);
+    delay_us(T5AI_I2C_BUS_FREE_US);
+  }
+  prv_configure_pin(bus->hal->scl_pin);
+  prv_configure_pin(bus->hal->sda_pin);
+}
+
 void i2c_hal_init(I2CBus *bus) {
   PBL_ASSERTN(bus->hal->base == T5AI_I2C0_BASE);
   PBL_ASSERTN(bus->hal->frequency != 0u);
-  prv_configure_pin(bus->hal->scl_pin);
-  prv_configure_pin(bus->hal->sda_pin);
+  NVIC_DisableIRQ(bus->hal->irqn);
 
   // BAKP owns I2C0. The boot-stage CP PM service is not yet response-ready
   // here, so reproduce its authoritative zero-is-powered domain operation.
   T5AI_SYSTEM_POWER_SLEEP_WAKEUP &= ~T5AI_I2C_BACKUP_POWER_DOWN;
   T5AI_SYSTEM_DEVICE_CLOCK_ENABLE |= T5AI_I2C_CLOCK_ENABLE;
   T5AII2CRegisters *regs = prv_regs(bus);
+  regs->config = 0u;
+  prv_clear_bus(bus);
+  regs->global_control = 0u;
   // BK7258 names bit 0 soft_reset, but its HAL leaves it asserted as the
   // reset-release state and adds clock-gate bypass in bit 1.
   regs->global_control = T5AI_I2C_GLOBAL_RESET_RELEASE | T5AI_I2C_GLOBAL_CLOCK_GATE_BYPASS;
+  regs->status = 0u;
   const uint32_t source_hz = T5AI_I2C_SOURCE_HZ;
   const uint32_t clocks = (source_hz + bus->hal->frequency - 1u) / bus->hal->frequency;
   const uint32_t divider =
@@ -140,6 +192,7 @@ void i2c_hal_init(I2CBus *bus) {
 }
 
 void i2c_hal_enable(I2CBus *bus) {
+  T5AI_SYSTEM_POWER_SLEEP_WAKEUP &= ~T5AI_I2C_BACKUP_POWER_DOWN;
   T5AI_SYSTEM_DEVICE_CLOCK_ENABLE |= T5AI_I2C_CLOCK_ENABLE;
   prv_regs(bus)->global_control |= T5AI_I2C_GLOBAL_CLOCK_GATE_BYPASS;
   prv_regs(bus)->config |= T5AI_I2C_CONFIG_ENABLE;
@@ -158,7 +211,9 @@ void i2c_hal_abort_transfer(I2CBus *bus) {
   T5AII2CRegisters *regs = prv_regs(bus);
   prv_stop(regs);
   regs->config &= ~T5AI_I2C_CONFIG_ENABLE;
-  regs->config |= T5AI_I2C_CONFIG_ENABLE;
+  NVIC_DisableIRQ(bus->hal->irqn);
+  NVIC_ClearPendingIRQ(bus->hal->irqn);
+  s_recovery_required = true;
 }
 
 void i2c_hal_init_transfer(I2CBus *bus) {
@@ -166,6 +221,11 @@ void i2c_hal_init_transfer(I2CBus *bus) {
 }
 
 void i2c_hal_start_transfer(I2CBus *bus) {
+  if (s_recovery_required) {
+    i2c_hal_init(bus);
+    i2c_hal_enable(bus);
+    s_recovery_required = false;
+  }
   I2CTransfer *transfer = &bus->state->transfer;
   if (transfer->size == 0u) {
     bus->state->transfer_event = I2CTransferEvent_Error;

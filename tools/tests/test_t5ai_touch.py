@@ -83,3 +83,47 @@ int main(void){
             (path / "test.c").write_text(harness + body + checks)
             subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", str(path / "test.c"), "-o", str(path / "test")], check=True)
             subprocess.run([str(path / "test")], check=True)
+
+    def test_retry_after_reset_without_interrupt(self):
+        source = (ROOT / "src/fw/drivers/touch/cst92xx/cst92xx_t5ai.c").read_text()
+        task = source[source.index("static void prv_touch_task"):source.index("void touch_sensor_init")]
+        constants = source[source.index("#define CST92XX_RESET_ASSERT_MS"):source.index("static volatile bool s_enabled")]
+        harness = r"""
+#include <assert.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <setjmp.h>
+#define portMAX_DELAY 0xffffffffu
+#define milliseconds_to_ticks(x) (x)
+static bool s_enabled=true,s_finger_down,s_contact_active;
+static unsigned s_consecutive_read_failures,s_touch_wake,polls,waits;
+static int s_interrupt_input;
+static jmp_buf done;
+static unsigned delays[5];
+static bool prv_poll(void) {
+ ++polls;
+ s_consecutive_read_failures=polls==3 ? 0 : polls;
+ return polls==4;
+}
+static bool gpio_input_read(const int *p){(void)p;return true;}
+static int xSemaphoreTake(unsigned semaphore,unsigned timeout) {
+ (void)semaphore;
+ delays[waits++]=timeout;
+ if(waits==5)longjmp(done,1);
+ return 0;
+}
+"""
+        checks = r"""
+int main(void) {
+ if(!setjmp(done))prv_touch_task(0);
+ assert(polls==4 && waits==5);
+ assert(delays[0]==portMAX_DELAY && delays[1]==80 && delays[2]==80);
+ assert(delays[3]==1000 && delays[4]==portMAX_DELAY);
+ return 0;
+}
+"""
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary)
+            (path / "test.c").write_text(harness + constants + task + checks)
+            subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", str(path / "test.c"), "-o", str(path / "test")], check=True)
+            subprocess.run([str(path / "test")], check=True)

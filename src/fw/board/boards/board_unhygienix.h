@@ -4,6 +4,7 @@
 #define BT_VENDOR_ID 0x0EEA
 #define BT_VENDOR_NAME "Core Devices LLC"
 
+extern MicDevice *const MIC;
 extern UARTDevice *const DBG_UART;
 extern I2CSlavePort *const I2C_PCF85063;
 extern I2CSlavePort *const I2C_CST92XX;

@@ -28,6 +28,7 @@ PBL_LOG_MODULE_DEFINE(driver_touch_cst92xx, CONFIG_DRIVER_TOUCH_LOG_LEVEL);
 #define CST92XX_RESET_ASSERT_MS 5u
 #define CST92XX_RESET_SETTLE_MS 50u
 #define CST92XX_READ_RETRY_MS 80u
+#define CST92XX_RESET_RETRY_MS 1000u
 #define CST92XX_RESET_FAILURE_THRESHOLD 3u
 #define CST92XX_FAILURE_LOG_MASK 0x3fu  // Report every 64 failures after the first.
 #define CST92XX_DELIVERY_QUEUE_LIMIT 2u
@@ -217,12 +218,10 @@ static void prv_touch_task(void *context) {
       }
 
       if (!read_succeeded) {
-        if (s_consecutive_read_failures == 0u) {
-          // The third failure reset the controller. Wait for its next IRQ
-          // rather than turning a disconnected panel into a polling loop.
-          break;
-        }
-        (void)xSemaphoreTake(s_touch_wake, milliseconds_to_ticks(CST92XX_READ_RETRY_MS));
+        // After reset, retry slowly even if the controller never produces a new edge.
+        const uint32_t retry_ms = s_consecutive_read_failures == 0u
+                                      ? CST92XX_RESET_RETRY_MS : CST92XX_READ_RETRY_MS;
+        (void)xSemaphoreTake(s_touch_wake, milliseconds_to_ticks(retry_ms));
         continue;
       }
 

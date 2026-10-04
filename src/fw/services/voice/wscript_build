@@ -6,9 +6,25 @@ sources = [
     'voice.c',
     'voice_speex.c',
 ]
+use = ['fw_includes', 'speex_includes']
+
+if bld.env.CONFIG_SOC_T5AI:
+    # Keep allocator overrides confined to this encoder, not the voice service.
+    sources.remove('voice_speex.c')
+    defines = [
+        'kernel_malloc_check=t5ai_voice_malloc_check',
+        'kernel_free=t5ai_voice_free',
+    ]
+    bld.objects(
+        name='voice_encoder',
+        use=use,
+        source='voice_speex.c',
+        defines=defines,
+    )
+    use = use + ['voice_encoder']
 
 bld.stlib(
-    use=['fw_includes', 'speex_includes'],
+    use=use,
     source=sources,
     target='services_voice',
 )

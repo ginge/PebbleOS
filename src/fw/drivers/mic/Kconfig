@@ -22,6 +22,13 @@ config MIC_SF32LB
     help
       Support for the SiFli SF32LB PDM microphone interface.
 
+config MIC_T5AI
+    bool "Tuya T5AI audio ADC"
+    depends on SOC_T5AI
+    default y if SOC_T5AI
+    help
+      Native BK7258 onboard analog microphone DMA capture at 16 kHz mono.
+
 config MIC_QEMU
     bool "QEMU stub"
     default y if SOC_QEMU

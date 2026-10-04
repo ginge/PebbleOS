@@ -54,6 +54,13 @@ speex_defines += [
     'NB_ENC_STACK=(2000*sizeof(spx_sig_t))',  # ~8 KiB
     'NB_DEC_STACK=(1500*sizeof(spx_sig_t))',  # ~6 KiB
 ]
+if (bld.env.CONFIG_SOC_T5AI and bld.env.CONFIG_SERVICE_VOICE):
+    speex_defines += [
+        'kernel_zalloc_check=t5ai_voice_zalloc_check',
+        'kernel_realloc=t5ai_voice_realloc',
+        'kernel_free=t5ai_voice_free',
+    ]
+
 # Compiler flags to handle warnings
 speex_cflags = [
     '-Wno-implicit-function-declaration',

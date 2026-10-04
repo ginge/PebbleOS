@@ -10,6 +10,8 @@ if bld.env.CONFIG_MIC_NRF5:
 elif bld.env.CONFIG_MIC_SF32LB:
     sources.append('sf32lb52/pdm.c')
     use.append('hal_sifli')
+elif bld.env.CONFIG_MIC_T5AI:
+    sources.append('t5ai/adc.c')
 elif bld.env.CONFIG_MIC_QEMU:
     sources.append('qemu/mic.c')
 

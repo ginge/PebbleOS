@@ -59,7 +59,7 @@ to Pebble's shared `GColor` values.
 | Persistent coredumps | Disabled pending a validated partition/recovery contract. Current fault evidence relies on UART diagnostics. A writable flash region alone does not enable this service. |
 | Bootloader version | `soc/t5ai/bootbits.c` returns zero from `boot_version_read()`; version reporting is a placeholder. |
 | Manufacturing OTP | Unprovisioned service rejects writes and provides no stored identity; manufacturing uses its dummy identity. The separate MCU factory eFuse serial reader is implemented. |
-| Audio and optional peripherals | Speaker/microphone integration remains disabled; a safe I2S/codec/audio path is still needed if supported. Haptics, ambient light and temperature have absent interfaces; magnetometer, pressure and PMIC features are disabled. Absent hardware does not itself require implementation. |
+| Audio and optional peripherals | Native microphone DMA capture and phone dictation are implemented; see [integration details](microphone.md). Speaker playback remains disabled. Haptics, ambient light and temperature have absent interfaces; magnetometer, pressure and PMIC features are disabled. Absent hardware does not itself require implementation. |
 | Firmware update/recovery | OTA, firmware/recovery object updates and arbitrary flash writes remain gated. Define packaging, metadata, slots, rollback, interruption recovery and factory restoration before enabling them. AP-only lab programming is implemented and must preserve PFS during routine updates. |
 
 Display, touch, buttons, accelerometer, RTC timekeeping, RNG, MCU serial,
@@ -237,13 +237,14 @@ The initial firmware was built, AP-only flashed and traced through the host's
 CH342 runtime UART. The operator confirmed that flick/shake wakes the display.
 Two subsequent threshold increases were built and flashed in response to
 operator feedback. The first adjustment was reported as much better but still
-slightly too sensitive. The final adjustment raises the normal threshold range
-to 200–1300 mg; at the default 55% sensitivity this gives 695 mg, compared with
-415 mg initially and 577.5 mg after the first adjustment. Integer arithmetic
-rounds the first adjustment to 578 mg. High-sensitivity mode uses 200 mg.
-The final firmware boot was captured with build ID
-`adc9d3bb27299f9b2ed052ab3869cc6022ba70b4`; operator confirmation of its final
-sensitivity remains pending.
+slightly too sensitive. The second adjustment used a 200–1300 mg range (695 mg at the default 55%
+sensitivity), but the operator subsequently reported that it required too much
+motion. The current setting is halfway between the two adjustments: 175–1200 mg,
+or 637 mg at 55%, using integer arithmetic. The initial threshold was 415 mg;
+the first adjustment was 578 mg. High-sensitivity mode now uses 175 mg.
+The second adjustment's boot was captured with build ID
+`adc9d3bb27299f9b2ed052ab3869cc6022ba70b4`. The midpoint setting is the latest
+requested tuning; physical sensitivity confirmation remains pending.
 
 Native firmware builds and `git diff --check` passed. Focused C harnesses under
 `/home/baz/Documents/ChatGPT/pebble/tests/` passed for sample readiness, I2C
@@ -279,8 +280,8 @@ activity suppression was left unchanged.
   4.0 V is the unloaded charger node, not a cell measurement or battery
   validation.
 - The active-high P19 power latch is asserted early. Active-low amplifier P28
-  remains disabled because audio is not implemented.
-- Missing vibration, ambient light, temperature, magnetometer, microphone,
+  remains disabled because speaker playback is not implemented.
+- Missing vibration, ambient light, temperature, magnetometer,
   PMIC, and OTP hardware are represented by explicit unavailable or safe
   fallback implementations rather than inherited DVT2 drivers.
 - Touch and accelerometer delivery are proven. The board-specific startup now

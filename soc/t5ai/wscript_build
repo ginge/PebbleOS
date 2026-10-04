@@ -1,8 +1,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
+sources = []
+if bld.env.CONFIG_SERVICE_VOICE:
+    sources.append('voice_memory.c')
+
 bld.objects(
     name='soc',
-    source=[
+    source=sources + [
         'init.c',
         'freertos.c',
         'power.c',
