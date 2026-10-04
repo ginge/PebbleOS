@@ -20,7 +20,6 @@ PBL_LOG_MODULE_DEFINE(hci_t5ai, LOG_LEVEL_DEBUG);
 #include <nimble/transport.h>
 #include <host/ble_hs.h>
 
-// Task stack size is in bytes; FreeRTOS task creation takes uint32_t words.
 #define T5AI_HCI_TASK_STACK_BYTES 1024u
 #define T5AI_HCI_TASK_PRIORITY (PBL_PRIO_IDLE + 3u)
 #define T5AI_HCI_ACL_RETRY_DELAY_MS 5u
@@ -97,6 +96,7 @@ static bool s_reset_scheduled;
 static uint8_t s_active_connections;
 static uint8_t s_advertising_requested;
 static uint8_t s_acl_tx[T5AI_HCI_MAX_ACL_SIZE];
+PBL_THREAD_STACK_DEFINE(s_hci_task_stack, T5AI_HCI_TASK_STACK_BYTES);
 static struct pbl_thread * s_hci_task;
 static struct pbl_msgq *s_acl_tx_queue;
 static PBL_MSGQ_DEFINE(s_acl_tx_messages, sizeof(struct os_mbuf *), T5AI_HCI_ACL_TX_QUEUE_CAPACITY);
@@ -366,7 +366,8 @@ void ble_transport_ll_init(void) {
   if (s_hci_task == NULL) {
     struct pbl_thread_attr parameters = {
         .entry = prv_hci_task, .name = "T5AIHCI",
-        .stack_size = T5AI_HCI_TASK_STACK_BYTES,
+        .stack = s_hci_task_stack,
+        .stack_size = sizeof(s_hci_task_stack),
         .prio = T5AI_HCI_TASK_PRIORITY, .privileged = true,
     };
     pebble_task_create(PebbleTask_BTHCI, &parameters);

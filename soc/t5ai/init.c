@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <cmsis_core.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
+#include "pbl/mcu/cache.h"
 
 uint32_t SystemCoreClock = CONFIG_T5AI_CORE_CLOCK_HZ;
 
@@ -36,6 +37,9 @@ void SystemInit(void) {
 
 void pbl_soc_early_init(void) {
   SystemInit();
+  icache_enable();
+  dcache_enable();
+
   /* The pinned CP waits for this AP indication and otherwise resets the
    * system after four start retries. This is the vendor control-channel wire
    * format, not a dependency on its scheduler or IPC implementation. */

@@ -32,6 +32,7 @@ pbl_clar_test(test_pfs
 pbl_clar_test(test_put_bytes
   SOURCES
     fw/services/put_bytes/put_bytes.c
+    fw/services/put_bytes/put_bytes_job_buffer.c
     fw/services/put_bytes/put_bytes_storage.c
     tests/fakes/fake_session.c
     tests/fakes/fake_events.c

@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class TuyaKernelCheckTest(unittest.TestCase):
     def test_t5ai_safe_reset_requests_cpu0_whole_chip_reboot(self):
-        reset = (ROOT / "src/fw/kernel/reset.c").read_text()
+        reset = (ROOT / "fw/kernel/reset.c").read_text()
         hci_ipc = (
             ROOT / "third_party/nimble/transport/t5ai_hci_ipc.c"
         ).read_text()
@@ -24,8 +24,8 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("t5ai_hci_ipc_request_system_reboot", hci_header)
 
     def test_t5ai_hardfault_retains_pc_when_lr_is_exception_return(self):
-        handler = (ROOT / "src/fw/hardfault_handler.c").read_text()
-        reboot_log = (ROOT / "src/fw/debug/debug_reboot_reason.c").read_text()
+        handler = (ROOT / "fw/hardfault_handler.c").read_text()
+        reboot_log = (ROOT / "fw/debug/debug_reboot_reason.c").read_text()
         self.assertIn("#ifdef CONFIG_SOC_T5AI", handler)
         self.assertIn("(stacked_lr & 0xfffffff0u) == 0xfffffff0u", handler)
         self.assertIn("hardfault_args[6]", handler)
@@ -35,7 +35,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("T5AI HardFault CFSR[15:0]", reboot_log)
 
     def test_t5ai_cacheable_mpu_regions_are_non_shareable(self):
-        mpu = (ROOT / "src/fw/drivers/mpu/mpu_armv8m.c").read_text()
+        mpu = (ROOT / "fw/drivers/mpu/mpu_armv8m.c").read_text()
         self.assertIn("#ifdef CONFIG_SOC_T5AI", mpu)
         self.assertIn("region->cache_policy != MpuCachePolicy_NotCacheable", mpu)
         self.assertIn("shareability = ARM_MPU_SH_NON", mpu)
@@ -47,7 +47,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("measured\n# AppState is 73,936 bytes", defaults)
 
     def test_t5ai_flash_writes_are_limited_to_data_partitions(self):
-        flash = (ROOT / "src/fw/drivers/flash/t5ai.c").read_text()
+        flash = (ROOT / "fw/drivers/flash/t5ai.c").read_text()
         for region in (
             "FLASH_REGION_FILESYSTEM_BEGIN",
             "FLASH_REGION_SYSTEM_RESOURCES_BANK_0_BEGIN",
@@ -63,16 +63,16 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertNotIn("FLASH_REGION_FIRMWARE_SLOT_1_BEGIN", flash)
 
     def test_t5ai_bluetooth_persistence_uses_bounded_shared_prf_storage(self):
-        main = (ROOT / "src/fw/main.c").read_text()
-        bluetooth_build = (ROOT / "src/fw/services/bluetooth/wscript_build").read_text()
-        flash_regions = (ROOT / "src/fw/flash_region/flash_region_t5ai.h").read_text()
+        main = (ROOT / "fw/main.c").read_text()
+        bluetooth_build = (ROOT / "fw/services/bluetooth/CMakeLists.txt").read_text()
+        flash_regions = (ROOT / "fw/flash_region/flash_region_t5ai.h").read_text()
         shared_prf = (
-            ROOT / "src/fw/services/shared_prf_storage/shared_prf_storage.c"
+            ROOT / "fw/services/shared_prf_storage/shared_prf_storage.c"
         ).read_text()
-        put_bytes = (ROOT / "src/fw/services/put_bytes/put_bytes.c").read_text()
-        core_dump = (ROOT / "src/fw/kernel/core_dump.c").read_text()
-        debug_build = (ROOT / "src/fw/debug/wscript_build").read_text()
-        resources = (ROOT / "src/fw/resource/resource_storage_flash.c").read_text()
+        put_bytes = (ROOT / "fw/services/put_bytes/put_bytes.c").read_text()
+        core_dump = (ROOT / "fw/kernel/core_dump.c").read_text()
+        debug_build = (ROOT / "fw/debug/CMakeLists.txt").read_text()
+        resources = (ROOT / "fw/resource/resource_storage_flash.c").read_text()
 
         self.assertIn("shared_prf_storage_init();", main)
         self.assertIn("bt_persistent_storage_init();", main)
@@ -85,17 +85,17 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertFalse(
             (
                 ROOT
-                / "src/fw/services/bluetooth/bluetooth_persistent_storage_t5ai.c"
+                / "fw/services/bluetooth/bluetooth_persistent_storage_t5ai.c"
             ).exists()
         )
-        nimble_build = (ROOT / "src/bluetooth-fw/nimble/wscript_build").read_text()
+        nimble_build = (ROOT / "third_party/nimble/host/CMakeLists.txt").read_text()
         self.assertIn("if bld.env.CONFIG_SOC_T5AI:", nimble_build)
         self.assertIn("excludes.append('gatt_client_discovery.c')", nimble_build)
         self.assertIn("excludes.append('gatt_client_discovery_t5ai.c')", nimble_build)
         self.assertIn("excludes.append('responsiveness.c')", nimble_build)
         self.assertIn("excludes.append('responsiveness_t5ai.c')", nimble_build)
         responsiveness = (
-            ROOT / "src/bluetooth-fw/nimble/responsiveness_t5ai.c"
+            ROOT / "third_party/nimble/host/responsiveness_t5ai.c"
         ).read_text()
         self.assertIn("if (req->slave_latency_events != 0u)", responsiveness)
         self.assertIn("skipped latency=%u update", responsiveness)
@@ -146,7 +146,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
             "static status_t prv_respond_to_event(", 1
         )[0]
         self.assertNotIn("frame->header >> 24", hci_decode)
-        flash_ipc = (ROOT / "src/fw/drivers/flash/t5ai_flash_ipc.c").read_text()
+        flash_ipc = (ROOT / "fw/drivers/flash/t5ai_flash_ipc.c").read_text()
         self.assertIn("T5AIMbIpcSocket *s_flash_socket", flash_ipc)
         self.assertIn("t5ai_mb_ipc_discard(s_flash_socket)", flash_ipc)
         self.assertIn("prv_flash_transaction(FLASH_READ_DONE)", flash_ipc)
@@ -155,18 +155,18 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("t5ai_mb_ipc_poison(s_saradc_socket)", flash_ipc)
         self.assertIn("s_saradc_available = false", flash_ipc)
         self.assertNotIn("t5ai_cp_mailbox_lock()", flash_ipc)
-        mb_ipc = (ROOT / "src/fw/drivers/t5ai/mb_ipc.c").read_text()
+        mb_ipc = (ROOT / "fw/drivers/t5ai/mb_ipc.c").read_text()
         self.assertNotIn("timeout_ms < MB_IPC_PHYSICAL_TIMEOUT_MS", mb_ipc)
         self.assertIn("socket->poisoned = true", mb_ipc)
-        mailbox = (ROOT / "src/fw/drivers/t5ai/mailbox_channel.c").read_text()
+        mailbox = (ROOT / "fw/drivers/t5ai/mailbox_channel.c").read_text()
         self.assertIn("static TxChannel s_tx[T5AI_MAILBOX_CHANNEL_COUNT]", mailbox)
         self.assertNotIn('section(".t5ai_board_cache")', mailbox)
         self.assertIn("xTaskCreate(prv_mailbox_task", mailbox)
         self.assertIn("before the CP powers PSRAM", mailbox)
         self.assertIn("#define MAILBOX_TASK_STACK_WORDS 512u", mailbox)
-        put_bytes = (ROOT / "src/fw/services/put_bytes/put_bytes.c").read_text()
+        put_bytes = (ROOT / "fw/services/put_bytes/put_bytes.c").read_text()
         put_bytes_buffers = (
-            ROOT / "src/fw/drivers/t5ai/put_bytes_job_buffer.c"
+            ROOT / "fw/drivers/t5ai/put_bytes_job_buffer.c"
         ).read_text()
         self.assertIn("put_bytes_job_buffer_alloc(i, PUT_BYTES_PP_BUFFER_SIZE)", put_bytes)
         self.assertIn('section(".t5ai_board_cache")', put_bytes_buffers)
@@ -210,22 +210,22 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("int result = BLE_ERR_MEM_CAPACITY;", hci_transport)
         self.assertIn("status=%d len=%u", hci_transport)
         connect_params = (
-            ROOT / "src/fw/comm/ble/gap_le_connect_params_t5ai.c"
+            ROOT / "fw/comm/ble/gap_le_connect_params_t5ai.c"
         ).read_text()
         self.assertIn("T5AI_FAST_INTERVAL_1_25MS 12u", connect_params)
         self.assertNotIn("T5AI_IDLE_INTERVAL_1_25MS", connect_params)
         self.assertNotIn("bt_driver_le_connection_parameter_update", connect_params)
         self.assertIn("conn_mgr_handle_desired_state_granted(connection, desired_state)", connect_params)
         reconnect = (
-            ROOT / "src/fw/comm/ble/gap_le_slave_reconnect.c"
+            ROOT / "fw/comm/ble/gap_le_slave_reconnect.c"
         ).read_text()
         self.assertIn("The BK7258 controller can stop responding", reconnect)
         self.assertIn("#ifndef CONFIG_SOC_T5AI", reconnect)
         reversed_ppog = (
-            ROOT / "src/bluetooth-fw/nimble/ppog_reversed_service.c"
+            ROOT / "third_party/nimble/host/ppog_reversed_service.c"
         ).read_text()
         ppogatt = (
-            ROOT / "src/fw/comm/ble/kernel_le_client/ppogatt/ppogatt.c"
+            ROOT / "fw/comm/ble/kernel_le_client/ppogatt/ppogatt.c"
         ).read_text()
         self.assertIn("kernel_malloc(pkt_len)", reversed_ppog)
         self.assertIn("bt_driver_cb_ppog_reversed_data_written", reversed_ppog)
@@ -238,7 +238,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertNotIn("CONFIG_SOC_T5AI", desired_rx_window)
         self.assertIn(
             "cb(&pairing_info.identity, &pairing_info.irk, device_name, &bonding, context);",
-            (ROOT / "src/fw/services/bluetooth/bluetooth_persistent_storage_prf.c").read_text(),
+            (ROOT / "fw/services/bluetooth/bluetooth_persistent_storage_prf.c").read_text(),
         )
         self.assertIn("flash_write_bytes(data, address, length);", shared_prf)
         write_helper = shared_prf.split("static void prv_flash_write(", 1)[1].split("}", 1)[0]
@@ -256,13 +256,13 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("#ifndef CONFIG_SOC_T5AI", resources)
 
     def test_t5ai_shared_i2c_bus_uses_cst92xx_qualified_standard_mode(self):
-        board = (ROOT / "src/fw/board/boards/board_unhygienix.c").read_text()
+        board = (ROOT / "fw/board/boards/board_unhygienix.c").read_text()
         self.assertIn(".frequency = 100000u", board)
         self.assertNotIn(".frequency = 400000u", board)
 
 
     def test_t5ai_i2c_uses_stable_single_byte_interrupt_mode(self):
-        i2c = (ROOT / "src/fw/drivers/i2c/t5ai.c").read_text()
+        i2c = (ROOT / "fw/drivers/i2c/t5ai.c").read_text()
         self.assertNotIn("static uint32_t prv_read_fifo_count", i2c)
         self.assertNotIn("static uint32_t prv_write_fifo_space", i2c)
         self.assertIn("transfer->data[transfer->idx++] = (uint8_t)regs->data;", i2c)
@@ -299,13 +299,13 @@ class TuyaKernelCheckTest(unittest.TestCase):
 
     def test_t5ai_announces_ap_startup_to_the_communication_processor(self):
         initialization = (ROOT / "soc/t5ai/init.c").read_text()
-        startup = (ROOT / "src/fw/startup/startup_cortex_m.c").read_text()
-        main = (ROOT / "src/fw/main.c").read_text()
-        display = (ROOT / "src/fw/drivers/display/t5ai/display_co5300.c").read_text()
-        backlight = (ROOT / "src/fw/drivers/backlight/t5ai.c").read_text()
-        touch = (ROOT / "src/fw/drivers/touch/cst92xx/cst92xx_t5ai.c").read_text()
-        mailbox = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
-        transport = (ROOT / "src/fw/drivers/t5ai/mailbox_channel.c").read_text()
+        startup = (ROOT / "fw/startup/startup_cortex_m.c").read_text()
+        main = (ROOT / "fw/main.c").read_text()
+        display = (ROOT / "fw/drivers/display/t5ai/display_co5300.c").read_text()
+        backlight = (ROOT / "fw/drivers/backlight/t5ai.c").read_text()
+        touch = (ROOT / "fw/drivers/touch/cst92xx/cst92xx_t5ai.c").read_text()
+        mailbox = (ROOT / "fw/drivers/t5ai/cp_mailbox.c").read_text()
+        transport = (ROOT / "fw/drivers/t5ai/mailbox_channel.c").read_text()
         port = (ROOT / "soc/t5ai/freertos.c").read_text()
         initialize_soc = startup.index("SystemInit()")
         enable_cache = startup.index("icache_enable()")
@@ -332,16 +332,16 @@ class TuyaKernelCheckTest(unittest.TestCase):
         )[1].split("status_t t5ai_cp_mailbox_log", 1)[0]
         self.assertIn("dcache_invalidate(s_log_buffer, 1u)", log_release)
         self.assertIn("s_log_buffer[0] == 0u", log_release)
-        dbgserial = (ROOT / "src/fw/console/dbgserial_t5ai.c").read_text()
+        dbgserial = (ROOT / "fw/console/dbgserial_t5ai.c").read_text()
         dbgserial_input = (
-            ROOT / "src/fw/console/dbgserial_input_t5ai.c"
+            ROOT / "fw/console/dbgserial_input_t5ai.c"
         ).read_text()
-        dbgserial_common = (ROOT / "src/fw/console/dbgserial.c").read_text()
+        dbgserial_common = (ROOT / "fw/console/dbgserial.c").read_text()
         dbgserial_input_common = (
-            ROOT / "src/fw/console/dbgserial_input.c"
+            ROOT / "fw/console/dbgserial_input.c"
         ).read_text()
-        console_build = (ROOT / "src/fw/console/wscript_build").read_text()
-        serial_console = (ROOT / "src/fw/console/serial_console.c").read_text()
+        console_build = (ROOT / "fw/console/CMakeLists.txt").read_text()
+        serial_console = (ROOT / "fw/console/serial_console.c").read_text()
         self.assertIn("t5ai_cp_mailbox_log(s_t5ai_buffer", dbgserial)
         self.assertNotIn("CONFIG_SOC_T5AI", dbgserial_common)
         self.assertNotIn("CONFIG_SOC_T5AI", dbgserial_input_common)
@@ -440,15 +440,15 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("xSemaphoreTake(s_touch_wake, portMAX_DELAY)", touch)
         self.assertNotIn("vTaskDelay(milliseconds_to_ticks(CST92XX_POLL_MS))", touch)
         self.assertNotIn("system_task_add_callback(prv_poll", touch)
-        touch_nav = (ROOT / "src/fw/applib/ui/recognizer/touch_nav.c").read_text()
+        touch_nav = (ROOT / "fw/applib/ui/recognizer/touch_nav.c").read_text()
         self.assertNotIn("state->counters.position_updates++", touch_nav)
         self.assertNotIn("state->counters.widget_started++", touch_nav)
         self.assertNotIn("s_mailbox_touch_nav_request", dbgserial_input)
         self.assertNotIn("touch_get_diagnostics", main)
         self.assertNotIn("event_loop_get_touch_diagnostics", main)
-        self.assertNotIn("s_physical_samples", (ROOT / "src/fw/services/touch/touch.c").read_text())
-        events = (ROOT / "src/fw/kernel/events.c").read_text()
-        system_task = (ROOT / "src/fw/services/system_task/service.c").read_text()
+        self.assertNotIn("s_physical_samples", (ROOT / "fw/services/touch/touch.c").read_text())
+        events = (ROOT / "fw/kernel/events.c").read_text()
+        system_task = (ROOT / "fw/services/system_task/service.c").read_text()
         self.assertNotIn("MAX_SYSTEM_EVENT_SET_EVENTS", events)
         self.assertNotIn("event_get_queue_diagnostics", events)
         event_take = events.split("bool event_take_timeout", 1)[1].split(
@@ -463,12 +463,12 @@ class TuyaKernelCheckTest(unittest.TestCase):
         )[1].split("static void system_task_main", 1)[0]
         self.assertIn("if (s_system_task_idle", idle_watchdog)
         self.assertIn("uxQueueMessagesWaiting", idle_watchdog)
-        splash = (ROOT / "src/fw/services/boot_splash/service.c").read_text()
+        splash = (ROOT / "fw/services/boot_splash/service.c").read_text()
         t5ai_splash = (
-            ROOT / "src/fw/services/boot_splash/service_t5ai.c"
+            ROOT / "fw/services/boot_splash/service_t5ai.c"
         ).read_text()
         splash_build = (
-            ROOT / "src/fw/services/boot_splash/wscript_build"
+            ROOT / "fw/services/boot_splash/CMakeLists.txt"
         ).read_text()
         self.assertNotIn("CONFIG_SOC_T5AI", splash)
         self.assertIn("service_t5ai.c", splash_build)
@@ -497,39 +497,39 @@ class TuyaKernelCheckTest(unittest.TestCase):
             main.index("bt_ctl_set_enabled(true);"),
         )
         normal_services = (
-            ROOT / "src/fw/services/services_normal/service.c"
+            ROOT / "fw/services/services_normal/service.c"
         ).read_text()
         self.assertIn("persist_service_init();", normal_services)
         self.assertIn("dls_init();", normal_services)
         self.assertIn("app_order_storage_init();", normal_services)
         self.assertIn("music_init();", normal_services)
         self.assertIn("blob_db_init_dbs();", normal_services)
-        event_loop = (ROOT / "src/fw/kernel/event_loop.c").read_text()
+        event_loop = (ROOT / "fw/kernel/event_loop.c").read_text()
         self.assertNotIn("app_install_manager_init();", event_loop)
         launcher_menu = (
-            ROOT / "src/fw/apps/system/launcher/default/menu_layer.c"
+            ROOT / "fw/apps/system/launcher/default/menu_layer.c"
         ).read_text()
         self.assertNotIn("CONFIG_SOC_T5AI", launcher_menu)
         self.assertIn("launcher_app_glance_service_init", launcher_menu)
         self.assertIn("launcher_app_glance_service_draw_glance_for_app_node", launcher_menu)
         self.assertIn("launcher_app_glance_service_play_glance_for_app_node", launcher_menu)
-        resource_impl = (ROOT / "src/fw/resource/resource_impl.def").read_text()
+        resource_impl = (ROOT / "fw/resource/resource_impl.def").read_text()
         t5ai_resource_impl = resource_impl.split("#if defined(CONFIG_SOC_T5AI)", 1)[1].split(
             "#elif", 1
         )[0]
         self.assertIn("RESOURCE_IMPL(g_app_file_impl)", t5ai_resource_impl)
         self.assertIn("RESOURCE_IMPL(g_builtin_impl)", t5ai_resource_impl)
         self.assertIn("RESOURCE_IMPL(g_system_bank_impl)", t5ai_resource_impl)
-        builtin_storage = (ROOT / "src/fw/resource/resource_storage_builtin.c").read_text()
+        builtin_storage = (ROOT / "fw/resource/resource_storage_builtin.c").read_text()
         self.assertNotIn(
             "defined(CONFIG_RECOVERY_FW) || defined(CONFIG_SOC_T5AI)", builtin_storage
         )
-        flash_storage = (ROOT / "src/fw/resource/resource_storage_flash.c").read_text()
-        flash_driver = (ROOT / "src/fw/drivers/flash/t5ai.c").read_text()
-        display_driver = (ROOT / "src/fw/drivers/display/t5ai/display_co5300.c").read_text()
-        animation = (ROOT / "src/fw/applib/ui/animation.h").read_text()
-        board = (ROOT / "src/fw/board/boards/board_unhygienix.c").read_text()
-        mpu = (ROOT / "src/fw/drivers/mpu.c").read_text()
+        flash_storage = (ROOT / "fw/resource/resource_storage_flash.c").read_text()
+        flash_driver = (ROOT / "fw/drivers/flash/t5ai.c").read_text()
+        display_driver = (ROOT / "fw/drivers/display/t5ai/display_co5300.c").read_text()
+        animation = (ROOT / "fw/applib/ui/animation.h").read_text()
+        board = (ROOT / "fw/board/boards/board_unhygienix.c").read_text()
+        mpu = (ROOT / "fw/drivers/mpu.c").read_text()
         t5ai_memory = (ROOT / "include/pbl/soc/t5ai/memory.h").read_text()
         self.assertIn("legacy_defective_checksum_memory(", flash_storage)
         self.assertIn("(const void *)(uintptr_t)(BANK.begin + offset)", flash_storage)
@@ -566,19 +566,19 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("address >= T5AI_DISPLAY_PSRAM_BASE", mpu)
         self.assertNotIn("CONFIG_SOC_T5AI", event_loop)
         self.assertIn("// emulate a button press-and-release", event_loop)
-        shell_event_loop = (ROOT / "src/fw/shell/normal/shell_event_loop.c").read_text()
+        shell_event_loop = (ROOT / "fw/shell/normal/shell_event_loop.c").read_text()
         self.assertNotIn("T5AI_SHELL_STAGE", shell_event_loop)
         self.assertIn(
             "#else\n      battery_ui_handle_state_change_event",
             shell_event_loop,
         )
-        shell_prefs = (ROOT / "src/fw/shell/normal/prefs.c").read_text()
+        shell_prefs = (ROOT / "fw/shell/normal/prefs.c").read_text()
         self.assertIn("#ifndef CONFIG_SOC_T5AI\n  prv_maybe_run_settings", shell_event_loop)
         self.assertIn(
             "#ifndef CONFIG_SOC_T5AI\n  bool factory_reset_or_first_use",
             shell_event_loop,
         )
-        app_cache = (ROOT / "src/fw/services/app_cache/service.c").read_text()
+        app_cache = (ROOT / "fw/services/app_cache/service.c").read_text()
         self.assertIn(
             "if (exists && !app_storage_app_exists(app_id)) {",
             app_cache,
@@ -587,23 +587,23 @@ class TuyaKernelCheckTest(unittest.TestCase):
             "if (exists) {\n      if (!app_storage_app_exists(app_id)) {",
             app_cache,
         )
-        pfs = (ROOT / "src/fw/services/filesystem/pfs.c").read_text()
+        pfs = (ROOT / "fw/services/filesystem/pfs.c").read_text()
         self.assertIn("if (!pfs_active()) {", pfs)
         self.assertNotIn("const bool active = pfs_active();", pfs)
-        services = (ROOT / "src/fw/services/services.c").read_text()
-        services_common = (ROOT / "src/fw/services/services_common/service.c").read_text()
-        process_manager = (ROOT / "src/fw/process_management/process_manager.c").read_text()
+        services = (ROOT / "fw/services/services.c").read_text()
+        services_common = (ROOT / "fw/services/services_common/service.c").read_text()
+        process_manager = (ROOT / "fw/process_management/process_manager.c").read_text()
         app_install_manager = (
-            ROOT / "src/fw/process_management/app_install_manager.c"
+            ROOT / "fw/process_management/app_install_manager.c"
         ).read_text()
         app_order_storage = (
-            ROOT / "src/fw/services/process_management/app_order_storage.c"
+            ROOT / "fw/services/process_management/app_order_storage.c"
         ).read_text()
-        app_manager = (ROOT / "src/fw/process_management/app_manager.c").read_text()
+        app_manager = (ROOT / "fw/process_management/app_manager.c").read_text()
         launcher = (
-            ROOT / "src/fw/apps/system/launcher/default/launcher.c"
+            ROOT / "fw/apps/system/launcher/default/launcher.c"
         ).read_text()
-        app_state = (ROOT / "src/fw/process_state/app_state/app_state.c").read_text()
+        app_state = (ROOT / "fw/process_state/app_state/app_state.c").read_text()
         self.assertIn(
             "#ifndef CONFIG_RECOVERY_FW\n"
             "  services_normal_set_runlevel(runlevel);",
@@ -675,7 +675,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         compiler = shutil.which("cc")
         if not compiler:
             self.skipTest("Host C compiler unavailable")
-        mailbox = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
+        mailbox = (ROOT / "fw/drivers/t5ai/cp_mailbox.c").read_text()
         callback = mailbox.split("static void prv_heartbeat_complete(", 1)[1]
         callback = "static void prv_heartbeat_complete(" + callback.split(
             "\nvoid t5ai_cp_mailbox_heartbeat", 1
@@ -735,7 +735,7 @@ int main(void) {
         compiler = shutil.which("cc")
         if not compiler:
             self.skipTest("Host C compiler unavailable")
-        source = (ROOT / "src/fw/drivers/t5ai/mailbox_channel.c").read_text()
+        source = (ROOT / "fw/drivers/t5ai/mailbox_channel.c").read_text()
 
         def function(name):
             start = source.index(name + "(")
@@ -882,13 +882,13 @@ int main(void) {
         self.assertIn("rx_pending ? -1 : prv_expired_channel()", task)
 
     def test_t5ai_mailbox_clients_quarantine_ambiguous_ownership(self):
-        physical = (ROOT / "src/fw/drivers/t5ai/mailbox_channel.c").read_text()
-        mailbox = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
-        mb_ipc = (ROOT / "src/fw/drivers/t5ai/mb_ipc.c").read_text()
-        flash = (ROOT / "src/fw/drivers/flash/t5ai_flash_ipc.c").read_text()
-        battery = (ROOT / "src/fw/drivers/battery/t5ai.c").read_text()
-        dbgserial = (ROOT / "src/fw/console/dbgserial_t5ai.c").read_text()
-        reset = (ROOT / "src/fw/drivers/watchdog/t5ai.c").read_text()
+        physical = (ROOT / "fw/drivers/t5ai/mailbox_channel.c").read_text()
+        mailbox = (ROOT / "fw/drivers/t5ai/cp_mailbox.c").read_text()
+        mb_ipc = (ROOT / "fw/drivers/t5ai/mb_ipc.c").read_text()
+        flash = (ROOT / "fw/drivers/flash/t5ai_flash_ipc.c").read_text()
+        battery = (ROOT / "fw/drivers/battery/t5ai.c").read_text()
+        dbgserial = (ROOT / "fw/console/dbgserial_t5ai.c").read_text()
+        reset = (ROOT / "fw/drivers/watchdog/t5ai.c").read_text()
 
         physical_init = physical.split("status_t t5ai_mailbox_channel_init", 1)[1].split(
             "status_t t5ai_mailbox_channel_start", 1
@@ -924,9 +924,9 @@ int main(void) {
 
     def test_t5ai_holds_psram_power_for_the_compositor_framebuffer(self):
         initialization = (ROOT / "soc/t5ai/init.c").read_text()
-        mailbox = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
+        mailbox = (ROOT / "fw/drivers/t5ai/cp_mailbox.c").read_text()
         compositor = (
-            ROOT / "src/fw/services/compositor/compositor.c"
+            ROOT / "fw/services/compositor/compositor.c"
         ).read_text()
         self.assertNotIn("0x2809f700u", initialization)
         self.assertIn("CP_PM_PSRAM_POWER_COMMAND 7u", mailbox)
@@ -936,8 +936,8 @@ int main(void) {
         self.assertLess(vote, validate)
 
     def test_t5ai_holds_cp_awake_until_low_voltage_resume_is_supported(self):
-        mailbox = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
-        main = (ROOT / "src/fw/main.c").read_text()
+        mailbox = (ROOT / "fw/drivers/t5ai/cp_mailbox.c").read_text()
+        main = (ROOT / "fw/main.c").read_text()
         self.assertIn("CP_PM_SLEEP_COMMAND 3u", mailbox)
         self.assertIn("CP_PM_SLEEP_APP_MODULE 12u", mailbox)
         self.assertIn("t5ai_cp_mailbox_vote_app_sleep", mailbox)
@@ -951,9 +951,9 @@ int main(void) {
         kconfig = (ROOT / "soc/Kconfig").read_text()
         initialization = (ROOT / "soc/t5ai/init.c").read_text()
         port = (ROOT / "soc/t5ai/freertos.c").read_text()
-        main = (ROOT / "src/fw/main.c").read_text()
-        mailbox = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
-        transport = (ROOT / "src/fw/drivers/t5ai/mailbox_channel.c").read_text()
+        main = (ROOT / "fw/main.c").read_text()
+        mailbox = (ROOT / "fw/drivers/t5ai/cp_mailbox.c").read_text()
+        transport = (ROOT / "fw/drivers/t5ai/mailbox_channel.c").read_text()
         self.assertIn("config T5AI_CORE_CLOCK_HZ", kconfig)
         self.assertIn("default 120000000", kconfig)
         self.assertIn(
@@ -984,12 +984,12 @@ int main(void) {
         self.assertNotIn("t5ai_clock_get_diagnostics", main)
         self.assertNotIn(
             "T5AI_CP_LOG_RX_CHANNEL",
-            (ROOT / "src/fw/console/dbgserial_input_t5ai.c").read_text(),
+            (ROOT / "fw/console/dbgserial_input_t5ai.c").read_text(),
         )
 
     def test_t5ai_debug_uart_keeps_the_board_runtime_configuration(self):
-        console = (ROOT / "src/fw/console/dbgserial_t5ai.c").read_text()
-        driver = (ROOT / "src/fw/drivers/uart/t5ai.c").read_text()
+        console = (ROOT / "fw/console/dbgserial_t5ai.c").read_text()
+        driver = (ROOT / "fw/drivers/uart/t5ai.c").read_text()
         self.assertIn("t5ai_cp_mailbox_log", console)
         self.assertNotIn("uart_set_baud_rate", console)
         self.assertIn("uart->global_ctrl = UART_GLOBAL_RESET_RELEASE | UART_GLOBAL_CLOCK_GATE_BYPASS;", driver)
@@ -1004,8 +1004,8 @@ int main(void) {
         self.assertIn("UART_INT_RX_FINISH", driver)
 
     def test_t5ai_cp_debug_logging_never_blocks_in_an_interrupt(self):
-        console = (ROOT / "src/fw/console/dbgserial_t5ai.c").read_text()
-        mailbox = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
+        console = (ROOT / "fw/console/dbgserial_t5ai.c").read_text()
+        mailbox = (ROOT / "fw/drivers/t5ai/cp_mailbox.c").read_text()
 
         putchar = console.split("void dbgserial_putchar_lazy", 1)[1].split(
             "void dbgserial_flush", 1
@@ -1020,7 +1020,7 @@ int main(void) {
         self.assertIn("return E_INVALID_OPERATION;", cp_log)
 
     def test_t5ai_enables_global_interrupts_at_first_task_entry(self):
-        main = (ROOT / "src/fw/main.c").read_text()
+        main = (ROOT / "fw/main.c").read_text()
         task_entry = main.index("static void main_task(")
         enable_irq = main.index("__enable_irq()", task_entry)
         initialize = main.index("prv_main_task_init();", task_entry)
@@ -1028,26 +1028,26 @@ int main(void) {
         self.assertLess(enable_irq, initialize)
 
     def test_t5ai_leaves_cp_owned_watchdog_disabled(self):
-        board = (ROOT / "src/fw/board/boards/board_unhygienix.c").read_text()
+        board = (ROOT / "fw/board/boards/board_unhygienix.c").read_text()
         early_init = board.split("void board_early_init(void)", 1)[1]
         early_init = early_init.split("void board_init(void)", 1)[0]
         self.assertIn("watchdog_init();", early_init)
         self.assertNotIn("watchdog_start();", early_init)
 
     def test_t5ai_kernelbg_keeps_stock_queue_path_with_safe_priority_ordering(self):
-        service = (ROOT / "src/fw/services/system_task/service.c").read_text()
-        app_manager = (ROOT / "src/fw/process_management/app_manager.c").read_text()
+        service = (ROOT / "fw/services/system_task/service.c").read_text()
+        app_manager = (ROOT / "fw/process_management/app_manager.c").read_text()
         self.assertIn("#define SYSTEM_TASK_PRIORITY (tskIDLE_PRIORITY + 1)", service)
         self.assertIn("xQueueSelectFromSet(s_system_task_queue_set, portMAX_DELAY)", service)
         self.assertNotIn("CONFIG_SOC_T5AI", service)
         self.assertNotIn("CONFIG_SOC_T5AI", app_manager)
         self.assertIn(".uxPriority = APP_TASK_PRIORITY | portPRIVILEGE_BIT", app_manager)
-        board_t5ai = (ROOT / "src/fw/board/boards/board_unhygienix.c").read_text()
+        board_t5ai = (ROOT / "fw/board/boards/board_unhygienix.c").read_text()
         self.assertNotIn("T5AI_APP_PRIORITY", board_t5ai)
         self.assertNotIn("T5AISched", board_t5ai)
         self.assertNotIn("vTaskPrioritySet", board_t5ai)
         t5ai_discovery = (
-            ROOT / "src/bluetooth-fw/nimble/gatt_client_discovery_t5ai.c"
+            ROOT / "third_party/nimble/host/gatt_client_discovery_t5ai.c"
         ).read_text()
         self.assertIn("GATTService *gatt_service = kernel_zalloc_check(size_bytes);", t5ai_discovery)
         self.assertNotIn("pvPortMalloc(size_bytes)", t5ai_discovery)
@@ -1061,17 +1061,17 @@ int main(void) {
         self.assertNotIn("s_system_task_wake", service)
 
     def test_t5ai_initializes_native_button_debouncing(self):
-        main = (ROOT / "src/fw/main.c").read_text()
-        exti = (ROOT / "src/fw/drivers/exti/t5ai.c").read_text()
+        main = (ROOT / "fw/main.c").read_text()
+        exti = (ROOT / "fw/drivers/exti/t5ai.c").read_text()
         dbgserial_input = (
-            ROOT / "src/fw/console/dbgserial_input_t5ai.c"
+            ROOT / "fw/console/dbgserial_input_t5ai.c"
         ).read_text()
         button_init = main.split(
             '// entering the kernel event queue.\n', 1
         )[1].split("#ifndef CONFIG_SOC_T5AI", 1)[0]
         self.assertIn("debounced_button_init();", button_init)
         button_debounce = (
-            ROOT / "src/fw/drivers/t5ai/debounced_button.c"
+            ROOT / "fw/drivers/t5ai/debounced_button.c"
         ).read_text()
         self.assertIn("system_task_add_callback_from_isr", button_debounce)
         self.assertIn("new_timer_stop(s_debounce_timer)", button_debounce)
@@ -1082,8 +1082,8 @@ int main(void) {
         self.assertNotIn("DbgSerialMailboxProbe_Buttons", dbgserial_input)
 
     def test_t5ai_i2c_and_external_rtc(self):
-        rtc = (ROOT / "src/fw/drivers/rtc/t5ai.c").read_text()
-        i2c = (ROOT / "src/fw/drivers/i2c/t5ai.c").read_text()
+        rtc = (ROOT / "fw/drivers/rtc/t5ai.c").read_text()
+        i2c = (ROOT / "fw/drivers/i2c/t5ai.c").read_text()
         self.assertIn("T5AI_SYSTEM_CPU1_INTERRUPT_ENABLE |= T5AI_I2C0_INTERRUPT_ENABLE", i2c)
         self.assertNotIn("T5AI_SYSTEM_CPU0_INTERRUPT_ENABLE", i2c)
         enable = i2c.split("void i2c_hal_enable", 1)[1].split(
@@ -1100,7 +1100,7 @@ int main(void) {
         self.assertNotIn("i2c_hal_abort_transfer", disable)
         self.assertIn("~T5AI_I2C_CONFIG_ENABLE", disable)
         self.assertIn("NVIC_SetPriority(bus->hal->irqn, T5AI_I2C_IRQ_PRIORITY)", i2c)
-        common_i2c = (ROOT / "src/fw/drivers/i2c/common.c").read_text()
+        common_i2c = (ROOT / "fw/drivers/i2c/common.c").read_text()
         self.assertIn("#define I2C_ERROR_TIMEOUT_MS  (1000)", common_i2c)
         self.assertIn("#define I2C_NACK_COUNT_MAX    (1000)", common_i2c)
         self.assertNotIn("CONFIG_SOC_T5AI", common_i2c)
@@ -1115,8 +1115,8 @@ int main(void) {
 
     def test_cmsis_priorities_do_not_use_raw_freertos_bytes(self):
         config = (ROOT / "third_party/freertos/FreeRTOSConfig.h").read_text()
-        fault = (ROOT / "src/fw/kernel/fault_handling.c").read_text()
-        watchdog = (ROOT / "src/fw/drivers/task_watchdog.c").read_text()
+        fault = (ROOT / "fw/kernel/fault_handling.c").read_text()
+        watchdog = (ROOT / "fw/drivers/task_watchdog.c").read_text()
         self.assertIn(
             "configMAX_SYSCALL_INTERRUPT_PRIORITY >> (8U - __NVIC_PRIO_BITS)",
             config,
@@ -1136,7 +1136,7 @@ int main(void) {
 
     def test_t5ai_scales_raw_aon_ticks_at_the_rtc_boundary(self):
         interface = (ROOT / "include/pbl/drivers/rtc.h").read_text()
-        implementation = (ROOT / "src/fw/drivers/rtc/t5ai.c").read_text()
+        implementation = (ROOT / "fw/drivers/rtc/t5ai.c").read_text()
         t5ai_interface = interface.split("#elif defined(CONFIG_SOC_T5AI)", 1)[1]
         t5ai_interface = t5ai_interface.split("#else", 1)[0]
         self.assertIn("#define RTC_TICKS_HZ (1000u)", t5ai_interface)
@@ -1150,10 +1150,10 @@ int main(void) {
 
 
     def test_t5ai_retained_state_implementations_are_soc_local(self):
-        system_build = (ROOT / "src/fw/system/wscript_build").read_text()
-        soc_build = (ROOT / "soc/t5ai/wscript_build").read_text()
-        shared_bootbits = (ROOT / "src/fw/system/bootbits.c").read_text()
-        shared_reboot_reason = (ROOT / "src/fw/system/reboot_reason.c").read_text()
+        system_build = (ROOT / "fw/system/CMakeLists.txt").read_text()
+        soc_build = (ROOT / "soc/t5ai/CMakeLists.txt").read_text()
+        shared_bootbits = (ROOT / "fw/system/bootbits.c").read_text()
+        shared_reboot_reason = (ROOT / "fw/system/reboot_reason.c").read_text()
         t5ai_bootbits = (ROOT / "soc/t5ai/bootbits.c").read_text()
         t5ai_reboot_reason = (ROOT / "soc/t5ai/reboot_reason.c").read_text()
 

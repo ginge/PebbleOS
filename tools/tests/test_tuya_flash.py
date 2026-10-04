@@ -13,7 +13,7 @@ class TuyaFlashTest(unittest.TestCase):
         compiler = shutil.which("cc")
         if not compiler:
             self.skipTest("Host C compiler unavailable")
-        source = (ROOT / "src/fw/drivers/flash/t5ai_flash_ipc.c").read_text()
+        source = (ROOT / "fw/drivers/flash/t5ai_flash_ipc.c").read_text()
         crc = source[source.index("static const uint32_t s_flash_crc32_table"):
                      source.index("static uint32_t prv_saradc_crc32")]
         harness = r"""
@@ -53,7 +53,7 @@ int main(void) {
                         read.index("prv_flash_transaction(FLASH_READ)"))
         self.assertLess(read.index("prv_flash_transaction(FLASH_READ_DONE)"),
                         read.index("prv_restore_client_priority(previous_priority)"))
-        flash = (ROOT / "src/fw/drivers/flash/t5ai.c").read_text()
+        flash = (ROOT / "fw/drivers/flash/t5ai.c").read_text()
         verification = flash.split("static status_t prv_verify_pfs_header_write", 1)[1].split(
             "FlashAddress flash_impl_get_sector_base_address", 1)[0]
         self.assertIn("return E_ERROR", verification)
@@ -61,9 +61,9 @@ int main(void) {
         self.assertNotIn("t5ai_flash_ipc_write", verification)
 
     def test_t5ai_write_path_has_no_retained_probe_instrumentation(self):
-        flash = (ROOT / "src/fw/drivers/flash/t5ai.c").read_text()
-        main = (ROOT / "src/fw/main.c").read_text()
-        registers = (ROOT / "src/fw/system/rtc_registers.h").read_text()
+        flash = (ROOT / "fw/drivers/flash/t5ai.c").read_text()
+        main = (ROOT / "fw/main.c").read_text()
+        registers = (ROOT / "fw/system/rtc_registers.h").read_text()
 
         self.assertNotIn("T5AI_FLASH_FAILURE_", registers)
         self.assertNotIn("T5AI_FLASH_FAILURE_", flash)
@@ -71,7 +71,7 @@ int main(void) {
         self.assertNotIn("prv_t5ai_capture_retained_failure", main)
 
     def test_t5ai_flash_quarantines_ambiguous_transactions(self):
-        flash = (ROOT / "src/fw/drivers/flash/t5ai_flash_ipc.c").read_text()
+        flash = (ROOT / "fw/drivers/flash/t5ai_flash_ipc.c").read_text()
 
         self.assertIn("t5ai_mb_ipc_poison(s_flash_socket)", flash)
         self.assertIn("s_flash_available = false", flash)
@@ -160,7 +160,7 @@ int main(void) {
                 [
                     "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
                     "-I", str(ROOT / "include"),
-                    str(ROOT / "src/fw/drivers/t5ai/mipc.c"),
+                    str(ROOT / "fw/drivers/t5ai/mipc.c"),
                     str(test_source), "-o", str(binary),
                 ],
                 check=True,
@@ -168,10 +168,10 @@ int main(void) {
             subprocess.run([str(binary)], check=True)
 
     def test_mailbox_protocol_encoding_and_crc(self):
-        transport = (ROOT / "src/fw/drivers/t5ai/mailbox_channel.c").read_text()
-        ipc = (ROOT / "src/fw/drivers/t5ai/mb_ipc.c").read_text()
-        flash = (ROOT / "src/fw/drivers/flash/t5ai_flash_ipc.c").read_text()
-        compatibility = (ROOT / "src/fw/drivers/t5ai/cp_mailbox.c").read_text()
+        transport = (ROOT / "fw/drivers/t5ai/mailbox_channel.c").read_text()
+        ipc = (ROOT / "fw/drivers/t5ai/mb_ipc.c").read_text()
+        flash = (ROOT / "fw/drivers/flash/t5ai_flash_ipc.c").read_text()
+        compatibility = (ROOT / "fw/drivers/t5ai/cp_mailbox.c").read_text()
 
         self.assertIn(
             "MailboxOwnedSlot s_ack_slots[T5AI_MAILBOX_CHANNEL_COUNT]", transport
@@ -242,7 +242,7 @@ status_t t5ai_flash_ipc_erase_4k(uint32_t offset) {
   return S_SUCCESS;
 }
 
-#include "src/fw/drivers/flash/t5ai.c"
+#include "fw/drivers/flash/t5ai.c"
 
 int main(void) {
   const uint32_t base = FLASH_REGION_BASE_ADDRESS;
@@ -361,7 +361,7 @@ int main(void) {
                     ["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
                      "-DCONFIG_SOC_T5AI=1", "-DCONFIG_BOARD_UNHYGIENIX=1",
                      *defines, "-I", str(ROOT), "-I", str(ROOT / "include"),
-                     "-I", str(ROOT / "src/fw"), str(test_source), "-o", str(binary)],
+                     "-I", str(ROOT / "fw"), str(test_source), "-o", str(binary)],
                     check=True,
                 )
                 subprocess.run([str(binary)], check=True)
@@ -412,7 +412,7 @@ int main(void) {
             subprocess.run([str(binary)], check=True)
 
     def test_board_regions_do_not_overlap(self):
-        header = (ROOT / "src/fw/flash_region/flash_region_t5ai.h").read_text()
+        header = (ROOT / "fw/flash_region/flash_region_t5ai.h").read_text()
         values = {}
         for line in header.splitlines():
             fields = line.split()
