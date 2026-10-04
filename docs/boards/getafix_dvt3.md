@@ -40,7 +40,7 @@ runs Pebble's NimBLE host against the CP-owned Bluetooth controller.
 | Bluetooth HCI command/event and ACL transport | Proven |
 | Connectable advertising and BlueZ connection | Proven |
 | Pebble GATT service discovery | Proven |
-| Pairing, bonding, reconnect, and Pebble protocol session setup | Physical RF PLL fix installed; 15-minute connected run and bonded hardware-reset reconnection passed; long-term qualification pending |
+| Pairing, bonding, reconnect, and Pebble protocol session setup | Physical RF PLL fix installed; 15-minute connected run, bonded hardware-reset reconnection and 10-hour connected-idle observation passed; broader reconnect and cold-boot qualification pending |
 | Device identity | Phone recognizes the watch as Round 2; further compatibility remains under test |
 | Sustained phone sync and watchface transfer | Six transfers completed and all faces loaded; clean-image startup verified |
 | Sleep/wake and low-power operation | Not yet validated |
@@ -61,8 +61,9 @@ that earlier checkpoint. The latest [Bluetooth, power and scrolling checkpoint](
 records the physical CP RF PLL fix, one-time 240 MHz active-clock policy with
 scheduler WFI, faster display DMA transfers, and touch queue backpressure.
 A 15-minute connected run and bonded reconnection after a commanded hardware
-reset passed. Full 30 fps rendering, 25 reconnect cycles, true cold-boot
-persistence and overnight soak remain open. The separate App privileged-code
+reset passed. A later 10-hour connected-idle observation had no disconnects.
+Full 30 fps rendering, 25 reconnect cycles and true cold-boot persistence
+remain open. The separate App privileged-code
 stall is unresolved. Current test images are diagnostic; verify live received
 bytes before claiming monitoring. The September
 [phone-sync incident](getafix_dvt3_phone_sync_incident.md) is historical evidence.
@@ -75,7 +76,7 @@ claims; this inventory and the latest Bluetooth/power/scroll and CP/storage chec
 
 | Area | Current implementation and remaining work |
 | --- | --- |
-| Bluetooth stability/recovery | Physical BLE/BT PLL configuration is applied after CP Bluetooth initialization. Live RF reconfiguration recovered the failed state; the installed fix passed 15 minutes connected and bonded reconnection after hardware reset. Exact internal failure mechanism and long-term stability remain unproven; see the latest checkpoint. |
+| Bluetooth stability/recovery | Physical BLE/BT PLL configuration is applied after CP Bluetooth initialization. Live RF reconfiguration recovered the failed state; the installed fix passed 15 minutes connected, bonded reconnection after hardware reset and a 10-hour connected-idle observation. Exact internal failure mechanism remains unproven; broader reconnect and cold-boot validation are still required; see the latest checkpoint. |
 | App/watchface stall | The captured whole-chip reset followed the process-manager assertion for an App task stuck in privileged code. The initiating blocked operation is unknown; fault-context instrumentation is diagnostic, not a fix. |
 | Low power and wake alarms | `soc/t5ai/freertos.c` idles with WFI but ignores the requested idle duration; `vPortEnableTimer()` returns false. `rtc_alarm_set()` ignores its deadline and `rtc_alarm_is_initialized()` returns false. Tick suppression, hardware alarm/wake routing and deeper sleep remain unfinished. |
 | Serial console input | `src/fw/console/dbgserial_input_t5ai.c` contains no-op initialization, callback registration and input/DMA enable functions. UART logging and CP-shell AP commands work; a general bidirectional console is not established. |
@@ -92,8 +93,8 @@ they are not stubbed merely because validation is incomplete. Device identity
 now reports Round 2; older factory/unknown-platform notes are superseded.
 
 Remaining validation includes cold-boot bond and selected-face persistence,
-overnight connected-idle stability, broader reconnect coverage, wake interrupts,
-RTC drift, isolation/privilege transitions, and storage corruption/interrupted-write
+broader reconnect coverage, wake interrupts, RTC drift, isolation/privilege
+transitions, and storage corruption/interrupted-write
 recovery. Battery calibration, charge/unplug transitions and power measurements
 require a fitted cell. Glyph/resource-check and missing app-entry warnings remain
 unresolved despite successful face loading. Any uncommanded AP reset remains a

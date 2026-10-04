@@ -32,10 +32,13 @@ this DVT3 BLE policy in a Wi-Fi product without coexistence validation.
 Hardware validation on 2026-10-03: UART confirmed effective configuration
 `0x0202`; bonded encrypted PPoG remained connected for 15 minutes without
 observed disconnect, assertion or uncommanded AP reset. A commanded hardware
-reset reapplied the configuration and restored the bonded session. This was
-not a verified power-off cold boot. Final-image scrolling, 25 disconnect/reconnect
-cycles, true cold boot and overnight soak remain pending. Preserve the first
-failed trace; this run does not establish long-term stability.
+reset reapplied the configuration and restored the bonded session. The operator
+subsequently reported roughly 10 hours of stable connected operation with no
+disconnects after this candidate was installed. This was not a verified
+power-off cold boot. Final-image scrolling, 25 disconnect/reconnect cycles and
+true cold boot remain pending. Preserve the first failed trace; the long
+connected-idle observation strengthens the fix candidate but does not by itself
+complete release qualification.
 
 See the [Bluetooth, power and scrolling checkpoint](../../../../docs/boards/getafix_dvt3_bt_power_scroll_checkpoint.md)
 for the failed/control RF evidence, installed image hashes, power policy,

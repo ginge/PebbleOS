@@ -2,7 +2,8 @@
 
 This checkpoint records the fixes and hardware observations on 2026-10-03.
 It supersedes earlier Bluetooth-recovery and runtime frequency-governor notes.
-Long-term stability and end-to-end 30 fps rendering remain unverified.
+Ten-hour connected-idle stability is now operator-reported as passing; broader
+reconnect, cold-boot and end-to-end 30 fps validation remain open.
 
 ## Bluetooth: configure the physical RF path after initialization
 
@@ -34,7 +35,9 @@ bonded encrypted PPoG at 21:18:05 London time. It remained connected through
 21:33:15, with no disconnect, assertion or uncommanded AP reset; effective RF
 configuration remained `0x0202`. A commanded hardware reset at 21:33:58 reapplied
 the configuration and restored bonded encrypted PPoG at 21:34:20. This reset
-was not a verified power-off cold boot.
+was not a verified power-off cold boot. The operator later reported roughly
+10 hours of stable connected operation with no disconnects after the installed
+RF-initialization candidate, which is a passed long connected-idle observation.
 
 ## Power: Round 2 active/idle model
 
@@ -96,8 +99,7 @@ Protected CP SHA-256:
 The protected payload occupies `0x22000..0x11df20`, below AP start `0x132000`.
 
 Remaining qualification: post-cleanup watchface install/launch regression,
-25 disconnect/reconnect cycles, a true cold boot with bond and selected-face
-restoration, and overnight connected idle with periodic UI interaction. Also
-complete the final-image scrolling check and measure end-to-end frame rate.
-Retain the complete first failed session. Any uncommanded AP reset remains a
-release blocker.
+25 disconnect/reconnect cycles, and a true cold boot with bond and selected-face
+restoration. Also complete the final-image scrolling check and measure
+end-to-end frame rate. Retain the complete first failed session. Any
+uncommanded AP reset remains a release blocker.
