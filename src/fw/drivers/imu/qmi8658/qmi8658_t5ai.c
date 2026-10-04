@@ -48,6 +48,10 @@ PBL_LOG_MODULE_DEFINE(driver_accel_qmi8658, CONFIG_DRIVER_IMU_LOG_LEVEL);
 #define QMI8658_ACCEL_DATA_READY 0x01u
 #define QMI8658_COUNTS_PER_G 8192
 #define QMI8658_STARTUP_SETTLE_MS 100u
+#define QMI8658_SHAKE_INTERVAL_US 32000u
+#define QMI8658_SHAKE_HOLDOFF_US 500000u
+#define QMI8658_SHAKE_MIN_MG 200u
+#define QMI8658_SHAKE_MAX_MG 1300u
 
 typedef struct {
   uint32_t interval_us;
@@ -66,7 +70,17 @@ static const QMI8658Rate s_rates[] = {
 
 static TimerID s_timer = TIMER_INVALID_ID;
 static uint32_t s_interval_us = QMI8658_DEFAULT_INTERVAL_US;
+static uint32_t s_requested_interval_us = QMI8658_DEFAULT_INTERVAL_US;
 static uint32_t s_num_samples;
+static bool s_shake_enabled;
+static bool s_active;
+static bool s_shake_sensitivity_high;
+static uint8_t s_shake_sensitivity_percent = 50u;
+static bool s_shake_baseline_valid;
+static int32_t s_shake_baseline[3];
+static uint64_t s_shake_previous_us;
+static uint64_t s_shake_holdoff_us;
+static uint64_t s_startup_us;
 static bool s_initialized;
 static bool s_poll_pending;
 static bool s_rotated;
@@ -137,30 +151,101 @@ static QMI8658SampleResult prv_read_sample(AccelDriverSample *sample) {
   return QMI8658_SAMPLE_READY;
 }
 
+// Remove gravity with a low-pass baseline before comparing motion on each axis.
+static void prv_detect_shake(const AccelDriverSample *sample) {
+  if (!s_shake_enabled) {
+    return;
+  }
+  const int32_t values[] = {sample->x, sample->y, sample->z};
+  const uint64_t now = sample->timestamp_us;
+  if (!s_shake_baseline_valid || now < s_shake_previous_us ||
+      now - s_shake_previous_us > QMI8658_SHAKE_HOLDOFF_US) {
+    for (size_t i = 0; i < 3; ++i) {
+      s_shake_baseline[i] = values[i];
+    }
+    s_shake_baseline_valid = true;
+    s_shake_holdoff_us = now;
+    s_shake_previous_us = now;
+    return;
+  }
+  s_shake_previous_us = now;
+  const uint32_t threshold =
+      s_shake_sensitivity_high
+          ? QMI8658_SHAKE_MIN_MG
+          : QMI8658_SHAKE_MAX_MG -
+                s_shake_sensitivity_percent * (QMI8658_SHAKE_MAX_MG - QMI8658_SHAKE_MIN_MG) / 100u;
+  int32_t peak = 0;
+  size_t axis = 0;
+  for (size_t i = 0; i < 3; ++i) {
+    const int32_t delta = values[i] - s_shake_baseline[i];
+    if ((delta < 0 ? -delta : delta) > (peak < 0 ? -peak : peak)) {
+      peak = delta;
+      axis = i;
+    }
+    s_shake_baseline[i] += delta / 8;
+  }
+  if (now >= s_shake_holdoff_us && (uint32_t)(peak < 0 ? -peak : peak) >= threshold) {
+    s_shake_holdoff_us = now + QMI8658_SHAKE_HOLDOFF_US;
+    accel_cb_shake_detected((IMUCoordinateAxis)axis, peak < 0 ? -1 : 1);
+  }
+}
+
 static void prv_poll(void *context) {
   (void)context;
   s_poll_pending = false;
-  if (!s_initialized || s_num_samples == 0u) {
+  if (!s_initialized || !s_active) {
     return;
   }
   AccelDriverSample sample;
   if (prv_read_sample(&sample) != QMI8658_SAMPLE_READY) {
     return;
   }
+  if (sample.timestamp_us < s_startup_us) {
+    s_startup_us = sample.timestamp_us;
+    s_shake_baseline_valid = false;
+  }
+  if (sample.timestamp_us - s_startup_us < QMI8658_STARTUP_SETTLE_MS * 1000u) {
+    return;
+  }
   s_last_sample = sample;
   s_last_sample_valid = true;
-  accel_cb_new_sample(&sample);
+  prv_detect_shake(&sample);
+  if (s_num_samples != 0u) {
+    accel_cb_new_sample(&sample);
+  }
 }
 
 static void prv_timer_callback(void *context) {
   (void)context;
-  if (s_num_samples == 0u || s_poll_pending) {
+  if (!s_active || s_poll_pending) {
     return;
   }
   s_poll_pending = true;
   if (!system_task_add_callback(prv_poll, NULL)) {
     s_poll_pending = false;
   }
+}
+
+static bool prv_update_power(void) {
+  const bool active = s_num_samples != 0u || s_shake_enabled;
+  if (active == s_active) {
+    return true;
+  }
+  if (!prv_write(QMI8658_CTRL7, active ? QMI8658_ACCEL_ENABLE : 0u)) {
+    PBL_LOG_ERR("Could not %s QMI8658", active ? "enable" : "disable");
+    return false;
+  }
+  s_active = active;
+  s_last_sample_valid = false;
+  s_shake_baseline_valid = false;
+  if (active) {
+    s_startup_us = prv_time_us();
+    const uint32_t period_ms = (s_interval_us + 999u) / 1000u;
+    (void)new_timer_start(s_timer, period_ms, prv_timer_callback, NULL, TIMER_START_FLAG_REPEATING);
+  } else {
+    (void)new_timer_stop(s_timer);
+  }
+  return true;
 }
 
 void accel_init(void) {
@@ -190,10 +275,18 @@ void accel_init(void) {
 }
 
 void accel_set_rotated(bool rotated) {
+  if (s_rotated != rotated) {
+    s_shake_baseline_valid = false;
+    s_last_sample_valid = false;
+  }
   s_rotated = rotated;
 }
 
 uint32_t accel_set_sampling_interval(uint32_t interval_us) {
+  const uint32_t requested_interval_us = interval_us;
+  if (s_shake_enabled && interval_us > QMI8658_SHAKE_INTERVAL_US) {
+    interval_us = QMI8658_SHAKE_INTERVAL_US;
+  }
   const QMI8658Rate *rate = &s_rates[0];
   for (size_t i = 1; i < sizeof(s_rates) / sizeof(s_rates[0]); ++i) {
     if (s_rates[i].interval_us <= interval_us) {
@@ -204,8 +297,9 @@ uint32_t accel_set_sampling_interval(uint32_t interval_us) {
     PBL_LOG_ERR("Could not set QMI8658 sampling rate");
     return s_interval_us;
   }
+  s_requested_interval_us = requested_interval_us;
   s_interval_us = rate->interval_us;
-  if (s_timer != TIMER_INVALID_ID && s_num_samples != 0u) {
+  if (s_timer != TIMER_INVALID_ID && s_active) {
     const uint32_t period_ms = (s_interval_us + 999u) / 1000u;
     (void)new_timer_start(s_timer, period_ms, prv_timer_callback, NULL, TIMER_START_FLAG_REPEATING);
   }
@@ -221,16 +315,10 @@ void accel_set_num_samples(uint32_t num_samples) {
   if (!s_initialized || num_samples == s_num_samples) {
     return;
   }
+  const uint32_t previous = s_num_samples;
   s_num_samples = num_samples;
-  s_poll_pending = false;
-  if (!prv_write(QMI8658_CTRL7, num_samples ? QMI8658_ACCEL_ENABLE : 0u)) {
-    PBL_LOG_ERR("Could not %s QMI8658", num_samples ? "enable" : "disable");
-  }
-  if (num_samples) {
-    const uint32_t period_ms = (s_interval_us + 999u) / 1000u;
-    (void)new_timer_start(s_timer, period_ms, prv_timer_callback, NULL, TIMER_START_FLAG_REPEATING);
-  } else {
-    (void)new_timer_stop(s_timer);
+  if (!prv_update_power()) {
+    s_num_samples = previous;
   }
 }
 
@@ -242,11 +330,11 @@ int accel_peek(AccelDriverSample *data) {
   if (!s_initialized || data == NULL) {
     return E_ERROR;
   }
-  if (s_num_samples != 0u && s_last_sample_valid) {
+  if (s_active && s_last_sample_valid) {
     *data = s_last_sample;
     return S_SUCCESS;
   }
-  const bool temporary_enable = s_num_samples == 0u;
+  const bool temporary_enable = !s_active;
   if (temporary_enable) {
     if (!prv_write(QMI8658_CTRL7, QMI8658_ACCEL_ENABLE)) {
       return E_ERROR;
@@ -266,11 +354,21 @@ int accel_peek(AccelDriverSample *data) {
 }
 
 void accel_enable_shake_detection(bool on) {
-  (void)on;
+  if (!s_initialized || on == s_shake_enabled) {
+    return;
+  }
+  const uint32_t requested_interval_us = s_requested_interval_us;
+  s_shake_enabled = on;
+  s_shake_baseline_valid = false;
+  const uint32_t interval_us = accel_set_sampling_interval(requested_interval_us);
+  if ((on && interval_us > QMI8658_SHAKE_INTERVAL_US) || !prv_update_power()) {
+    s_shake_enabled = !on;
+    (void)accel_set_sampling_interval(requested_interval_us);
+  }
 }
 
 bool accel_get_shake_detection_enabled(void) {
-  return false;
+  return s_shake_enabled;
 }
 
 void accel_enable_double_tap_detection(bool on) {
@@ -282,9 +380,9 @@ bool accel_get_double_tap_detection_enabled(void) {
 }
 
 void accel_set_shake_sensitivity_high(bool sensitivity_high) {
-  (void)sensitivity_high;
+  s_shake_sensitivity_high = sensitivity_high;
 }
 
 void accel_set_shake_sensitivity_percent(uint8_t percent) {
-  (void)percent;
+  s_shake_sensitivity_percent = percent > 100u ? 100u : percent;
 }

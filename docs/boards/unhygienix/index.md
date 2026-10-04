@@ -28,7 +28,7 @@ runs Pebble's NimBLE host against the CP-owned Bluetooth controller.
 | I2C0 and PCF85063 RTC | Proven |
 | CO5300 AMOLED and native QSPI transport | Proven with colour bands and display off/on tests |
 | CST9217 touch | Queue-pressure and release-ordering fix validated by repeated Settings scrolling |
-| QMI8658 accelerometer | Proven |
+| QMI8658 accelerometer | Sample delivery proven; software shake/display wake validated on 2026-10-04, sensitivity tuning installed |
 | SARADC and charger-status input | Transactions proven; battery behavior blocked because no cell is fitted |
 | Bluetooth HCI command/event and ACL transport | Proven |
 | Connectable advertising and BlueZ connection | Proven |
@@ -36,7 +36,7 @@ runs Pebble's NimBLE host against the CP-owned Bluetooth controller.
 | Pairing, bonding, reconnect, and Pebble protocol session setup | Physical RF PLL fix installed; 15-minute connected run, bonded hardware-reset reconnection and 10-hour connected-idle observation passed; broader reconnect and cold-boot qualification pending |
 | Device identity | Phone recognizes the watch as Round 2; further compatibility remains under test |
 | Sustained phone sync and watchface transfer | Six transfers completed and all faces loaded; clean-image startup verified |
-| Sleep/wake and low-power operation | Not yet validated |
+| Sleep/wake and low-power operation | Shake wakes the timed-out display; deeper sleep, wake interrupts and low-power operation remain unvalidated |
 | Writable PFS | NOR cache corruption fixed; 2.75 MiB PFS migrated and readback verified |
 | OTA, recovery, and general writable flash | Deliberately disabled pending a safe storage/recovery contract |
 
@@ -53,6 +53,7 @@ to Pebble's shared `GColor` values.
 | Bluetooth stability/recovery | Physical BLE/BT PLL configuration is applied after CP Bluetooth initialization. Live RF reconfiguration recovered the failed state; the installed fix passed 15 minutes connected, bonded reconnection after hardware reset and a 10-hour connected-idle observation. Exact internal failure mechanism remains unproven; broader reconnect and cold-boot validation are still required. |
 | App/watchface stall | The captured whole-chip reset followed the process-manager assertion for an App task stuck in privileged code. The initiating blocked operation is unknown; the temporary CP SRAM and pre-reset fault-context experiment was removed on 2026-10-04. |
 | Low power and wake alarms | `soc/t5ai/freertos.c` idles with WFI but ignores the requested idle duration; `vPortEnableTimer()` returns false. `rtc_alarm_set()` ignores its deadline and `rtc_alarm_is_initialized()` returns false. Tick suppression, hardware alarm/wake routing and deeper sleep remain unfinished. |
+| Motion and step tracking | QMI8658 software shake detection is implemented and display wake is operator-validated. Double-tap detection remains unimplemented. Pebble pauses activity tracking when external power is reported; step counting remains unvalidated on the USB-only board with no battery. |
 | Serial console input | `src/fw/console/dbgserial_input_t5ai.c` contains no-op initialization, callback registration and input/DMA enable functions. UART logging and CP-shell AP commands work; a general bidirectional console is not established. |
 | Persistent flash logging | The build selects `src/fw/debug/flash_logging_unavailable.c`: writes fail and dump requests report no saved logs. Serial logging remains available. |
 | Persistent coredumps | Disabled pending a validated partition/recovery contract. Current fault evidence relies on UART diagnostics. A writable flash region alone does not enable this service. |
@@ -214,6 +215,60 @@ through a pointer nested in the mailbox request, so the T5AI IPC layer must clea
 the pointed-to payload from the AP data cache before publishing the descriptor.
 T5AI also uses a local streaming GATT discovery implementation to release each
 completed service while leaving shared NimBLE discovery unchanged.
+
+## Accelerometer and motion wake progress (2026-10-04)
+
+The QMI8658 driver previously delivered samples but left shake detection and
+sensitivity functions as no-ops. The driver now detects motion in software and
+calls Pebble's existing `accel_cb_shake_detected()` path. All production changes
+are local to `src/fw/drivers/imu/qmi8658/qmi8658_t5ai.c`; shared Pebble services
+were preserved.
+
+Shake detection keeps the sensor and polling timer active even without a data
+subscriber, including while activity tracking is paused on external power.
+Polling runs at least approximately 31.25 Hz (32 ms) while shake detection is
+enabled. A low-pass gravity baseline, 100 ms startup settling period and 500 ms
+event holdoff suppress startup transients and repeated events. The detector
+supports the existing sensitivity percentage and high-sensitivity override;
+rotation or a timestamp discontinuity resets the motion baseline. Peeking no
+longer powers down a sensor being used solely for shake detection.
+
+The initial firmware was built, AP-only flashed and traced through the host's
+CH342 runtime UART. The operator confirmed that flick/shake wakes the display.
+Two subsequent threshold increases were built and flashed in response to
+operator feedback. The first adjustment was reported as much better but still
+slightly too sensitive. The final adjustment raises the normal threshold range
+to 200–1300 mg; at the default 55% sensitivity this gives 695 mg, compared with
+415 mg initially and 577.5 mg after the first adjustment. Integer arithmetic
+rounds the first adjustment to 578 mg. High-sensitivity mode uses 200 mg.
+The final firmware boot was captured with build ID
+`adc9d3bb27299f9b2ed052ab3869cc6022ba70b4`; operator confirmation of its final
+sensitivity remains pending.
+
+Native firmware builds and `git diff --check` passed. Focused C harnesses under
+`/home/baz/Documents/ChatGPT/pebble/tests/` passed for sample readiness, I2C
+failure/recovery, scaling, peek behavior, gravity/noise rejection, deliberate
+shake events, axis/direction, sensitivity, holdoff, power/subscriber transitions
+and failed-enable rollback. These tests exercise the production driver with
+simulated sensor/timer responses; physical wake validation comes from the
+operator's observation.
+
+Evidence is retained under `/home/baz/Documents/ChatGPT/pebble/logs/`:
+
+- `shake-flash-20261004.log` and `shake-trace-20261004.log`: initial flash,
+  boot and phone reconnection; operator confirmed display wake.
+- `shake-tuned-flash-20261004.log` and `shake-tuned-trace-20261004.log`:
+  first sensitivity adjustment and boot/reconnection.
+- `shake-tuned2-flash-20261004.log` and `shake-tuned2-trace-20261004.log`:
+  final sensitivity adjustment and verified boot output.
+
+The initial trace had no QMI8658 errors or additional resets during the capture.
+It still contained battery ADC, timeline and weather errors. Read-only console
+queries timed out because a general bidirectional console is not established;
+those queries did not verify live acceleration or charger state. Captures are
+stopped. Shake display wake does not establish deep-sleep wake support or step
+counting. The board has no battery and must remain USB-powered; charging-state
+activity suppression was left unchanged.
 
 ## Other hardware notes
 
