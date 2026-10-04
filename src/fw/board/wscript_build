@@ -1,6 +1,6 @@
-if bld.env.CONFIG_BOARD_GETAFIX_DVT3:
+if bld.env.CONFIG_BOARD_UNHYGIENIX:
     bld.objects(name='board',
-                source=['boards/board_t5ai.c', 'displays/display_getafix.c'],
+                source=['boards/board_unhygienix.c', 'displays/display_getafix.c'],
                 use=['fw_includes', 'freertos', 'drivers'])
 elif bld.env.CONFIG_BOARD_ASTERIX:
     bld.objects(

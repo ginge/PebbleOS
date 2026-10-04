@@ -25,6 +25,10 @@ pages over duplicating knowledge here: `docs/development/contributing.md`
 (DCO, commit and AI-usage rules), `docs/development/sdk_export.md` (SDK
 export machinery), `docs/development/qemu.md` (emulator workflow).
 
+Make production changes in this PebbleOS repository. Vendor references live in
+pinned submodules under `third_party/`. Preserve stock Pebble shared/common code;
+prefer board-, SoC- or driver-local changes unless a shared change is unavoidable.
+
 ## Code style
 
 - clang-format for C code

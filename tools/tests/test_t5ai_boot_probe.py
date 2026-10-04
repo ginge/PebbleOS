@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tools.t5ai_image import PRIMARY_AP_APP_XIP_BASE, verify_protected_blocks
+from tools.unhygienix_image import PRIMARY_AP_APP_XIP_BASE, verify_protected_blocks
 
 
 ROOT = Path(__file__).resolve().parents[2]

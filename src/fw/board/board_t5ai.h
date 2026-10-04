@@ -5,9 +5,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define BT_VENDOR_ID 0x0EEA
-#define BT_VENDOR_NAME "Core Devices LLC"
-
 #define IRQ_PRIORITY_INVALID (1 << __NVIC_PRIO_BITS)
 #define GPIO_Port_NULL NULL
 #define GPIO_Pin_NULL 0U
@@ -74,24 +71,15 @@ typedef struct {
 
 #include <pbl/drivers/uart/t5ai.h>
 typedef const struct UARTDevice UARTDevice;
-extern UARTDevice *const DBG_UART;
 typedef const struct I2CBus I2CBus;
 typedef const struct I2CSlavePort I2CSlavePort;
 #include <pbl/drivers/i2c/definitions.h>
 #include <pbl/drivers/i2c/t5ai.h>
-extern I2CSlavePort *const I2C_PCF85063;
-extern I2CSlavePort *const I2C_CST92XX;
-extern I2CSlavePort *const I2C_QMI8658;
 typedef const struct MicDevice MicDevice;
 typedef const struct AudioDevice AudioDevice;
 typedef const struct HRMDevice HRMDevice;
 typedef struct ADC_TypeDef ADC_TypeDef;
 
-extern const BoardConfig BOARD_CONFIG;
-extern const BoardConfigButton BOARD_CONFIG_BUTTON;
-extern const BoardConfigPower BOARD_CONFIG_POWER;
-extern const BoardConfigActuator BOARD_CONFIG_VIBE;
-static const BoardConfigAccel BOARD_CONFIG_ACCEL = {.default_motion_sensitivity = 55U};
 void board_early_init(void);
 void board_init(void);
 #include "board_definitions.h"

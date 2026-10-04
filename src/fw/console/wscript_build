@@ -5,7 +5,7 @@ excl = []
 if not bld.env.CONFIG_PROMPT:
     excl += ['prompt.c', 'prompt_commands.c']
 if bld.env.CONFIG_SOC_T5AI:
-    # DVT3 has no validated programming/recovery flow. Do not link console
+    # Unhygienix has no validated programming/recovery flow. Do not link console
     # protocols that can erase/write raw flash or mutate arbitrary memory
     # behind the host-side guards.
     excl += [

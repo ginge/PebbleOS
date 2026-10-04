@@ -6,6 +6,20 @@ Before building, make sure you've configured {doc}`./pbl <../development/options
 ./pbl build
 ```
 
+## Unhygienix
+
+Unhygienix ("The village fishmonger") is the independent Tuya T5AI board:
+
+```shell
+./pbl configure --board unhygienix
+./pbl build
+```
+
+It retains the Gabbro app platform and Round 2 companion identity. Use its
+{doc}`board tooling <../boards/unhygienix_tooling>` for exact-range `tyutool`
+flashing and CP packaging. The generic recovery imaging and Bluetooth/PBZ
+firmware update instructions below do not apply to Unhygienix.
+
 ## Loading firmware with a firmware development kit
 
 Before attempting to flash, check the documentation for each {doc}`board <../boards/index>` on how to prepare and connect your watch for programming.

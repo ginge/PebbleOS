@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from tools.t5ai_image import encode_pebble_application, verify_protected_blocks
+from tools.unhygienix_image import encode_pebble_application, verify_protected_blocks
 
 
 PROBE_DIR = ROOT / "tools" / "t5ai_boot_probe"

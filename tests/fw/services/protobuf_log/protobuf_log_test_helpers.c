@@ -7,11 +7,14 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #define TMP_FILE "tmp_protoc_bytes"
-#define TINTIN_PATH "/Users/thoffman/dev/tintin"
+#ifndef PEBBLE_SOURCE_ROOT
+#error "Define PEBBLE_SOURCE_ROOT to the repository root"
+#endif
 #define PROTO_PATH "/src/idl/nanopb"
-#define PROTOC_PATH "/usr/local/bin/protoc"
+#define PROTOC_PATH "protoc"
 
 void protobuf_log_test_parse_protoc(uint8_t *msg) {
   PLogMessageHdr *hdr = (PLogMessageHdr *)msg;
@@ -19,6 +22,7 @@ void protobuf_log_test_parse_protoc(uint8_t *msg) {
   fwrite(msg + sizeof(*hdr), 1, hdr->msg_size, file);
   fclose(file);
 
-  system(PROTOC_PATH" --proto_path="TINTIN_PATH""PROTO_PATH" --decode=pebble.pipeline.Payload "
-           ""TINTIN_PATH""PROTO_PATH"/payload.proto < "TMP_FILE" 2>&1");
+  system(PROTOC_PATH " --proto_path=\"" PEBBLE_SOURCE_ROOT PROTO_PATH
+         "\" --decode=pebble.pipeline.Payload \"" PEBBLE_SOURCE_ROOT PROTO_PATH
+         "/payload.proto\" < " TMP_FILE " 2>&1");
 }

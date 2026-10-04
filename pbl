@@ -189,7 +189,7 @@ def make_runner(env, options):
 def _reject_unvalidated_t5ai_operation(env, operation):
     if env.CONFIG_SOC_T5AI:
         _fatal('Refusing T5AI {}: no validated image container or recovery '
-               'procedure exists; see docs/boards/getafix_dvt3.md.'
+               'procedure exists; see docs/boards/unhygienix.md.'
                .format(operation))
 
 

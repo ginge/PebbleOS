@@ -76,7 +76,7 @@ class T5AIPowerTest(unittest.TestCase):
                     "cc", "-std=gnu11", "-Wall", "-Wextra", "-Werror",
                     "-I", str(directory),
                     f'-DT5AI_POWER_SOURCE="{ROOT / "soc/t5ai/power.c"}"',
-                    str(ROOT / "boards/getafix/tuya/tests/test_t5ai_power.c"),
+                    str(ROOT / "boards/unhygienix/tuya/tests/test_t5ai_power.c"),
                     "-o", str(executable),
                 ],
                 check=True,

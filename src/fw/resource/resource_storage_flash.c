@@ -83,7 +83,7 @@ static void resource_storage_system_bank_init(void) {
   for (s_active_bank = 0; s_active_bank < ARRAY_LENGTH(s_resource_banks); ++s_active_bank) {
     PBL_LOG_INFO("Checking bank %u for system resources", s_active_bank);
 #ifdef CONFIG_SOC_T5AI
-    // DVT3 resources are immutable at runtime and are flashed with the matching
+    // Unhygienix resources are immutable at runtime and are flashed with the matching
     // firmware image. Validate the compact manifest and table bounds at boot;
     // individual resources retain their existing CRC check when accessed.
     const bool valid = prv_t5ai_system_bank_metadata_valid(&SYSTEM_RESOURCE_VERSION);

@@ -121,7 +121,7 @@ static status_t prv_read_with_retry(uint32_t offset, void *buffer, size_t length
   return status;
 }
 
-#if !defined(CONFIG_BOARD_GETAFIX_DVT3)
+#if !defined(CONFIG_BOARD_UNHYGIENIX)
 static status_t prv_confirm_pfs_read(uint32_t offset, void *buffer, size_t length) {
   uint8_t second[T5AI_PFS_HEADER_SIZE];
   uint8_t third[T5AI_PFS_HEADER_SIZE];
@@ -234,7 +234,7 @@ static status_t prv_read_pfs_header(FlashAddress address, void *buffer, size_t l
     status_t status = prv_read_with_retry(prv_offset(page_address),
                                           s_pfs_header_cache[page],
                                           T5AI_PFS_HEADER_SIZE);
-#if !defined(CONFIG_BOARD_GETAFIX_DVT3)
+#if !defined(CONFIG_BOARD_UNHYGIENIX)
     if (PASSED(status) && !prv_pfs_version_plausible(s_pfs_header_cache[page])) {
       status = prv_confirm_pfs_read(prv_offset(page_address),
                                     s_pfs_header_cache[page],
@@ -304,7 +304,7 @@ static status_t prv_verify_pfs_header_write(FlashAddress address, const void *bu
   if (memcmp(readback, buffer, verify_length) == 0) {
     return S_SUCCESS;
   }
-#if defined(CONFIG_BOARD_GETAFIX_DVT3)
+#if defined(CONFIG_BOARD_UNHYGIENIX)
   PBL_LOG_ERR("T5AI PFS version verify mismatch addr=0x%08" PRIx32, address);
   return E_ERROR;
 #else

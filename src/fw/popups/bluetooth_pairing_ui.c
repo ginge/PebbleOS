@@ -34,9 +34,9 @@
 #define CODE_BUF_SIZE 16
 #define MAX_PAIR_STR_LEN 16
 
-// Getafix DVT3 only has Back and Select; its Up and Down inputs are explicitly absent.
+// Unhygienix only has Back and Select; its Up and Down inputs are explicitly absent.
 // Keep the stock Pebble controls everywhere else.
-#ifdef CONFIG_BOARD_GETAFIX_DVT3
+#ifdef CONFIG_BOARD_UNHYGIENIX
 #define BT_PAIRING_CONFIRM_BUTTON BUTTON_ID_SELECT
 #define BT_PAIRING_DECLINE_BUTTON BUTTON_ID_BACK
 #else

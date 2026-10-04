@@ -2,9 +2,9 @@
 
 from pathlib import Path
 
-from tools.flash_t5ai_firmware import validate_firmware
-from tools.flash_t5ai_cp_firmware import validate_firmware as validate_cp
-from tools.t5ai_image import (
+from tools.flash_unhygienix_firmware import validate_firmware
+from tools.flash_unhygienix_cp_firmware import validate_firmware as validate_cp
+from tools.unhygienix_image import (
     PEBBLE_AP_PHYSICAL_OFFSET,
     PEBBLE_FILESYSTEM_PHYSICAL_OFFSET,
     PRIMARY_CP_APP_PHYSICAL_OFFSET,
@@ -67,7 +67,7 @@ class TyuToolRunner(Runner):
             if self.cp:
                 cp_output = raw.with_name("pebbleos.t5ai-cp-crc.bin")
                 _, cp_image = validate_cp(raw.with_name("pebbleos.t5ai-cp.bin"), cp_output)
-                from tools.t5ai_cp import validate_manifest
+                from tools.unhygienix_cp import validate_manifest
                 validate_manifest(raw.parent)
                 writes.insert(0, ("CP", PRIMARY_CP_APP_PHYSICAL_OFFSET, cp_image, cp_output))
             if self.provision:

@@ -76,7 +76,7 @@ void check_prf_update(void) {
   boot_bit_clear(BOOT_BIT_NEW_PRF_AVAILABLE);
 
 #ifdef CONFIG_SOC_T5AI
-  // A stale boot bit must never turn into an experimental flash copy on T5AI.
+  // A stale boot bit must never turn into an unsupported flash copy on T5AI.
   // Clear it once so every boot does not retry an unsupported update.
   PBL_LOG_WRN("Ignoring unsupported T5AI recovery firmware update request");
 #else

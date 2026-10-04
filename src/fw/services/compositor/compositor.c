@@ -39,7 +39,7 @@ PBL_LOG_MODULE_DEFINE(service_compositor, CONFIG_SERVICE_COMPOSITOR_LOG_LEVEL);
 //! This is our root framebuffer that everything gets composited into.
 #ifdef CONFIG_SOC_T5AI
 // The 260x260 ARGB2222 backing store is larger than the free internal AP
-// SRAM once the 4x application ABI is reserved. DVT3 has dedicated PSRAM;
+// SRAM once the 4x application ABI is reserved. Unhygienix has dedicated PSRAM;
 // the boot stages map its uncached aperture before entering the AP image.
 static FrameBuffer s_framebuffer __attribute__((section(".t5ai_framebuffer"), aligned(32)));
 

@@ -4,14 +4,6 @@
 revisions:
   - dvt
   - dvt2
-  - dvt3
-
-isolated_defconfig_revisions:
-  - dvt3
 
 runners:
   - sftool
-
-runner_overrides:
-  dvt3:
-    - tyutool

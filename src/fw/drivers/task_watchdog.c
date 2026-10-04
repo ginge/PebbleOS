@@ -67,7 +67,7 @@ static uint32_t s_pause_ticks_remaining = 0;
 #define WATCHDOG_FREERTOS_IRQn        WATCHDOG_IRQn
 #define WATCHDOG_FREERTOS_IRQHandler  WATCHDOG_IRQHandler
 #elif defined(CONFIG_SOC_T5AI)
-// LIN is not populated on Getafix DVT3; reserve its NVIC line as the
+// LIN is not populated on Unhygienix; reserve its NVIC line as the
 // task-watchdog's low-priority software interrupt.
 #define WATCHDOG_FREERTOS_IRQn        LIN_IRQn
 #define WATCHDOG_FREERTOS_IRQHandler  LIN_IRQHandler

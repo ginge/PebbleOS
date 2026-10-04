@@ -8,7 +8,7 @@ from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "boards/getafix/tuya"
+SOURCE = ROOT / "boards/unhygienix/tuya"
 spec = importlib.util.spec_from_file_location(
     "build_tuya_hardware", ROOT / "tools/build_tuya_hardware.py"
 )

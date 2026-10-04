@@ -55,10 +55,10 @@ int main(void) {
                         read.index("prv_restore_client_priority(previous_priority)"))
         flash = (ROOT / "src/fw/drivers/flash/t5ai.c").read_text()
         verification = flash.split("static status_t prv_verify_pfs_header_write", 1)[1]
-        dvt3 = verification.split("#if defined(CONFIG_BOARD_GETAFIX_DVT3)", 1)[1].split("#else", 1)[0]
-        self.assertIn("return E_ERROR", dvt3)
-        self.assertNotIn("prv_confirm_pfs_read", dvt3)
-        self.assertNotIn("t5ai_flash_ipc_write", dvt3)
+        unhygienix = verification.split("#if defined(CONFIG_BOARD_UNHYGIENIX)", 1)[1].split("#else", 1)[0]
+        self.assertIn("return E_ERROR", unhygienix)
+        self.assertNotIn("prv_confirm_pfs_read", unhygienix)
+        self.assertNotIn("t5ai_flash_ipc_write", unhygienix)
 
     def test_t5ai_write_path_has_no_retained_probe_instrumentation(self):
         flash = (ROOT / "src/fw/drivers/flash/t5ai.c").read_text()
@@ -359,7 +359,7 @@ int main(void) {
                 defines = ["-DCONFIG_T5AI_PFS_HEADER_CACHE=1"] if header_cache else []
                 subprocess.run(
                     ["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                     "-DCONFIG_SOC_T5AI=1", "-DCONFIG_BOARD_GETAFIX_DVT3=1",
+                     "-DCONFIG_SOC_T5AI=1", "-DCONFIG_BOARD_UNHYGIENIX=1",
                      *defines, "-I", str(ROOT), "-I", str(ROOT / "include"),
                      "-I", str(ROOT / "src/fw"), str(test_source), "-o", str(binary)],
                     check=True,
@@ -411,7 +411,7 @@ int main(void) {
             )
             subprocess.run([str(binary)], check=True)
 
-    def test_experimental_regions_do_not_overlap(self):
+    def test_board_regions_do_not_overlap(self):
         header = (ROOT / "src/fw/flash_region/flash_region_t5ai.h").read_text()
         values = {}
         for line in header.splitlines():

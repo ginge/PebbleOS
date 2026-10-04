@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: Apache-2.0
+
+config BOARD_UNHYGIENIX
+    bool
+    default y
+    help
+      Unhygienix (The village fishmonger).
+      Waveshare T5-E1 Touch AMOLED 1.75 using PebbleOS FreeRTOS.
+
+config T5AI_CP_BLE_TRACE
+    bool "Sample the matching vendor CP BLE connection state"
+    default n
+    help
+      Diagnostic only. Requires a vendor CP ELF matching the pinned stock CP image; its SRAM ABI is not stable across CP builds.
+      Retains eight seconds of read-only samples and logs them on disconnect.

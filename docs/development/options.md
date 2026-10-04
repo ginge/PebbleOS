@@ -11,8 +11,13 @@ using the (`--board`) flag followed by:
 :`asterix`: (Core Devices) Pebble 2 Duo
 :`obelix@bb2`, `obelix@dvt`, `obelix@pvt`: (Core Devices) Pebble Time 2
 :`getafix@dvt`, `getafix@dvt2`: (Core Devices) Pebble Round 2
-:`getafix@dvt3`: Experimental native PebbleOS target for the Tuya T5AI/BK7258 hardware (see {doc}`../boards/getafix_dvt3`)
+:`unhygienix`: "The village fishmonger." Independent Waveshare T5-E1 / Tuya T5AI (BK7258) hardware target with Gabbro apps and Round 2 companion identity (see {doc}`../boards/unhygienix`)
 :`qemu_emery`, `qemu_flint`, `qemu_gabbro`: dedicated QEMU targets (see {doc}`qemu`)
+
+Getafix DVT/DVT2 remain Round 2 hardware targets. Unhygienix uses the `normal` variant; PRF,
+manufacturing/recovery firmware, PBZ bundles and OTA updates remain disabled.
+Its `tyutool` runner supports exact-range flashing only; see
+{doc}`../boards/unhygienix_tooling` for CP inputs, serial roles and provisioning.
 
 Keep in mind that some targets may not currently compile as-is.
 
@@ -61,7 +66,8 @@ Override the board's default runner for `flash`/`run`/`debug`.
 Serial port used by the `sftool` runner.
 
 :`--resources`:
-Also flash system resources alongside the firmware (`sftool` runner).
+Also flash system resources alongside the firmware (`sftool` or Unhygienix
+`tyutool` runner). Follow the board tooling instructions before provisioning PFS.
 
 ## Logging
 

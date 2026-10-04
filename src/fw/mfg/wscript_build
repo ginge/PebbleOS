@@ -5,6 +5,8 @@ elif bld.env.CONFIG_BOARD_ASTERIX:
     mfg_board = 'asterix'
 elif bld.env.CONFIG_BOARD_OBELIX:
     mfg_board = 'obelix'
+elif bld.env.CONFIG_BOARD_UNHYGIENIX:
+    mfg_board = 'unhygienix'
 elif bld.env.CONFIG_BOARD_GETAFIX:
     mfg_board = 'getafix'
 else:

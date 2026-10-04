@@ -35,11 +35,11 @@ import tools.waf.generate_log_strings_json
 import tools.waf.generate_timezone_data
 import tools.waf.gitinfo
 import tools.waf.boards
-import tools.waf.check_t5ai_image_map
+import tools.waf.check_unhygienix_image_map
 import tools.waf.ldscript
 import tools.waf.objcopy
 import tools.waf.pblboot
-import tools.waf.t5ai_image
+import tools.waf.unhygienix_image
 import tools.waf.pebble_sdk_gcc as pebble_sdk_gcc
 import tools.runners as pebble_runners
 from tools.waf.pebble_sdk_locator import activate_sdk
@@ -422,7 +422,7 @@ def _link_firmware(bld, sources):
     image_inputs = [elf_node]
     if bld.env.CONFIG_SOC_T5AI:
         layout_stamp = bld.path.get_bld().make_node('pebbleos.image-layout.ok')
-        bld(rule=tools.waf.check_t5ai_image_map.wafrule,
+        bld(rule=tools.waf.check_unhygienix_image_map.wafrule,
             source=elf_node, target=layout_stamp)
         image_inputs.append(layout_stamp)
 
@@ -446,7 +446,7 @@ def _link_firmware(bld, sources):
 
     if bld.env.CONFIG_SOC_T5AI:
         protected_bin_node = elf_node.change_ext('.t5ai-crc.bin')
-        bld(rule=tools.waf.t5ai_image.wafrule,
+        bld(rule=tools.waf.unhygienix_image.wafrule,
             source=bin_node, target=protected_bin_node)
 
     # Create the log_strings .elf and check the format specifier rules
@@ -665,7 +665,7 @@ def size_resources(ctx):
     if ctx.env.CONFIG_SOC_NRF52:
         max_size = 1024 * 1024
     elif ctx.env.CONFIG_SOC_T5AI:
-        # Host-side pack ceiling only. The DVT3 flash resource banks remain
+        # Host-side pack ceiling only. The Unhygienix flash resource banks remain
         # deliberately unmapped until the factory partition table is verified.
         max_size = 1024 * 1024
     elif ctx.env.CONFIG_SOC_SF32LB52:
@@ -991,9 +991,9 @@ class T5aiCPContext(BuildContext):
 
 
 def t5ai_cp(ctx):
-    from tools.t5ai_cp import build_cp
-    if ctx.env.BOARD != 'getafix@dvt3':
-        ctx.fatal('t5ai_cp requires getafix@dvt3 and its validated CP ABI')
+    from tools.unhygienix_cp import build_cp
+    if ctx.env.BOARD != 'unhygienix':
+        ctx.fatal('t5ai_cp requires unhygienix and its validated CP ABI')
     if not ctx.options.t5ai_cp_stock:
         ctx.fatal('Pass --t5ai-cp-stock with the pinned stock CP image')
     try:
@@ -1012,7 +1012,7 @@ def tuya_reference(ctx):
     if not ctx.env.CONFIG_SOC_T5AI:
         ctx.fatal('tuya_reference requires a configured T5AI board')
     command = [sys.executable, 'tools/build_tuya_hardware.py',
-               '--out', ctx.bldnode.make_node('getafix_dvt3_hw').abspath()]
+               '--out', ctx.bldnode.make_node('unhygienix_hw').abspath()]
     if ctx.options.tuya_python:
         command.extend(['--python', ctx.options.tuya_python])
     if subprocess.call(command, cwd=ctx.path.abspath()):

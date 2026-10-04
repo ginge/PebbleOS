@@ -4,14 +4,13 @@
 #pragma once
 
 // FIXME: PBL-21049 Fix platform abstraction and board definition scheme
-#ifdef CONFIG_BOARD_GETAFIX_DVT3
-/* Definitions are provided by board_t5ai.h. */
+#ifdef CONFIG_BOARD_UNHYGIENIX
+#include "boards/board_unhygienix.h"
 #elif defined(CONFIG_BOARD_ASTERIX)
 #include "boards/board_asterix.h"
 #elif defined(CONFIG_BOARD_OBELIX_DVT) || defined(CONFIG_BOARD_OBELIX_PVT) || defined(CONFIG_BOARD_OBELIX_BB2)
 #include "boards/board_obelix.h"
-#elif defined(CONFIG_BOARD_GETAFIX_DVT) || defined(CONFIG_BOARD_GETAFIX_DVT2) || \
-    defined(CONFIG_BOARD_GETAFIX_DVT3)
+#elif defined(CONFIG_BOARD_GETAFIX_DVT) || defined(CONFIG_BOARD_GETAFIX_DVT2)
 #include "boards/board_getafix.h"
 #elif defined(CONFIG_BOARD_QEMU_EMERY)
 #include "boards/board_qemu_emery.h"

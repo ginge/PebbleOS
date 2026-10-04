@@ -27,7 +27,7 @@ typedef struct {
 #elif defined(CONFIG_BOARD_OBELIX_DVT) || defined(CONFIG_BOARD_OBELIX_PVT) || defined(CONFIG_BOARD_OBELIX_BB2)
 #include "displays/display_obelix.h"
 #elif defined(CONFIG_BOARD_GETAFIX_DVT) || defined(CONFIG_BOARD_GETAFIX_DVT2) || \
-    defined(CONFIG_BOARD_GETAFIX_DVT3)
+    defined(CONFIG_BOARD_UNHYGIENIX)
 #include "displays/display_getafix.h"
 #elif defined(CONFIG_BOARD_QEMU_EMERY)
 #include "displays/display_qemu_emery.h"

@@ -11,7 +11,7 @@
 #define FLASH_REGION_BASE_ADDRESS 0x02000000
 #define BOARD_NOR_FLASH_SIZE 0x00800000
 
-/* Experimental AP partition subdivision; not an OTA/release layout. */
+/* AP partition subdivision; not an OTA/release layout. */
 #define FLASH_REGION_FIRMWARE_SLOT_0_BEGIN 0x02120000
 #define FLASH_REGION_FIRMWARE_SLOT_0_END 0x022b0000
 #define FLASH_REGION_FILESYSTEM_BEGIN 0x02500000

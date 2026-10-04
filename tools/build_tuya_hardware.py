@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Build the DVT3 peripheral bring-up image, not the PebbleOS kernel."""
+"""Build the Unhygienix peripheral bring-up image, not the PebbleOS kernel."""
 
 import argparse
 import json
@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "boards/getafix/tuya"
+SOURCE = ROOT / "boards/unhygienix/tuya"
 
 
 DEFAULT_SDK = ROOT / "third_party/hal_tuya/TuyaOpen"
@@ -53,7 +53,7 @@ def stage_app(source, output):
     if output.exists() and not marker.is_file():
         raise ValueError(f"Refusing to overwrite unowned directory: {output}")
     output.mkdir(parents=True, exist_ok=True)
-    marker.write_text("getafix@dvt3 hardware bring-up\n")
+    marker.write_text("unhygienix hardware bring-up\n")
     for name in ("CMakeLists.txt", "app_default.config", "sdk.lock.json"):
         shutil.copy2(source / name, output / name)
     shutil.copytree(source / "src", output / "src", dirs_exist_ok=True)
@@ -123,7 +123,7 @@ def main():
         type=Path,
         help="Python from a venv containing TuyaOpen build dependencies",
     )
-    parser.add_argument("--out", type=Path, default=ROOT / "build/getafix_dvt3_hw")
+    parser.add_argument("--out", type=Path, default=ROOT / "build/unhygienix_hw")
     args = parser.parse_args()
     sdk, output = args.sdk.resolve(), args.out.resolve()
     python = args.python.absolute()  # Preserve a venv's interpreter symlink.

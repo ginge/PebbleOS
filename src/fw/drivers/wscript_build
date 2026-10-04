@@ -43,6 +43,14 @@ elif bld.env.CONFIG_BOARD_OBELIX:
         'driver_task_watchdog',
     ])
 
+elif bld.env.CONFIG_BOARD_UNHYGIENIX:
+    bld.env.DRIVERS.extend([
+        'driver_button',
+        'driver_mcu',
+        'driver_mpu',
+        'driver_task_watchdog',
+    ])
+
 elif bld.env.CONFIG_BOARD_GETAFIX:
     bld.env.DRIVERS.extend([
         'driver_button',

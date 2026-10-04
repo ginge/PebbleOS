@@ -106,9 +106,9 @@ _Static_assert(sizeof(struct FirmwareMetadata) == (sizeof(uint32_t) +
   #define FIRMWARE_METADATA_HW_PLATFORM (FirmwareMetadataPlatformPebbleGetafixDVT)
 #elif defined(CONFIG_BOARD_GETAFIX_DVT2)
   #define FIRMWARE_METADATA_HW_PLATFORM (FirmwareMetadataPlatformPebbleGetafixDVT2)
-#elif defined(CONFIG_BOARD_GETAFIX_DVT3)
-  // The mobile app knows Pebble Round 2 as Getafix DVT2. DVT3 is the T5AI
-  // implementation of the same Gabbro product and must use that public identity.
+#elif defined(CONFIG_BOARD_UNHYGIENIX)
+  // The mobile app knows Pebble Round 2 as Getafix DVT2. Unhygienix is the T5AI
+  // board using the Gabbro app ABI and Round 2 companion identity.
   #define FIRMWARE_METADATA_HW_PLATFORM (FirmwareMetadataPlatformPebbleGetafixDVT2)
 #elif defined(CONFIG_BOARD_QEMU_EMERY)
   #define FIRMWARE_METADATA_HW_PLATFORM (FirmwareMetadataPlatformPebbleEmeryEmu)

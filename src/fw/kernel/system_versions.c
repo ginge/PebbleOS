@@ -100,7 +100,7 @@ static void prv_send_watch_versions(CommSession *session) {
 
   const bool has_recovery_fw =
       version_copy_recovery_fw_metadata(&versions_msg.recovery_fw_metadata);
-#if defined(CONFIG_BOARD_GETAFIX_DVT3)
+#if defined(CONFIG_BOARD_UNHYGIENIX)
   if (!has_recovery_fw) {
     // The T5AI factory image has an external recovery path, not a Pebble PRF
     // partition. libpebble treats every BLE watch with no recovery metadata as

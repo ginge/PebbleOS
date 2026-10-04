@@ -264,7 +264,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("#ifndef CONFIG_SOC_T5AI", resources)
 
     def test_t5ai_shared_i2c_bus_uses_cst92xx_qualified_standard_mode(self):
-        board = (ROOT / "src/fw/board/boards/board_t5ai.c").read_text()
+        board = (ROOT / "src/fw/board/boards/board_unhygienix.c").read_text()
         self.assertIn(".frequency = 100000u", board)
         self.assertNotIn(".frequency = 400000u", board)
 
@@ -537,7 +537,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         flash_driver = (ROOT / "src/fw/drivers/flash/t5ai.c").read_text()
         display_driver = (ROOT / "src/fw/drivers/display/t5ai/display_co5300.c").read_text()
         animation = (ROOT / "src/fw/applib/ui/animation.h").read_text()
-        board = (ROOT / "src/fw/board/boards/board_t5ai.c").read_text()
+        board = (ROOT / "src/fw/board/boards/board_unhygienix.c").read_text()
         mpu = (ROOT / "src/fw/drivers/mpu.c").read_text()
         t5ai_memory = (ROOT / "include/pbl/soc/t5ai/memory.h").read_text()
         self.assertIn("legacy_defective_checksum_memory(", flash_storage)
@@ -582,7 +582,6 @@ class TuyaKernelCheckTest(unittest.TestCase):
             shell_event_loop,
         )
         shell_prefs = (ROOT / "src/fw/shell/normal/prefs.c").read_text()
-        self.assertNotIn("DVT3 deliberately does not initialize writable PFS", shell_prefs)
         self.assertIn("#ifndef CONFIG_SOC_T5AI\n  prv_maybe_run_settings", shell_event_loop)
         self.assertIn(
             "#ifndef CONFIG_SOC_T5AI\n  bool factory_reset_or_first_use",
@@ -631,7 +630,6 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("persist_service_client_open", process_manager)
         self.assertIn("persist_service_client_close", process_manager)
         self.assertNotIn("if (dls_initialized())", process_manager)
-        self.assertNotIn("DVT3 currently has no initialized AppDB", app_install_manager)
         self.assertIn(
             "app_db_enumerate_entries(prv_app_install_enumerate_app_db, &cb_data);",
             app_install_manager,
@@ -1048,7 +1046,7 @@ int main(void) {
         self.assertLess(enable_irq, initialize)
 
     def test_t5ai_leaves_cp_owned_watchdog_disabled(self):
-        board = (ROOT / "src/fw/board/boards/board_t5ai.c").read_text()
+        board = (ROOT / "src/fw/board/boards/board_unhygienix.c").read_text()
         early_init = board.split("void board_early_init(void)", 1)[1]
         early_init = early_init.split("void board_init(void)", 1)[0]
         self.assertIn("watchdog_init();", early_init)
@@ -1062,7 +1060,7 @@ int main(void) {
         self.assertNotIn("CONFIG_SOC_T5AI", service)
         self.assertNotIn("CONFIG_SOC_T5AI", app_manager)
         self.assertIn(".uxPriority = APP_TASK_PRIORITY | portPRIVILEGE_BIT", app_manager)
-        board_t5ai = (ROOT / "src/fw/board/boards/board_t5ai.c").read_text()
+        board_t5ai = (ROOT / "src/fw/board/boards/board_unhygienix.c").read_text()
         self.assertNotIn("T5AI_APP_PRIORITY", board_t5ai)
         self.assertNotIn("T5AISched", board_t5ai)
         self.assertNotIn("vTaskPrioritySet", board_t5ai)

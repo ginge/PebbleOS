@@ -6,7 +6,7 @@
 #if defined(CONFIG_BOARD_OBELIX_DVT) || defined(CONFIG_BOARD_OBELIX_PVT) || defined(CONFIG_BOARD_OBELIX_BB2)
 #include "splash/splash_obelix.xbm"
 #elif defined(CONFIG_BOARD_GETAFIX_DVT) || defined(CONFIG_BOARD_GETAFIX_DVT2) || \
-    defined(CONFIG_BOARD_GETAFIX_DVT3)
+    defined(CONFIG_BOARD_UNHYGIENIX)
 #include "splash/splash_getafix.xbm"
 #elif defined(CONFIG_BOARD_QEMU_EMERY)
 #include "splash/splash_obelix.xbm"

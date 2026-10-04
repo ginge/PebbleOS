@@ -16,6 +16,7 @@ clar(ctx,
         " tests/fw/services/protobuf_log/protobuf_log_test_helpers.c"
     ),
     test_sources_ant_glob="test_protobuf_log.c",
+    defines=['PEBBLE_SOURCE_ROOT=\"{}\"'.format(ctx.srcnode.abspath())],
     use=['nanopb', 'proto_schemas'])
 
 # vim:filetype=python
