@@ -2,8 +2,17 @@
 
 if SOC_T5AI
 
-choice BT_FW
-    default BT_FW_NIMBLE
+config KERNEL_TICK_HZ
+    default 1000
+
+config KERNEL_MAX_THREADS
+    default 20
+
+config NUM_IRQS
+    default 64
+
+choice BT_HCI
+    default BT_HCI_T5AI
 endchoice
 
 config FLASH_BASE

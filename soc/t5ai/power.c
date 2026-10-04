@@ -50,6 +50,14 @@ void t5ai_power_init(void) {
       PROFILER_START;
     }
   }
+  t5ai_power_update_clock();
+  if (SysTick->CTRL & SysTick_CTRL_ENABLE_Msk) {
+    SysTick->LOAD = SystemCoreClock / CONFIG_KERNEL_TICK_HZ - 1u;
+  }
+  PBL_LOG_DBG("Active CPU clock: %lu Hz", (unsigned long)SystemCoreClock);
+}
+
+void t5ai_power_update_clock(void) {
   const uint32_t actual_hz = prv_core_clock_hz();
   if (actual_hz != 0u) {
     SystemCoreClock = actual_hz;

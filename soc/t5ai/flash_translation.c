@@ -35,4 +35,3 @@ bool t5ai_flash_physical_to_logical(uint32_t physical, uint32_t *logical) {
   *logical = units * T5AI_FLASH_LOGICAL_UNIT_SIZE + remainder;
   return true;
 }
-

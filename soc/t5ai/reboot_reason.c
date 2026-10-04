@@ -4,12 +4,12 @@
 #include "system/reboot_reason.h"
 
 #include <pbl/logging/logging.h>
+PBL_LOG_MODULE_DEFINE(t5ai_reboot_reason, LOG_LEVEL_DEBUG);
 #include "pbl/mcu/interrupts.h"
 #include <pbl/soc/t5ai/retained.h>
 #include <pbl/soc/t5ai/reset.h>
 
-#include "FreeRTOS.h"
-#include "task.h"
+#include <pbl/soc/t5ai/kernel.h>
 
 _Static_assert(sizeof(RebootReason) == sizeof(uint32_t[4]),
                "RebootReason is a funny size");
@@ -18,7 +18,7 @@ void reboot_reason_set(RebootReason *reason) {
   uint32_t *raw = (uint32_t *)reason;
   if (t5ai_retained_read(REBOOT_REASON_REGISTER_1)) {
     if (!mcu_state_is_isr() && __get_BASEPRI() == 0 &&
-        xTaskGetSchedulerState() == taskSCHEDULER_RUNNING) {
+        pbl_kernel_is_running()) {
       PBL_LOG_WRN("Reboot reason is already set");
     }
     return;

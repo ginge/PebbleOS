@@ -29,6 +29,8 @@ def handle_prompt_command(interface, session):
             print(line)
     except commander.exceptions.CommandTimedOut:
         print(f"Command '{cmd}' timed out")
+    except pulse2.exceptions.SocketClosed:
+        print(f"Connection lost while running '{cmd}'")
     finally:
         prompt.close()
 
@@ -69,7 +71,7 @@ def generate_dehash_arguments():
         "bold": -1,
         "print_core": False,
         "dict_path": os.environ.get(
-            "PBL_CONSOLE_DICT_PATH", "build/src/fw/loghash_dict.json"
+            "PBL_CONSOLE_DICT_PATH", "build/fw/loghash_dict.json"
         ),
     }
 

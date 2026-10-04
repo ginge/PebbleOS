@@ -14,14 +14,14 @@ from pebble.loghashing.newlogging import dehash_line, dehash_line_unformatted
 
 test_log_dict = {
     "43": {
-        "file": "../src/fw/activity/activity.c",
+        "file": "../fw/activity/activity.c",
         "line": "804",
         "level": "200",
         "color": "YELLOW",
         "msg": "activity tracking started",
     },
     "114": {
-        "file": "../src/fw/driver/ispp.c",
+        "file": "../fw/driver/ispp.c",
         "line": "1872",
         "level": "0",
         "color": "RED",
@@ -36,27 +36,27 @@ test_log_dict = {
     },
     "64856": {
         "color": "GREY",
-        "file": "../src/fw/services/common/clock.c",
+        "file": "../fw/services/common/clock.c",
         "level": "200",
         "line": "768",
         "msg": "Changed timezone to id %u, gmtoff is %ld",
     },
     "100000": {
         "color": "GREY",
-        "file": "../src/fw/services/common/string.c",
+        "file": "../fw/services/common/string.c",
         "level": "200",
         "line": "111",
         "msg": "string 1 %s, string 2 %s",
     },
     "11082": {
         "color": "GREY",
-        "file": "../src/fw/resource/resource_storage.c",
+        "file": "../fw/resource/resource_storage.c",
         "level": "50",
         "line": "120",
         "msg": "0x%lx != 0x%lx",
     },
     "75": {
-        "file": "../src/fw/activity/activity.c",
+        "file": "../fw/activity/activity.c",
         "line": "804",
         "level": "200",
         "color": "YELLOW",
@@ -69,6 +69,13 @@ test_log_dict = {
         "level": "0",
         "line": "69",
         "msg": "Init BLE SPI Protocol",
+    },
+    "40807": {
+        "color": "GREEN",
+        "file": "battery_state.c",
+        "level": "100",
+        "line": "415",
+        "msg": "Percent: %hhu, V: %ld mV, I: %ld uA, size: %zu, big: 0x%08llx, neg: %hhd",
     },
     "new_logging_version": "NL0102",
 }
@@ -251,6 +258,20 @@ def test_unformatted():
     assert os.path.basename(line_dict["file"]) == "ispp.c"
     assert line_dict["line"] == "1872"
     assert line_dict["formatted_msg"] == "Start Authentication Process 10 (a) Success"
+
+
+def test_length_modifiers():
+    """
+    Test that C length modifiers Python's printf rejects are stripped
+    """
+
+    line = f"? A 21:35:14.375 :0> NL:{40807:x} 1c ed0 fffea7cb 10 fffffffe fffffffb"
+    line_dict = dehash_line_unformatted(line, test_log_dict)
+
+    assert (
+        line_dict["formatted_msg"]
+        == "Percent: 28, V: 3792 mV, I: -88117 uA, size: 16, big: 0xfffffffe, neg: -5"
+    )
 
 
 def test_core_number():

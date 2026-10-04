@@ -17,4 +17,3 @@ status_t t5ai_mb_ipc_receive(T5AIMbIpcSocket *socket, uint8_t *command, void *da
                              size_t length, uint32_t timeout_ms);
 void t5ai_mb_ipc_discard(T5AIMbIpcSocket *socket);
 void t5ai_mb_ipc_poison(T5AIMbIpcSocket *socket);
-

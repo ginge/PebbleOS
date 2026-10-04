@@ -10,7 +10,7 @@
 #include "resource/resource.h"
 #include "shell/system_theme.h"
 #include "system/passert.h"
-#include "util/graphics.h"
+#include "applib/graphics/raw_image.h"
 #include "pbl/util/hash.h"
 #include "pbl/util/math.h"
 #include "pbl/util/size.h"
@@ -34,7 +34,7 @@
 
 static GContext s_ctx;
 
-void clock_get_time_tm(struct tm* time_tm) {
+void clock_get_time_tm(struct tm *time_tm) {
   rtc_get_time_tm(time_tm);
 }
 
@@ -48,7 +48,7 @@ static GBitmap *s_dest_bitmap;
 // Overrides same function in graphics.c; we need to do this so we can pass in the GBitmapFormat
 // we need to use for the unit test output canvas instead of relying on GBITMAP_NATIVE_FORMAT, which
 // wouldn't work for Spalding since it uses GBitmapFormat8BitCircular
-GBitmap* graphics_capture_frame_buffer(GContext *ctx) {
+GBitmap *graphics_capture_frame_buffer(GContext *ctx) {
   PBL_ASSERTN(ctx);
   return graphics_capture_frame_buffer_format(ctx, CANVAS_GBITMAP_FORMAT);
 }
@@ -89,14 +89,13 @@ GContext *graphics_context_get_current_context(void) {
 #include "stubs_pebble_tasks.h"
 #include "stubs_print.h"
 #include "stubs_process_manager.h"
-#include "stubs_prompt.h"
 #include "stubs_serial.h"
 #include "stubs_shell_prefs.h"
 #include "stubs_sleep.h"
 #include "stubs_status_bar_layer.h"
 #include "stubs_syscall_internal.h"
 #include "stubs_syscalls.h"
-#include "stubs_task_watchdog.h"
+#include "stubs_task_wdt.h"
 #include "stubs_text_layer_flow.h"
 #include "stubs_window_manager.h"
 #include "stubs_window_stack.h"
@@ -106,7 +105,7 @@ GContext *graphics_context_get_current_context(void) {
 
 void test_selection_windows__initialize(void) {
   fb = malloc(sizeof(FrameBuffer));
-  framebuffer_init(fb, &(GSize) {DISP_COLS, DISP_ROWS});
+  framebuffer_init(fb, &(GSize){DISP_COLS, DISP_ROWS});
   test_graphics_context_init(&s_ctx, fb);
   framebuffer_clear(fb);
 

@@ -1,15 +1,12 @@
-[submodule "src/fw/vendor/CMSIS"]
+[submodule "third_party/cmsis_core/CMSIS"]
 	path = third_party/cmsis_core/CMSIS
 	url = https://github.com/ARM-software/CMSIS_5.git
-[submodule "src/bluetooth-fw/nimble/vendor/mynewt-nimble"]
+[submodule "third_party/nimble/mynewt-nimble"]
 	path = third_party/nimble/mynewt-nimble
 	url = https://github.com/coredevices/mynewt-nimble.git
 [submodule "third_party/hal_nordic/nrfx"]
 	path = third_party/hal_nordic/nrfx
 	url = https://github.com/NordicSemiconductor/nrfx
-[submodule "third_party/freertos/FreeRTOS-Kernel"]
-	path = third_party/freertos/FreeRTOS-Kernel
-	url = https://github.com/coredevices/FreeRTOS-Kernel
 [submodule "third_party/nanopb/nanopb"]
 	path = third_party/nanopb/nanopb
 	url = https://github.com/nanopb/nanopb

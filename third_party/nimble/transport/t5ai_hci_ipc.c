@@ -2,7 +2,8 @@
 
 #include <pbl/mcu/cache.h>
 #include <pbl/logging/logging.h>
-#include <pbl/os/mutex.h>
+PBL_LOG_MODULE_DEFINE(t5ai_hci_ipc, LOG_LEVEL_DEBUG);
+#include <pbl/soc/t5ai/kernel.h>
 #include <pbl/soc/t5ai/memory.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/hci_ipc.h>
@@ -13,13 +14,11 @@
 #include <stdint.h>
 #include <string.h>
 
-#include "FreeRTOS.h"
-#include "semphr.h"
-#include "task.h"
+#include <pbl/soc/t5ai/kernel.h>
 
 // Shared objects must start on a BK7258 data-cache line.
 #define T5AI_HCI_MESSAGE_WIRE_SIZE 20u
-#define T5AI_HCI_WORKER_PRIORITY (configMAX_PRIORITIES - 2u)
+#define T5AI_HCI_WORKER_PRIORITY (CONFIG_KERNEL_NUM_PRIORITIES - 2u)
 // Bounded waits for the persistent worker to drain frames and retire CP ownership.
 #define T5AI_HCI_RECOVERY_DRAIN_TIMEOUT_MS 50u
 #define T5AI_HCI_STOP_RETIRE_TIMEOUT_MS 250u
@@ -88,12 +87,12 @@ static uint16_t s_exchange_result;
 static bool s_started;
 static bool s_faulted;
 static bool s_accept_frames;
-static PebbleMutex *s_sync_mutex;
-static PebbleMutex *s_async_mutex;
-static SemaphoreHandle_t s_worker_wake;
-static SemaphoreHandle_t s_exchange_ready;
-static TaskHandle_t s_worker_task;
-static StackType_t s_worker_stack[T5AI_HCI_WORKER_STACK_WORDS]
+static struct pbl_mutex *s_sync_mutex;
+static struct pbl_mutex *s_async_mutex;
+static struct pbl_sem * s_worker_wake;
+static struct pbl_sem * s_exchange_ready;
+static struct pbl_thread * s_worker_task;
+static uint32_t s_worker_stack[T5AI_HCI_WORKER_STACK_WORDS]
     __attribute__((section(".t5ai_board_cache"), aligned(T5AI_SHARED_ALIGNMENT)));
 static volatile uint8_t s_expected_subtype = T5AI_HCI_NO_EXPECTED_SUBTYPE;
 static T5AIHCIPendingFrame s_pending_frames[T5AI_HCI_PENDING_FRAME_CAPACITY]
@@ -139,7 +138,7 @@ static bool prv_pointer(const void *pointer, uint32_t *wire_pointer) {
 
 static status_t prv_send_frame(T5AIMIPCFrame *frame) {
   dcache_flush(frame, sizeof(*frame));
-  const TickType_t start = xTaskGetTickCount();
+  const pbl_tick_t start = pbl_uptime_ticks();
   status_t status;
   do {
     status = t5ai_cp_mailbox_send(frame, sizeof(*frame));
@@ -147,10 +146,10 @@ static status_t prv_send_frame(T5AIMIPCFrame *frame) {
       return status;
     }
     ++s_diagnostics.send_busy_retries;
-    vTaskDelay(pdMS_TO_TICKS(T5AI_HCI_BUSY_RETRY_DELAY_MS));
-  } while (xTaskGetTickCount() - start < pdMS_TO_TICKS(T5AI_HCI_SEND_TIMEOUT_MS));
+    pbl_thread_sleep(PBL_MSEC(T5AI_HCI_BUSY_RETRY_DELAY_MS));
+  } while (pbl_uptime_ticks() - start < pbl_ms_to_ticks(T5AI_HCI_SEND_TIMEOUT_MS));
   ++s_diagnostics.send_timeouts;
-  PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "T5AI HCI MIPC send timed out: header=%08lx object=%08lx",
+  PBL_LOG_ERR("T5AI HCI MIPC send timed out: header=%08lx object=%08lx",
                 (unsigned long)frame->header, (unsigned long)frame->object);
   return E_AGAIN;
 }
@@ -217,10 +216,10 @@ static bool prv_is_transport_ack(const T5AIMIPCFrame *frame, T5AIMIPCData *data)
 }
 
 static status_t prv_queue_pending_frame(const T5AIMIPCFrame *frame) {
-  taskENTER_CRITICAL();
+  pbl_irq_lock();
   if (s_pending_frame_count == T5AI_HCI_PENDING_FRAME_CAPACITY) {
     ++s_diagnostics.pending_queue_exhaustions;
-    taskEXIT_CRITICAL();
+    pbl_irq_unlock();
     return E_OUT_OF_RESOURCES;
   }
   const uint8_t tail =
@@ -230,13 +229,13 @@ static status_t prv_queue_pending_frame(const T5AIMIPCFrame *frame) {
   if (s_pending_frame_count > s_diagnostics.pending_queue_high_water) {
     s_diagnostics.pending_queue_high_water = s_pending_frame_count;
   }
-  taskEXIT_CRITICAL();
+  pbl_irq_unlock();
   return S_SUCCESS;
 }
 
 static bool prv_retire_event_response(const T5AIMIPCFrame *frame) {
   bool retired = false;
-  taskENTER_CRITICAL();
+  pbl_irq_lock();
   for (size_t i = 0; i < T5AI_HCI_EVENT_RESPONSE_CAPACITY; ++i) {
     if (s_event_response_in_use[i] &&
         prv_is_transport_ack(frame, &s_event_responses[i].data)) {
@@ -245,13 +244,13 @@ static bool prv_retire_event_response(const T5AIMIPCFrame *frame) {
       break;
     }
   }
-  taskEXIT_CRITICAL();
+  pbl_irq_unlock();
   return retired;
 }
 
 static bool prv_retire_request(const T5AIMIPCFrame *frame) {
   bool retired = false;
-  taskENTER_CRITICAL();
+  pbl_irq_lock();
   for (size_t i = 0; i < T5AI_HCI_REQUEST_CAPACITY; ++i) {
     if (s_request_in_use[i] && prv_is_transport_ack(frame, &s_requests[i].data)) {
       s_request_in_use[i] = false;
@@ -259,13 +258,13 @@ static bool prv_retire_request(const T5AIMIPCFrame *frame) {
       break;
     }
   }
-  taskEXIT_CRITICAL();
+  pbl_irq_unlock();
   return retired;
 }
 
 static T5AIHCIOutbound *prv_allocate_request(void) {
   T5AIHCIOutbound *request = NULL;
-  taskENTER_CRITICAL();
+  pbl_irq_lock();
   for (size_t i = 0; i < T5AI_HCI_REQUEST_CAPACITY; ++i) {
     if (!s_request_in_use[i]) {
       s_request_in_use[i] = true;
@@ -273,27 +272,27 @@ static T5AIHCIOutbound *prv_allocate_request(void) {
       break;
     }
   }
-  taskEXIT_CRITICAL();
+  pbl_irq_unlock();
   return request;
 }
 
 static bool prv_all_outbound_retired(void) {
   bool retired = true;
-  taskENTER_CRITICAL();
+  pbl_irq_lock();
   for (size_t i = 0; i < T5AI_HCI_REQUEST_CAPACITY; ++i) {
     retired = retired && !s_request_in_use[i];
   }
   for (size_t i = 0; i < T5AI_HCI_EVENT_RESPONSE_CAPACITY; ++i) {
     retired = retired && !s_event_response_in_use[i];
   }
-  taskEXIT_CRITICAL();
+  pbl_irq_unlock();
   return retired;
 }
 
 static bool prv_pending_empty(void) {
-  taskENTER_CRITICAL();
+  pbl_irq_lock();
   const bool empty = s_pending_frame_count == 0u;
-  taskEXIT_CRITICAL();
+  pbl_irq_unlock();
   return empty;
 }
 
@@ -301,21 +300,21 @@ static status_t prv_handle_command(T5AIMIPCFrame *frame, uint8_t expected, bool 
 
 static bool prv_dequeue_pending_frame(T5AIMIPCFrame *frame) {
   bool available = false;
-  taskENTER_CRITICAL();
+  pbl_irq_lock();
   if (s_pending_frame_count != 0u) {
     *frame = s_pending_frames[s_pending_frame_head].frame;
     s_pending_frame_head = (uint8_t)((s_pending_frame_head + 1u) % T5AI_HCI_PENDING_FRAME_CAPACITY);
     --s_pending_frame_count;
     available = true;
   }
-  taskEXIT_CRITICAL();
+  pbl_irq_unlock();
   return available;
 }
 
 static void prv_worker(void *context) {
   (void)context;
   while (true) {
-    (void)xSemaphoreTake(s_worker_wake, portMAX_DELAY);
+    (void)pbl_sem_take(s_worker_wake, PBL_TICKS(PBL_TICK_FOREVER));
     T5AIMIPCFrame frame;
     while (prv_dequeue_pending_frame(&frame)) {
       if (prv_retire_request(&frame) || prv_retire_event_response(&frame)) {
@@ -326,20 +325,19 @@ static void prv_worker(void *context) {
           t5ai_mipc_header(T5AI_MIPC_CPU_CP, T5AI_MIPC_TYPE_COMMAND)) {
         continue;
       }
-      mutex_lock(s_async_mutex);
+      pbl_mutex_lock(s_async_mutex, PBL_FOREVER);
       bool matched = false;
       const status_t status = prv_handle_command(
           &frame, __atomic_load_n(&s_expected_subtype, __ATOMIC_ACQUIRE), &matched);
-      mutex_unlock(s_async_mutex);
+      pbl_mutex_unlock(s_async_mutex);
       if (FAILED(status)) {
-        PBL_LOG_D_ERR(LOG_DOMAIN_COMM,
-                      "T5AI HCI command handling failed: status=%ld header=%08lx expected=%u",
+        PBL_LOG_ERR("T5AI HCI command handling failed: status=%ld header=%08lx expected=%u",
                       (long)status, (unsigned long)frame.header,
                       (unsigned)__atomic_load_n(&s_expected_subtype, __ATOMIC_ACQUIRE));
         prv_mark_faulted();
       }
       if (matched) {
-        (void)xSemaphoreGive(s_exchange_ready);
+        (void)pbl_sem_give(s_exchange_ready);
       }
     }
   }
@@ -359,10 +357,10 @@ static void prv_route_frame(uint8_t logical_channel, const T5AICPMailboxFrame *f
   memcpy(&pending, (const void *)frame->address, sizeof(pending));
   (void)t5ai_cp_mailbox_acknowledge_frame(frame, true);
   if (FAILED(prv_queue_pending_frame(&pending))) {
-    PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "T5AI HCI pending frame queue exhausted");
+    PBL_LOG_ERR("T5AI HCI pending frame queue exhausted");
     prv_mark_faulted();
   } else {
-    (void)xSemaphoreGive(s_worker_wake);
+    (void)pbl_sem_give(s_worker_wake);
   }
 }
 
@@ -389,16 +387,16 @@ static status_t prv_decode_remote(T5AIMIPCFrame *frame, T5AIMIPCData **remote_da
 
 static status_t prv_respond_to_event(T5AIHCIMessage *message) {
   status_t result = E_OUT_OF_RESOURCES;
-  taskENTER_CRITICAL();
+  pbl_irq_lock();
   for (size_t i = 0; i < T5AI_HCI_EVENT_RESPONSE_CAPACITY; ++i) {
     if (!s_event_response_in_use[i]) {
       s_event_response_in_use[i] = true;
-      taskEXIT_CRITICAL();
+      pbl_irq_unlock();
       result = prv_prepare_outbound(&s_event_responses[i], message, sizeof(*message), false);
       if (FAILED(result)) {
-        taskENTER_CRITICAL();
+        pbl_irq_lock();
         s_event_response_in_use[i] = false;
-        taskEXIT_CRITICAL();
+        pbl_irq_unlock();
       }
       if (PASSED(result)) {
         ++s_diagnostics.responses_sent;
@@ -406,9 +404,9 @@ static status_t prv_respond_to_event(T5AIHCIMessage *message) {
       return result;
     }
   }
-  taskEXIT_CRITICAL();
+  pbl_irq_unlock();
   ++s_diagnostics.response_exhaustions;
-  PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "T5AI HCI event response slots exhausted");
+  PBL_LOG_ERR("T5AI HCI event response slots exhausted");
   return result;
 }
 
@@ -465,7 +463,7 @@ static status_t prv_exchange(uint8_t subtype, const void *payload, size_t length
   T5AIHCIOutbound *request = prv_allocate_request();
   if (request == NULL) {
     ++s_diagnostics.request_exhaustions;
-    PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "T5AI HCI request slots exhausted: subtype=%u", subtype);
+    PBL_LOG_ERR("T5AI HCI request slots exhausted: subtype=%u", subtype);
     prv_mark_faulted();
     return E_OUT_OF_RESOURCES;
   }
@@ -480,7 +478,7 @@ static status_t prv_exchange(uint8_t subtype, const void *payload, size_t length
   if (payload != NULL && length != 0u) {
     dcache_flush(payload, length);
   }
-  while (xSemaphoreTake(s_exchange_ready, 0u) == pdPASS) {
+  while (pbl_sem_take(s_exchange_ready, PBL_TICKS(0u)) == 0) {
   }
   __atomic_store_n(&s_expected_subtype, subtype, __ATOMIC_RELEASE);
   status_t status =
@@ -491,9 +489,9 @@ static status_t prv_exchange(uint8_t subtype, const void *payload, size_t length
     return status;
   }
 
-  if (xSemaphoreTake(s_exchange_ready, pdMS_TO_TICKS(T5AI_HCI_SEND_TIMEOUT_MS)) != pdPASS) {
+  if (pbl_sem_take(s_exchange_ready, PBL_TICKS(pbl_ms_to_ticks(T5AI_HCI_SEND_TIMEOUT_MS))) != 0) {
     ++s_diagnostics.exchange_timeouts;
-    PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "T5AI HCI exchange timed out: subtype=%u", subtype);
+    PBL_LOG_ERR("T5AI HCI exchange timed out: subtype=%u", subtype);
     __atomic_store_n(&s_expected_subtype, T5AI_HCI_NO_EXPECTED_SUBTYPE, __ATOMIC_RELEASE);
     prv_mark_faulted();
     return E_AGAIN;
@@ -503,9 +501,9 @@ static status_t prv_exchange(uint8_t subtype, const void *payload, size_t length
 }
 
 static status_t prv_locked_exchange(uint8_t subtype, const void *payload, size_t length) {
-  mutex_lock(s_sync_mutex);
+  pbl_mutex_lock(s_sync_mutex, PBL_FOREVER);
   status_t status = prv_exchange(subtype, payload, length);
-  mutex_unlock(s_sync_mutex);
+  pbl_mutex_unlock(s_sync_mutex);
   return status;
 }
 
@@ -516,21 +514,20 @@ int t5ai_hci_ipc_start(const T5AIHCICallbacks *callbacks) {
   const bool recovering = prv_faulted();
   s_callbacks = *callbacks;
   if (s_sync_mutex == NULL) {
-    s_sync_mutex = mutex_create();
+    s_sync_mutex = t5ai_mutex_create();
   }
   if (s_async_mutex == NULL) {
-    s_async_mutex = mutex_create();
+    s_async_mutex = t5ai_mutex_create();
   }
   if (s_worker_wake == NULL) {
-    s_worker_wake = xSemaphoreCreateBinary();
+    s_worker_wake = t5ai_sem_create(1, 0);
   }
   if (s_exchange_ready == NULL) {
-    s_exchange_ready = xSemaphoreCreateBinary();
+    s_exchange_ready = t5ai_sem_create(1, 0);
   }
   if (s_worker_task == NULL && s_worker_wake != NULL && s_exchange_ready != NULL) {
-    if (xTaskGenericCreate(prv_worker, "T5AI HCI IPC", T5AI_HCI_WORKER_STACK_WORDS, NULL,
-                           T5AI_HCI_WORKER_PRIORITY, &s_worker_task, s_worker_stack,
-                           NULL) != pdPASS) {
+    if (t5ai_thread_create(prv_worker, "T5AI HCI IPC", T5AI_HCI_WORKER_STACK_WORDS, NULL,
+                           T5AI_HCI_WORKER_PRIORITY, &s_worker_task, s_worker_stack) != 0) {
       s_worker_task = NULL;
     }
   }
@@ -543,18 +540,18 @@ int t5ai_hci_ipc_start(const T5AIHCICallbacks *callbacks) {
     /* Let the persistent worker consume already-snapshotted ACKs before the
      * route is replaced. Timed-out descriptor slots remain allocated: a late
      * transport ACK may retire them, but no restart may reuse their address. */
-    (void)xSemaphoreGive(s_worker_wake);
-    const TickType_t drain_start = xTaskGetTickCount();
+    (void)pbl_sem_give(s_worker_wake);
+    const pbl_tick_t drain_start = pbl_uptime_ticks();
     while (!prv_pending_empty() &&
-           xTaskGetTickCount() - drain_start < pdMS_TO_TICKS(T5AI_HCI_RECOVERY_DRAIN_TIMEOUT_MS)) {
-      vTaskDelay(pdMS_TO_TICKS(T5AI_HCI_OWNERSHIP_POLL_INTERVAL_MS));
+           pbl_uptime_ticks() - drain_start < pbl_ms_to_ticks(T5AI_HCI_RECOVERY_DRAIN_TIMEOUT_MS)) {
+      pbl_thread_sleep(PBL_MSEC(T5AI_HCI_OWNERSHIP_POLL_INTERVAL_MS));
     }
     __atomic_store_n(&s_accept_frames, false, __ATOMIC_RELEASE);
     t5ai_cp_mailbox_unregister(T5AI_MIPC_RX_LOGICAL_CHANNEL);
-    mutex_lock(s_async_mutex);
+    pbl_mutex_lock(s_async_mutex, PBL_FOREVER);
     s_pending_frame_head = 0u;
     s_pending_frame_count = 0u;
-    mutex_unlock(s_async_mutex);
+    pbl_mutex_unlock(s_async_mutex);
   } else {
     s_pending_frame_head = 0u;
     s_pending_frame_count = 0u;
@@ -595,26 +592,26 @@ int t5ai_hci_ipc_stop(void) {
     prv_mark_faulted();
     return status;
   }
-  const TickType_t retirement_start = xTaskGetTickCount();
+  const pbl_tick_t retirement_start = pbl_uptime_ticks();
   while (!prv_all_outbound_retired() &&
-         xTaskGetTickCount() - retirement_start < pdMS_TO_TICKS(T5AI_HCI_STOP_RETIRE_TIMEOUT_MS)) {
-    (void)xSemaphoreGive(s_worker_wake);
-    vTaskDelay(pdMS_TO_TICKS(T5AI_HCI_OWNERSHIP_POLL_INTERVAL_MS));
+         pbl_uptime_ticks() - retirement_start < pbl_ms_to_ticks(T5AI_HCI_STOP_RETIRE_TIMEOUT_MS)) {
+    (void)pbl_sem_give(s_worker_wake);
+    pbl_thread_sleep(PBL_MSEC(T5AI_HCI_OWNERSHIP_POLL_INTERVAL_MS));
   }
   if (!prv_all_outbound_retired()) {
-    PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "T5AI HCI stop left CP-owned descriptors quarantined");
+    PBL_LOG_ERR("T5AI HCI stop left CP-owned descriptors quarantined");
     prv_mark_faulted();
     return E_AGAIN;
   }
   __atomic_store_n(&s_accept_frames, false, __ATOMIC_RELEASE);
   t5ai_cp_mailbox_unregister(T5AI_MIPC_RX_LOGICAL_CHANNEL);
-  mutex_lock(s_async_mutex);
+  pbl_mutex_lock(s_async_mutex, PBL_FOREVER);
   s_pending_frame_head = 0u;
   s_pending_frame_count = 0u;
   memset(s_request_in_use, 0, sizeof(s_request_in_use));
   memset(s_event_response_in_use, 0, sizeof(s_event_response_in_use));
   memset(&s_callbacks, 0, sizeof(s_callbacks));
-  mutex_unlock(s_async_mutex);
+  pbl_mutex_unlock(s_async_mutex);
   return status;
 }
 
@@ -648,7 +645,7 @@ bool t5ai_hci_ipc_faulted(void) {
 
 void t5ai_hci_ipc_poll(void) {
   if (prv_started() && s_worker_wake != NULL) {
-    (void)xSemaphoreGive(s_worker_wake);
+    (void)pbl_sem_give(s_worker_wake);
   }
 }
 
@@ -661,12 +658,12 @@ void t5ai_hci_ipc_get_diagnostics(T5AIHCIIpcDiagnostics *diagnostics) {
   diagnostics->faulted = prv_faulted();
   diagnostics->request_slots_in_use = 0u;
   diagnostics->response_slots_in_use = 0u;
-  taskENTER_CRITICAL();
+  pbl_irq_lock();
   for (size_t i = 0; i < T5AI_HCI_REQUEST_CAPACITY; ++i) {
     diagnostics->request_slots_in_use += s_request_in_use[i] ? 1u : 0u;
   }
   for (size_t i = 0; i < T5AI_HCI_EVENT_RESPONSE_CAPACITY; ++i) {
     diagnostics->response_slots_in_use += s_event_response_in_use[i] ? 1u : 0u;
   }
-  taskEXIT_CRITICAL();
+  pbl_irq_unlock();
 }

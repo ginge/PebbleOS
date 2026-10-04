@@ -15,4 +15,3 @@
 bool t5ai_flash_logical_to_physical(uint32_t logical, uint32_t *physical);
 bool t5ai_flash_physical_to_logical(uint32_t physical, uint32_t *logical);
 bool t5ai_flash_physical_address_is_data(uint32_t physical);
-

@@ -11,10 +11,16 @@ class UnhygienixTraceTest(unittest.TestCase):
     def test_discover_runtime_tty_requires_one_match(self):
         with mock.patch.object(unhygienix_trace.glob, "glob", return_value=[]):
             self.assertIsNone(unhygienix_trace.discover_runtime_tty("ignored"))
-        with mock.patch.object(unhygienix_trace.glob, "glob", return_value=["/dev/runtime"]):
-            self.assertEqual(unhygienix_trace.discover_runtime_tty("ignored"), "/dev/runtime")
         with mock.patch.object(
-            unhygienix_trace.glob, "glob", return_value=["/dev/runtime-b", "/dev/runtime-a"]
+            unhygienix_trace.glob, "glob", return_value=["/dev/runtime"]
+        ):
+            self.assertEqual(
+                unhygienix_trace.discover_runtime_tty("ignored"), "/dev/runtime"
+            )
+        with mock.patch.object(
+            unhygienix_trace.glob,
+            "glob",
+            return_value=["/dev/runtime-b", "/dev/runtime-a"],
         ):
             with self.assertRaisesRegex(RuntimeError, "multiple runtime UARTs"):
                 unhygienix_trace.discover_runtime_tty("ignored")
@@ -22,12 +28,14 @@ class UnhygienixTraceTest(unittest.TestCase):
     def test_wait_accepts_explicit_tty(self):
         with tempfile.NamedTemporaryFile() as tty:
             self.assertEqual(
-                unhygienix_trace.wait_for_runtime_tty(tty.name, "ignored", 0.01), tty.name
+                unhygienix_trace.wait_for_runtime_tty(tty.name, "ignored", 0.01),
+                tty.name,
             )
 
     def test_wait_timeout_names_target(self):
-        with mock.patch.object(unhygienix_trace.os.path, "exists", return_value=False), mock.patch.object(
-            unhygienix_trace.time, "sleep"
+        with (
+            mock.patch.object(unhygienix_trace.os.path, "exists", return_value=False),
+            mock.patch.object(unhygienix_trace.time, "sleep"),
         ):
             with self.assertRaisesRegex(TimeoutError, "/dev/missing"):
                 unhygienix_trace.wait_for_runtime_tty("/dev/missing", "ignored", 0.0001)

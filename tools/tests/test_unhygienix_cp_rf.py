@@ -14,11 +14,14 @@ from tools.t5ai_image import encode_protected_blocks, verify_protected_blocks
 class CPRFTest(unittest.TestCase):
     def setUp(self):
         image = bytearray(rf.RESET_OFFSET + len(rf.STOCK_RESET))
-        image[rf.RESET_OFFSET:] = rf.STOCK_RESET
+        image[rf.RESET_OFFSET :] = rf.STOCK_RESET
         self.image = bytes(image)
 
     def test_original_bl_encoding_matches_matching_elf(self):
-        self.assertEqual(rf.thumb_bl(rf.CP_XIP + rf.INIT_CALL_OFFSET, rf.INIT_XIP), bytes.fromhex("05f046fa"))
+        self.assertEqual(
+            rf.thumb_bl(rf.CP_XIP + rf.INIT_CALL_OFFSET, rf.INIT_XIP),
+            bytes.fromhex("05f046fa"),
+        )
         for destination in [1, rf.CP_XIP + (1 << 25)]:
             with self.assertRaises(ValueError):
                 rf.thumb_bl(rf.CP_XIP + rf.INIT_CALL_OFFSET, destination)
@@ -27,10 +30,18 @@ class CPRFTest(unittest.TestCase):
         hook = bytes.fromhex("00207047")
         with patch.object(rf, "STOCK_SHA256", hashlib.sha256(self.image).hexdigest()):
             result = rf.install_hook(self.image, hook)
-        self.assertEqual(result[:rf.INIT_CALL_OFFSET], self.image[:rf.INIT_CALL_OFFSET])
-        self.assertEqual(result[rf.INIT_CALL_OFFSET + 4:len(self.image)], self.image[rf.INIT_CALL_OFFSET + 4:])
-        self.assertEqual(result[-len(hook):], hook)
-        self.assertEqual(verify_protected_blocks(encode_protected_blocks(result))[:len(result)], result)
+        self.assertEqual(
+            result[: rf.INIT_CALL_OFFSET], self.image[: rf.INIT_CALL_OFFSET]
+        )
+        self.assertEqual(
+            result[rf.INIT_CALL_OFFSET + 4 : len(self.image)],
+            self.image[rf.INIT_CALL_OFFSET + 4 :],
+        )
+        self.assertEqual(result[-len(hook) :], hook)
+        self.assertEqual(
+            verify_protected_blocks(encode_protected_blocks(result))[: len(result)],
+            result,
+        )
 
     def test_unknown_vendor_image_rejected(self):
         with self.assertRaisesRegex(ValueError, "SHA256"):
@@ -47,7 +58,7 @@ class CPRFTest(unittest.TestCase):
         gcc = shutil.which("gcc")
         if gcc is None:
             self.skipTest("host C compiler unavailable")
-        harness = r'''
+        harness = r"""
 #include <stdint.h>
 #include <assert.h>
 #include <stdarg.h>
@@ -63,11 +74,23 @@ int main(void) {
   step = 0; status = -7; rwnx_rfconfig = 0x101;
   assert(pebble_ble_init_bt_pll() == -7); assert(step == 1); assert(rwnx_rfconfig == 0x101);
 }
-'''
+"""
         with tempfile.TemporaryDirectory() as folder:
             folder = Path(folder)
             test = folder / "test.c"
             test.write_text(harness)
             exe = folder / "test"
-            subprocess.run([gcc, "-Wall", "-Wextra", "-Werror", str(rf.SOURCE), str(test), "-o", str(exe)], check=True)
+            subprocess.run(
+                [
+                    gcc,
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    str(rf.SOURCE),
+                    str(test),
+                    "-o",
+                    str(exe),
+                ],
+                check=True,
+            )
             subprocess.run([str(exe)], check=True)

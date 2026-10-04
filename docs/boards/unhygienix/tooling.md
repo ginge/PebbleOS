@@ -12,8 +12,8 @@ generated validation artifacts under `build/`.
 
 ```sh
 git submodule update --init third_party/hal_tuya/TuyaOpen-T5AI
-python pbl configure --board unhygienix
-python pbl build
+pbl configure --board unhygienix
+pbl build
 ```
 
 Use the normal PebbleOS SDK/toolchain setup and Python requirements. Native AP
@@ -32,7 +32,8 @@ A fresh checkout needs this artifact separately to package CP. Keep the original
 for rollback; unknown input images are rejected before compilation.
 
 ```sh
-python pbl waf t5ai_cp --t5ai-cp-stock build/inputs/stock-cp.bin
+pbl configure --board unhygienix -DT5AI_CP_STOCK="$PWD/build/inputs/stock-cp.bin"
+pbl build t5ai_cp
 ```
 
 This uses the configured ARM compiler, builds the board-local RF hook, and emits
@@ -50,7 +51,7 @@ programming is not established on this hardware. The validated backend is
 Serial ports are explicit; prefer the stable programming UART `if00` by-id path.
 
 ```sh
-python pbl flash --dry-run --tyutool tyutool_cli --tyutool-tty /dev/serial/by-id/usb-1a86_USB_Dual_Serial_5C75025844-if00
+pbl flash --dry-run --tyutool tyutool_cli --tyutool-tty /dev/serial/by-id/usb-1a86_USB_Dual_Serial_5C75025844-if00
 ```
 
 Remove `--dry-run` to write. Default is AP firmware only. `--resources` includes
@@ -67,7 +68,7 @@ usable for validation and rollback.
 
 ```sh
 git submodule update --init --recursive third_party/hal_tuya/TuyaOpen
-python pbl waf tuya_reference --tuya-python .venv-tuya/bin/python
+python tools/build_tuya_hardware.py --python .venv-tuya/bin/python
 ```
 
 Use the pinned TuyaOpen `pyproject.toml` and `uv.lock` for its separate Python
@@ -85,4 +86,3 @@ write ranges, default PFS preservation, explicit provisioning and rejection of
 corrupt AP/CP inputs before any write. Hardware qualification still requires the
 watchface regression, 25 reconnect cycles, cold-boot bond/face restoration and an
 overnight connected-idle soak. Preserve the complete first failure trace.
-

@@ -26,7 +26,7 @@ class ApplibType:
     def get_total_3x_padding(self, all_types):
         """Return the amount of padding to use for the 3x version of the struct including both
         the direct padding we add for this struct in particular as well as all padding needed
-        for all dependenant structs.
+        for all dependant structs.
         """
 
         if self.total_3x_padding is not None:
@@ -186,7 +186,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--json",
         type=str,
-        default="src/fw/applib/applib_malloc.json",
+        default="fw/applib/applib_malloc.json",
         help="Specify the JSON file to use",
     )
     parser.add_argument(

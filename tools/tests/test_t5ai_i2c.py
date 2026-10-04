@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Exercise recovery of a stuck slave and deferred controller reset."""
+
 from pathlib import Path
 import subprocess
 import tempfile
@@ -7,13 +8,13 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 
-API = r'''
+API = r"""
 #pragma once
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
 typedef int portBASE_TYPE;
-typedef int SemaphoreHandle_t;
+struct pbl_sem { unsigned count; };
 typedef struct { uint8_t pin; bool active_high; } OutputConfig;
 typedef struct { uint8_t pin; } InputConfig;
 #define GPIO_OType_OD 1
@@ -24,7 +25,7 @@ typedef enum {I2CTransferDirection_Read,I2CTransferDirection_Write} I2CTransferD
 typedef enum {I2CTransferType_NoRegisterAddress,I2CTransferType_SendRegisterAddress} I2CTransferType;
 typedef enum {I2CTransferState_ReadData,I2CTransferState_WriteData,I2CTransferState_WriteRegAddress,I2CTransferState_RepeatStart} I2CTransferState;
 typedef struct { unsigned idx,size; uint16_t device_address; uint8_t register_address; uint8_t *data; I2CTransferDirection direction; I2CTransferType type; I2CTransferState state; } I2CTransfer;
-typedef struct { I2CTransfer transfer; I2CTransferEvent transfer_event; SemaphoreHandle_t event_semaphore; } I2CBusState;
+typedef struct { I2CTransfer transfer; I2CTransferEvent transfer_event; struct pbl_sem event_semaphore; } I2CBusState;
 typedef struct { uintptr_t base; int irqn; unsigned frequency; uint8_t scl_pin,sda_pin; } I2CBusHal;
 typedef struct { I2CBusState *state; I2CBusHal *hal; } I2CBus;
 void gpio_output_init(const OutputConfig *,int);
@@ -35,14 +36,14 @@ void NVIC_DisableIRQ(int);
 void NVIC_ClearPendingIRQ(int);
 void NVIC_SetPriority(int,unsigned);
 void NVIC_EnableIRQ(int);
-int xSemaphoreGive(int);
+void pbl_sem_give(struct pbl_sem *);
 int i2c_handle_transfer_event(I2CBus *,I2CTransferEvent);
 void i2c_hal_abort_transfer(I2CBus *);
-'''
-HARNESS = r'''
+"""
+HARNESS = r"""
 #include "api.h"
 #include <sys/mman.h>
-#include "src/fw/drivers/i2c/t5ai.c"
+#include "fw/drivers/i2c/t5ai.c"
 static bool scl_high=true,sda_high=true,irq_enabled,in_isr,stuck_scl;
 static unsigned pulses,release_after,elapsed,gpio_calls,completions;
 void gpio_output_init(const OutputConfig *p,int mode) {
@@ -62,7 +63,7 @@ void NVIC_DisableIRQ(int irq){assert(irq==6);irq_enabled=false;}
 void NVIC_ClearPendingIRQ(int irq){assert(irq==6);}
 void NVIC_SetPriority(int irq,unsigned p){assert(irq==6 && p==6);}
 void NVIC_EnableIRQ(int irq){assert(irq==6);irq_enabled=true;}
-int xSemaphoreGive(int s){return 1;}
+void pbl_sem_give(struct pbl_sem *s){(void)s;}
 int i2c_handle_transfer_event(I2CBus *b,I2CTransferEvent e){++completions;b->state->transfer_event=e;return 0;}
 int main(void) {
  assert(mmap((void *)0x44000000,0x20000,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED,-1,0)!=(void *)-1);
@@ -104,7 +105,8 @@ int main(void) {
  i2c_irq_handler(&bus);assert(completions==2 && state.transfer_event==I2CTransferEvent_TransferComplete);
  return 0;
 }
-'''
+"""
+
 
 class T5AII2CRecoveryTest(unittest.TestCase):
     def test_stuck_bus_and_deferred_recovery(self):
@@ -116,7 +118,7 @@ class T5AII2CRecoveryTest(unittest.TestCase):
                 "pbl/drivers/i2c/definitions.h",
                 "pbl/drivers/i2c/t5ai.h",
                 "pbl/drivers/gpio.h",
-                "FreeRTOS.h",
+                "pbl/soc/t5ai/kernel.h",
                 "kernel/util/delay.h",
                 "semphr.h",
                 "system/passert.h",
@@ -129,9 +131,20 @@ class T5AII2CRecoveryTest(unittest.TestCase):
             (path / "test.c").write_text(HARNESS)
             subprocess.run(
                 [
-                    "cc", "-D_GNU_SOURCE", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                    "-Wno-unused-parameter", "-I", str(path), "-I", str(ROOT),
-                    str(path / "test.c"), "-o", str(path / "test"),
+                    "cc",
+                    "-D_GNU_SOURCE",
+                    "-std=c11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-Wno-unused-parameter",
+                    "-I",
+                    str(path),
+                    "-I",
+                    str(ROOT),
+                    str(path / "test.c"),
+                    "-o",
+                    str(path / "test"),
                 ],
                 check=True,
             )

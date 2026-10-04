@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: 2026 Core Devices LLC
+# SPDX-License-Identifier: Apache-2.0
+
+set(excl)
+if(CONFIG_SOC_T5AI)
+  list(APPEND excl ble/gap_le_connect_params.c)
+else()
+  list(APPEND excl ble/gap_le_connect_params_t5ai.c)
+endif()
+if(NOT CONFIG_BT_ANCS_CLIENT)
+  list(APPEND excl ble/kernel_le_client/ancs/*.c)
+endif()
+if(NOT CONFIG_BT_AMS_CLIENT)
+  list(APPEND excl ble/kernel_le_client/ams/*.c)
+endif()
+if(NOT CONFIG_QEMU)
+  list(APPEND excl qemu_transport.c)
+endif()
+pbl_library()
+file(GLOB_RECURSE sources CONFIGURE_DEPENDS *.c)
+pbl_filter_sources(sources EXCLUDE ${excl})
+pbl_library_sources(${sources})

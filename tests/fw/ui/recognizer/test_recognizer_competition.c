@@ -38,6 +38,7 @@
 #include "stubs_ui_window.h"
 #include "stubs_unobstructed_area.h"
 #include "test_recognizer_impl.h"
+#include "pbl/util/units.h"
 
 static RecognizerList *s_app_list;
 static Layer *s_active_layer;
@@ -105,7 +106,8 @@ void test_recognizer_competition__initialize(void) {
   fake_rtc_init(0, 0);
 }
 
-void test_recognizer_competition__cleanup(void) {}
+void test_recognizer_competition__cleanup(void) {
+}
 
 // Helpers
 static void prv_dispatch(RecognizerManager *manager, TouchEventType type, int16_t x, int16_t y) {
@@ -118,7 +120,7 @@ static void prv_dispatch(RecognizerManager *manager, TouchEventType type, int16_
 }
 
 static void prv_advance_ms(uint32_t ms) {
-  fake_rtc_increment_ticks((RtcTicks)ms * RTC_TICKS_HZ / MS_PER_SECOND);
+  fake_rtc_increment_ticks((RtcTicks)ms * RTC_TICKS_HZ / PBL_MSEC_PER_SEC);
 }
 
 typedef struct CompetitionScene {
@@ -146,8 +148,8 @@ static void prv_scene_init(CompetitionScene *scene) {
   scene->manager.active_layer = &scene->layer;
   s_active_layer = &scene->layer;
 
-  scene->pan = pan_recognizer_create(prv_sub_event_handler, (void *)(intptr_t)RecId_Pan,
-                                     PanAxis_Vertical);
+  scene->pan =
+      pan_recognizer_create(prv_sub_event_handler, (void *)(intptr_t)RecId_Pan, PanAxis_Vertical);
   scene->swipe = swipe_recognizer_create(prv_sub_event_handler, (void *)(intptr_t)RecId_Swipe,
                                          SwipeDirection_Left | SwipeDirection_Right);
   scene->tap = tap_recognizer_create(prv_sub_event_handler, (void *)(intptr_t)RecId_Tap);
@@ -177,9 +179,9 @@ void test_recognizer_competition__vertical_drag_starts_pan(void) {
 
   prv_dispatch(&scene.manager, TouchEvent_Touchdown, 50, 50);
   prv_advance_ms(30);
-  prv_dispatch(&scene.manager, TouchEvent_PositionUpdate, 50, 55);   // 5px, nothing decides yet
+  prv_dispatch(&scene.manager, TouchEvent_PositionUpdate, 50, 55); // 5px, nothing decides yet
   prv_advance_ms(30);
-  prv_dispatch(&scene.manager, TouchEvent_PositionUpdate, 50, 70);   // 20px down: pan starts
+  prv_dispatch(&scene.manager, TouchEvent_PositionUpdate, 50, 70); // 20px down: pan starts
 
   cl_assert_equal_i(recognizer_get_state(scene.pan), RecognizerState_Started);
   cl_assert_equal_i(recognizer_get_state(scene.swipe), RecognizerState_Failed);

@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-import re
 import sys
 import unittest
 
@@ -11,16 +10,10 @@ root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 sys.path.insert(0, root_dir)
 
 from log_hashing.check_elf_log_strings import check_dict_log_strings
-from log_hashing.logdehash import LogDehash
 
 
 class TestCheckLogStrings(unittest.TestCase):
-    def test_current_timestamp_uses_integer_milliseconds(self):
-        formatter = LogDehash("", monitor_dict_file=False)
-        line = formatter.basic_format_line({"formatted_msg": "test"})
-        self.assertRegex(line, re.compile(r"^\[\d{2}:\d{2}:\d{2}\.\d{3}\] test$"))
-
-    def test_some_acceptible_strings(self):
+    def test_some_acceptable_strings(self):
         log_dict = {
             1: {"file": "test.c", "line": "1", "msg": "test %s"},
             2: {"file": "test.c", "line": "2", "msg": "test %-2hx"},

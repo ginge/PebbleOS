@@ -18,6 +18,11 @@ for path in (TOOLS_DIR, TOOLS_LIBS_DIR):
     if path not in sys.path:
         sys.path.insert(0, path)
 
+from pkgutil import extend_path
+import pebble
+
+pebble.__path__ = extend_path(pebble.__path__, pebble.__name__)
+
 from log_hashing.logdehash import LogDehash
 from pebble import commander, pulse2
 
@@ -70,7 +75,9 @@ def _write_line(output, line: str) -> None:
     output.flush()
 
 
-def _run_prompt_command(interface, command: str, output, timeout_seconds: float) -> None:
+def _run_prompt_command(
+    interface, command: str, output, timeout_seconds: float
+) -> None:
     link = interface.get_link(timeout=timeout_seconds)
     if link is None:
         raise RuntimeError("PULSE reliable link did not come up")
@@ -85,7 +92,9 @@ def _run_prompt_command(interface, command: str, output, timeout_seconds: float)
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("-t", "--tty", help="runtime UART path; auto-detected by default")
+    parser.add_argument(
+        "-t", "--tty", help="runtime UART path; auto-detected by default"
+    )
     parser.add_argument(
         "--tty-glob",
         default=DEFAULT_TTY_GLOB,
@@ -138,8 +147,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    if (args.wait < 0 or args.duration < 0 or args.command_timeout <= 0 or
-            args.reconnect_idle < 0 or args.baud <= 0):
+    if (
+        args.wait < 0
+        or args.duration < 0
+        or args.command_timeout <= 0
+        or args.reconnect_idle < 0
+        or args.baud <= 0
+    ):
         raise SystemExit(
             "--wait/--duration/--reconnect-idle must be non-negative; "
             "--command-timeout/--baud must be positive"
@@ -178,18 +192,29 @@ def main(argv: list[str] | None = None) -> int:
 
                 for command in args.command:
                     try:
-                        _run_prompt_command(interface, command, output, args.command_timeout)
-                    except (RuntimeError, commander.exceptions.CommandTimedOut) as error:
-                        _write_line(output, f"--- command unavailable: {command}: {error} ---")
+                        _run_prompt_command(
+                            interface, command, output, args.command_timeout
+                        )
+                    except (
+                        RuntimeError,
+                        commander.exceptions.CommandTimedOut,
+                    ) as error:
+                        _write_line(
+                            output, f"--- command unavailable: {command}: {error} ---"
+                        )
 
                 last_message = time.monotonic()
                 while deadline is None or time.monotonic() < deadline:
                     try:
                         message = logging_app.receive(block=True, timeout=0.5)
                     except pulse2.exceptions.ReceiveQueueEmpty:
-                        if (args.reconnect_idle and
-                                time.monotonic() - last_message >= args.reconnect_idle):
-                            _write_line(output, "--- trace idle: reopening PULSE session ---")
+                        if (
+                            args.reconnect_idle
+                            and time.monotonic() - last_message >= args.reconnect_idle
+                        ):
+                            _write_line(
+                                output, "--- trace idle: reopening PULSE session ---"
+                            )
                             break
                         continue
                     last_message = time.monotonic()
@@ -199,7 +224,9 @@ def main(argv: list[str] | None = None) -> int:
                 _write_line(output, "--- trace stopped by user ---")
                 return 0
             except pulse2.exceptions.SocketClosed:
-                _write_line(output, "--- serial connection closed: waiting to reconnect ---")
+                _write_line(
+                    output, "--- serial connection closed: waiting to reconnect ---"
+                )
             finally:
                 if logging_app is not None:
                     logging_app.close()

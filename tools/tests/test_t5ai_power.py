@@ -12,6 +12,7 @@ STUB_HEADERS = {
 #include <stdint.h>
 #include <stdbool.h>
 void t5ai_power_init(void);
+void t5ai_power_update_clock(void);
 """,
     "pbl/soc/t5ai/cp_mailbox.h": """
 #include <stdbool.h>
@@ -54,6 +55,11 @@ int xTaskCreate(void (*)(void *),const char *,unsigned,void *,unsigned,void *);
 """,
     "cmsis_core.h": """
 extern uint32_t SystemCoreClock;
+static struct { uint32_t CTRL, LOAD; } s_systick;
+#define SysTick (&s_systick)
+#define SysTick_CTRL_ENABLE_Msk 1u
+#define CONFIG_KERNEL_TICK_HZ 1000u
+
 """,
     "system/profiler.h": """
 #define PROFILER_INIT
@@ -73,11 +79,17 @@ class T5AIPowerTest(unittest.TestCase):
             executable = directory / "test_power"
             subprocess.run(
                 [
-                    "cc", "-std=gnu11", "-Wall", "-Wextra", "-Werror",
-                    "-I", str(directory),
+                    "cc",
+                    "-std=gnu11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-I",
+                    str(directory),
                     f'-DT5AI_POWER_SOURCE="{ROOT / "soc/t5ai/power.c"}"',
                     str(ROOT / "boards/unhygienix/tuya/tests/test_t5ai_power.c"),
-                    "-o", str(executable),
+                    "-o",
+                    str(executable),
                 ],
                 check=True,
             )

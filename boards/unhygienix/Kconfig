@@ -5,4 +5,4 @@ config BOARD_UNHYGIENIX
     default y
     help
       Unhygienix (The village fishmonger).
-      Waveshare T5-E1 Touch AMOLED 1.75 using PebbleOS FreeRTOS.
+      Waveshare T5-E1 Touch AMOLED 1.75 using the PebbleOS kernel.

@@ -3,8 +3,8 @@
 ASSERT(ORIGIN(FLASH) == 0x02120000, "Unexpected T5AI AP virtual flash base")
 ASSERT(ORIGIN(FLASH) + LENGTH(FLASH) == 0x022b0000,
        "T5AI firmware image is not bounded by AP slot 0")
-ASSERT(ORIGIN(KERNEL_RAM) == 0x28010000, "Unexpected T5AI AP RAM base")
-ASSERT(ORIGIN(APP_RAM) + LENGTH(APP_RAM) <= 0x28066000,
+ASSERT(ORIGIN(RAM) == 0x28010000, "Unexpected T5AI AP RAM base")
+ASSERT(__APP_RAM_end__ <= 0x28066000,
        "Pebble memory overlaps the T5AI communications-processor RAM")
 ASSERT(ORIGIN(T5AI_DISPLAY_RAM) == 0x60000000,
        "Unexpected T5AI PSRAM base")

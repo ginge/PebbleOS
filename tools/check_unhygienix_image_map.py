@@ -12,10 +12,14 @@ NOR_END = 0x02800000
 
 EXPECTED_MEMORY = {
     "FLASH": (0x02120000, 0x00190000),
-    "KERNEL_RAM": (0x28010000, 0x0001F000),
-    "WORKER_RAM": (0x2802F000, 0x00003000),
-    "APP_RAM": (0x28032000, 0x00034000),
+    "RAM": (0x28010000, 0x0001F000),
     "T5AI_DISPLAY_RAM": (0x60000000, 0x00020000),
+}
+PARTITION_SYMBOLS = {
+    "__WORKER_RAM__": 0x2802F000,
+    "__WORKER_RAM_size__": 0x3000,
+    "__APP_RAM__": 0x28032000,
+    "__APP_RAM_size__": 0x34000,
 }
 REQUIRED_SYMBOLS = (
     "__isr_stack_start__",
@@ -39,9 +43,7 @@ SECTION_RE = re.compile(
     r"^(\.[^\s]+)\s+0x([0-9a-fA-F]+)\s+0x([0-9a-fA-F]+)"
     r"(?:\s+load address 0x([0-9a-fA-F]+))?"
 )
-SYMBOL_RE = re.compile(
-    r"^\s*0x([0-9a-fA-F]+)\s+([A-Za-z_][A-Za-z0-9_]*)\s+=\s+.+$"
-)
+SYMBOL_RE = re.compile(r"^\s*0x([0-9a-fA-F]+)\s+([A-Za-z_][A-Za-z0-9_]*)\s+=\s+.+$")
 
 
 def validate_map(text: str) -> list[str]:
@@ -60,7 +62,7 @@ def validate_map(text: str) -> list[str]:
             )
 
         symbol = SYMBOL_RE.match(line)
-        if symbol and symbol.group(2) in REQUIRED_SYMBOLS:
+        if symbol and symbol.group(2) in (*REQUIRED_SYMBOLS, *PARTITION_SYMBOLS):
             symbols[symbol.group(2)] = int(symbol.group(1), 16)
 
         section = SECTION_RE.match(line)
@@ -106,20 +108,26 @@ def validate_map(text: str) -> list[str]:
     if missing_symbols:
         errors.append("map is missing layout symbols: " + ", ".join(missing_symbols))
     else:
-        kernel_begin, kernel_length = EXPECTED_MEMORY["KERNEL_RAM"]
+        kernel_begin, kernel_length = EXPECTED_MEMORY["RAM"]
         kernel_end = kernel_begin + kernel_length
         stack_heap = [symbols[name] for name in REQUIRED_SYMBOLS[:5]]
         if stack_heap != sorted(stack_heap) or not all(
             kernel_begin <= address <= kernel_end for address in stack_heap
         ):
-            errors.append("stack/heap symbols are unordered or outside KERNEL_RAM")
+            errors.append("stack/heap symbols are unordered or outside RAM")
         display_begin, display_length = EXPECTED_MEMORY["T5AI_DISPLAY_RAM"]
         framebuffer = [symbols[name] for name in REQUIRED_SYMBOLS[5:]]
         if framebuffer != sorted(framebuffer) or not (
-            display_begin <= framebuffer[0] <= framebuffer[1]
+            display_begin
+            <= framebuffer[0]
+            <= framebuffer[1]
             <= display_begin + display_length
         ):
             errors.append("framebuffer symbols are outside T5AI_DISPLAY_RAM")
+
+    for name, expected in PARTITION_SYMBOLS.items():
+        if symbols.get(name) != expected:
+            errors.append(f"incorrect or missing RAM partition symbol {name}")
 
     lowered = text.lower()
     for path in BANNED_RUNTIME_PATHS:

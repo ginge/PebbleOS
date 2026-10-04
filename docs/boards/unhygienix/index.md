@@ -23,7 +23,8 @@ runs Pebble's NimBLE host against the CP-owned Bluetooth controller.
 | --- | --- |
 | CPU1 startup and CP handshake | Proven |
 | Dual USB UART roles and runtime logging | Proven |
-| FreeRTOS scheduler, SysTick, AON and external RTC | Proven |
+| Native Pebble kernel and SysTick | Builds; hardware revalidation required |
+| AON and external RTC | Previously proven on FreeRTOS; revalidate with native kernel |
 | GPIO and Back/Select buttons | Proven |
 | I2C0 and PCF85063 RTC | Proven |
 | CO5300 AMOLED and native QSPI transport | Proven with colour bands and display off/on tests |
@@ -54,8 +55,8 @@ to Pebble's shared `GColor` values.
 | App/watchface stall | The captured whole-chip reset followed the process-manager assertion for an App task stuck in privileged code. The initiating blocked operation is unknown; the temporary CP SRAM and pre-reset fault-context experiment was removed on 2026-10-04. |
 | Low power and wake alarms | `soc/t5ai/freertos.c` idles with WFI but ignores the requested idle duration; `vPortEnableTimer()` returns false. `rtc_alarm_set()` ignores its deadline and `rtc_alarm_is_initialized()` returns false. Tick suppression, hardware alarm/wake routing and deeper sleep remain unfinished. |
 | Motion and step tracking | QMI8658 software shake detection is implemented and display wake is operator-validated. Double-tap detection remains unimplemented. Pebble pauses activity tracking when external power is reported; step counting remains unvalidated on the USB-only board with no battery. |
-| Serial console input | `src/fw/console/dbgserial_input_t5ai.c` contains no-op initialization, callback registration and input/DMA enable functions. UART logging and CP-shell AP commands work; a general bidirectional console is not established. |
-| Persistent flash logging | The build selects `src/fw/debug/flash_logging_unavailable.c`: writes fail and dump requests report no saved logs. Serial logging remains available. |
+| Serial console input | `fw/console/dbgserial_input_t5ai.c` contains no-op initialization, callback registration and input/DMA enable functions. UART logging and CP-shell AP commands work; a general bidirectional console is not established. |
+| Persistent flash logging | The build selects `fw/debug/flash_logging_unavailable.c`: writes fail and dump requests report no saved logs. Serial logging remains available. |
 | Persistent coredumps | Disabled pending a validated partition/recovery contract. Current fault evidence relies on UART diagnostics. A writable flash region alone does not enable this service. |
 | Bootloader version | `soc/t5ai/bootbits.c` returns zero from `boot_version_read()`; version reporting is a placeholder. |
 | Manufacturing OTP | Unprovisioned service rejects writes and provides no stored identity; manufacturing uses its dummy identity. The separate MCU factory eFuse serial reader is implemented. |
@@ -100,8 +101,8 @@ Run all commands from the real PebbleOS checkout:
 
 ```sh
 . .venv/bin/activate
-python pbl configure --board unhygienix
-python pbl build
+pbl configure --board unhygienix
+pbl build
 ```
 
 The build emits `build/pebbleos.t5ai-crc.bin`, an AP-only protected-block
@@ -111,14 +112,15 @@ Routine updates use the native runner and preserve system resources, PFS and
 bonds. Preview the exact write range before programming:
 
 ```sh
-python pbl flash --dry-run --tyutool tyutool_cli --tyutool-tty /dev/serial/by-id/usb-1a86_USB_Dual_Serial_5C75025844-if00
-python pbl flash --tyutool tyutool_cli --tyutool-tty /dev/serial/by-id/usb-1a86_USB_Dual_Serial_5C75025844-if00
+pbl flash --dry-run --tyutool tyutool_cli --tyutool-tty /dev/serial/by-id/usb-1a86_USB_Dual_Serial_5C75025844-if00
+pbl flash --tyutool tyutool_cli --tyutool-tty /dev/serial/by-id/usb-1a86_USB_Dual_Serial_5C75025844-if00
 ```
 
 `--resources` additionally updates system resources; it preserves PFS.
 `--t5ai-provision --resources` explicitly writes an empty PFS and destroys its
 stored apps/data. `--t5ai-cp` additionally writes the validated CP artifacts
-produced by `python pbl waf t5ai_cp --t5ai-cp-stock build/inputs/stock-cp.bin`.
+produced by `pbl configure --board unhygienix -DT5AI_CP_STOCK="$PWD/build/inputs/stock-cp.bin"
+pbl build t5ai_cp`.
 The legacy AP/CP guard scripts remain available for rollback and validation.
 See [dependency and tooling alignment](tooling.md) for setup and CP inputs.
 Never pass logical `build/pebbleos.bin` directly to tyutool.
@@ -135,7 +137,7 @@ data partition. This preserves the shared-PRF area at `0x4ea000..0x4fa000` and
 the factory bootloader, CP, configuration, and RF-calibration partitions.
 
 Use `tools/flash_unhygienix_firmware.py --flash` for routine updates to preserve
-existing resources and PFS. 
+existing resources and PFS.
 
 For deliberate empty-filesystem provisioning on an already-backed-up lab board,
 `pbl flash --resources --t5ai-provision` replaces existing PFS contents and builds two exact-range images:
@@ -146,7 +148,7 @@ filesystem provisioning is deterministic before normal resource and launcher
 startup. The factory bootloader and CP partitions remain untouched:
 
 ```sh
-python pbl flash --resources --t5ai-provision \
+pbl flash --resources --t5ai-provision \
   --tyutool tyutool_cli \
   --tyutool-tty /dev/ttyACM0
 ```
@@ -221,7 +223,7 @@ completed service while leaving shared NimBLE discovery unchanged.
 The QMI8658 driver previously delivered samples but left shake detection and
 sensitivity functions as no-ops. The driver now detects motion in software and
 calls Pebble's existing `accel_cb_shake_detected()` path. All production changes
-are local to `src/fw/drivers/imu/qmi8658/qmi8658_t5ai.c`; shared Pebble services
+are local to `fw/drivers/imu/qmi8658/qmi8658_t5ai.c`; shared Pebble services
 were preserved.
 
 Shake detection keeps the sensor and polling timer active even without a data
@@ -294,7 +296,7 @@ Run the focused tools tests and native firmware build from the repository root:
 
 ```sh
 python -m unittest discover -s tools/tests -p 'test_unhygienix*.py'
-./pbl build
+pbl build
 git diff --check
 ```
 
@@ -313,9 +315,9 @@ isolation validation. Define recovery and rollback before enabling updates.
 ## Source map
 
 - `boards/unhygienix/`: board configuration and Tuya reference/CP sources.
-- `src/fw/board/boards/board_unhygienix.c` and `.h`: board implementation.
-- `src/fw/board/board_t5ai.h` and `soc/t5ai/`: generic SoC types and startup.
-- `src/fw/drivers/t5ai/cp_mailbox.c`: mailbox ownership and ACK serialization.
+- `fw/board/boards/board_unhygienix.c` and `.h`: board implementation.
+- `fw/board/board_t5ai.h` and `soc/t5ai/`: generic SoC types and startup.
+- `fw/drivers/t5ai/cp_mailbox.c`: mailbox ownership and ACK serialization.
 - `third_party/nimble/transport/t5ai_hci_ipc.c`: HCI transport.
 - `tools/unhygienix_image.py`: partition geometry and packaging.
 - `tools/t5ai_image.py`: protected-block encoding and verification.

@@ -6,11 +6,13 @@
 #include "applib/ui/vibes.h"
 #include "applib/ui/window_private.h"
 #include "apps/system/launcher/default/menu_layer.h"
+#include "apps/system/launcher/default/menu_layer_private.h"
 #include "shell/prefs.h"
 #include "resource/resource_ids.auto.h"
 #include "pbl/services/app_glances/app_glance_service.h"
 #include "pbl/services/blob_db/app_glance_db.h"
 #include "pbl/util/size.h"
+#include "pbl/util/testing.h"
 
 static GContext s_ctx;
 
@@ -47,6 +49,8 @@ typedef struct LauncherMenuLayerTestAppNode {
 } LauncherMenuLayerTestAppNode;
 
 static bool s_use_pdc_icons;
+//! Replaces the Watchfaces row with Settings, whose glance shows the battery
+static bool s_show_settings_app;
 
 static const LauncherMenuLayerTestAppNode s_fake_app_nodes[LauncherMenuLayerTestAppCount] = {
   [LauncherMenuLayerTestApp_Watchfaces] = {
@@ -104,13 +108,17 @@ static const LauncherMenuLayerTestAppNode s_fake_app_nodes[LauncherMenuLayerTest
   }
 };
 
-AppMenuNode* app_menu_data_source_get_node_at_index(AppMenuDataSource *source,
-                                                    uint16_t row_index) {
+AppMenuNode *app_menu_data_source_get_node_at_index(AppMenuDataSource *source, uint16_t row_index) {
   cl_assert(source);
   cl_assert(row_index < ARRAY_LENGTH(s_fake_app_nodes));
   const LauncherMenuLayerTestAppNode *test_node = &s_fake_app_nodes[row_index];
   static AppMenuNode node_copy;
   node_copy = test_node->node;
+  if (s_show_settings_app && (row_index == LauncherMenuLayerTestApp_Watchfaces)) {
+    node_copy.name = "Settings";
+    node_copy.uuid = (Uuid){0x07, 0xe0, 0xd9, 0xcb, 0x89, 0x57, 0x4b, 0xf7,
+                            0x9d, 0x42, 0x35, 0xbf, 0x47, 0xca, 0xad, 0xfe};
+  }
   node_copy.icon_resource_id =
       s_use_pdc_icons ? test_node->pdc_icon_resource_id : test_node->bitmap_icon_resource_id;
   return &node_copy;
@@ -179,7 +187,6 @@ bool timeline_resources_is_system(TimelineResourceId timeline_id) {
 #include "stubs_app_manager.h"
 #include "stubs_app_window_stack.h"
 #include "stubs_app_timer.h"
-#include "stubs_battery_state_service.h"
 #include "stubs_bluetooth_ctl.h"
 #include "stubs_bootbits.h"
 #include "stubs_click.h"
@@ -200,14 +207,13 @@ bool timeline_resources_is_system(TimelineResourceId timeline_id) {
 #include "stubs_pebble_process_info.h"
 #include "stubs_pebble_tasks.h"
 #include "stubs_pbl_malloc.h"
-#include "stubs_prompt.h"
 #include "stubs_serial.h"
 #include "stubs_session.h"
 #include "stubs_sleep.h"
 #include "stubs_status_bar_layer.h"
 #include "stubs_system_theme.h"
 #include "stubs_syscalls.h"
-#include "stubs_task_watchdog.h"
+#include "stubs_task_wdt.h"
 #include "stubs_tick.h"
 #include "stubs_time.h"
 #include "stubs_watchface.h"
@@ -234,15 +240,25 @@ bool shell_prefs_get_menu_scroll_wrap_around_enable(void) {
   return false;
 }
 
-PreferredContentSize system_theme_get_content_size(void) {
-  return PreferredContentSizeDefault;
+static PreferredContentSize s_content_size;
+
+static BatteryChargeState s_battery_state;
+
+BatteryChargeState battery_state_service_peek(void) {
+  return s_battery_state;
 }
 
-void vibes_enqueue_custom_pattern(VibePattern pattern) {}
+PreferredContentSize system_theme_get_content_size(void) {
+  return s_content_size;
+}
+
+void vibes_enqueue_custom_pattern(VibePattern pattern) {
+}
 
 // We can't include stubs_process_manager.h because it conflicts with the two helper includes below
 void process_manager_send_callback_event_to_process(PebbleTask task, void (*callback)(void *),
-                                                    void *data) {}
+                                                    void *data) {
+}
 
 // Helper Functions
 /////////////////////
@@ -262,7 +278,7 @@ GContext *graphics_context_get_current_context(void) {
 void test_launcher_menu_layer__initialize(void) {
   // Setup framebuffer and graphics context
   fb = malloc(sizeof(FrameBuffer));
-  framebuffer_init(fb, &(GSize) {DISP_COLS, DISP_ROWS});
+  framebuffer_init(fb, &(GSize){DISP_COLS, DISP_ROWS});
   test_graphics_context_init(&s_ctx, fb);
   graphics_context_set_antialiased(&s_ctx, true);
 
@@ -287,6 +303,10 @@ void test_launcher_menu_layer__initialize(void) {
 
   // Default to showing bitmap icons
   s_use_pdc_icons = false;
+
+  s_content_size = PreferredContentSizeDefault;
+  s_show_settings_app = false;
+  s_battery_state = (BatteryChargeState){.charge_percent = 60};
 }
 
 void app_glance_db_deinit(void);
@@ -301,9 +321,9 @@ void test_launcher_menu_layer__cleanup(void) {
 // Helpers
 //////////////////////
 
-//! Declared T_STATIC in launcher_menu_layer.c so we can easily change the launcher's selected index
-//! from unit tests without also specifying the y offset for the scroll layer that is required by
-//! `launcher_menu_layer_set_selection_state()`.
+//! Declared PBL_T_STATIC in launcher_menu_layer.c so we can easily change the launcher's selected
+//! index from unit tests without also specifying the y offset for the scroll layer that is required
+//! by `launcher_menu_layer_set_selection_state()`.
 void prv_launcher_menu_layer_set_selection_index(LauncherMenuLayer *launcher_menu_layer,
                                                  uint16_t index, MenuRowAlign row_align,
                                                  bool animated);
@@ -319,13 +339,44 @@ void prv_render_launcher_menu_layer(uint16_t selected_index) {
   // If we used MenuRowAlignCenter on rect then the test images would show the top and bottom
   // rows being clipped by the edge of the screen
   const MenuRowAlign row_align = PBL_IF_RECT_ELSE(MenuRowAlignTop, MenuRowAlignCenter);
-  prv_launcher_menu_layer_set_selection_index(&launcher_menu_layer, selected_index,
-                                              row_align, animated);
+  prv_launcher_menu_layer_set_selection_index(&launcher_menu_layer, selected_index, row_align,
+                                              animated);
 
   layer_render_tree(launcher_menu_layer_get_layer(&launcher_menu_layer), &s_ctx);
 
   launcher_menu_layer_deinit(&launcher_menu_layer);
   app_menu_data_source_deinit(&data_source);
+}
+
+#define GRID_CELL_PADDING 5
+
+//! Renders the launcher once per content size and checks the screens side by side, Small to
+//! Extra Large. Pixels outside a round display stay pink.
+static void prv_render_launcher_menu_layer_for_each_size(uint16_t selected_index,
+                                                         const char *pbi_file) {
+  const GSize grid_size = GSize(
+      GRID_CELL_PADDING + NumPreferredContentSizes * (DISP_COLS + GRID_CELL_PADDING), DISP_ROWS);
+  GBitmap *grid = gbitmap_create_blank(grid_size, GBitmapFormat8Bit);
+  memset(grid->addr, GColorShockingPinkARGB8, grid->row_size_bytes * grid_size.h);
+
+  for (PreferredContentSize size = PreferredContentSizeSmall; size < NumPreferredContentSizes;
+       size++) {
+    s_content_size = size;
+    framebuffer_clear(fb);
+    prv_render_launcher_menu_layer(selected_index);
+
+    uint8_t *column =
+        (uint8_t *)grid->addr + GRID_CELL_PADDING + size * (DISP_COLS + GRID_CELL_PADDING);
+    for (int16_t y = 0; y < DISP_ROWS; y++) {
+      const GBitmapDataRowInfo row = gbitmap_get_data_row_info(&s_ctx.dest_bitmap, y);
+      for (int16_t x = row.min_x; x <= row.max_x; x++) {
+        column[y * grid->row_size_bytes + x] = row.data[x];
+      }
+    }
+  }
+
+  cl_check(gbitmap_pbi_eq(grid, pbi_file));
+  gbitmap_destroy(grid);
 }
 
 // Tests
@@ -348,21 +399,22 @@ void test_launcher_menu_layer__interior_app(void) {
 
 void test_launcher_menu_layer__no_icon_app_with_glance(void) {
   // Insert a glance with a slice for the app that doesn't have a default icon
-  const AppGlance glance = (AppGlance) {
-      .num_slices = 1,
-      .slices = {
-        {
-          .expiration_time = 1464734484, // (Tue, 31 May 2016 22:41:24 GMT)
-          .type = AppGlanceSliceType_IconAndSubtitle,
-          .icon_and_subtitle = {
-            .icon_resource_id = TIMELINE_RESOURCE_SCHEDULED_FLIGHT,
-            .template_string = "Glances baby!",
-          },
+  const AppGlance glance = (AppGlance){
+    .num_slices = 1,
+    .slices = {
+      {
+        .expiration_time = 1464734484, // (Tue, 31 May 2016 22:41:24 GMT)
+        .type = AppGlanceSliceType_IconAndSubtitle,
+        .icon_and_subtitle = {
+          .icon_resource_id = TIMELINE_RESOURCE_SCHEDULED_FLIGHT,
+          .template_string = "Glances baby!",
         },
       },
+    },
   };
   cl_assert_equal_i(app_glance_db_insert_glance(
-      &s_fake_app_nodes[LauncherMenuLayerTestApp_NoIcon].node.uuid, &glance), S_SUCCESS);
+                        &s_fake_app_nodes[LauncherMenuLayerTestApp_NoIcon].node.uuid, &glance),
+                    S_SUCCESS);
 
   prv_render_launcher_menu_layer(LauncherMenuLayerTestApp_NoIcon);
   cl_check(gbitmap_pbi_eq(&s_ctx.dest_bitmap, TEST_PBI_FILE));
@@ -375,9 +427,9 @@ static void prv_insert_glances_for_app_selected_and_apps_above_and_below_with_gl
   for (LauncherMenuLayerTestApp i = LauncherMenuLayerTestApp_InteriorApp - 1;
        i <= LauncherMenuLayerTestApp_InteriorApp + 1; i++) {
     const LauncherMenuLayerTestAppNode *test_node = &s_fake_app_nodes[i];
-    const uint32_t icon_resource_id = s_use_pdc_icons ? test_node->pdc_slice_icon_resource_id :
-                                                        test_node->bitmap_slice_icon_resource_id;
-    AppGlance glance = (AppGlance) {
+    const uint32_t icon_resource_id = s_use_pdc_icons ? test_node->pdc_slice_icon_resource_id
+                                                      : test_node->bitmap_slice_icon_resource_id;
+    AppGlance glance = (AppGlance){
       .num_slices = 1,
       .slices = {
         {
@@ -391,8 +443,8 @@ static void prv_insert_glances_for_app_selected_and_apps_above_and_below_with_gl
       },
     };
     snprintf(glance.slices[0].icon_and_subtitle.template_string,
-             sizeof(glance.slices[0].icon_and_subtitle.template_string),
-             "%s glance", s_fake_app_nodes[i].node.name);
+             sizeof(glance.slices[0].icon_and_subtitle.template_string), "%s glance",
+             s_fake_app_nodes[i].node.name);
     cl_assert_equal_i(app_glance_db_insert_glance(&s_fake_app_nodes[i].node.uuid, &glance),
                       S_SUCCESS);
   }
@@ -402,6 +454,65 @@ void test_launcher_menu_layer__app_selected_and_apps_above_and_below_with_glance
   prv_insert_glances_for_app_selected_and_apps_above_and_below_with_glances_test();
   prv_render_launcher_menu_layer(LauncherMenuLayerTestApp_InteriorApp);
   cl_check(gbitmap_pbi_eq(&s_ctx.dest_bitmap, TEST_PBI_FILE));
+}
+
+void test_launcher_menu_layer__extra_large_with_glances(void) {
+  s_content_size = PreferredContentSizeExtraLarge;
+  prv_insert_glances_for_app_selected_and_apps_above_and_below_with_glances_test();
+  prv_render_launcher_menu_layer(LauncherMenuLayerTestApp_InteriorApp);
+  cl_check(gbitmap_pbi_eq(&s_ctx.dest_bitmap, TEST_PBI_FILE));
+}
+
+void test_launcher_menu_layer__medium_with_glances(void) {
+  s_content_size = PreferredContentSizeMedium;
+  prv_insert_glances_for_app_selected_and_apps_above_and_below_with_glances_test();
+  prv_render_launcher_menu_layer(LauncherMenuLayerTestApp_InteriorApp);
+  cl_check(gbitmap_pbi_eq(&s_ctx.dest_bitmap, TEST_PBI_FILE));
+}
+
+void test_launcher_menu_layer__content_size_change_keeps_selection(void) {
+  AppMenuDataSource data_source = {};
+  app_menu_data_source_init(&data_source, NULL, NULL);
+  app_menu_data_source_enable_icons(&data_source, RESOURCE_ID_MENU_LAYER_GENERIC_WATCHAPP_ICON);
+
+  LauncherMenuLayer launcher_menu_layer = {};
+  launcher_menu_layer_init(&launcher_menu_layer, &data_source);
+  cl_assert_equal_i(launcher_menu_layer.content_size, PreferredContentSizeDefault);
+
+  const uint16_t selected_row = LauncherMenuLayerTestApp_NoIcon;
+  prv_launcher_menu_layer_set_selection_index(&launcher_menu_layer, selected_row,
+                                              MenuRowAlignBottom, false /* animated */);
+  LauncherMenuLayerSelectionState state;
+  launcher_menu_layer_get_selection_state(&launcher_menu_layer, &state);
+  cl_assert_equal_i(state.row_index, selected_row);
+  cl_assert_equal_i(state.content_size, PreferredContentSizeDefault);
+
+  // Nothing to do while the preference is unchanged
+  launcher_menu_layer_update_content_size(&launcher_menu_layer);
+  cl_assert_equal_i(launcher_menu_layer.content_size, PreferredContentSizeDefault);
+
+  s_content_size = PreferredContentSizeExtraLarge;
+  launcher_menu_layer_update_content_size(&launcher_menu_layer);
+  cl_assert_equal_i(launcher_menu_layer.content_size, PreferredContentSizeExtraLarge);
+  cl_assert_equal_i(menu_layer_get_selected_index(&launcher_menu_layer.menu_layer).row,
+                    selected_row);
+
+  // The selection must still be on screen despite the taller cells
+  GRangeVertical selection_range;
+  launcher_menu_layer_get_selection_vertical_range(&launcher_menu_layer, &selection_range);
+  cl_assert(selection_range.origin_y >= 0);
+  cl_assert(selection_range.origin_y + selection_range.size_h <= DISP_ROWS);
+
+  // Restoring a state captured with a different content size also keeps the row on screen
+  launcher_menu_layer_set_selection_state(&launcher_menu_layer, &state);
+  cl_assert_equal_i(menu_layer_get_selected_index(&launcher_menu_layer.menu_layer).row,
+                    selected_row);
+  launcher_menu_layer_get_selection_vertical_range(&launcher_menu_layer, &selection_range);
+  cl_assert(selection_range.origin_y >= 0);
+  cl_assert(selection_range.origin_y + selection_range.size_h <= DISP_ROWS);
+
+  launcher_menu_layer_deinit(&launcher_menu_layer);
+  app_menu_data_source_deinit(&data_source);
 }
 
 void test_launcher_menu_layer__long_title_pdc(void) {
@@ -425,7 +536,7 @@ void test_launcher_menu_layer__interior_app_pdc(void) {
 void test_launcher_menu_layer__no_icon_app_with_glance_pdc(void) {
   s_use_pdc_icons = true;
   // Insert a glance with a slice for the app that doesn't have a default icon
-  const AppGlance glance = (AppGlance) {
+  const AppGlance glance = (AppGlance){
     .num_slices = 1,
     .slices = {
       {
@@ -439,7 +550,8 @@ void test_launcher_menu_layer__no_icon_app_with_glance_pdc(void) {
     },
   };
   cl_assert_equal_i(app_glance_db_insert_glance(
-      &s_fake_app_nodes[LauncherMenuLayerTestApp_NoIcon].node.uuid, &glance), S_SUCCESS);
+                        &s_fake_app_nodes[LauncherMenuLayerTestApp_NoIcon].node.uuid, &glance),
+                    S_SUCCESS);
 
   prv_render_launcher_menu_layer(LauncherMenuLayerTestApp_NoIcon);
   cl_check(gbitmap_pbi_eq(&s_ctx.dest_bitmap, TEST_PBI_FILE));
@@ -450,4 +562,44 @@ void test_launcher_menu_layer__app_selected_and_apps_above_and_below_with_glance
   prv_insert_glances_for_app_selected_and_apps_above_and_below_with_glances_test();
   prv_render_launcher_menu_layer(LauncherMenuLayerTestApp_InteriorApp);
   cl_check(gbitmap_pbi_eq(&s_ctx.dest_bitmap, TEST_PBI_FILE));
+}
+
+void test_launcher_menu_layer__content_sizes_with_glances(void) {
+  prv_insert_glances_for_app_selected_and_apps_above_and_below_with_glances_test();
+  prv_render_launcher_menu_layer_for_each_size(LauncherMenuLayerTestApp_InteriorApp, TEST_PBI_FILE);
+}
+
+void test_launcher_menu_layer__content_sizes_long_title(void) {
+  prv_render_launcher_menu_layer_for_each_size(LauncherMenuLayerTestApp_LongTitle, TEST_PBI_FILE);
+}
+
+void test_launcher_menu_layer__content_sizes_watchfaces(void) {
+  prv_render_launcher_menu_layer_for_each_size(LauncherMenuLayerTestApp_Watchfaces, TEST_PBI_FILE);
+}
+
+void test_launcher_menu_layer__content_sizes_settings(void) {
+  s_show_settings_app = true;
+  prv_render_launcher_menu_layer_for_each_size(LauncherMenuLayerTestApp_Watchfaces, TEST_PBI_FILE);
+}
+
+void test_launcher_menu_layer__content_sizes_settings_charging(void) {
+  s_show_settings_app = true;
+  s_battery_state =
+      (BatteryChargeState){.charge_percent = 60, .is_charging = true, .is_plugged = true};
+  prv_render_launcher_menu_layer_for_each_size(LauncherMenuLayerTestApp_Watchfaces, TEST_PBI_FILE);
+}
+
+//! The glance cache is sized for rows no shorter than the launcher's minimum
+void test_launcher_menu_layer__cell_heights_at_least_minimum(void) {
+  for (PreferredContentSize size = PreferredContentSizeSmall; size < NumPreferredContentSizes;
+       size++) {
+    s_content_size = size;
+    const LauncherMenuLayerStyle *style = launcher_menu_layer_get_style();
+#if PBL_RECT
+    cl_assert(style->cell_height >= LAUNCHER_MENU_LAYER_MIN_CELL_HEIGHT);
+#else
+    cl_assert(style->focused_cell_height >= LAUNCHER_MENU_LAYER_MIN_FOCUSED_CELL_HEIGHT);
+    cl_assert(style->unfocused_cell_height >= LAUNCHER_MENU_LAYER_MIN_UNFOCUSED_CELL_HEIGHT);
+#endif
+  }
 }

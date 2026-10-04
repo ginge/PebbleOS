@@ -11,7 +11,7 @@ import kconfiglib
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from tools.waf.boards import available_boards, parse_board
+from tools.boards import available_boards, parse_board
 
 
 def load_config(revision, variant):
@@ -27,8 +27,8 @@ def load_config(revision, variant):
         paths = [
             "boards/getafix/defconfig",
             f"boards/getafix/defconfig.{revision}",
-            "src/fw/prj.conf",
-            f"src/fw/prj_{variant}.conf",
+            "fw/prj.conf",
+            f"fw/prj_{variant}.conf",
         ]
         for index, path in enumerate(paths):
             config.load_config(str(ROOT / path), replace=index == 0)
@@ -56,7 +56,7 @@ class GetafixBoardsTest(unittest.TestCase):
 
     def test_original_dvt_keeps_its_haptics(self):
         config = load_config("dvt", "normal")
-        self.assertEqual(config["PROMPT"], "y")
+        self.assertEqual(config["SHELL"], "y")
         self.assertEqual(config["VIBE_AW8623X"], "y")
         self.assertEqual(config["VIBE_AW86225"], "n")
         self.assertEqual(config["DISPLAY_FORCE_FULL_FRAME_UPDATES"], "y")

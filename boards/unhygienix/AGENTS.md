@@ -6,7 +6,7 @@
   `unhygienix` and its board symbol is `CONFIG_BOARD_UNHYGIENIX`.
 - This is the Waveshare T5-E1 Touch AMOLED 1.75 / Tuya T5AI (BK7258) hardware,
   selected with `unhygienix`; use
-  `./pbl configure --board unhygienix` followed by `./pbl build`.
+  `pbl configure --board unhygienix` followed by `pbl build`.
 - Getafix DVT and DVT2 remain Pebble Round 2 hardware targets. Unhygienix is an
   independent hardware target; do not reintroduce Getafix board flags or place
   its Tuya code under `boards/getafix`.
@@ -18,7 +18,7 @@
   `boards/unhygienix/`; production T5AI code stays in the existing board,
   SoC and driver locations. The optional Tuya application is reference
   material, not the production PebbleOS kernel.
-- Board implementation and declarations use `src/fw/board/boards/board_unhygienix.c`
+- Board implementation and declarations use `fw/board/boards/board_unhygienix.c`
   and `board_unhygienix.h`; generic T5AI types remain in `board/board_t5ai.h`.
   Board tooling uses `tools/unhygienix_*`, `flash_unhygienix_*`,
   `patch_unhygienix_cp_rf.py` and `check_unhygienix_image_map.py`.

@@ -33,10 +33,18 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class UnhygienixImagePackagingTest(unittest.TestCase):
     def test_system_resource_pack_ceiling(self):
-        wscript = (ROOT / "wscript").read_text()
-        t5ai_branch = wscript.split("elif ctx.env.CONFIG_SOC_T5AI:", 1)[1]
-        t5ai_branch = t5ai_branch.split("elif ctx.env.CONFIG_SOC_SF32LB52:", 1)[0]
-        self.assertIn("max_size = 1024 * 1024", t5ai_branch)
+        import importlib.util
+        import sys
+
+        sys.path.insert(0, str(ROOT / "tools/cmake"))
+        spec = importlib.util.spec_from_file_location(
+            "firmware", ROOT / "tools/cmake/firmware.py"
+        )
+        firmware = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(firmware)
+        self.assertEqual(
+            firmware.max_resources_size({"CONFIG_SOC_T5AI": "y"}), 1024 * 1024
+        )
 
     def test_vendor_crc_vectors(self):
         self.assertEqual(crc16(bytes(32)), 0x8029)
@@ -64,9 +72,7 @@ class UnhygienixImagePackagingTest(unittest.TestCase):
 
         corrupted = bytearray(encoded)
         corrupted[35] ^= 1
-        with self.assertRaisesRegex(
-            ValueError, "CRC mismatch in protected block 1"
-        ):
+        with self.assertRaisesRegex(ValueError, "CRC mismatch in protected block 1"):
             verify_protected_blocks(corrupted)
 
     def test_empty_image(self):
@@ -97,14 +103,12 @@ class UnhygienixImagePackagingTest(unittest.TestCase):
     def test_pebble_payload_is_bounded_below_factory_ap_capacity(self):
         self.assertLess(PEBBLE_AP_SLOT_SIZE, PRIMARY_AP_APP_LOGICAL_SIZE)
         with self.assertRaisesRegex(ValueError, "exceeds the Unhygienix AP slot"):
-            encode_pebble_application(
-                b"\xff" * (PEBBLE_AP_SLOT_SIZE + 1)
-            )
+            encode_pebble_application(b"\xff" * (PEBBLE_AP_SLOT_SIZE + 1))
 
     def test_qio_packaging_preserves_boot_prefix_and_ap_trailer(self):
-        prefix = bytes((index * 17) & 0xFF for index in range(
-            PRIMARY_AP_APP_PHYSICAL_OFFSET
-        ))
+        prefix = bytes(
+            (index * 17) & 0xFF for index in range(PRIMARY_AP_APP_PHYSICAL_OFFSET)
+        )
         trailer = bytes((index * 29) & 0xFF for index in range(4096))
         base = prefix + trailer
         digest = hashlib.sha256(base).hexdigest()
@@ -117,12 +121,17 @@ class UnhygienixImagePackagingTest(unittest.TestCase):
         packaged = package_ap_qio(base, protected, digest)
         self.assertEqual(packaged[:PRIMARY_AP_APP_PHYSICAL_OFFSET], prefix)
         self.assertEqual(len(packaged), len(base))
-        decoded = verify_protected_blocks(packaged[
-            PRIMARY_AP_APP_PHYSICAL_OFFSET:
-            PRIMARY_AP_APP_PHYSICAL_OFFSET + len(protected)])
+        decoded = verify_protected_blocks(
+            packaged[
+                PRIMARY_AP_APP_PHYSICAL_OFFSET : PRIMARY_AP_APP_PHYSICAL_OFFSET
+                + len(protected)
+            ]
+        )
         self.assertEqual(decoded[: len(vector)], vector)
-        self.assertEqual(packaged[PRIMARY_AP_APP_PHYSICAL_OFFSET + len(protected):],
-                         trailer[len(protected):])
+        self.assertEqual(
+            packaged[PRIMARY_AP_APP_PHYSICAL_OFFSET + len(protected) :],
+            trailer[len(protected) :],
+        )
 
     def test_qio_packaging_extends_a_short_vendor_ap(self):
         prefix = b"\xaa" * PRIMARY_AP_APP_PHYSICAL_OFFSET
@@ -143,10 +152,9 @@ class UnhygienixImagePackagingTest(unittest.TestCase):
     def test_qio_packaging_rejects_wrong_base_and_bad_vectors(self):
         base = b"\xaa" * (PRIMARY_AP_APP_PHYSICAL_OFFSET + 1)
         digest = hashlib.sha256(base).hexdigest()
-        valid_vector = (
-            (0x28020000).to_bytes(4, "little")
-            + (PRIMARY_AP_APP_XIP_BASE + 0x101).to_bytes(4, "little")
-        )
+        valid_vector = (0x28020000).to_bytes(4, "little") + (
+            PRIMARY_AP_APP_XIP_BASE + 0x101
+        ).to_bytes(4, "little")
         with self.assertRaisesRegex(ValueError, "SHA-256 mismatch"):
             package_ap_qio(base, encode_protected_blocks(valid_vector), "0" * 64)
         with self.assertRaisesRegex(ValueError, "stack pointer"):

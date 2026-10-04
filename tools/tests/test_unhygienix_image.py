@@ -30,9 +30,11 @@ from tools.unhygienix_image import (
 
 class UnhygienixImageMapTest(unittest.TestCase):
     LAYOUT = """\
-KERNEL_RAM       0x28010000         0x0001f000         xrw
-WORKER_RAM       0x2802f000         0x00003000         xrw
-APP_RAM          0x28032000         0x00034000         xrw
+RAM              0x28010000         0x0001f000         xrw
+                0x2802f000 __WORKER_RAM__ = .
+                0x00003000 __WORKER_RAM_size__ = .
+                0x28032000 __APP_RAM__ = .
+                0x00034000 __APP_RAM_size__ = .
 T5AI_DISPLAY_RAM 0x60000000         0x00020000         rw
                 0x28011000 __isr_stack_start__ = .
                 0x28012000 __kernel_main_stack_start__ = .
@@ -44,30 +46,39 @@ T5AI_DISPLAY_RAM 0x60000000         0x00020000         rw
 """
 
     def test_accepts_exact_slot_and_sections(self):
-        text = """\
+        text = (
+            """\
 Memory Configuration
 FLASH            0x02120000         0x00190000         xr
 .isr_vector     0x02120000      0x140
 .text           0x02120140    0x10000
 .kernel_data    0x28010000      0x100 load address 0x02130140
-""" + self.LAYOUT
+"""
+            + self.LAYOUT
+        )
         self.assertEqual(MODULE.validate_map(text), [])
 
     def test_rejects_broader_flash_region(self):
-        text = """\
+        text = (
+            """\
 FLASH            0x02000000         0x00800000         xr
 .text           0x02120000    0x10000
-""" + self.LAYOUT
+"""
+            + self.LAYOUT
+        )
         errors = MODULE.validate_map(text)
         self.assertTrue(any("FLASH region" in error for error in errors))
 
     def test_rejects_section_and_load_address_outside_slot(self):
-        text = """\
+        text = (
+            """\
 FLASH            0x02120000         0x00190000         xr
 .isr_vector     0x02120000      0x140
 .text           0x02010000       0x20
 .kernel_data    0x28010000       0x20 load address 0x02410000
-""" + self.LAYOUT
+"""
+            + self.LAYOUT
+        )
         errors = MODULE.validate_map(text)
         self.assertTrue(any("VMA" in error for error in errors))
         self.assertTrue(any("load address" in error for error in errors))
@@ -117,14 +128,17 @@ FLASH            0x02120000         0x00190000         xr
             + PFS_INITIAL_ERASE_COUNT.to_bytes(4, "little")
         )
         self.assertEqual(pfs[: len(expected_prefix)], expected_prefix)
-        self.assertEqual(pfs[PFS_PAGE_SIZE : PFS_PAGE_SIZE + len(expected_prefix)], expected_prefix)
-        self.assertEqual(pfs[len(expected_prefix) : PFS_PAGE_SIZE], b"\xff" * (PFS_PAGE_SIZE - len(expected_prefix)))
+        self.assertEqual(
+            pfs[PFS_PAGE_SIZE : PFS_PAGE_SIZE + len(expected_prefix)], expected_prefix
+        )
+        self.assertEqual(
+            pfs[len(expected_prefix) : PFS_PAGE_SIZE],
+            b"\xff" * (PFS_PAGE_SIZE - len(expected_prefix)),
+        )
 
     def test_flash_image_rejects_region_overflow(self):
         with self.assertRaises(ValueError):
-            build_pebble_flash_image(
-                b"x" * (PEBBLE_RESOURCES_LOGICAL_OFFSET + 1), b""
-            )
+            build_pebble_flash_image(b"x" * (PEBBLE_RESOURCES_LOGICAL_OFFSET + 1), b"")
         with self.assertRaises(ValueError):
             build_pebble_flash_image(b"", b"x" * (0x100000 + 1))
 

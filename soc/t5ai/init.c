@@ -5,7 +5,7 @@
 
 uint32_t SystemCoreClock = CONFIG_T5AI_CORE_CLOCK_HZ;
 
-extern uint8_t __ISR_VECTOR_TABLE__[];
+extern uint8_t arch_vector_table[];
 
 /* The vendor boot stages clocks, flash mapping and the application CPU. */
 void SystemInit(void) {
@@ -14,12 +14,11 @@ void SystemInit(void) {
   /* The entire T5AI image is built with -mfpu=fpv5-sp-d16, so compiler-
    * generated FP instructions are possible before the scheduler starts.
    * Match the pinned BK7258 CMSIS SystemInit and grant full access to CP10 and
-   * CP11 here. The FreeRTOS port repeats this when it enables lazy FP context
-   * preservation, but that is too late for pre-scheduler C code. */
+   * CP11 here before entering the native kernel and its lazy FP context setup. */
   SCB->CPACR |= (3u << 20u) | (3u << 22u);
 
-  /* Do not inherit scheduler state from the boot stages. soc_early_init()
-   * enables interrupts before FreeRTOS starts, so an enabled or pending
+  /* Do not inherit scheduler state from the boot stages. pbl_soc_early_init()
+   * enables interrupts before the native scheduler starts, so an enabled or pending
    * SysTick/PendSV here would vector into handlers that are not ready yet. */
   SysTick->CTRL = 0u;
   SysTick->LOAD = 0u;
@@ -30,12 +29,13 @@ void SystemInit(void) {
    * entry. Make this explicit rather than depending on the bootloader's CCR. */
   SCB->CCR |= SCB_CCR_STKALIGN_Msk;
 
-  SCB->VTOR = (uintptr_t)__ISR_VECTOR_TABLE__;
+  SCB->VTOR = (uintptr_t)arch_vector_table;
   __DSB();
   __ISB();
 }
 
-void soc_early_init(void) {
+void pbl_soc_early_init(void) {
+  SystemInit();
   /* The pinned CP waits for this AP indication and otherwise resets the
    * system after four start retries. This is the vendor control-channel wire
    * format, not a dependency on its scheduler or IPC implementation. */

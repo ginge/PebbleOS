@@ -18,7 +18,7 @@
 #include "applib/ui/vibes.h"
 #include "pbl/util/size.h"
 
-//declarations
+// declarations
 bool sys_vibe_pattern_enqueue_step_raw(uint32_t step_duration_ms, int32_t strength);
 bool sys_vibe_pattern_enqueue_step(uint32_t step_duration_ms, bool on);
 void sys_vibe_pattern_trigger_start(void);
@@ -28,7 +28,7 @@ void sys_vibe_history_stop_collecting(void);
 bool sys_vibe_history_was_vibrating(uint64_t time_search);
 int32_t sys_vibe_get_vibe_strength(void);
 
-//stub
+// stub
 static bool s_vibe_on = false;
 static int s_vibe_ctl_count = 0;
 void vibe_ctl(bool on) {
@@ -43,15 +43,11 @@ void vibe_set_strength(int8_t strength) {
   s_strength_set_count++;
 }
 
-bool shell_prefs_get_vibe_log_info_enabled(void) {
-  return false;
-}
-
 uint32_t accel_get_max_num_samples(void) {
   return 32;
 }
 
-//helpers
+// helpers
 static uint64_t prv_get_current_time() {
   time_t s;
   uint16_t ms;
@@ -95,7 +91,7 @@ static bool prv_confirm_history(const VibePattern pattern, int64_t start_time) {
   return true;
 }
 
-//unit test code
+// unit test code
 void test_vibe__initialize(void) {
   vibes_init();
   fake_rtc_init(0, 100);
@@ -105,7 +101,6 @@ void test_vibe__initialize(void) {
   s_vibe_on = false;
   s_vibe_ctl_count = 0;
 }
-
 
 void test_vibe__cleanup(void) {
 }
@@ -119,8 +114,8 @@ void test_vibe__check_vibe_history(void) {
   sys_vibe_history_stop_collecting();
 
   // test custom vibe
-  const uint32_t custom_pattern_durations[] = { 10, 12, 100, 123, 25, 5 };
-  const VibePattern custom_pattern = (VibePattern) {
+  const uint32_t custom_pattern_durations[] = {10, 12, 100, 123, 25, 5};
+  const VibePattern custom_pattern = (VibePattern){
     .durations = custom_pattern_durations,
     .num_segments = ARRAY_LENGTH(custom_pattern_durations)
   };
@@ -133,13 +128,13 @@ void test_vibe__check_vibe_history(void) {
 }
 
 void test_vibe__check_vibe_history_multiple(void) {
-  const uint32_t custom_pattern_durations_1[] = { 10, 12, 100, 123, 25, 5 };
-  const uint32_t custom_pattern_durations_2[] = { 24, 50, 130, 112, 52, 9 };
-  const VibePattern custom_pattern_1 = (VibePattern) {
+  const uint32_t custom_pattern_durations_1[] = {10, 12, 100, 123, 25, 5};
+  const uint32_t custom_pattern_durations_2[] = {24, 50, 130, 112, 52, 9};
+  const VibePattern custom_pattern_1 = (VibePattern){
     .durations = custom_pattern_durations_1,
     .num_segments = ARRAY_LENGTH(custom_pattern_durations_1)
   };
-  const VibePattern custom_pattern_2 = (VibePattern) {
+  const VibePattern custom_pattern_2 = (VibePattern){
     .durations = custom_pattern_durations_2,
     .num_segments = ARRAY_LENGTH(custom_pattern_durations_2)
   };
@@ -157,8 +152,8 @@ void test_vibe__check_vibe_history_multiple(void) {
 }
 
 void test_vibe__custom_pattern_with_amplitudes(void) {
-  const uint32_t durations[] = { 200, 100, 400 };
-  const uint32_t amplitudes[] = { 80, 50, 20 };
+  const uint32_t durations[] = {200, 100, 400};
+  const uint32_t amplitudes[] = {80, 50, 20};
   const VibePatternWithAmplitudes pattern = {
     .durations = durations,
     .amplitudes = amplitudes,
@@ -173,8 +168,8 @@ void test_vibe__custom_pattern_with_amplitudes(void) {
 }
 
 void test_vibe__custom_pattern_with_amplitudes_clamped(void) {
-  const uint32_t durations[] = { 100 };
-  const uint32_t amplitudes[] = { 200 };  // exceeds 100, should be clamped
+  const uint32_t durations[] = {100};
+  const uint32_t amplitudes[] = {200}; // exceeds 100, should be clamped
   const VibePatternWithAmplitudes pattern = {
     .durations = durations,
     .amplitudes = amplitudes,
@@ -188,7 +183,7 @@ void test_vibe__custom_pattern_with_amplitudes_clamped(void) {
 }
 
 void test_vibe__custom_pattern_with_null_amplitudes(void) {
-  const uint32_t durations[] = { 100 };
+  const uint32_t durations[] = {100};
   const VibePatternWithAmplitudes pattern = {
     .durations = durations,
     .amplitudes = NULL,
@@ -201,7 +196,7 @@ void test_vibe__custom_pattern_with_null_amplitudes(void) {
 }
 
 void test_vibe__custom_pattern_with_amplitudes_null_durations(void) {
-  const uint32_t amplitudes[] = { 80 };
+  const uint32_t amplitudes[] = {80};
   const VibePatternWithAmplitudes pattern = {
     .durations = NULL,
     .amplitudes = amplitudes,
@@ -214,8 +209,8 @@ void test_vibe__custom_pattern_with_amplitudes_null_durations(void) {
 }
 
 void test_vibe__custom_pattern_with_amplitudes_single(void) {
-  const uint32_t durations[] = { 300 };
-  const uint32_t amplitudes[] = { 50 };
+  const uint32_t durations[] = {300};
+  const uint32_t amplitudes[] = {50};
   const VibePatternWithAmplitudes pattern = {
     .durations = durations,
     .amplitudes = amplitudes,
@@ -228,8 +223,8 @@ void test_vibe__custom_pattern_with_amplitudes_single(void) {
 }
 
 void test_vibe__custom_pattern_with_zero_amplitude(void) {
-  const uint32_t durations[] = { 200, 100, 300 };
-  const uint32_t amplitudes[] = { 0, 0, 100 };
+  const uint32_t durations[] = {200, 100, 300};
+  const uint32_t amplitudes[] = {0, 0, 100};
   const VibePatternWithAmplitudes pattern = {
     .durations = durations,
     .amplitudes = amplitudes,
@@ -246,8 +241,8 @@ void test_vibe__custom_pattern_with_zero_amplitude(void) {
 }
 
 void test_vibe__custom_pattern_with_amplitudes_verifies_strength(void) {
-  const uint32_t durations[] = { 100, 50, 100 };
-  const uint32_t amplitudes[] = { 75, 50, 25 };
+  const uint32_t durations[] = {100, 50, 100};
+  const uint32_t amplitudes[] = {75, 50, 25};
   const VibePatternWithAmplitudes pattern = {
     .durations = durations,
     .amplitudes = amplitudes,
@@ -296,8 +291,8 @@ void test_vibe__clear_ignores_owner(void) {
 }
 
 void test_vibe__custom_pattern_ramp_down(void) {
-  const uint32_t durations[] = { 200, 200, 200, 200 };
-  const uint32_t amplitudes[] = { 100, 75, 50, 25 };
+  const uint32_t durations[] = {200, 200, 200, 200};
+  const uint32_t amplitudes[] = {100, 75, 50, 25};
   const VibePatternWithAmplitudes pattern = {
     .durations = durations,
     .amplitudes = amplitudes,

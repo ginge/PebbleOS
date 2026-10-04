@@ -19,7 +19,7 @@ class PebbleAppHeader:
 
     # 116 bytes
     V1_STRUCT_VERSION = (0x08, 0x01)
-    V1_STRUCT_DEFINTION: ClassVar = [
+    V1_STRUCT_DEFINITION: ClassVar = [
         # format, name, deserialization transform, serialization transform
         ("B", "sdk_version_major", None, None),
         ("B", "sdk_version_minor", None, None),
@@ -40,18 +40,28 @@ class PebbleAppHeader:
 
     # 120 bytes
     V2_STRUCT_VERSION = (0x10, 0x00)
-    V2_STRUCT_DEFINTION: ClassVar = list(V1_STRUCT_DEFINTION)
-    del V2_STRUCT_DEFINTION[12]  # relocation list was dropped in v2.x
-    V2_STRUCT_DEFINTION += [
+    V2_STRUCT_DEFINITION: ClassVar = list(V1_STRUCT_DEFINITION)
+    del V2_STRUCT_DEFINITION[12]  # relocation list was dropped in v2.x
+    V2_STRUCT_DEFINITION += [
         ("I", "resource_crc", None, None),
         ("I", "resource_timestamp", None, None),
         ("H", "virtual_size", None, None),
     ]
     V2_HEADER_LENGTH = 10 + 120
 
+    # 122 bytes
+    V3_STRUCT_VERSION = (0x10, 0x01)
+    V3_STRUCT_DEFINITION: ClassVar = [
+        *V2_STRUCT_DEFINITION,
+        ("B", "load_size_hi", None, None),
+        ("B", "virtual_size_hi", None, None),
+    ]
+    V3_HEADER_LENGTH = 10 + 122
+
     DEFINITION_MAP: ClassVar = {
-        V1_STRUCT_VERSION: V1_STRUCT_DEFINTION,
-        V2_STRUCT_VERSION: V2_STRUCT_DEFINTION,
+        V1_STRUCT_VERSION: V1_STRUCT_DEFINITION,
+        V2_STRUCT_VERSION: V2_STRUCT_DEFINITION,
+        V3_STRUCT_VERSION: V3_STRUCT_DEFINITION,
     }
 
     @classmethod
@@ -84,6 +94,14 @@ class PebbleAppHeader:
             field_name = elem[1]
             transform = elem[2]
             info[field_name] = value if not transform else transform(value)
+
+        # From 0x10.0x01 the sizes carry 24 bits, split across two fields each.
+        # Read-only views. serialize() packs app_size and load_size_hi, not these.
+        if "load_size_hi" in info:
+            info["app_size_total"] = info["app_size"] | info["load_size_hi"] << 16
+            info["virtual_size_total"] = (
+                info["virtual_size"] | info["virtual_size_hi"] << 16
+            )
         return info
 
     def serialize(self):

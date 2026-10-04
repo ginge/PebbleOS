@@ -48,12 +48,12 @@
 #include "stubs_reminder_db.h"
 #include "stubs_rtc.h"
 #include "stubs_simple_dialog.h"
-#include "stubs_task_watchdog.h"
+#include "stubs_task_wdt.h"
 #include "stubs_ui_window.h"
 #include "stubs_window_manager.h"
 #include "stubs_window_stack.h"
 
-PebblePhoneCaller* phone_call_util_create_caller(const char *number, const char *name) {
+PebblePhoneCaller *phone_call_util_create_caller(const char *number, const char *name) {
   return NULL;
 }
 
@@ -75,15 +75,16 @@ void timeline_pin_window_push_modal(TimelineItem *item) {
 
 CommSession *comm_session_get_system_session(void) {
   // This can't be NULL (in that case we don't try to send the message)
-  return (CommSession *) 1;
+  return (CommSession *)1;
 }
 
-void comm_session_set_responsiveness(
-    CommSession *session, BtConsumer consumer, ResponseTimeState state, uint16_t max_period_secs) {
+void comm_session_set_responsiveness(CommSession *session, enum pbl_bt_consumer consumer,
+                                     enum pbl_bt_response_time_state state,
+                                     uint16_t max_period_secs) {
   return;
 }
 
-void* event_service_claim_buffer(PebbleEvent *e) {
+void *event_service_claim_buffer(PebbleEvent *e) {
   return NULL;
 }
 
@@ -100,11 +101,11 @@ bool notification_window_is_modal(void) {
   return false;
 }
 
-size_t string_list_count(StringList *list) {
+size_t pbl_string_list_count(struct pbl_string_list *list) {
   return 0;
 }
 
-char *string_list_get_at(StringList *list, size_t index) {
+char *pbl_string_list_get_at(struct pbl_string_list *list, size_t index) {
   return NULL;
 }
 
