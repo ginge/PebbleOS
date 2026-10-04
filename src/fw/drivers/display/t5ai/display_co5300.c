@@ -16,6 +16,8 @@
 #include "system/passert.h"
 #include "system/profiler.h"
 
+#include <pbl/os/mutex.h>
+
 #include <cmsis_core.h>
 
 #include <stddef.h>
@@ -26,7 +28,6 @@ PBL_LOG_MODULE_DEFINE(driver_display_co5300, LOG_LEVEL_DEBUG);
 
 #define DISPLAY_CACHE_LINE_MASK (T5AI_SHARED_ALIGNMENT - 1u)
 #define PANEL_RGB565_BYTES_PER_PIXEL 2u
-#define PANEL_MAX_BRIGHTNESS UINT8_MAX
 #define PANEL_RESET_PRECHARGE_US 20000u
 #define PANEL_RESET_ASSERT_US 200000u
 #define PANEL_RESET_SETTLE_US 120000u
@@ -183,7 +184,8 @@ static bool s_initialized;
 static bool s_enabled;
 static bool s_updating;
 static bool s_rotated;
-static uint8_t s_brightness = PANEL_MAX_BRIGHTNESS;
+static uint8_t s_brightness;
+static PebbleRecursiveMutex *s_panel_mutex;
 static bool s_brightness_dirty;
 static uint8_t s_panel_row[PANEL_ROW_BYTES] __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
 static uint32_t s_dma_test_source[DISPLAY_DMA_TEST_WORDS]
@@ -291,10 +293,16 @@ static void prv_apply_brightness(void) {
 }
 
 void display_co5300_set_brightness(uint8_t level) {
-  (void)level;
-  s_brightness = PANEL_MAX_BRIGHTNESS;
+  // Before display_init(), only cache the requested level.
+  if (s_panel_mutex) {
+    mutex_lock_recursive(s_panel_mutex);
+  }
+  s_brightness = level;
   s_brightness_dirty = true;
   prv_apply_brightness();
+  if (s_panel_mutex) {
+    mutex_unlock_recursive(s_panel_mutex);
+  }
 }
 
 static bool prv_set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
@@ -637,7 +645,7 @@ static bool prv_panel_init(void) {
   gpio_output_set(&reset, true);
   delay_us(PANEL_RESET_SETTLE_US);
 
-  static const struct {
+  const struct {
     uint8_t command;
     uint8_t value;
   } init[] = {
@@ -650,7 +658,7 @@ static bool prv_panel_init(void) {
       {PANEL_DCS_PIXEL_FORMAT, PANEL_PIXEL_FORMAT_RGB565},
       {PANEL_DCS_TEARING_ON, 0x00},
       {PANEL_DCS_CONTROL_DISPLAY, PANEL_CONTROL_BRIGHTNESS_ENABLE},
-      {PANEL_DCS_BRIGHTNESS, PANEL_MAX_BRIGHTNESS},
+      {PANEL_DCS_BRIGHTNESS, s_brightness},
       {0x63, 0xff},
   };
   for (unsigned i = 0; i < sizeof(init) / sizeof(init[0]); ++i) {
@@ -671,6 +679,14 @@ static bool prv_panel_init(void) {
 }
 
 void display_init(void) {
+  if (!s_panel_mutex) {
+    s_panel_mutex = mutex_create_recursive();
+    PBL_ASSERTN(s_panel_mutex);
+  }
+  mutex_lock_recursive(s_panel_mutex);
+  if (!s_initialized && !s_brightness_dirty) {
+    s_brightness = T5AI_AMOLED_MIN_BRIGHTNESS;
+  }
   prv_dma_init();
   s_dma_display_enabled = prv_dma_self_test();
   prv_init_conversion_tables();
@@ -680,9 +696,10 @@ void display_init(void) {
   if (!s_initialized) {
     PBL_LOG_ERR("CO5300 initialization failed");
   }
+  mutex_unlock_recursive(s_panel_mutex);
 }
 
-void display_clear(void) {
+static void prv_display_clear(void) {
   if (!s_initialized) {
     return;
   }
@@ -699,7 +716,13 @@ void display_clear(void) {
   prv_pixel_stream_end();
 }
 
-void display_set_enabled(bool enabled) {
+void display_clear(void) {
+  mutex_lock_recursive(s_panel_mutex);
+  prv_display_clear();
+  mutex_unlock_recursive(s_panel_mutex);
+}
+
+static void prv_display_set_enabled(bool enabled) {
   if (!s_initialized || enabled == s_enabled) {
     return;
   }
@@ -708,12 +731,19 @@ void display_set_enabled(bool enabled) {
   }
 }
 
+void display_set_enabled(bool enabled) {
+  mutex_lock_recursive(s_panel_mutex);
+  prv_display_set_enabled(enabled);
+  mutex_unlock_recursive(s_panel_mutex);
+}
+
 void display_set_rotated(bool rotated) {
   s_rotated = rotated;
 }
 
 static void prv_display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb,
                                bool use_dma, bool invert_colors) {
+  mutex_lock_recursive(s_panel_mutex);
   PBL_ASSERTN(!s_updating);
   s_updating = true;
   const uint32_t frame_start = prv_draw_ticks();
@@ -800,6 +830,7 @@ static void prv_display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb
   }
   s_updating = false;
   prv_apply_brightness();
+  mutex_unlock_recursive(s_panel_mutex);
   uccb();
 }
 

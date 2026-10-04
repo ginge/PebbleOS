@@ -1,26 +1,25 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <pbl/drivers/backlight.h>
-
-// Backlight service uses percent; panel brightness remains fixed at full scale.
-#define T5AI_BACKLIGHT_FULL_PERCENT 100u
+#include <pbl/drivers/display/t5ai.h>
 
 static uint8_t s_brightness;
 
 void backlight_init(void) {
-  s_brightness = T5AI_BACKLIGHT_FULL_PERCENT;
+  s_brightness = 0u;
+  backlight_refresh();
 }
 
 uint8_t backlight_get_level(uint8_t brightness) {
-  (void)brightness;
-  return T5AI_BACKLIGHT_FULL_PERCENT;
+  if (brightness > 100u) {
+    brightness = 100u;
+  }
+  const uint8_t level = ((uint16_t)brightness * UINT8_MAX + 99u) / 100u;
+  return level < T5AI_AMOLED_MIN_BRIGHTNESS ? T5AI_AMOLED_MIN_BRIGHTNESS : level;
 }
 
 void backlight_set_brightness(uint8_t brightness) {
-  (void)brightness;
-  // Keep the AMOLED at the maximum level programmed by panel initialization.
-  // Do not issue QSPI commands for the stock light service's fade steps: panel
-  // register traffic is not serialized with framebuffer updates yet.
-  s_brightness = T5AI_BACKLIGHT_FULL_PERCENT;
+  s_brightness = brightness;
+  display_co5300_set_brightness(backlight_get_level(brightness));
 }
 
 void backlight_refresh(void) {

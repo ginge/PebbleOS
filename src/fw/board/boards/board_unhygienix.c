@@ -102,7 +102,7 @@ static const I2CSlavePort s_i2c_qmi8658 = {
 };
 I2CSlavePort *const I2C_QMI8658 = &s_i2c_qmi8658;
 
-const BoardConfig BOARD_CONFIG = {.backlight_on_percent = 20};
+const BoardConfig BOARD_CONFIG = {.backlight_on_percent = 100};
 const BoardConfigButton BOARD_CONFIG_BUTTON = {
     .buttons =
         {

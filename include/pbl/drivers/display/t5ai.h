@@ -5,6 +5,9 @@
 
 #include <stdint.h>
 
+// Raw CO5300 level (1..255). Tune on hardware.
+#define T5AI_AMOLED_MIN_BRIGHTNESS 35u
+
 void display_co5300_set_brightness(uint8_t level);
 void display_co5300_update_cpu(NextRowCallback nrcb, UpdateCompleteCallback uccb);
 
