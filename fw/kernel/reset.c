@@ -73,8 +73,7 @@ PBL_NORETURN void system_hard_reset(void) {
   // interrupts. Just reset us.
 
 #ifdef CONFIG_SOC_T5AI
-  t5ai_force_whole_chip_reset(T5AI_RESET_REASON_PEBBLE_BASE |
-                               RebootReasonCode_Unknown);
+  t5ai_force_whole_chip_reset(T5AI_RESET_REASON_PEBBLE_BASE | RebootReasonCode_Unknown);
 #elif defined(CONFIG_SOC_SF32LB52)
   HAL_PMU_Reboot();
 #else

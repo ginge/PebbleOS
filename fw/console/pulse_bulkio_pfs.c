@@ -32,8 +32,7 @@ static int prv_open_file(void *packet_data, size_t length) {
   }
 
   const PFSOpenOptions *options = packet_data;
-  const size_t filename_length =
-      MIN(FILE_MAX_NAME_LEN, length - sizeof(*options));
+  const size_t filename_length = MIN(FILE_MAX_NAME_LEN, length - sizeof(*options));
 
   char filename[FILE_MAX_NAME_LEN + 1];
   memcpy(filename, options->filename, filename_length);

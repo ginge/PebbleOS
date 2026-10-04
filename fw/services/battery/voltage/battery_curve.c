@@ -17,40 +17,44 @@ typedef struct VoltagePoint {
 // TODO: Move these curves somewhere else. Related: PBL-21049
 
 // TODO(ASTERIX,OBELIX): Needs customization for Asterix/Obelix
-#if defined(CONFIG_BOARD_ASTERIX) || defined(CONFIG_BOARD_OBELIX) ||          \
+#if defined(CONFIG_BOARD_ASTERIX) || defined(CONFIG_BOARD_OBELIX) ||        \
     defined(CONFIG_BOARD_UNHYGIENIX) || defined(CONFIG_BOARD_QEMU_EMERY) || \
     defined(CONFIG_BOARD_QEMU_FLINT) || defined(CONFIG_BOARD_QEMU_GABBRO)
 // When the voltage drops below these (mV), the watch will start heading for standby (after delay)
 #define BATTERY_CRITICAL_VOLTAGE_CHARGING    3550
 #define BATTERY_CRITICAL_VOLTAGE_DISCHARGING 3300
 // Battery Tables for Silk
-static VoltagePoint discharge_curve[] = {{0, BATTERY_CRITICAL_VOLTAGE_DISCHARGING},
-                                         {2, 3490},
-                                         {5, 3615},
-                                         {10, 3655},
-                                         {20, 3700},
-                                         {30, 3735},
-                                         {40, 3760},
-                                         {50, 3800},
-                                         {60, 3855},
-                                         {70, 3935},
-                                         {80, 4025},
-                                         {90, 4120},
-                                         {100, 4230}};
+static VoltagePoint discharge_curve[] = {
+  {0, BATTERY_CRITICAL_VOLTAGE_DISCHARGING},
+  {2, 3490},
+  {5, 3615},
+  {10, 3655},
+  {20, 3700},
+  {30, 3735},
+  {40, 3760},
+  {50, 3800},
+  {60, 3855},
+  {70, 3935},
+  {80, 4025},
+  {90, 4120},
+  {100, 4230}
+};
 
-static const VoltagePoint charge_curve[] = {{0, BATTERY_CRITICAL_VOLTAGE_CHARGING},
-                                            {2, 3570},
-                                            {5, 3600},
-                                            {10, 3645},
-                                            {20, 3730},
-                                            {30, 3800},
-                                            {40, 3860},
-                                            {50, 3915},
-                                            {60, 3970},
-                                            {70, 4030},
-                                            {80, 4095},
-                                            {90, 4175},
-                                            {100, 4260}};
+static const VoltagePoint charge_curve[] = {
+  {0, BATTERY_CRITICAL_VOLTAGE_CHARGING},
+  {2, 3570},
+  {5, 3600},
+  {10, 3645},
+  {20, 3730},
+  {30, 3800},
+  {40, 3860},
+  {50, 3915},
+  {60, 3970},
+  {70, 4030},
+  {80, 4095},
+  {90, 4175},
+  {100, 4260}
+};
 
 #else
 #error "No battery curve for platform!"
@@ -120,7 +124,7 @@ static uint32_t prv_lookup_percent_by_voltage(int battery_mv, bool is_charging,
 
 static uint32_t prv_sample_scaled_charge_percent(uint32_t battery_mv, bool is_charging,
                                                  uint32_t scaling_factor) {
-  int compensate = 0;  // We compensate 5% during rounding, so don't do here
+  int compensate = 0; // We compensate 5% during rounding, so don't do here
 
   for (int i = 0; i < BATTERY_CURVE_COMPENSATE_COUNT; ++i) {
     compensate += s_battery_compensation_values[i];

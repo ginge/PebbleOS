@@ -40,7 +40,7 @@
 // If the platform does not reserve a dedicated coredump region, use the scratch slot.
 #ifndef FLASH_REGION_CD_BEGIN
 #define FLASH_REGION_CD_BEGIN FLASH_REGION_FIRMWARE_DEST_BEGIN
-#define FLASH_REGION_CD_END FLASH_REGION_FIRMWARE_DEST_END
+#define FLASH_REGION_CD_END   FLASH_REGION_FIRMWARE_DEST_END
 #endif
 #endif
 

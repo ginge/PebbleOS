@@ -35,8 +35,8 @@
 extern void shell_prefs_init(void);
 
 // Force-compact every growable settings DB on first boot after upgrade.
-// Pre-growable-files devices keep their original full-size settings file allocation forever otherwise,
-// which on devices with many installed apps shows up as launcher scroll lag.
+// Pre-growable-files devices keep their original full-size settings file allocation forever
+// otherwise, which on devices with many installed apps shows up as launcher scroll lag.
 #ifndef CONFIG_SOC_T5AI
 static void prv_settings_dbs_compaction_migration_cb(void *data) {
   blob_db_compact_growable_dbs();

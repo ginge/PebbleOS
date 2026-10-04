@@ -53,14 +53,13 @@ static bool prv_t5ai_system_bank_metadata_valid(const ResourceVersion *expected_
   }
 
   ResTableEntry last_entry;
-  const uintptr_t last_entry_address = BANK.begin + MANIFEST_SIZE +
-      (manifest.num_resources - 1u) * TABLE_ENTRY_SIZE;
+  const uintptr_t last_entry_address =
+      BANK.begin + MANIFEST_SIZE + (manifest.num_resources - 1u) * TABLE_ENTRY_SIZE;
   memcpy(&last_entry, (const void *)last_entry_address, sizeof(last_entry));
 
   const uint32_t resource_end = last_entry.offset + last_entry.length;
   const uint32_t bank_size = BANK.end - BANK.begin;
-  return last_entry.resource_id == manifest.num_resources &&
-         resource_end >= last_entry.offset &&
+  return last_entry.resource_id == manifest.num_resources && resource_end >= last_entry.offset &&
          SYSTEM_STORE_METADATA_BYTES <= bank_size &&
          resource_end <= bank_size - SYSTEM_STORE_METADATA_BYTES;
 }
@@ -132,11 +131,9 @@ static uint32_t resource_storage_system_bank_get_crc(ResourceStoreEntry *entry, 
                                                      uint32_t entry_offset) {
   uint32_t start_offset = resource_store_get_metadata_size(entry) + entry_offset;
 #ifdef CONFIG_SOC_T5AI
-  return pbl_crc32_legacy(
-      (const void *)(uintptr_t)(BANK.begin + start_offset), num_bytes);
+  return pbl_crc32_legacy((const void *)(uintptr_t)(BANK.begin + start_offset), num_bytes);
 #else
-  return flash_crc32_legacy(
-      BANK.begin + start_offset, num_bytes);
+  return flash_crc32_legacy(BANK.begin + start_offset, num_bytes);
 #endif
 }
 

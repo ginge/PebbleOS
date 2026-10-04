@@ -28,24 +28,23 @@ static bool prv_framebuffer_range_valid(uint32_t address, uint32_t length) {
          address <= FRAMEBUFFER_SIZE_BYTES - length;
 }
 
-static int framebuffer_domain_read(uint8_t *buf, uint32_t address, uint32_t length,
-                                        void *context) {
+static int framebuffer_domain_read(uint8_t *buf, uint32_t address, uint32_t length, void *context) {
   if (buf == NULL || !prv_framebuffer_range_valid(address, length)) {
     return E_RANGE;
   }
 
-  uint8_t *fb_offset = (uint8_t*)compositor_get_framebuffer()->buffer + address;
+  uint8_t *fb_offset = (uint8_t *)compositor_get_framebuffer()->buffer + address;
   memcpy(buf, fb_offset, length);
   return length;
 }
 
 static int framebuffer_domain_write(uint8_t *buf, uint32_t address, uint32_t length,
-                                         void *context) {
+                                    void *context) {
   if (buf == NULL || !prv_framebuffer_range_valid(address, length)) {
     return E_RANGE;
   }
 
-  uint8_t *fb_offset = (uint8_t*)compositor_get_framebuffer()->buffer + address;
+  uint8_t *fb_offset = (uint8_t *)compositor_get_framebuffer()->buffer + address;
   memcpy(fb_offset, buf, length);
   return length;
 }
@@ -55,8 +54,8 @@ static int framebuffer_domain_stat(uint8_t *resp, size_t resp_max_len, void *con
     return E_RANGE;
   }
 
-  FramebufferStatResp *stat_resp = (FramebufferStatResp*) resp;
-  *stat_resp = (FramebufferStatResp) {
+  FramebufferStatResp *stat_resp = (FramebufferStatResp *)resp;
+  *stat_resp = (FramebufferStatResp){
     .flags = 0,
     .length = FRAMEBUFFER_SIZE_BYTES,
     .width = DISP_COLS,

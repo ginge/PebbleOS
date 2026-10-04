@@ -32,18 +32,18 @@ void delay_init(void) {
 #elif defined(CONFIG_SOC_T5AI)
 
 /* BK7258 timer0 free-running counter setup from the pinned T5AI BSP. */
-#define T5AI_TIMER0_BASE 0x44810000u
-#define T5AI_TIMER0_CONTROL (*(volatile uint32_t *)(T5AI_TIMER0_BASE + 0x08u))
-#define T5AI_TIMER0_PERIOD (*(volatile uint32_t *)(T5AI_TIMER0_BASE + 0x10u))
-#define T5AI_TIMER0_START (*(volatile uint32_t *)(T5AI_TIMER0_BASE + 0x1cu))
+#define T5AI_TIMER0_BASE         0x44810000u
+#define T5AI_TIMER0_CONTROL      (*(volatile uint32_t *)(T5AI_TIMER0_BASE + 0x08u))
+#define T5AI_TIMER0_PERIOD       (*(volatile uint32_t *)(T5AI_TIMER0_BASE + 0x10u))
+#define T5AI_TIMER0_START        (*(volatile uint32_t *)(T5AI_TIMER0_BASE + 0x1cu))
 #define T5AI_TIMER0_READ_CONTROL (*(volatile uint32_t *)(T5AI_TIMER0_BASE + 0x20u))
-#define T5AI_TIMER0_READ_VALUE (*(volatile uint32_t *)(T5AI_TIMER0_BASE + 0x24u))
+#define T5AI_TIMER0_READ_VALUE   (*(volatile uint32_t *)(T5AI_TIMER0_BASE + 0x24u))
 
-#define T5AI_SYSTEM_BASE 0x44010000u
-#define T5AI_SYSTEM_TIMER0_CLOCK (*(volatile uint32_t *)(T5AI_SYSTEM_BASE + 0x20u))
+#define T5AI_SYSTEM_BASE          0x44010000u
+#define T5AI_SYSTEM_TIMER0_CLOCK  (*(volatile uint32_t *)(T5AI_SYSTEM_BASE + 0x20u))
 #define T5AI_SYSTEM_TIMER0_ENABLE (*(volatile uint32_t *)(T5AI_SYSTEM_BASE + 0x30u))
 
-#define T5AI_TIMER0_HZ 26000000u
+#define T5AI_TIMER0_HZ            26000000u
 #define T5AI_TIMER0_CYCLES_PER_US (T5AI_TIMER0_HZ / 1000000u)
 
 static uint32_t prv_timer_count(void) {
@@ -62,8 +62,7 @@ static uint32_t prv_timer_count(void) {
 
 void PBL_NOINLINE delay_us(uint32_t us) {
   while (us != 0) {
-    const uint32_t max_chunk =
-        (UINT32_MAX / 2u) / T5AI_TIMER0_CYCLES_PER_US;
+    const uint32_t max_chunk = (UINT32_MAX / 2u) / T5AI_TIMER0_CYCLES_PER_US;
     const uint32_t chunk_us = us < max_chunk ? us : max_chunk;
     const uint32_t cycles = chunk_us * T5AI_TIMER0_CYCLES_PER_US;
     const uint32_t start = prv_timer_count();

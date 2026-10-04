@@ -168,8 +168,7 @@ static bool prv_u32_range_valid(uint32_t address, uint32_t length) {
   return length > 0 && address <= UINT32_MAX - (length - 1);
 }
 
-static void prv_respond_malformed_command(void *cmd, size_t length,
-                                     const char *message) {
+static void prv_respond_malformed_command(void *cmd, size_t length, const char *message) {
   const size_t max_response_size = pulse_reliable_max_send_size();
   uint8_t *resp = pulse_reliable_send_begin(PULSE2_BULKIO_PROTOCOL);
   if (resp == NULL) {
@@ -180,7 +179,7 @@ static void prv_respond_malformed_command(void *cmd, size_t length,
   size_t message_len = strlen(message) + 1;
   memcpy(resp + 1, message, message_len);
 
-  size_t response_len =  sizeof(*resp) + message_len;
+  size_t response_len = sizeof(*resp) + message_len;
   size_t command_len = MIN(length, max_response_size - response_len);
 
   memcpy(resp + response_len, cmd, command_len);
@@ -189,11 +188,9 @@ static void prv_respond_malformed_command(void *cmd, size_t length,
   pulse_reliable_send(resp, response_len);
 }
 
-static void prv_respond_internal_error(Command *cmd, size_t length,
-                                          status_t status_code) {
+static void prv_respond_internal_error(Command *cmd, size_t length, status_t status_code) {
   const size_t max_response_size = pulse_reliable_max_send_size();
-  InternalErrorResponse *resp = pulse_reliable_send_begin(
-      PULSE2_BULKIO_PROTOCOL);
+  InternalErrorResponse *resp = pulse_reliable_send_begin(PULSE2_BULKIO_PROTOCOL);
   if (resp == NULL) {
     return;
   }
@@ -209,14 +206,10 @@ static void prv_respond_internal_error(Command *cmd, size_t length,
 }
 
 static int prv_get_fresh_fd(PulseBulkIODomainHandler *domain_handler, PulseTransferFD **fd) {
-  for (int i=0; i < MAX_PULSE_FDS; ++i) {
-    if (s_transfer_fds[i].impl == NULL &&
-        !s_transfer_fds[i].read_callback_pending) {
-      s_transfer_fds[i] = (PulseTransferFD) {
-        .impl = domain_handler,
-        .domain_state = NULL,
-        .transfer_state = { 0 }
-      };
+  for (int i = 0; i < MAX_PULSE_FDS; ++i) {
+    if (s_transfer_fds[i].impl == NULL && !s_transfer_fds[i].read_callback_pending) {
+      s_transfer_fds[i] =
+          (PulseTransferFD){.impl = domain_handler, .domain_state = NULL, .transfer_state = {0}};
       *fd = &s_transfer_fds[i];
       return i;
     }
@@ -225,9 +218,8 @@ static int prv_get_fresh_fd(PulseBulkIODomainHandler *domain_handler, PulseTrans
 }
 
 static void prv_free_fd(int fd) {
-  const bool read_callback_pending =
-      s_transfer_fds[fd].read_callback_pending;
-  s_transfer_fds[fd] = (PulseTransferFD) {
+  const bool read_callback_pending = s_transfer_fds[fd].read_callback_pending;
+  s_transfer_fds[fd] = (PulseTransferFD){
     .read_callback_pending = read_callback_pending,
   };
 }
@@ -266,8 +258,7 @@ static void prv_domain_read_cb(void *data) {
     return;
   }
 
-  const size_t max_read_len =
-      pulse_reliable_max_send_size() - sizeof(ReadResponse);
+  const size_t max_read_len = pulse_reliable_max_send_size() - sizeof(ReadResponse);
   size_t read_len = MIN(pulse_fd->transfer_state.bytes_left, max_read_len);
 
   ReadResponse *resp = pulse_reliable_send_begin(PULSE2_BULKIO_PROTOCOL);
@@ -288,7 +279,7 @@ static void prv_domain_read_cb(void *data) {
 
     if (pulse_fd->transfer_state.bytes_left > 0) {
       pulse_fd->read_callback_pending = true;
-      system_task_add_callback(prv_domain_read_cb, (void*)(uintptr_t)fd_num);
+      system_task_add_callback(prv_domain_read_cb, (void *)(uintptr_t)fd_num);
     } else {
       pulse_fd->read_active = false;
     }
@@ -298,9 +289,7 @@ static void prv_domain_read_cb(void *data) {
 
     Command cmd = {.opcode = BULKIO_CMD_DOMAIN_READ, .read = {.fd = fd_num}};
 
-    prv_respond_internal_error(&cmd, sizeof(cmd),
-                               ret > 0 ? E_RANGE :
-                               (ret < 0 ? ret : E_INTERNAL));
+    prv_respond_internal_error(&cmd, sizeof(cmd), ret > 0 ? E_RANGE : (ret < 0 ? ret : E_INTERNAL));
   }
 }
 
@@ -413,8 +402,7 @@ static void prv_handle_write(Command *cmd, size_t length) {
                                        pulse_fd->domain_state);
 
   if (ret <= 0 || (size_t)ret > payload_length) {
-    prv_respond_internal_error(cmd, length, ret > 0 ? E_RANGE :
-                               (ret < 0 ? ret : E_INTERNAL));
+    prv_respond_internal_error(cmd, length, ret > 0 ? E_RANGE : (ret < 0 ? ret : E_INTERNAL));
     return;
   }
 
@@ -422,7 +410,7 @@ static void prv_handle_write(Command *cmd, size_t length) {
   if (resp == NULL) {
     return;
   }
-  *resp = (WriteResponse) {
+  *resp = (WriteResponse){
     .opcode = BULKIO_RESP_DOMAIN_WRITE,
     .fd = cmd->write.fd,
     .address = cmd->write.address,
@@ -454,8 +442,7 @@ static void prv_handle_crc(Command *cmd, size_t length) {
                                         pulse_fd->domain_state);
 
     if (ret <= 0 || (uint32_t)ret > read_len) {
-      prv_respond_internal_error(cmd, length,
-                                 ret > 0 ? E_RANGE : E_INTERNAL);
+      prv_respond_internal_error(cmd, length, ret > 0 ? E_RANGE : E_INTERNAL);
       return;
     }
 
@@ -467,7 +454,7 @@ static void prv_handle_crc(Command *cmd, size_t length) {
   if (resp == NULL) {
     return;
   }
-  *resp = (CRCResponse) {
+  *resp = (CRCResponse){
     .opcode = BULKIO_RESP_DOMAIN_CRC,
     .fd = cmd->crc.fd,
     .address = cmd->crc.address,
@@ -488,10 +475,7 @@ static void prv_handle_stat(Command *cmd, size_t length) {
   if (resp == NULL) {
     return;
   }
-  *resp = (StatResponse) {
-    .opcode = BULKIO_RESP_DOMAIN_STAT,
-    .fd = cmd->stat.fd
-  };
+  *resp = (StatResponse){.opcode = BULKIO_RESP_DOMAIN_STAT, .fd = cmd->stat.fd};
   size_t data_max_len = pulse_reliable_max_send_size() - sizeof(StatResponse);
   int ret = pulse_fd->impl->stat_proc(resp->data, data_max_len, pulse_fd->domain_state);
   if (ret >= 0 && (size_t)ret <= data_max_len) {
@@ -527,15 +511,15 @@ static void prv_handle_erase(Command *cmd, size_t length) {
 
 void pulse_bulkio_erase_message_send(PulseBulkIODomainType domain_type, status_t status,
                                      uint8_t cookie) {
-    EraseResponse *resp = pulse_reliable_send_begin(PULSE2_BULKIO_PROTOCOL);
-    if (resp == NULL) {
-      return;
-    }
-    resp->opcode = BULKIO_RESP_DOMAIN_ERASE;
-    resp->domain = domain_type;
-    resp->status = status;
-    resp->cookie = cookie;
-    pulse_reliable_send(resp, sizeof(*resp));
+  EraseResponse *resp = pulse_reliable_send_begin(PULSE2_BULKIO_PROTOCOL);
+  if (resp == NULL) {
+    return;
+  }
+  resp->opcode = BULKIO_RESP_DOMAIN_ERASE;
+  resp->domain = domain_type;
+  resp->status = status;
+  resp->cookie = cookie;
+  pulse_reliable_send(resp, sizeof(*resp));
 }
 
 static void prv_handle_packet(void *data) {
@@ -616,8 +600,7 @@ void pulse2_bulkio_packet_handler(void *packet, size_t length) {
     return;
   }
 
-  BulkIOPacketCallbackData *data =
-      kernel_malloc_check(sizeof(*data) + length);
+  BulkIOPacketCallbackData *data = kernel_malloc_check(sizeof(*data) + length);
   data->length = length;
   if (length != 0) {
     memcpy(data->packet, packet, length);

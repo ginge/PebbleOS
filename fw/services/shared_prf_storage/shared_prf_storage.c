@@ -58,10 +58,8 @@ static void prv_flash_write(const void *data, uint32_t address, size_t length) {
 
 static void prv_flash_erase_region(void) {
   flash_region_erase_optimal_range_no_watchdog(
-      FLASH_REGION_SHARED_PRF_STORAGE_BEGIN,
-      FLASH_REGION_SHARED_PRF_STORAGE_BEGIN,
-      FLASH_REGION_SHARED_PRF_STORAGE_END,
-      FLASH_REGION_SHARED_PRF_STORAGE_END);
+      FLASH_REGION_SHARED_PRF_STORAGE_BEGIN, FLASH_REGION_SHARED_PRF_STORAGE_BEGIN,
+      FLASH_REGION_SHARED_PRF_STORAGE_END, FLASH_REGION_SHARED_PRF_STORAGE_END);
 }
 
 static void prv_lock(void) {

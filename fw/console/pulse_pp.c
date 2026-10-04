@@ -60,8 +60,7 @@ static void prv_send_next(Transport *transport) {
     bt_lock();
 
     if (resp) {
-      if (s_transport.session != session ||
-          s_transport.session_generation != session_generation) {
+      if (s_transport.session != session || s_transport.session_generation != session_generation) {
         pulse_reliable_send_cancel(resp);
         break;
       }
@@ -168,7 +167,7 @@ void pulse_transport_set_connected(bool is_connected) {
     .bluetooth = {
       .connection = {
         .state = (s_transport.session) ? PebbleBluetoothConnectionEventStateConnected
-        : PebbleBluetoothConnectionEventStateDisconnected
+                                       : PebbleBluetoothConnectionEventStateDisconnected
       }
     }
   };

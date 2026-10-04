@@ -24,8 +24,8 @@ enum PCMPCode {
   PCMPCode_UnknownCode = 130,
 };
 
-void pulse_control_message_protocol_on_packet(
-    PulseControlMessageProtocol *this, void *raw_packet, size_t packet_length) {
+void pulse_control_message_protocol_on_packet(PulseControlMessageProtocol *this, void *raw_packet,
+                                              size_t packet_length) {
   if (raw_packet == NULL || packet_length < sizeof(PCMPPacket)) {
     // Malformed packet; silently discard.
     return;

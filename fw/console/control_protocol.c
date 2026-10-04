@@ -128,8 +128,8 @@ static void prv_send_code_reject(PPPControlProtocol *this, struct LCPPacket *bad
   struct LCPPacket *packet = pulse_link_send_begin(this->protocol_number);
   packet->code = ControlCode_CodeReject;
   packet->identifier = this->state->next_code_reject_id++;
-  size_t body_len = MIN(pbl_be16_get(bad_packet->length),
-                        pulse_link_max_send_size() - LCP_HEADER_LEN);
+  size_t body_len =
+      MIN(pbl_be16_get(bad_packet->length), pulse_link_max_send_size() - LCP_HEADER_LEN);
   packet->length = pbl_be16_make(LCP_HEADER_LEN + body_len);
   memcpy(packet->data, bad_packet, body_len);
   pulse_link_send(packet, LCP_HEADER_LEN + body_len);

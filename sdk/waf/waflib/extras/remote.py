@@ -83,7 +83,7 @@ Usage
 
       ssh-keygen -t rsa -f foo.rsa
 
-   Then add foo.rsa.pub to the remote account's authorized_keys file,
+   Then copy foo.rsa.pub to the remote machine (user@kiunix:/home/user/.ssh/authorized_keys),
    and make sure the permissions are correct (chmod go-w ~ ~/.ssh ~/.ssh/authorized_keys)
 
    A separate key for the build processes can be set in the environment variable WAF_SSH_KEY.

@@ -30,7 +30,6 @@ extern const ReceiverImplementation g_app_message_receiver_implementation;
 //! AppMessageHeader of the incoming push:
 #define MAX_HEADER_SIZE (sizeof(AppMessageHeader))
 
-
 typedef struct {
   bool is_writing_to_app_inbox;
 
@@ -40,7 +39,6 @@ typedef struct {
   //! system receiver or to save them in the event the app inbox write fails in the end.
   //! We only want to write up to MAX_HEADER_SIZE, to keep the kernel heap impact to a minimum.
   size_t header_bytes_remaining;
-
 
   //! Pointer to the default system receiver context, to which we want to forward the header data.
   Receiver *kernel_receiver;
@@ -124,7 +122,6 @@ static Receiver *prv_app_message_receiver_prepare(CommSession *session,
 static void prv_app_message_receiver_write(Receiver *receiver, const uint8_t *data, size_t length) {
   AppMessageReceiver *rcv = (AppMessageReceiver *)receiver;
 
-
   // FIXME: Find a better solution for this.
   // https://pebbletechnology.atlassian.net/browse/PBL-21538
   comm_session_set_responsiveness(rcv->session, PBL_BT_CONSUMER_PP_APP_MESSAGE,
@@ -151,7 +148,6 @@ static void prv_finally(AppMessageReceiver *receiver,
 
 static void prv_app_message_receiver_finish(Receiver *receiver) {
   AppMessageReceiver *rcv = (AppMessageReceiver *)receiver;
-
 
   // Default to letting the system receiver process the message and thus nack it:
   void (*kernel_receiver_finally_cb)(Receiver *) = g_default_kernel_receiver_implementation.finish;

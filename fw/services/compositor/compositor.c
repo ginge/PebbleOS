@@ -155,7 +155,7 @@ void compositor_init(void) {
 void compositor_app_framebuffer_fill_callback(GContext *ctx, int16_t y, Fixed_S16_3 x_range_begin,
                                               Fixed_S16_3 x_range_end, Fixed_S16_3 delta_begin,
                                               Fixed_S16_3 delta_end, void *user_data) {
-  const GPoint *offset = user_data ?: &GPointZero;  // User data has left the building
+  const GPoint *offset = user_data ?: &GPointZero; // User data has left the building
   GBitmap app_framebuffer = compositor_get_app_framebuffer_as_bitmap();
   const int16_t fb_width = app_framebuffer.bounds.size.w;
   const int16_t fb_height = app_framebuffer.bounds.size.h;
@@ -257,11 +257,10 @@ static void prv_compositor_flush(void) {
 
 static void prv_send_did_focus_event(bool in_focus) {
   PebbleEvent event = {
-      .type = PEBBLE_APP_DID_CHANGE_FOCUS_EVENT,
-      .app_focus =
-          {
-              .in_focus = in_focus,
-          },
+    .type = PEBBLE_APP_DID_CHANGE_FOCUS_EVENT,
+    .app_focus = {
+      .in_focus = in_focus,
+    },
   };
   event_put(&event);
 }
@@ -273,7 +272,7 @@ static bool prv_should_render(void) {
 static void prv_release_app_framebuffer(void) {
   // Inform the app that the render is complete and it is safe to write into its framebuffer again.
   PebbleEvent event = {
-      .type = PEBBLE_RENDER_FINISHED_EVENT,
+    .type = PEBBLE_RENDER_FINISHED_EVENT,
   };
   process_manager_send_event_to_process(PebbleTask_App, &event);
 }
@@ -323,7 +322,7 @@ void compositor_app_render_ready(void) {
 
 static void prv_send_app_render_request(void) {
   PebbleEvent event = {
-      .type = PEBBLE_RENDER_REQUEST_EVENT,
+    .type = PEBBLE_RENDER_REQUEST_EVENT,
   };
   process_manager_send_event_to_process(PebbleTask_App, &event);
 }
@@ -456,8 +455,8 @@ void compositor_transition(const CompositorTransition *compositor_animation) {
         (CompositorTransitionState){.animation = animation_create(), .impl = compositor_animation};
 
     static const AnimationImplementation s_compositor_animation_impl = {
-        .update = prv_animation_update,
-        .teardown = prv_animation_teardown,
+      .update = prv_animation_update,
+      .teardown = prv_animation_teardown,
     };
     animation_set_implementation(s_animation_state.animation, &s_compositor_animation_impl);
 
@@ -658,7 +657,8 @@ void compositor_scaled_app_fb_copy_offset(const GRect update_rect, bool copy_rel
 
     for (int16_t dst_y = 0; dst_y < update_rect.size.h; dst_y++) {
       const int16_t dst_y_offset = dst_y + update_rect.origin.y + offset_y;
-      if (dst_y_offset < 0 || dst_y_offset >= disp_height) continue;
+      if (dst_y_offset < 0 || dst_y_offset >= disp_height)
+        continue;
       if ((squish_watchface_for_peek && (dst_y_offset < scale_to.origin.y ||
                                          dst_y_offset >= scale_to.origin.y + scale_to.size.h)) ||
           (shift_scaled_watchface_for_peek && (dst_y_offset >= timeline_peek_get_origin_y()))) {
@@ -746,7 +746,7 @@ void compositor_scaled_app_fb_copy_offset(const GRect update_rect, bool copy_rel
           // Interpolate each 2-bit channel (b, g, r) using 16-bit intermediates
           // Channel layout: [b1:b0 g1:g0 r1:r0 a1:a0]
           // Using 4-bit fractional weights so we can divide by shift (16*16=256)
-          uint8_t result = 0xC0;  // Alpha = 3 (fully opaque)
+          uint8_t result = 0xC0; // Alpha = 3 (fully opaque)
           for (int shift = 0; shift < 6; shift += 2) {
             const uint16_t c00 = (p00 >> shift) & 0x3;
             const uint16_t c10 = (p10 >> shift) & 0x3;
@@ -754,9 +754,9 @@ void compositor_scaled_app_fb_copy_offset(const GRect update_rect, bool copy_rel
             const uint16_t c11 = (p11 >> shift) & 0x3;
 
             // Bilinear: lerp in X for both rows, then lerp in Y
-            const uint16_t top = c00 * (16 - fx) + c10 * fx;  // 0..48
-            const uint16_t bot = c01 * (16 - fx) + c11 * fx;  // 0..48
-            const uint16_t val = top * (16 - fy) + bot * fy;  // 0..768
+            const uint16_t top = c00 * (16 - fx) + c10 * fx; // 0..48
+            const uint16_t bot = c01 * (16 - fx) + c11 * fx; // 0..48
+            const uint16_t val = top * (16 - fy) + bot * fy; // 0..768
 
             // Scale back to 2-bit: divide by 256 with rounding
             const uint8_t channel = (val + 128) >> 8;

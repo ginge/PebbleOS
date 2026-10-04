@@ -304,7 +304,7 @@ const PebbleProcessMd *reminder_app_get_info(void) {
 
 #else
 
-const PebbleProcessMd* reminder_app_get_info(void) {
+const PebbleProcessMd *reminder_app_get_info(void) {
   return NULL;
 }
 

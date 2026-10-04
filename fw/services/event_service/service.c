@@ -14,7 +14,6 @@
 #include <pbl/logging/logging.h>
 #include "system/passert.h"
 
-
 #include <string.h>
 
 PBL_LOG_MODULE_DEFINE(service_event_service, CONFIG_SERVICE_EVENT_SERVICE_LOG_LEVEL);
@@ -121,9 +120,9 @@ static void prv_log_full_process_queue(PebbleTask task, struct pbl_msgq *queue) 
   struct pbl_thread_saved_regs regs;
   pbl_thread_saved_regs(handle, &regs);
   PBL_LOG_ERR("T5AI full process queue: task=%u state=%u priority=%u waiting=%u LR=%p PC=%p",
-              (unsigned)task, (unsigned)pbl_thread_state(handle), (unsigned)pbl_thread_prio_get(handle),
-              (unsigned)pbl_msgq_num_used(queue), (void *)regs.lr,
-              (void *)regs.pc);
+              (unsigned)task, (unsigned)pbl_thread_state(handle),
+              (unsigned)pbl_thread_prio_get(handle), (unsigned)pbl_msgq_num_used(queue),
+              (void *)regs.lr, (void *)regs.pc);
 }
 #endif
 
@@ -232,8 +231,7 @@ void event_service_handle_event(PebbleEvent *e) {
         continue;
       } else {
         if (!prv_event_service_send_event(service->subscribers[i], e)) {
-          PBL_LOG_ERR("Queue full! %d not delivered to task %d!",
-                  (int)e->type, (int)i);
+          PBL_LOG_ERR("Queue full! %d not delivered to task %d!", (int)e->type, (int)i);
 #ifdef CONFIG_SOC_T5AI
           prv_log_full_process_queue(i, service->subscribers[i]);
 #endif

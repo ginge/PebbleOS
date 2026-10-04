@@ -21,8 +21,7 @@ typedef struct PBL_PACKED CoredumpStatResp {
   uint32_t size;
 } CoredumpStatResp;
 
-static status_t prv_get_coredump_index(const void *packet_data, size_t length,
-                                       uint32_t *index) {
+static status_t prv_get_coredump_index(const void *packet_data, size_t length, uint32_t *index) {
   if (packet_data == NULL || index == NULL || length != sizeof(*index)) {
     return E_INVALID_ARGUMENT;
   }
@@ -36,8 +35,7 @@ static bool prv_coredump_range_valid(uint32_t address, uint32_t length) {
   return length > 0 && length <= data_size && address <= data_size - length;
 }
 
-static int coredump_domain_read(uint8_t *buf, uint32_t address, uint32_t length,
-                                     void *context) {
+static int coredump_domain_read(uint8_t *buf, uint32_t address, uint32_t length, void *context) {
   if (buf == NULL || !prv_coredump_range_valid(address, length)) {
     return E_RANGE;
   }
@@ -102,7 +100,7 @@ static status_t coredump_domain_open(uint8_t *packet_data, size_t length, void *
     return status;
   }
 
-  *resp = (void*)(uintptr_t)index;
+  *resp = (void *)(uintptr_t)index;
   return S_SUCCESS;
 }
 

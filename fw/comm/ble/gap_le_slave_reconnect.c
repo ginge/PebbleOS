@@ -141,11 +141,11 @@ static void prv_evaluate(ReconnectType prev_type) {
      * advertising transition. Use one continuous reconnect term so recovery
      * never depends on a disable/re-enable command pair. */
     const GAPLEAdvertisingJobTerm advert_terms[] = {
-        {
-            .duration_secs = GAPLE_ADVERTISING_DURATION_INFINITE,
-            .interval = use_hrm_payload ? GAPLEAdvertisingInterval_Short
-                                        : GAPLEAdvertisingInterval_Long,
-        },
+      {
+        .duration_secs = GAPLE_ADVERTISING_DURATION_INFINITE,
+        .interval =
+            use_hrm_payload ? GAPLEAdvertisingInterval_Short : GAPLEAdvertisingInterval_Long,
+      },
     };
 #else
     const GAPLEAdvertisingJobTerm advert_terms[] = {

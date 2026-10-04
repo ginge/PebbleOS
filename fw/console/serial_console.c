@@ -25,7 +25,7 @@ static void logging_handle_character(char c) {
 #endif
   // Remember, you're in an interrupt here!
 
-  if (c == 0x3) {  // CTRL-C
+  if (c == 0x3) { // CTRL-C
     if (!s_prompt_enabled) {
       PBL_LOG_DBG("Ignoring prompt request, not yet ready!");
       return;
@@ -104,7 +104,7 @@ void serial_console_set_state(SerialConsoleState new_state) {
       dbgserial_set_rx_dma_enabled(true);
       break;
     default:
-      WTF;  // Don't know this state
+      WTF; // Don't know this state
   }
 
   pbl_irq_unlock();

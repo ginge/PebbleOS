@@ -54,8 +54,8 @@ PBL_LOG_MODULE_DECLARE(bt, CONFIG_BT_LOG_LEVEL);
 // Advertising interval parameters in ms, indexed by GAPLEAdvertisingInterval.
 // Values comply with Apple Accessory Design Guidelines.
 static const uint32_t s_interval_ms[] = {
-    [GAPLEAdvertisingInterval_Short] = 20,   // 20ms
-    [GAPLEAdvertisingInterval_Long] = 1022,  // 1022.5ms (truncated to ms)
+  [GAPLEAdvertisingInterval_Short] = 20,  // 20ms
+  [GAPLEAdvertisingInterval_Long] = 1022, // 1022.5ms (truncated to ms)
 };
 
 typedef struct GAPLEAdvertisingJob {
@@ -413,16 +413,15 @@ GAPLEAdvertisingJobRef gap_le_advert_schedule(const struct pbl_bt_ad_data *paylo
       sizeof(GAPLEAdvertisingJob) + payload->ad_data_length + payload->scan_resp_data_length);
 
   *job = (const GAPLEAdvertisingJob){
-      .unscheduled_callback = callback,
-      .unscheduled_callback_data = callback_data,
-      .term_time_elapsed_secs = 0,
-      .num_terms = num_terms,
-      .tag = tag,
-      .payload =
-          {
-              .ad_data_length = payload->ad_data_length,
-              .scan_resp_data_length = payload->scan_resp_data_length,
-          },
+    .unscheduled_callback = callback,
+    .unscheduled_callback_data = callback_data,
+    .term_time_elapsed_secs = 0,
+    .num_terms = num_terms,
+    .tag = tag,
+    .payload = {
+      .ad_data_length = payload->ad_data_length,
+      .scan_resp_data_length = payload->scan_resp_data_length,
+    },
   };
 
   job->terms = kernel_malloc_check(sizeof(GAPLEAdvertisingJobTerm) * num_terms);
@@ -518,7 +517,7 @@ void gap_le_advert_unschedule_job_types(GAPLEAdvertisingJobTag *tag_types, size_
     }
 
     if (curr_node == first_node) {
-      break;  // we have cycled through all the jobs
+      break; // we have cycled through all the jobs
     }
 
     curr_node = prev_node;
@@ -556,7 +555,7 @@ void gap_le_advert_init(void) {
     s_current = NULL;
     s_current_ad_data = NULL;
     s_cycle_regular_timer = (const RegularTimerInfo){
-        .cb = prv_cycle_timer_callback,
+      .cb = prv_cycle_timer_callback,
     };
 
     s_is_advertising = false;

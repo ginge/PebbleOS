@@ -262,8 +262,7 @@ static void prv_handle_pairing_complete_event(struct ble_gap_event *event) {
     return;
   }
 
-  pbl_bt_cb_pairing_confirm_handle_completed(&s_pairing_ctx,
-                                                event->pairing_complete.status == 0);
+  pbl_bt_cb_pairing_confirm_handle_completed(&s_pairing_ctx, event->pairing_complete.status == 0);
   s_pairing_in_progress = false;
 }
 

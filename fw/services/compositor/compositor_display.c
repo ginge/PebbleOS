@@ -159,7 +159,7 @@ void compositor_display_update(void (*handle_update_complete_cb)(void)) {
   }
 #ifdef CONFIG_DISPLAY_FORCE_FULL_FRAME_UPDATES
   // Force full screen updates - partial ROI causes animation issues on getafix display
-  fb->dirty_rect = (GRect){ GPointZero, fb->size };
+  fb->dirty_rect = (GRect){GPointZero, fb->size};
 #endif
 #ifdef CONFIG_BOARD_OBELIX
   // Capture dirty region bounds for corner restoration later

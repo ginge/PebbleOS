@@ -100,11 +100,11 @@
 
 #ifndef CONFIG_SOC_T5AI
 static TimerID s_lowpower_timer = TIMER_INVALID_ID;
-#if !defined(CONFIG_MFG)
+#ifndef CONFIG_MFG
 static TimerID s_uptime_timer = TIMER_INVALID_ID;
 #endif
 #endif
-static void main_task(void* parameter);
+static void main_task(void *parameter);
 
 static void print_splash_screen(void) {
 #if defined(CONFIG_MFG)
@@ -144,12 +144,16 @@ int main(void) {
   extern uint32_t __kernel_main_stack_size__[];
   extern uint32_t __stack_guard_size__[];
   struct pbl_thread_attr attr = {
-    .name = "KernelMain", .entry = main_task,
-    .prio = PBL_PRIO_IDLE + 3, .privileged = true,
+    .name = "KernelMain",
+    .entry = main_task,
+    .prio = PBL_PRIO_IDLE + 3,
+    .privileged = true,
     .stack = (void *)((uintptr_t)__kernel_main_stack_start__ + (uintptr_t)__stack_guard_size__),
     .stack_size = (uintptr_t)__kernel_main_stack_size__ - (uintptr_t)__stack_guard_size__,
   };
+
   pebble_task_create(PebbleTask_KernelMain, &attr);
+
   pbl_kernel_start();
 }
 
@@ -194,6 +198,7 @@ static void register_system_timers(void) {
       pbl_task_wdt_add(pebble_task_get_thread(PebbleTask_NewTimers), CONFIG_TASK_WDT_TIMEOUT_MS,
                        prv_new_timers_wdt_expired, NULL);
   PBL_ASSERTN(s_new_timers_wdt_channel >= 0);
+
   static RegularTimerInfo watchdog_timer = {.list_node = {0, 0}, .cb = watchdog_timer_callback};
   regular_timer_add_seconds_callback(&watchdog_timer);
 }
@@ -235,7 +240,6 @@ static void init_drivers(void) {
 #endif
 
   accel_init();
-
 #ifdef CONFIG_MAG
   mag_init();
 #endif
@@ -259,7 +263,7 @@ static void clear_reset_loop_detection_bits(void) {
 }
 
 #if !defined(CONFIG_MFG) && !defined(CONFIG_SOC_T5AI)
-static void uptime_callback(void* data) {
+static void uptime_callback(void *data) {
   PBL_LOG_VERBOSE("Uptime reached 15 minutes, set stable bit.");
   new_timer_delete(s_uptime_timer);
   boot_bit_set(BOOT_BIT_FW_STABLE);
@@ -267,7 +271,7 @@ static void uptime_callback(void* data) {
 #endif
 
 #ifndef CONFIG_SOC_T5AI
-static void prv_low_power_debug_config_callback(void* data) {
+static void prv_low_power_debug_config_callback(void *data) {
   new_timer_delete(s_lowpower_timer);
 }
 #endif
@@ -465,7 +469,7 @@ static PBL_NOINLINE void prv_main_task_init(void) {
   pbl_task_wdt_resume();
 }
 
-static void main_task(void* parameter) {
+static void main_task(void *parameter) {
 #ifdef CONFIG_SOC_T5AI
   /* Ensure device interrupts are active as the first privileged task starts. */
   __enable_irq();
