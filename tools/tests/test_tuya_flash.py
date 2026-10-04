@@ -54,11 +54,11 @@ int main(void) {
         self.assertLess(read.index("prv_flash_transaction(FLASH_READ_DONE)"),
                         read.index("prv_restore_client_priority(previous_priority)"))
         flash = (ROOT / "src/fw/drivers/flash/t5ai.c").read_text()
-        verification = flash.split("static status_t prv_verify_pfs_header_write", 1)[1]
-        unhygienix = verification.split("#if defined(CONFIG_BOARD_UNHYGIENIX)", 1)[1].split("#else", 1)[0]
-        self.assertIn("return E_ERROR", unhygienix)
-        self.assertNotIn("prv_confirm_pfs_read", unhygienix)
-        self.assertNotIn("t5ai_flash_ipc_write", unhygienix)
+        verification = flash.split("static status_t prv_verify_pfs_header_write", 1)[1].split(
+            "FlashAddress flash_impl_get_sector_base_address", 1)[0]
+        self.assertIn("return E_ERROR", verification)
+        self.assertNotIn("prv_confirm_pfs_read", verification)
+        self.assertNotIn("t5ai_flash_ipc_write", verification)
 
     def test_t5ai_write_path_has_no_retained_probe_instrumentation(self):
         flash = (ROOT / "src/fw/drivers/flash/t5ai.c").read_text()

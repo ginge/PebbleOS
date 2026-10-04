@@ -75,8 +75,8 @@ build environment. The builder stages both SDKs under `build/unhygienix_hw/sdk`
 and invokes the vendor generator there, keeping submodule source pristine.
 Vendor toolchain downloads remain governed by the pinned T5AI scripts. This
 reference target is optional; it does not build the native PebbleOS kernel or
-flash hardware. The vendor MPU/kernel compatibility checker can consume the staged SDK after
-its compilation database exists.
+flash hardware. The retired vendor MPU/kernel bridge experiment is available
+in Git history; the native PebbleOS kernel does not use those patches.
 
 ## Validation
 

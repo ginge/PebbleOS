@@ -30,12 +30,6 @@ extern const ReceiverImplementation g_app_message_receiver_implementation;
 //! AppMessageHeader of the incoming push:
 #define MAX_HEADER_SIZE (sizeof(AppMessageHeader))
 
-#ifdef CONFIG_SOC_T5AI
-//! Temporary metadata-only trace prefix: AppMessage header, UUID, dictionary count, and first
-//! tuple header. Deliberately excludes tuple values.
-#define T5AI_TRACE_PREFIX_SIZE \
-  (APP_MSG_HDR_OVRHD_SIZE + sizeof(Dictionary) + offsetof(Tuple, value))
-#endif
 
 typedef struct {
   bool is_writing_to_app_inbox;
@@ -47,10 +41,6 @@ typedef struct {
   //! We only want to write up to MAX_HEADER_SIZE, to keep the kernel heap impact to a minimum.
   size_t header_bytes_remaining;
 
-#ifdef CONFIG_SOC_T5AI
-  uint8_t trace_prefix[T5AI_TRACE_PREFIX_SIZE];
-  size_t trace_prefix_length;
-#endif
 
   //! Pointer to the default system receiver context, to which we want to forward the header data.
   Receiver *kernel_receiver;
@@ -85,10 +75,6 @@ static void prv_write(const uint8_t *data, size_t length) {
 static Receiver *prv_app_message_receiver_prepare(CommSession *session,
                                                   const PebbleProtocolEndpoint *endpoint,
                                                   size_t total_payload_size) {
-#ifdef CONFIG_SOC_T5AI
-  PBL_LOG_INFO("T5AI pref trace: prepare payload=%"PRIu32,
-               (uint32_t)total_payload_size);
-#endif
   // FIXME: Find a better solution for this.
   // https://pebbletechnology.atlassian.net/browse/PBL-21538
   if (total_payload_size > 500) {
@@ -138,14 +124,6 @@ static Receiver *prv_app_message_receiver_prepare(CommSession *session,
 static void prv_app_message_receiver_write(Receiver *receiver, const uint8_t *data, size_t length) {
   AppMessageReceiver *rcv = (AppMessageReceiver *)receiver;
 
-#ifdef CONFIG_SOC_T5AI
-  const size_t trace_bytes_to_copy = MIN(sizeof(rcv->trace_prefix) - rcv->trace_prefix_length,
-                                         length);
-  if (trace_bytes_to_copy) {
-    memcpy(rcv->trace_prefix + rcv->trace_prefix_length, data, trace_bytes_to_copy);
-    rcv->trace_prefix_length += trace_bytes_to_copy;
-  }
-#endif
 
   // FIXME: Find a better solution for this.
   // https://pebbletechnology.atlassian.net/browse/PBL-21538
@@ -173,38 +151,16 @@ static void prv_finally(AppMessageReceiver *receiver,
 static void prv_app_message_receiver_finish(Receiver *receiver) {
   AppMessageReceiver *rcv = (AppMessageReceiver *)receiver;
 
-#ifdef CONFIG_SOC_T5AI
-  if (rcv->trace_prefix_length >= sizeof(AppMessageHeader)) {
-    const AppMessageHeader *header = (const AppMessageHeader *)rcv->trace_prefix;
-    PBL_LOG_INFO("T5AI pref trace: finish cmd=%u txn=%u", header->command,
-                 header->transaction_id);
-    if ((header->command == CMD_PUSH) &&
-        (rcv->trace_prefix_length >= T5AI_TRACE_PREFIX_SIZE)) {
-      const AppMessagePush *push = (const AppMessagePush *)rcv->trace_prefix;
-      const Tuple *tuple = push->dictionary.head;
-      PBL_LOG_INFO("T5AI pref trace: dict count=%u first key=%"PRIu32" type=%u len=%u",
-                   push->dictionary.count, tuple->key, tuple->type, tuple->length);
-    }
-  }
-#endif
 
   // Default to letting the system receiver process the message and thus nack it:
   void (*kernel_receiver_finally_cb)(Receiver *) = g_default_kernel_receiver_implementation.finish;
 
   if (rcv->is_writing_to_app_inbox) {
     if (app_inbox_service_end(AppInboxServiceTagAppMessageReceiver)) {
-#ifdef CONFIG_SOC_T5AI
-      PBL_LOG_INFO("T5AI pref trace: queued for app");
-#endif
       // The write was successful, cancel processing the header for nacking:
       kernel_receiver_finally_cb = g_default_kernel_receiver_implementation.cleanup;
       PBL_ANALYTICS_ADD(app_message_received_count, 1);
     }
-#ifdef CONFIG_SOC_T5AI
-    else {
-      PBL_LOG_INFO("T5AI pref trace: app queue rejected message");
-    }
-#endif
   }
 
   prv_finally(rcv, kernel_receiver_finally_cb);

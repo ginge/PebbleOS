@@ -31,15 +31,6 @@ config T5AI_CORE_CLOCK_HZ
       the AP firmware lifetime; changing this value also requires updating and
       validating that vote and the matching peripheral timing.
 
-config T5AI_SYSTICK_CLOCK_HZ
-    int "T5AI application CPU SysTick clock"
-    depends on SOC_T5AI
-    default 120000000
-    help
-      Effective SysTick clock on the BK7258 application CPU after the CPU1
-      120 MHz DVFS vote. Hardware RTC comparison confirms that SysTick follows
-      the elected core clock; a 60 MHz reload makes FreeRTOS run twice as fast.
-
 config SOC
     string
     default "NRF52" if SOC_NRF52

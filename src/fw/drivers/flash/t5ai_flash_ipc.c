@@ -25,7 +25,6 @@ PBL_LOG_MODULE_DECLARE(driver_flash, CONFIG_DRIVER_FLASH_LOG_LEVEL);
 #define FLASH_STATUS_SHIFT 16u
 #define FLASH_MAX_TRANSFER_BYTES UINT16_MAX
 #define FLASH_ERASE_BLOCK_BYTES 4096u
-#define FLASH_FAILURE_CONTEXT 0x464c0000u  // ASCII FL, followed by service command.
 #define SARADC_MAX_CHANNEL 15u
 #define SARADC_MAX_SAMPLES 32u
 #define SARADC_CONFIG_WIRE_SIZE 36u
@@ -304,7 +303,6 @@ static void prv_flash_fault(status_t status, uint8_t command) {
     s_flash_available = false;
     t5ai_mb_ipc_poison(s_flash_socket);
   }
-  t5ai_cp_mailbox_snapshot_failure(FLASH_FAILURE_CONTEXT | command, status);
   PBL_LOG_ERR("T5AI flash IPC fault command=%u status=%ld quarantined=%u", command,
               (long)status, ambiguous);
 }

@@ -1,19 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-import importlib.util
 import shutil
 import subprocess
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "tools"))
-spec = importlib.util.spec_from_file_location(
-    "check_tuya_kernel", ROOT / "tools/check_tuya_kernel.py"
-)
-checker = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(checker)
 
 
 class TuyaKernelCheckTest(unittest.TestCase):
@@ -211,7 +203,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertNotIn("T5AI PP RX start", hci_transport)
         self.assertNotIn("T5AI BlobDB", hci_transport)
         self.assertNotIn("LOG_DOMAIN_BT_STACK", hci_transport)
-        self.assertIn("PBL_LOG_D_INFO(LOG_DOMAIN_COMM", hci_transport)
+        self.assertIn("PBL_LOG_D_DBG(LOG_DOMAIN_COMM", hci_transport)
         self.assertIn("T5AI_HCI_ACL_TX_QUEUE_CAPACITY", hci_transport)
         self.assertIn("prv_send_queued_acl", hci_transport)
         self.assertNotIn("T5AI_HCI_ACL_SEND_ATTEMPTS", hci_transport)
@@ -268,12 +260,6 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn(".frequency = 100000u", board)
         self.assertNotIn(".frequency = 400000u", board)
 
-    def test_t5ai_systick_tracks_the_elected_120mhz_cpu_clock(self):
-        kconfig = (ROOT / "soc/Kconfig").read_text()
-        systick = kconfig.split("config T5AI_SYSTICK_CLOCK_HZ", 1)[1].split(
-            "config SOC", 1
-        )[0]
-        self.assertIn("default 120000000", systick)
 
     def test_t5ai_i2c_uses_stable_single_byte_interrupt_mode(self):
         i2c = (ROOT / "src/fw/drivers/i2c/t5ai.c").read_text()
@@ -708,11 +694,6 @@ typedef struct {
   uint32_t header, parameter1, parameter2, parameter3;
 } T5AIMailboxMessage;
 static bool s_heartbeat_in_flight;
-static struct { unsigned tx_retired, send_failures; } s_diagnostics;
-static void prv_tx_completed(uint32_t header, status_t status) {
-  (void)header;
-  (void)status;
-}
 """ + callback + r"""
 int main(void) {
   T5AIMailboxMessage ack = {.header = 2u, .parameter3 = 2u};
@@ -722,25 +703,20 @@ int main(void) {
     s_heartbeat_in_flight = true;
     prv_heartbeat_complete(&ack, 0, NULL);
     assert(!s_heartbeat_in_flight);
-    assert(s_diagnostics.tx_retired == i + 1);
   }
   ack.parameter3 = 1u;
   s_heartbeat_in_flight = true;
   prv_heartbeat_complete(&ack, 0, NULL);
   assert(s_heartbeat_in_flight);
-  assert(s_diagnostics.tx_retired == 10);
   ack.parameter3 = 3u;
   prv_heartbeat_complete(&ack, 0, NULL);
   assert(!s_heartbeat_in_flight);
-  assert(s_diagnostics.send_failures == 1);
   s_heartbeat_in_flight = true;
   prv_heartbeat_complete(&ack, -1, NULL);
   assert(!s_heartbeat_in_flight);
-  assert(s_diagnostics.send_failures == 2);
   s_heartbeat_in_flight = true;
   prv_heartbeat_complete(NULL, 0, NULL);
   assert(!s_heartbeat_in_flight);
-  assert(s_diagnostics.send_failures == 3);
   return 0;
 }
 """
@@ -980,8 +956,6 @@ int main(void) {
         transport = (ROOT / "src/fw/drivers/t5ai/mailbox_channel.c").read_text()
         self.assertIn("config T5AI_CORE_CLOCK_HZ", kconfig)
         self.assertIn("default 120000000", kconfig)
-        self.assertIn("config T5AI_SYSTICK_CLOCK_HZ", kconfig)
-        self.assertIn("a 60 MHz reload makes FreeRTOS run twice as fast", kconfig)
         self.assertIn(
             "SystemCoreClock = CONFIG_T5AI_CORE_CLOCK_HZ", initialization
         )
@@ -1039,9 +1013,7 @@ int main(void) {
         flush = console.split("void dbgserial_flush", 1)[1].split(
             "void dbgserial_putstr_fmt", 1
         )[0]
-        cp_log = mailbox.split("status_t t5ai_cp_mailbox_log", 1)[1].split(
-            "void t5ai_cp_mailbox_get_diagnostics", 1
-        )[0]
+        cp_log = mailbox.split("status_t t5ai_cp_mailbox_log", 1)[1]
         self.assertIn("if (mcu_state_is_isr())", putchar)
         self.assertIn("if (mcu_state_is_isr())", flush)
         self.assertIn("if (mcu_state_is_isr())", cp_log)
@@ -1176,120 +1148,6 @@ int main(void) {
         )
         self.assertIn("elapsed / T5AI_AON_RTC_HZ", implementation)
 
-    def test_only_expected_config_is_rewritten(self):
-        config = "#define configENABLE_MPU                   0\n#define OTHER 7\n"
-        for enabled in (0, 1):
-            result = checker.make_config(config, enabled)
-            self.assertIn(f"#define configENABLE_MPU {enabled}\n", result)
-            self.assertIn("#define configTOTAL_MPU_REGIONS 16\n", result)
-            self.assertIn("#define OTHER 7", result)
-        with self.assertRaises(ValueError):
-            checker.make_config("#define configENABLE_MPU 1\n", 1)
-        with self.assertRaises(ValueError):
-            checker.make_config(config + config, 1)
-
-    def test_pebble_config_reserves_tls(self):
-        config = "#define configENABLE_MPU 0\n" + (
-            "#define configNUM_THREAD_LOCAL_STORAGE_POINTERS 3\n" * 2
-        )
-        result = checker.make_config(config, 1, True)
-        self.assertEqual(result.count("configNUM_THREAD_LOCAL_STORAGE_POINTERS 5"), 2)
-        self.assertIn("#define configPEBBLE_SYSCALL_BRIDGE 1", result)
-        self.assertIn("#define configPEBBLE_CORE_ID 1", result)
-        for bad in (
-            config.replace("POINTERS 3", "POINTERS 4"),
-            "#define configENABLE_MPU 0\n",
-        ):
-            with self.assertRaises(ValueError):
-                checker.make_config(bad, 1, True)
-        with self.assertRaises(ValueError):
-            checker.make_config(config, 0, True)
-
-    def test_svc_dispatch_policy(self):
-        compiler = shutil.which("cc")
-        if not compiler:
-            self.skipTest("Host C compiler unavailable")
-        with tempfile.TemporaryDirectory() as directory:
-            binary = Path(directory) / "test-svc"
-            subprocess.run(
-                [
-                    compiler,
-                    "-std=c11",
-                    "-Wall",
-                    "-Wextra",
-                    "-Werror",
-                    "-DPBL_RTOS_TUYA=1",
-                    f"-I{ROOT / 'include'}",
-                    f"-I{checker.SOURCE / 'kernel'}",
-                    str(checker.SOURCE / "kernel/svc_bridge.c"),
-                    str(checker.SOURCE / "tests/test_svc_bridge.c"),
-                    "-o",
-                    str(binary),
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            subprocess.run([str(binary)], check=True, capture_output=True, text=True)
-
-    def test_task_memory_policy(self):
-        compiler = shutil.which("cc")
-        if not compiler:
-            self.skipTest("Host C compiler unavailable")
-        with tempfile.TemporaryDirectory() as directory:
-            binary = Path(directory) / "test-memory"
-            subprocess.run(
-                [
-                    compiler,
-                    "-std=c11",
-                    "-Wall",
-                    "-Wextra",
-                    "-Werror",
-                    f"-I{ROOT / 'include'}",
-                    f"-I{ROOT / 'src/fw'}",
-                    f"-I{checker.SOURCE / 'kernel'}",
-                    str(checker.SOURCE / "kernel/task_memory.c"),
-                    str(checker.SOURCE / "kernel/task_memory_pebble.c"),
-                    str(checker.SOURCE / "tests/test_task_memory.c"),
-                    "-o",
-                    str(binary),
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            subprocess.run([str(binary)], check=True, capture_output=True, text=True)
-
-    def test_compiler_outputs_are_redirected_without_a_shell(self):
-        entry = {
-            "command": "'/sdk/tool chain/gcc' -DNAME='a;b' -I/sdk -MD -MF old.d -MT old.o -o old.o -c old.c"
-        }
-        result = checker.compile_command(
-            entry, Path("/copy/tasks.c"), Path("/out/tasks.o"), [Path("/config")]
-        )
-        self.assertEqual(result[0:2], ["/sdk/tool chain/gcc", "-I/config"])
-        self.assertIn("-DNAME=a;b", result)
-        self.assertEqual(result[result.index("-c") + 1], "/copy/tasks.c")
-        self.assertEqual(result[result.index("-o") + 1], "/out/tasks.o")
-        self.assertEqual(result[result.index("-MF") + 1], "/out/tasks.d")
-        self.assertEqual(result[result.index("-MT") + 1], "/out/tasks.o")
-
-    def test_rejects_non_compiler_commands(self):
-        for args in (["gcc", "x.c"], ["gcc", "-c", "a.c", "-c", "b.c", "-o", "a.o"]):
-            with self.assertRaises(ValueError):
-                checker.compile_command(
-                    {"arguments": args}, Path("a.c"), Path("a.o"), []
-                )
-
-    def test_output_ownership(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            with self.assertRaises(ValueError):
-                checker.prepare_output(root)
-            output = root / "check"
-            checker.prepare_output(output)
-            checker.prepare_output(output)
-            self.assertTrue((output / ".pebble-tuya-kernel-check").is_file())
 
     def test_t5ai_retained_state_implementations_are_soc_local(self):
         system_build = (ROOT / "src/fw/system/wscript_build").read_text()

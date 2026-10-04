@@ -139,10 +139,6 @@ PBL_LOG_MODULE_DEFINE(driver_display_co5300, LOG_LEVEL_DEBUG);
 #define QSPI_CMD_C_H 0x44u
 #define QSPI_CMD_C_CFG1 0x48u
 #define QSPI_CMD_C_CFG2 0x4cu
-#define QSPI_CMD_D_L 0x50u
-#define QSPI_CMD_D_H 0x54u
-#define QSPI_CMD_D_CFG1 0x58u
-#define QSPI_CMD_D_CFG2 0x5cu
 #define QSPI_CONFIG 0x60u
 #define QSPI_RST_CFG 0x64u
 #define QSPI_STATUS_CLR 0x6cu

@@ -87,10 +87,6 @@ static TaskHandle_t s_heartbeat_task;
 static bool s_runtime_initialized;
 static bool s_pm_faulted;
 static bool s_log_faulted;
-static T5AICPMailboxDiagnostics s_diagnostics;
-static T5AICPMailboxFailureDiagnostics s_failure;
-static bool s_failure_valid;
-static uint8_t s_trace_next;
 
 static void prv_heartbeat_task(void *context);
 
@@ -112,47 +108,6 @@ bool t5ai_cp_mailbox_shared_range_valid(uintptr_t address, size_t length) {
   const uintptr_t end = address + length;
   return (address >= T5AI_SHARED_SRAM_BEGIN && end <= T5AI_SHARED_SRAM_END) ||
          (address >= T5AI_SHARED_PSRAM_BEGIN && end <= T5AI_SHARED_PSRAM_END);
-}
-
-static void prv_trace(T5AICPMailboxTraceEvent event, uint32_t header, uint32_t parameter,
-                      status_t status) {
-  taskENTER_CRITICAL();
-  s_diagnostics.trace[s_trace_next] = (T5AICPMailboxTraceEntry){
-      .ticks = T5AI_AON_RTC_COUNT_LOW,
-      .header = header,
-      .parameter = parameter,
-      .status = status,
-      .event = event,
-      .tx_depth = s_diagnostics.tx_depth,
-  };
-  s_trace_next = (uint8_t)((s_trace_next + 1u) % T5AI_CP_MAILBOX_TRACE_CAPACITY);
-  if (s_diagnostics.trace_count < T5AI_CP_MAILBOX_TRACE_CAPACITY) {
-    ++s_diagnostics.trace_count;
-  }
-  taskEXIT_CRITICAL();
-}
-
-static void prv_tx_published(uint32_t header, uint32_t parameter) {
-  taskENTER_CRITICAL();
-  if (s_diagnostics.tx_depth != UINT8_MAX) {
-    ++s_diagnostics.tx_depth;
-  }
-  if (s_diagnostics.tx_depth > s_diagnostics.tx_high_water) {
-    s_diagnostics.tx_high_water = s_diagnostics.tx_depth;
-  }
-  taskEXIT_CRITICAL();
-  prv_trace(T5AICPMailboxTraceEvent_TxPublished, header, parameter, S_SUCCESS);
-}
-
-static void prv_tx_completed(uint32_t header, status_t status) {
-  taskENTER_CRITICAL();
-  if (s_diagnostics.tx_depth != 0u) {
-    --s_diagnostics.tx_depth;
-  }
-  taskEXIT_CRITICAL();
-  prv_trace(PASSED(status) ? T5AICPMailboxTraceEvent_TxRetired
-                           : T5AICPMailboxTraceEvent_Error,
-            header, 0u, status);
 }
 
 static bool prv_enqueue(uint8_t channel, const T5AIMailboxMessage *message) {
@@ -198,8 +153,6 @@ static bool prv_dequeue(uint8_t channel, T5AICPMailboxFrame *frame) {
 static void prv_receive(T5AIMailboxMessage *message, void *context) {
   const uint8_t channel = (uint8_t)(uintptr_t)context;
   const uint8_t index = channel & T5AI_MAILBOX_CHANNEL_INDEX_MASK;
-  ++s_diagnostics.rx_frames;
-  prv_trace(T5AICPMailboxTraceEvent_Rx, message->header, message->parameter1, S_SUCCESS);
   /* A pending control command may complete through a separate response. */
   if (channel == CP_CONTROL_RX_CHANNEL &&
       (uint8_t)message->header == (CP_HEARTBEAT_COMMAND | CP_RESPONSE_FLAG) &&
@@ -208,15 +161,11 @@ static void prv_receive(T5AIMailboxMessage *message, void *context) {
     message->parameter1 = 0u;
     message->parameter2 = 0u;
     message->parameter3 = CP_ACK_STATE_COMPLETE;
-    ++s_diagnostics.rx_routed;
-    prv_trace(T5AICPMailboxTraceEvent_Routed, message->header, message->parameter1, S_SUCCESS);
     return;
   }
   if (channel == CP_FLASH_NOTIFY_RX_CHANNEL) {
     if (message->parameter1 == CP_FLASH_NOTIFY_REQUEST) {
       message->parameter1 = CP_FLASH_NOTIFY_ACK;
-      ++s_diagnostics.rx_routed;
-      prv_trace(T5AICPMailboxTraceEvent_Routed, message->header, message->parameter1, S_SUCCESS);
       return;
     }
     message->header |= T5AI_MAILBOX_HEADER_COMMUNICATION_FAILED;
@@ -233,29 +182,18 @@ static void prv_receive(T5AIMailboxMessage *message, void *context) {
     frame.address = (uintptr_t)frame.snapshot;
     route.callback(channel, &frame, route.context);
     memcpy(message, frame.snapshot, sizeof(*message));
-    ++s_diagnostics.rx_routed;
-    prv_trace(T5AICPMailboxTraceEvent_Routed, message->header, message->parameter1, S_SUCCESS);
     return;
   }
   if (channel == CP_PM_RX_CHANNEL && prv_enqueue(channel, message)) {
-    ++s_diagnostics.rx_routed;
-    prv_trace(T5AICPMailboxTraceEvent_Routed, message->header, message->parameter1, S_SUCCESS);
     return;
   }
-  ++s_diagnostics.rx_unrouted;
-  prv_trace(T5AICPMailboxTraceEvent_Unrouted, message->header, message->parameter1,
-            E_INVALID_OPERATION);
   message->header |= T5AI_MAILBOX_HEADER_COMMUNICATION_FAILED;
 }
 
 static void prv_transmit_complete(const T5AIMailboxMessage *ack, status_t status, void *context) {
+  (void)ack;
+  (void)status;
   (void)context;
-  if (PASSED(status)) {
-    ++s_diagnostics.tx_retired;
-  } else {
-    ++s_diagnostics.send_failures;
-  }
-  prv_tx_completed(ack == NULL ? 0u : ack->header, status);
 }
 
 static status_t prv_ensure_runtime(void) {
@@ -317,16 +255,8 @@ status_t t5ai_cp_mailbox_send(const void *data, size_t length) {
   T5AIMailboxMessage message;
   memcpy(&message, data, sizeof(message));
   const uint8_t channel = (uint8_t)(message.header >> T5AI_MAILBOX_HEADER_CHANNEL_SHIFT);
-  ++s_diagnostics.tx_queued;
-  prv_trace(T5AICPMailboxTraceEvent_TxQueued, message.header, message.parameter1, S_SUCCESS);
   status = t5ai_mailbox_channel_send_async(channel, &message, prv_transmit_complete,
                                             (void *)(uintptr_t)channel);
-  if (PASSED(status)) {
-    ++s_diagnostics.tx_published;
-    prv_tx_published(message.header, message.parameter1);
-  } else {
-    ++s_diagnostics.send_failures;
-  }
   return status;
 }
 
@@ -395,7 +325,6 @@ status_t t5ai_cp_mailbox_receive(uint8_t logical_channel, T5AICPMailboxFrame *fr
     return E_INVALID_ARGUMENT;
   }
   if (xSemaphoreTake(s_pm_queue.ready, pdMS_TO_TICKS(CP_RUNTIME_TIMEOUT_MS)) != pdPASS) {
-    ++s_diagnostics.receive_timeouts;
     return E_AGAIN;
   }
   return prv_dequeue(logical_channel, frame) ? S_SUCCESS : E_AGAIN;
@@ -440,12 +369,9 @@ static void prv_heartbeat_complete(const T5AIMailboxMessage *ack, status_t statu
   /* Tuya normally completes heartbeat processing in the physical ACK. */
   if (PASSED(status) && ack != NULL && ack->parameter3 == CP_ACK_STATE_COMPLETE) {
     s_heartbeat_in_flight = false;
-    ++s_diagnostics.tx_retired;
   } else if (FAILED(status) || ack == NULL || ack->parameter3 != CP_ACK_STATE_PENDING) {
     s_heartbeat_in_flight = false;
-    ++s_diagnostics.send_failures;
   }
-  prv_tx_completed(ack == NULL ? 0u : ack->header, status);
 }
 
 void t5ai_cp_mailbox_heartbeat(void) {
@@ -462,18 +388,11 @@ void t5ai_cp_mailbox_heartbeat(void) {
       .parameter2 = sizeof(s_heartbeat_parameter),
   };
   dcache_flush(&s_heartbeat_parameter, sizeof(s_heartbeat_parameter));
-  ++s_diagnostics.tx_queued;
-  prv_trace(T5AICPMailboxTraceEvent_TxQueued, s_control_message.header,
-            s_control_message.parameter1, S_SUCCESS);
   s_heartbeat_in_flight = true;
   const status_t status = t5ai_mailbox_channel_send_async(
       CP_CONTROL_CHANNEL, &s_control_message, prv_heartbeat_complete, NULL);
   if (FAILED(status)) {
     s_heartbeat_in_flight = false;
-    ++s_diagnostics.send_failures;
-  } else {
-    ++s_diagnostics.tx_published;
-    prv_tx_published(s_control_message.header, s_control_message.parameter1);
   }
 }
 
@@ -631,53 +550,4 @@ out:
     mutex_unlock(s_log_mutex);
   }
   return final_status;
-}
-
-void t5ai_cp_mailbox_get_diagnostics(T5AICPMailboxDiagnostics *diagnostics) {
-  if (diagnostics != NULL) {
-    *diagnostics = s_diagnostics;
-  }
-}
-
-void t5ai_cp_mailbox_snapshot_failure(uint32_t context, status_t status) {
-  memset(&s_failure, 0, sizeof(s_failure));
-  s_failure.context = context;
-  s_failure.status = status;
-  s_failure.ticks = T5AI_AON_RTC_COUNT_LOW;
-  s_failure.tx_queued = s_diagnostics.tx_queued;
-  s_failure.tx_published = s_diagnostics.tx_published;
-  s_failure.tx_retired = s_diagnostics.tx_retired;
-  s_failure.tx_ack_bypass = s_diagnostics.tx_ack_bypass;
-  s_failure.rx_frames = s_diagnostics.rx_frames;
-  s_failure.rx_transport_acks = s_diagnostics.rx_transport_acks;
-  s_failure.rx_routed = s_diagnostics.rx_routed;
-  s_failure.rx_unrouted = s_diagnostics.rx_unrouted;
-  s_failure.send_failures = s_diagnostics.send_failures;
-  s_failure.receive_timeouts = s_diagnostics.receive_timeouts;
-  s_failure.tx_ack_mismatches = s_diagnostics.tx_ack_mismatches;
-  s_failure.trace_count = s_diagnostics.trace_count < T5AI_CP_MAILBOX_FAILURE_TRACE_CAPACITY
-                              ? s_diagnostics.trace_count
-                              : T5AI_CP_MAILBOX_FAILURE_TRACE_CAPACITY;
-  s_failure.tx_depth = s_diagnostics.tx_depth;
-  s_failure.tx_high_water = s_diagnostics.tx_high_water;
-  const uint8_t first = (uint8_t)((s_trace_next + T5AI_CP_MAILBOX_TRACE_CAPACITY -
-                                   s_failure.trace_count) %
-                                  T5AI_CP_MAILBOX_TRACE_CAPACITY);
-  for (uint32_t i = 0; i < s_failure.trace_count; ++i) {
-    s_failure.trace[i] =
-        s_diagnostics.trace[(first + i) % T5AI_CP_MAILBOX_TRACE_CAPACITY];
-  }
-  s_failure_valid = true;
-}
-
-bool t5ai_cp_mailbox_get_failure_diagnostics(T5AICPMailboxFailureDiagnostics *diagnostics) {
-  if (!s_failure_valid || diagnostics == NULL) {
-    return false;
-  }
-  *diagnostics = s_failure;
-  return true;
-}
-
-void t5ai_cp_mailbox_clear_failure_diagnostics(void) {
-  s_failure_valid = false;
 }

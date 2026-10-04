@@ -37,10 +37,6 @@ void app_message_app_protocol_msg_callback(CommSession *session,
   }
 
   AppMessageHeader *message = (AppMessageHeader *) data;
-#ifdef CONFIG_SOC_T5AI
-  PBL_LOG_INFO("T5AI pref trace: app callback cmd=%u txn=%u len=%"PRIu32,
-               message->command, message->transaction_id, (uint32_t)length);
-#endif
   switch (message->command) {
 
     case CMD_PUSH:

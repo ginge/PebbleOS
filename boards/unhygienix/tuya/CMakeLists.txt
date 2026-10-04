@@ -7,8 +7,7 @@ target_sources(${EXAMPLE_LIB} PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/src/os_adapter.c
     ${CMAKE_CURRENT_LIST_DIR}/src/rtc_port.c
     ${CMAKE_CURRENT_LIST_DIR}/src/input_port.c
-    ${CMAKE_CURRENT_LIST_DIR}/src/battery_port.c
-    ${CMAKE_CURRENT_LIST_DIR}/src/hci_port.c)
+    ${CMAKE_CURRENT_LIST_DIR}/src/battery_port.c)
 target_include_directories(${EXAMPLE_LIB} PRIVATE ${CMAKE_CURRENT_LIST_DIR}/src ${CMAKE_CURRENT_LIST_DIR}/pebble_include)
 
 # Match the pinned SDK's application-CPU FreeRTOS configuration and ABI.

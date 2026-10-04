@@ -76,7 +76,7 @@ static uint16_t prv_read_le16(const uint8_t *data, size_t offset) {
 }
 
 static void prv_log_flash_operation(const char *name, const T5AIFlashOperationDiagnostics *sample) {
-  PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
+  PBL_LOG_D_DBG(LOG_DOMAIN_COMM,
       "T5AI flash timing: op=%s count=%lu max_ms=%lu last_ms=%lu tick=%lu offset=%lx len=%lu",
       name, (unsigned long)sample->count, (unsigned long)sample->max_ms,
       (unsigned long)sample->last_ms, (unsigned long)sample->last_tick,
@@ -89,7 +89,7 @@ static void prv_log_flash_diagnostics(void) {
   prv_log_flash_operation("read", &diagnostics.read);
   prv_log_flash_operation("write", &diagnostics.write);
   prv_log_flash_operation("erase", &diagnostics.erase);
-  PBL_LOG_D_INFO(LOG_DOMAIN_COMM, "T5AI flash active: command=%lu tick=%lu now=%lu",
+  PBL_LOG_D_DBG(LOG_DOMAIN_COMM, "T5AI flash active: command=%lu tick=%lu now=%lu",
       (unsigned long)diagnostics.active_command, (unsigned long)diagnostics.active_tick,
       (unsigned long)xTaskGetTickCount());
 }
@@ -107,7 +107,7 @@ static void prv_log_task_state(PebbleTask task) {
   if (handle == NULL) {
     return;
   }
-  PBL_LOG_D_INFO(LOG_DOMAIN_COMM, "T5AI task snapshot: task=%c state=%u prio=%u stack=%u",
+  PBL_LOG_D_DBG(LOG_DOMAIN_COMM, "T5AI task snapshot: task=%c state=%u prio=%u stack=%u",
                  pebble_task_get_char(task), (unsigned)eTaskGetState(handle),
                  (unsigned)uxTaskPriorityGet(handle),
                  (unsigned)uxTaskGetStackHighWaterMark(handle));
@@ -156,7 +156,7 @@ static void prv_send_queued_acl(struct os_mbuf *acl) {
     const int status = t5ai_hci_ipc_send_acl(s_acl_tx, length);
     if (status == 0) {
       if (failures != 0u) {
-        PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
+        PBL_LOG_D_DBG(LOG_DOMAIN_COMM,
                        "T5AI HCI ACL transmit recovered after %u retries", failures);
       }
       os_mbuf_free_chain(acl);
@@ -200,11 +200,11 @@ static void prv_hci_task(void *unused) {
       t5ai_hci_ipc_get_diagnostics(&diagnostics);
       const unsigned queued = s_acl_tx_queue == NULL ? 0u :
           (unsigned)uxQueueMessagesWaiting(s_acl_tx_queue);
-      PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
+      PBL_LOG_D_DBG(LOG_DOMAIN_COMM,
                      "T5AI HCI heartbeat: active=%u adv=%u queue=%u started=%u fault=%u",
                      s_active_connections, s_advertising_requested, queued,
                      diagnostics.started, diagnostics.faulted);
-      PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
+      PBL_LOG_D_DBG(LOG_DOMAIN_COMM,
                      "T5AI HCI heartbeat counters: rx=%lu evt=%lu acl=%lu cmd=%lu busy=%lu",
                      (unsigned long)diagnostics.frames_received,
                      (unsigned long)diagnostics.events_received,
@@ -242,7 +242,7 @@ static void prv_receive_event(const uint8_t *data, size_t length) {
   if (data[T5AI_HCI_EVENT_CODE_OFFSET] == BLE_HCI_EVCODE_LE_META &&
       length >= T5AI_HCI_LE_CONNECTION_COMPLETE_SIZE &&
       data[T5AI_HCI_LE_SUBEVENT_OFFSET] == BLE_HCI_LE_SUBEV_CONN_COMPLETE) {
-    PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
+    PBL_LOG_D_DBG(LOG_DOMAIN_COMM,
                    "T5AI link result: status=%u handle=%u interval=%u latency=%u timeout=%u",
                    data[T5AI_HCI_LE_STATUS_OFFSET], prv_read_le16(data, T5AI_HCI_LE_HANDLE_OFFSET),
                    prv_read_le16(data, T5AI_HCI_LE_INTERVAL_OFFSET),
@@ -254,7 +254,7 @@ static void prv_receive_event(const uint8_t *data, size_t length) {
     prv_log_flash_diagnostics();
     T5AIHCIIpcDiagnostics diagnostics;
     t5ai_hci_ipc_get_diagnostics(&diagnostics);
-    PBL_LOG_D_INFO(
+    PBL_LOG_D_DBG(
         LOG_DOMAIN_COMM,
         "T5AI HCI disconnect snapshot: rx=%lu ack=%lu cmd=%lu evt=%lu acl=%lu rsp=%lu mack=%lu",
         (unsigned long)diagnostics.frames_received,
@@ -262,14 +262,14 @@ static void prv_receive_event(const uint8_t *data, size_t length) {
         (unsigned long)diagnostics.commands_received, (unsigned long)diagnostics.events_received,
         (unsigned long)diagnostics.acl_received, (unsigned long)diagnostics.responses_sent,
         (unsigned long)diagnostics.mipc_acks_sent);
-    PBL_LOG_D_INFO(
+    PBL_LOG_D_DBG(
         LOG_DOMAIN_COMM,
         "T5AI HCI pressure: busy=%lu sendto=%lu exchto=%lu req=%u/%lu rsp=%u/%lu",
         (unsigned long)diagnostics.send_busy_retries, (unsigned long)diagnostics.send_timeouts,
         (unsigned long)diagnostics.exchange_timeouts, diagnostics.request_slots_in_use,
         (unsigned long)diagnostics.request_exhaustions, diagnostics.response_slots_in_use,
         (unsigned long)diagnostics.response_exhaustions);
-    PBL_LOG_D_INFO(
+    PBL_LOG_D_DBG(
         LOG_DOMAIN_COMM,
         "T5AI HCI queue: pend=%u/%lu started=%u fault=%u",
         diagnostics.pending_queue_high_water,
@@ -299,21 +299,21 @@ static void prv_receive_event(const uint8_t *data, size_t length) {
     if (opcode == BLE_HCI_OP(BLE_HCI_OGF_INFO_PARAMS, BLE_HCI_OCF_IP_RD_BD_ADDR) &&
         length >= T5AI_HCI_READ_ADDRESS_COMPLETE_SIZE &&
         data[T5AI_HCI_COMPLETE_STATUS_OFFSET] == 0u) {
-      PBL_LOG_D_INFO(
+      PBL_LOG_D_DBG(
           LOG_DOMAIN_COMM, "T5AI controller address: %02x:%02x:%02x:%02x:%02x:%02x",
           data[T5AI_HCI_COMPLETE_ADDRESS_OFFSET + 5u], data[T5AI_HCI_COMPLETE_ADDRESS_OFFSET + 4u],
           data[T5AI_HCI_COMPLETE_ADDRESS_OFFSET + 3u], data[T5AI_HCI_COMPLETE_ADDRESS_OFFSET + 2u],
           data[T5AI_HCI_COMPLETE_ADDRESS_OFFSET + 1u], data[T5AI_HCI_COMPLETE_ADDRESS_OFFSET]);
     }
     if (opcode == T5AI_HCI_LE_SET_ADV_ENABLE_OPCODE) {
-      PBL_LOG_D_INFO(LOG_DOMAIN_COMM, "T5AI HCI advertising command complete: status=%u",
+      PBL_LOG_D_DBG(LOG_DOMAIN_COMM, "T5AI HCI advertising command complete: status=%u",
                      data[T5AI_HCI_COMPLETE_STATUS_OFFSET]);
     }
   } else if (data[T5AI_HCI_EVENT_CODE_OFFSET] == BLE_HCI_EVCODE_COMMAND_STATUS &&
              length >= T5AI_HCI_COMMAND_RESULT_SIZE) {
     const uint16_t opcode = prv_read_le16(data, T5AI_HCI_STATUS_OPCODE_OFFSET);
     if (opcode == T5AI_HCI_LE_SET_ADV_ENABLE_OPCODE) {
-      PBL_LOG_D_INFO(LOG_DOMAIN_COMM, "T5AI HCI advertising command status: status=%u",
+      PBL_LOG_D_DBG(LOG_DOMAIN_COMM, "T5AI HCI advertising command status: status=%u",
                      data[T5AI_HCI_STATUS_STATUS_OFFSET]);
     }
   }
@@ -412,7 +412,7 @@ int ble_transport_to_ll_cmd_impl(void *buf) {
   if (command->opcode == BLE_HCI_OP(BLE_HCI_OGF_LE, BLE_HCI_OCF_LE_SET_ADV_PARAMS) &&
       command->length == T5AI_HCI_ADV_PARAMS_SIZE) {
     const uint8_t *p = command->data;
-    PBL_LOG_D_INFO(
+    PBL_LOG_D_DBG(
         LOG_DOMAIN_COMM,
         "T5AI advertising parameters: min=%u max=%u type=%u addr=%u channels=%u filter=%u",
         prv_read_le16(p, T5AI_HCI_ADV_MIN_INTERVAL_OFFSET),
@@ -424,7 +424,7 @@ int ble_transport_to_ll_cmd_impl(void *buf) {
   const bool is_advert_enable =
       command->opcode == T5AI_HCI_LE_SET_ADV_ENABLE_OPCODE && command->length >= 1u;
   if (is_advert_enable) {
-    PBL_LOG_D_INFO(LOG_DOMAIN_COMM, "T5AI HCI advertising request: enable=%u",
+    PBL_LOG_D_DBG(LOG_DOMAIN_COMM, "T5AI HCI advertising request: enable=%u",
                    command->data[T5AI_HCI_ADV_ENABLE_OFFSET]);
   }
 
