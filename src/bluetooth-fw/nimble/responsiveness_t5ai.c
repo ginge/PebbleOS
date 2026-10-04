@@ -10,6 +10,7 @@
 
 PBL_LOG_MODULE_DECLARE(bt, CONFIG_BT_LOG_LEVEL);
 
+// Keep a 20-second supervision window for the BK7258 active link.
 #define T5AI_ACTIVE_SUPERVISION_TIMEOUT_10MS 2000u
 
 static void prv_l2cap_update_response(uint16_t conn_handle, int status, void *arg) {

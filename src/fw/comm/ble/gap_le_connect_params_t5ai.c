@@ -13,8 +13,8 @@
 #include "pbl/services/new_timer/new_timer.h"
 #include "pbl/services/system_task.h"
 
+// The minimum response-time state is an interval of at most 15 ms at latency 0.
 #define T5AI_FAST_INTERVAL_1_25MS 12u
-#define T5AI_IDLE_INTERVAL_1_25MS 24u
 
 extern void conn_mgr_handle_desired_state_granted(GAPLEConnection *hdl,
                                                   ResponseTimeState granted_state);

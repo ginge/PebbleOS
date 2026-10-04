@@ -178,7 +178,7 @@ static void prv_complete_discovery(uint16_t conn_handle, GATTServiceDiscoveryCon
     ctx->connection = context->connection;
     ctx->chr_handle = context->service_changed_chr_handle;
 
-    value = 0x0002;
+    value = BLE_GATT_CCCD_INDICATE;
     ret = ble_gattc_write_flat(conn_handle, context->service_changed_dsc_handle,
                                &value, sizeof(value), prv_on_svc_chgd_subscribe, ctx);
     if (ret != 0) {

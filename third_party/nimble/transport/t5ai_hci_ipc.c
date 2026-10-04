@@ -16,20 +16,33 @@
 #include "semphr.h"
 #include "task.h"
 
+// Shared objects must start on a BK7258 data-cache line.
+#define T5AI_HCI_SHARED_ALIGNMENT 32u
+#define T5AI_HCI_MESSAGE_WIRE_SIZE 20u
+#define T5AI_HCI_WORKER_PRIORITY (configMAX_PRIORITIES - 2u)
+// Bounded waits for the persistent worker to drain frames and retire CP ownership.
+#define T5AI_HCI_RECOVERY_DRAIN_TIMEOUT_MS 50u
+#define T5AI_HCI_STOP_RETIRE_TIMEOUT_MS 250u
+#define T5AI_HCI_BUSY_RETRY_DELAY_MS 1u
+#define T5AI_HCI_OWNERSHIP_POLL_INTERVAL_MS 1u
+#define T5AI_HCI_NO_EXPECTED_SUBTYPE UINT8_MAX
+
 #define T5AI_MIPC_CPU_AP 1u
 #define T5AI_MIPC_CPU_CP 0u
 #define T5AI_MIPC_SEND_FLAG_SYNC 1u
 #define T5AI_HCI_TYPE 0u
 #define T5AI_SYSTEM_TYPE 1u
 #define T5AI_SYSTEM_REBOOT 0u
-#define T5AI_HCI_MAX_EVENT_SIZE 257u
-#define T5AI_HCI_MAX_ACL_SIZE 1028u
+// Buffer capacities include the HCI event/ACL header, matching the CP transport.
+#define T5AI_HCI_MAX_EVENT_SIZE (2u + UINT8_MAX)
+#define T5AI_HCI_MAX_ACL_SIZE (4u + 1024u)
 #define T5AI_HCI_PENDING_FRAME_CAPACITY 8u
 #define T5AI_HCI_EVENT_RESPONSE_CAPACITY 8u
 #define T5AI_HCI_REQUEST_CAPACITY 8u
 #define T5AI_HCI_WORKER_STACK_WORDS 768u
 #define T5AI_HCI_SEND_TIMEOUT_MS 2000u
 
+// Subtype values are fixed by the pinned Tuya CP IPC ABI.
 enum {
   T5AI_HCI_INIT = 0,
   T5AI_HCI_DEINIT = 1,
@@ -54,9 +67,9 @@ typedef struct {
 typedef struct {
   T5AIMIPCChannelConfig config;
   T5AIMIPCHandle handle;
-  T5AIMIPCData data __attribute__((aligned(32)));
-  T5AIMIPCFrame frame __attribute__((aligned(32)));
-  T5AIHCIMessage message __attribute__((aligned(32)));
+  T5AIMIPCData data __attribute__((aligned(T5AI_HCI_SHARED_ALIGNMENT)));
+  T5AIMIPCFrame frame __attribute__((aligned(T5AI_HCI_SHARED_ALIGNMENT)));
+  T5AIHCIMessage message __attribute__((aligned(T5AI_HCI_SHARED_ALIGNMENT)));
 } T5AIHCIOutbound;
 
 typedef struct {
@@ -81,17 +94,19 @@ static SemaphoreHandle_t s_worker_wake;
 static SemaphoreHandle_t s_exchange_ready;
 static TaskHandle_t s_worker_task;
 static StackType_t s_worker_stack[T5AI_HCI_WORKER_STACK_WORDS]
-    __attribute__((section(".t5ai_board_cache"), aligned(32)));
-static volatile uint8_t s_expected_subtype = UINT8_MAX;
+    __attribute__((section(".t5ai_board_cache"), aligned(T5AI_HCI_SHARED_ALIGNMENT)));
+static volatile uint8_t s_expected_subtype = T5AI_HCI_NO_EXPECTED_SUBTYPE;
 static T5AIHCIPendingFrame s_pending_frames[T5AI_HCI_PENDING_FRAME_CAPACITY]
-    __attribute__((aligned(32)));
+    __attribute__((aligned(T5AI_HCI_SHARED_ALIGNMENT)));
 static uint8_t s_pending_frame_head;
 static uint8_t s_pending_frame_count;
-static uint8_t s_event_payload[T5AI_HCI_MAX_EVENT_SIZE] __attribute__((aligned(32)));
-static uint8_t s_acl_payload[T5AI_HCI_MAX_ACL_SIZE] __attribute__((aligned(32)));
+static uint8_t s_event_payload[T5AI_HCI_MAX_EVENT_SIZE]
+    __attribute__((aligned(T5AI_HCI_SHARED_ALIGNMENT)));
+static uint8_t s_acl_payload[T5AI_HCI_MAX_ACL_SIZE]
+    __attribute__((aligned(T5AI_HCI_SHARED_ALIGNMENT)));
 static T5AIHCIIpcDiagnostics s_diagnostics;
 
-_Static_assert(sizeof(T5AIHCIMessage) == 20u, "T5AI HCI IPC ABI changed");
+_Static_assert(sizeof(T5AIHCIMessage) == T5AI_HCI_MESSAGE_WIRE_SIZE, "T5AI HCI IPC ABI changed");
 
 static bool prv_started(void) {
   return __atomic_load_n(&s_started, __ATOMIC_ACQUIRE);
@@ -133,7 +148,7 @@ static status_t prv_send_frame(T5AIMIPCFrame *frame) {
       return status;
     }
     ++s_diagnostics.send_busy_retries;
-    vTaskDelay(pdMS_TO_TICKS(1u));
+    vTaskDelay(pdMS_TO_TICKS(T5AI_HCI_BUSY_RETRY_DELAY_MS));
   } while (xTaskGetTickCount() - start < pdMS_TO_TICKS(T5AI_HCI_SEND_TIMEOUT_MS));
   ++s_diagnostics.send_timeouts;
   PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "T5AI HCI MIPC send timed out: header=%08lx object=%08lx",
@@ -472,7 +487,7 @@ static status_t prv_exchange(uint8_t subtype, const void *payload, size_t length
   status_t status =
       prv_prepare_outbound(request, &request->message, sizeof(request->message), false);
   if (FAILED(status)) {
-    __atomic_store_n(&s_expected_subtype, UINT8_MAX, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_expected_subtype, T5AI_HCI_NO_EXPECTED_SUBTYPE, __ATOMIC_RELEASE);
     s_request_in_use[request - s_requests] = false;
     return status;
   }
@@ -480,11 +495,11 @@ static status_t prv_exchange(uint8_t subtype, const void *payload, size_t length
   if (xSemaphoreTake(s_exchange_ready, pdMS_TO_TICKS(T5AI_HCI_SEND_TIMEOUT_MS)) != pdPASS) {
     ++s_diagnostics.exchange_timeouts;
     PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "T5AI HCI exchange timed out: subtype=%u", subtype);
-    __atomic_store_n(&s_expected_subtype, UINT8_MAX, __ATOMIC_RELEASE);
+    __atomic_store_n(&s_expected_subtype, T5AI_HCI_NO_EXPECTED_SUBTYPE, __ATOMIC_RELEASE);
     prv_mark_faulted();
     return E_AGAIN;
   }
-  __atomic_store_n(&s_expected_subtype, UINT8_MAX, __ATOMIC_RELEASE);
+  __atomic_store_n(&s_expected_subtype, T5AI_HCI_NO_EXPECTED_SUBTYPE, __ATOMIC_RELEASE);
   return s_exchange_result == 0 ? S_SUCCESS : E_ERROR;
 }
 
@@ -515,7 +530,7 @@ int t5ai_hci_ipc_start(const T5AIHCICallbacks *callbacks) {
   }
   if (s_worker_task == NULL && s_worker_wake != NULL && s_exchange_ready != NULL) {
     if (xTaskGenericCreate(prv_worker, "T5AI HCI IPC", T5AI_HCI_WORKER_STACK_WORDS, NULL,
-                           configMAX_PRIORITIES - 2u, &s_worker_task, s_worker_stack,
+                           T5AI_HCI_WORKER_PRIORITY, &s_worker_task, s_worker_stack,
                            NULL) != pdPASS) {
       s_worker_task = NULL;
     }
@@ -532,8 +547,8 @@ int t5ai_hci_ipc_start(const T5AIHCICallbacks *callbacks) {
     (void)xSemaphoreGive(s_worker_wake);
     const TickType_t drain_start = xTaskGetTickCount();
     while (!prv_pending_empty() &&
-           xTaskGetTickCount() - drain_start < pdMS_TO_TICKS(50u)) {
-      vTaskDelay(pdMS_TO_TICKS(1u));
+           xTaskGetTickCount() - drain_start < pdMS_TO_TICKS(T5AI_HCI_RECOVERY_DRAIN_TIMEOUT_MS)) {
+      vTaskDelay(pdMS_TO_TICKS(T5AI_HCI_OWNERSHIP_POLL_INTERVAL_MS));
     }
     __atomic_store_n(&s_accept_frames, false, __ATOMIC_RELEASE);
     t5ai_cp_mailbox_unregister(T5AI_MIPC_RX_LOGICAL_CHANNEL);
@@ -583,9 +598,9 @@ int t5ai_hci_ipc_stop(void) {
   }
   const TickType_t retirement_start = xTaskGetTickCount();
   while (!prv_all_outbound_retired() &&
-         xTaskGetTickCount() - retirement_start < pdMS_TO_TICKS(250u)) {
+         xTaskGetTickCount() - retirement_start < pdMS_TO_TICKS(T5AI_HCI_STOP_RETIRE_TIMEOUT_MS)) {
     (void)xSemaphoreGive(s_worker_wake);
-    vTaskDelay(pdMS_TO_TICKS(1u));
+    vTaskDelay(pdMS_TO_TICKS(T5AI_HCI_OWNERSHIP_POLL_INTERVAL_MS));
   }
   if (!prv_all_outbound_retired()) {
     PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "T5AI HCI stop left CP-owned descriptors quarantined");

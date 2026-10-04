@@ -201,7 +201,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
             "Dropping stale T5AI HCI disconnect from prior AP generation",
             hci_transport,
         )
-        self.assertIn("data[0] == 0x3eu", hci_transport)
+        self.assertIn("data[T5AI_HCI_EVENT_CODE_OFFSET] == BLE_HCI_EVCODE_LE_META", hci_transport)
         self.assertIn("ble_hs_sched_reset(BLE_HS_ECONTROLLER)", hci_transport)
         self.assertIn("s_reset_scheduled", hci_transport)
         self.assertIn("prv_schedule_reset();", hci_transport)
@@ -221,7 +221,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
             ROOT / "src/fw/comm/ble/gap_le_connect_params_t5ai.c"
         ).read_text()
         self.assertIn("T5AI_FAST_INTERVAL_1_25MS 12u", connect_params)
-        self.assertIn("T5AI_IDLE_INTERVAL_1_25MS 24u", connect_params)
+        self.assertNotIn("T5AI_IDLE_INTERVAL_1_25MS", connect_params)
         self.assertNotIn("bt_driver_le_connection_parameter_update", connect_params)
         self.assertIn("conn_mgr_handle_desired_state_granted(connection, desired_state)", connect_params)
         reconnect = (

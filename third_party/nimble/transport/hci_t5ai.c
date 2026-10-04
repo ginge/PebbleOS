@@ -21,16 +21,59 @@
 #include <nimble/transport.h>
 #include <host/ble_hs.h>
 
+// Task stack size is in bytes; FreeRTOS task creation takes StackType_t words.
+#define T5AI_HCI_TASK_STACK_BYTES 1024u
+#define T5AI_HCI_TASK_PRIORITY (tskIDLE_PRIORITY + 3u)
+#define T5AI_HCI_ACL_RETRY_DELAY_MS 5u
+#define T5AI_HCI_POLL_INTERVAL_MS 5u
+#define T5AI_HCI_LE_CONNECTION_PREFIX_SIZE 6u
+#define T5AI_HCI_LE_CONNECTION_COMPLETE_SIZE 21u
+#define T5AI_HCI_COMMAND_RESULT_SIZE 6u
+#define T5AI_HCI_READ_ADDRESS_COMPLETE_SIZE 12u
+#define T5AI_HCI_ADV_PARAMS_SIZE 15u
+
+// HCI packets omit the UART H4 type byte. Event offsets include the event header;
+// advertising offsets address command parameters, excluding the command header.
+enum {
+  T5AI_HCI_EVENT_CODE_OFFSET = 0,
+  T5AI_HCI_EVENT_LENGTH_OFFSET = 1,
+  T5AI_HCI_LE_SUBEVENT_OFFSET = 2,
+  T5AI_HCI_LE_STATUS_OFFSET = 3,
+  T5AI_HCI_LE_HANDLE_OFFSET = 4,
+  T5AI_HCI_LE_INTERVAL_OFFSET = 14,
+  T5AI_HCI_LE_LATENCY_OFFSET = 16,
+  T5AI_HCI_LE_TIMEOUT_OFFSET = 18,
+  T5AI_HCI_COMPLETE_OPCODE_OFFSET = 3,
+  T5AI_HCI_COMPLETE_STATUS_OFFSET = 5,
+  T5AI_HCI_COMPLETE_ADDRESS_OFFSET = 6,
+  T5AI_HCI_STATUS_STATUS_OFFSET = 2,
+  T5AI_HCI_STATUS_OPCODE_OFFSET = 4,
+  T5AI_HCI_ACL_LENGTH_OFFSET = 2,
+  T5AI_HCI_ADV_ENABLE_OFFSET = 0,
+  T5AI_HCI_ADV_MIN_INTERVAL_OFFSET = 0,
+  T5AI_HCI_ADV_MAX_INTERVAL_OFFSET = 2,
+  T5AI_HCI_ADV_TYPE_OFFSET = 4,
+  T5AI_HCI_ADV_ADDRESS_TYPE_OFFSET = 5,
+  T5AI_HCI_ADV_CHANNEL_MAP_OFFSET = 13,
+  T5AI_HCI_ADV_FILTER_POLICY_OFFSET = 14,
+};
+
 #define T5AI_HCI_COMMAND_HEADER_SIZE 3u
 #define T5AI_HCI_EVENT_HEADER_SIZE 2u
 #define T5AI_HCI_ACL_HEADER_SIZE 4u
-#define T5AI_HCI_MAX_COMMAND_SIZE 258u
-#define T5AI_HCI_MAX_EVENT_SIZE 257u
-#define T5AI_HCI_MAX_ACL_SIZE 1028u
+#define T5AI_HCI_MAX_COMMAND_SIZE (T5AI_HCI_COMMAND_HEADER_SIZE + UINT8_MAX)
+#define T5AI_HCI_MAX_EVENT_SIZE (T5AI_HCI_EVENT_HEADER_SIZE + UINT8_MAX)
+// The CP transport admits a 1024-byte ACL payload plus its four-byte HCI header.
+#define T5AI_HCI_MAX_ACL_SIZE (T5AI_HCI_ACL_HEADER_SIZE + 1024u)
 #define T5AI_HCI_ACL_TX_QUEUE_CAPACITY 16u
 #define T5AI_HCI_TRACE_INTERVAL_MS 30000u
 #define T5AI_HCI_LE_SET_ADV_ENABLE_OPCODE \
   BLE_HCI_OP(BLE_HCI_OGF_LE, BLE_HCI_OCF_LE_SET_ADV_ENABLE)
+
+// Decode little-endian HCI fields without assuming alignment of the CP buffer.
+static uint16_t prv_read_le16(const uint8_t *data, size_t offset) {
+  return (uint16_t)data[offset] | ((uint16_t)data[offset + 1u] << 8);
+}
 
 static void prv_log_flash_operation(const char *name, const T5AIFlashOperationDiagnostics *sample) {
   PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
@@ -90,12 +133,12 @@ static void prv_schedule_reset(void) {
 static bool prv_event_valid(const uint8_t *data, size_t length) {
   return data != NULL && length >= T5AI_HCI_EVENT_HEADER_SIZE &&
          length <= T5AI_HCI_MAX_EVENT_SIZE &&
-         length == (size_t)data[1] + T5AI_HCI_EVENT_HEADER_SIZE;
+         length == (size_t)data[T5AI_HCI_EVENT_LENGTH_OFFSET] + T5AI_HCI_EVENT_HEADER_SIZE;
 }
 
 static bool prv_acl_valid(const uint8_t *data, size_t length) {
   return data != NULL && length >= T5AI_HCI_ACL_HEADER_SIZE && length <= T5AI_HCI_MAX_ACL_SIZE &&
-         length == T5AI_HCI_ACL_HEADER_SIZE + data[2] + ((size_t)data[3] << 8);
+         length == T5AI_HCI_ACL_HEADER_SIZE + prv_read_le16(data, T5AI_HCI_ACL_LENGTH_OFFSET);
 }
 
 static void prv_send_queued_acl(struct os_mbuf *acl) {
@@ -131,7 +174,7 @@ static void prv_send_queued_acl(struct os_mbuf *acl) {
                   "T5AI HCI ACL transmit deferred: status=%d len=%u retry=%u", status,
                   (unsigned)length, failures);
     t5ai_hci_ipc_poll();
-    vTaskDelay(pdMS_TO_TICKS(5));
+    vTaskDelay(pdMS_TO_TICKS(T5AI_HCI_ACL_RETRY_DELAY_MS));
   }
   os_mbuf_free_chain(acl);
 }
@@ -171,7 +214,7 @@ static void prv_hci_task(void *unused) {
       prv_log_flash_diagnostics();
       last_trace_tick = now;
     }
-    vTaskDelay(pdMS_TO_TICKS(5));
+    vTaskDelay(pdMS_TO_TICKS(T5AI_HCI_POLL_INTERVAL_MS));
   }
 }
 
@@ -186,23 +229,28 @@ static void prv_receive_event(const uint8_t *data, size_t length) {
   // A fresh NimBLE host has no matching connection and treats that stale event
   // as a controller fault. Connection Complete always precedes a legitimate
   // disconnect in the current generation, so filter only that stale case.
-  if (data[0] == 0x3eu && length >= 6u &&
-      (data[2] == 0x01u || data[2] == 0x0au) && data[3] == 0u) {
+  if (data[T5AI_HCI_EVENT_CODE_OFFSET] == BLE_HCI_EVCODE_LE_META &&
+      length >= T5AI_HCI_LE_CONNECTION_PREFIX_SIZE &&
+      (data[T5AI_HCI_LE_SUBEVENT_OFFSET] == BLE_HCI_LE_SUBEV_CONN_COMPLETE ||
+       data[T5AI_HCI_LE_SUBEVENT_OFFSET] == BLE_HCI_LE_SUBEV_ENH_CONN_COMPLETE) &&
+      data[T5AI_HCI_LE_STATUS_OFFSET] == 0u) {
     if (s_active_connections != UINT8_MAX) {
       ++s_active_connections;
     }
   }
 
-  if (data[0] == 0x3eu && length >= 21u && data[2] == 0x01u) {
+  if (data[T5AI_HCI_EVENT_CODE_OFFSET] == BLE_HCI_EVCODE_LE_META &&
+      length >= T5AI_HCI_LE_CONNECTION_COMPLETE_SIZE &&
+      data[T5AI_HCI_LE_SUBEVENT_OFFSET] == BLE_HCI_LE_SUBEV_CONN_COMPLETE) {
     PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
                    "T5AI link result: status=%u handle=%u interval=%u latency=%u timeout=%u",
-                   data[3], data[4] | ((unsigned)data[5] << 8),
-                   data[14] | ((unsigned)data[15] << 8),
-                   data[16] | ((unsigned)data[17] << 8),
-                   data[18] | ((unsigned)data[19] << 8));
+                   data[T5AI_HCI_LE_STATUS_OFFSET], prv_read_le16(data, T5AI_HCI_LE_HANDLE_OFFSET),
+                   prv_read_le16(data, T5AI_HCI_LE_INTERVAL_OFFSET),
+                   prv_read_le16(data, T5AI_HCI_LE_LATENCY_OFFSET),
+                   prv_read_le16(data, T5AI_HCI_LE_TIMEOUT_OFFSET));
   }
 
-  if (data[0] == 0x05u) {
+  if (data[T5AI_HCI_EVENT_CODE_OFFSET] == BLE_HCI_EVCODE_DISCONN_CMP) {
     prv_log_flash_diagnostics();
     T5AIHCIIpcDiagnostics diagnostics;
     t5ai_hci_ipc_get_diagnostics(&diagnostics);
@@ -241,25 +289,32 @@ static void prv_receive_event(const uint8_t *data, size_t length) {
     --s_active_connections;
   }
 
-  if (data[0] == 0x0eu && length >= 6u) {
-    const uint16_t opcode = (uint16_t)data[3] | ((uint16_t)data[4] << 8);
-    if (data[5] != 0u) {
-      PBL_LOG_D_WRN(LOG_DOMAIN_COMM, "T5AI HCI command rejected: opcode=%04x status=%u",
-                    opcode, data[5]);
+  if (data[T5AI_HCI_EVENT_CODE_OFFSET] == BLE_HCI_EVCODE_COMMAND_COMPLETE &&
+      length >= T5AI_HCI_COMMAND_RESULT_SIZE) {
+    const uint16_t opcode = prv_read_le16(data, T5AI_HCI_COMPLETE_OPCODE_OFFSET);
+    if (data[T5AI_HCI_COMPLETE_STATUS_OFFSET] != 0u) {
+      PBL_LOG_D_WRN(LOG_DOMAIN_COMM, "T5AI HCI command rejected: opcode=%04x status=%u", opcode,
+                    data[T5AI_HCI_COMPLETE_STATUS_OFFSET]);
     }
-    if (opcode == 0x1009u && length >= 12u && data[5] == 0u) {
-      PBL_LOG_D_INFO(LOG_DOMAIN_COMM, "T5AI controller address: %02x:%02x:%02x:%02x:%02x:%02x",
-                     data[11], data[10], data[9], data[8], data[7], data[6]);
+    if (opcode == BLE_HCI_OP(BLE_HCI_OGF_INFO_PARAMS, BLE_HCI_OCF_IP_RD_BD_ADDR) &&
+        length >= T5AI_HCI_READ_ADDRESS_COMPLETE_SIZE &&
+        data[T5AI_HCI_COMPLETE_STATUS_OFFSET] == 0u) {
+      PBL_LOG_D_INFO(
+          LOG_DOMAIN_COMM, "T5AI controller address: %02x:%02x:%02x:%02x:%02x:%02x",
+          data[T5AI_HCI_COMPLETE_ADDRESS_OFFSET + 5u], data[T5AI_HCI_COMPLETE_ADDRESS_OFFSET + 4u],
+          data[T5AI_HCI_COMPLETE_ADDRESS_OFFSET + 3u], data[T5AI_HCI_COMPLETE_ADDRESS_OFFSET + 2u],
+          data[T5AI_HCI_COMPLETE_ADDRESS_OFFSET + 1u], data[T5AI_HCI_COMPLETE_ADDRESS_OFFSET]);
     }
     if (opcode == T5AI_HCI_LE_SET_ADV_ENABLE_OPCODE) {
-      PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
-                     "T5AI HCI advertising command complete: status=%u", data[5]);
+      PBL_LOG_D_INFO(LOG_DOMAIN_COMM, "T5AI HCI advertising command complete: status=%u",
+                     data[T5AI_HCI_COMPLETE_STATUS_OFFSET]);
     }
-  } else if (data[0] == 0x0fu && length >= 6u) {
-    const uint16_t opcode = (uint16_t)data[4] | ((uint16_t)data[5] << 8);
+  } else if (data[T5AI_HCI_EVENT_CODE_OFFSET] == BLE_HCI_EVCODE_COMMAND_STATUS &&
+             length >= T5AI_HCI_COMMAND_RESULT_SIZE) {
+    const uint16_t opcode = prv_read_le16(data, T5AI_HCI_STATUS_OPCODE_OFFSET);
     if (opcode == T5AI_HCI_LE_SET_ADV_ENABLE_OPCODE) {
-      PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
-                     "T5AI HCI advertising command status: status=%u", data[2]);
+      PBL_LOG_D_INFO(LOG_DOMAIN_COMM, "T5AI HCI advertising command status: status=%u",
+                     data[T5AI_HCI_STATUS_STATUS_OFFSET]);
     }
   }
 
@@ -325,8 +380,8 @@ void ble_transport_ll_init(void) {
     TaskParameters_t parameters = {
         .pvTaskCode = prv_hci_task,
         .pcName = "T5AIHCI",
-        .usStackDepth = 1024 / sizeof(StackType_t),
-        .uxPriority = (tskIDLE_PRIORITY + 3) | portPRIVILEGE_BIT,
+        .usStackDepth = T5AI_HCI_TASK_STACK_BYTES / sizeof(StackType_t),
+        .uxPriority = T5AI_HCI_TASK_PRIORITY | portPRIVILEGE_BIT,
     };
     pebble_task_create(PebbleTask_BTHCI, &parameters, &s_hci_task);
     if (s_hci_task == NULL) {
@@ -354,19 +409,23 @@ int ble_transport_to_ll_cmd_impl(void *buf) {
   const size_t length = sizeof(*command) + command->length;
   int result = BLE_ERR_MEM_CAPACITY;
 
-  if (command->opcode == 0x2006u && command->length == 15u) {
+  if (command->opcode == BLE_HCI_OP(BLE_HCI_OGF_LE, BLE_HCI_OCF_LE_SET_ADV_PARAMS) &&
+      command->length == T5AI_HCI_ADV_PARAMS_SIZE) {
     const uint8_t *p = command->data;
-    PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
-                   "T5AI advertising parameters: min=%u max=%u type=%u addr=%u channels=%u filter=%u",
-                   p[0] | ((unsigned)p[1] << 8), p[2] | ((unsigned)p[3] << 8),
-                   p[4], p[5], p[13], p[14]);
+    PBL_LOG_D_INFO(
+        LOG_DOMAIN_COMM,
+        "T5AI advertising parameters: min=%u max=%u type=%u addr=%u channels=%u filter=%u",
+        prv_read_le16(p, T5AI_HCI_ADV_MIN_INTERVAL_OFFSET),
+        prv_read_le16(p, T5AI_HCI_ADV_MAX_INTERVAL_OFFSET), p[T5AI_HCI_ADV_TYPE_OFFSET],
+        p[T5AI_HCI_ADV_ADDRESS_TYPE_OFFSET], p[T5AI_HCI_ADV_CHANNEL_MAP_OFFSET],
+        p[T5AI_HCI_ADV_FILTER_POLICY_OFFSET]);
   }
 
   const bool is_advert_enable =
       command->opcode == T5AI_HCI_LE_SET_ADV_ENABLE_OPCODE && command->length >= 1u;
   if (is_advert_enable) {
-    PBL_LOG_D_INFO(LOG_DOMAIN_COMM,
-                   "T5AI HCI advertising request: enable=%u", command->data[0]);
+    PBL_LOG_D_INFO(LOG_DOMAIN_COMM, "T5AI HCI advertising request: enable=%u",
+                   command->data[T5AI_HCI_ADV_ENABLE_OFFSET]);
   }
 
   const int status = prv_started() && length <= T5AI_HCI_MAX_COMMAND_SIZE
@@ -375,7 +434,7 @@ int ble_transport_to_ll_cmd_impl(void *buf) {
   if (status == 0) {
     result = 0;
     if (is_advert_enable) {
-      s_advertising_requested = command->data[0];
+      s_advertising_requested = command->data[T5AI_HCI_ADV_ENABLE_OFFSET];
     }
   } else {
     PBL_LOG_D_ERR(LOG_DOMAIN_COMM, "T5AI HCI command transmit failed (%u bytes)",
