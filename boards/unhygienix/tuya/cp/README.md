@@ -24,6 +24,6 @@ payload and use `tools/flash_unhygienix_cp_firmware.py`; it validates by default
 and writes only with `--flash`. AP, resources, PFS and bonds remain outside its
 write range. Wi-Fi coexistence requires separate validation of this radio policy.
 
-See the [tooling guide](../../../../docs/boards/unhygienix_tooling.md) for pinned
-inputs and provisioning, and the [operator handoff](../../../../docs/boards/unhygienix.md)
+See the [tooling guide](../../../../docs/boards/unhygienix/tooling.md) for pinned
+inputs and provisioning, and the [operator handoff](../../../../docs/boards/unhygienix/index.md)
 for hardware qualification requirements.

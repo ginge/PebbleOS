@@ -1,7 +1,7 @@
 # Unhygienix CP and storage checkpoint — 2026-10-03
 
 This retained report records dated observations, not current operating instructions.
-Use the [operator handoff](unhygienix.md) and [tooling guide](unhygienix_tooling.md)
+Use the [operator handoff](../index.md) and [tooling guide](../tooling.md)
 for current procedures. Obsolete commands and machine-specific paths have been
 omitted. Artifact labels are descriptive; external captures are not distributed
 with this repository. Recorded dates, measurements and SHA-256 values are retained.
@@ -18,7 +18,7 @@ remain unresolved. The later stable interval does not establish a fix. Image and
 capture states are dated observations and must be checked on hardware before
 claiming current monitoring.
 
-The [implementation inventory](unhygienix.md#implementation-gaps)
+The [implementation inventory](../index.md#implementation-gaps)
 separates actual placeholders (WFI-only sleep, missing RTC wake alarm, console
 input, flash logging, boot-version reporting and unprovisioned OTP) from disabled
 capabilities (persistent coredumps, audio/absent peripherals and unsafe updates)
@@ -130,7 +130,6 @@ A deeper vendor Bluetooth reset diagnostic observation failed recovery and was r
 
 ### Subsequent CP-history diagnostic image
 
-The physical watch now runs the opt-in CP SRAM-history AP image: raw SHA-256 `4eaf611d379e416eed434af684d4d9ec465ddb5af4e21c558716a65e500b00f6`, protected `279ae431cde9350df0de2463f12a075f825ae5d12c77dad070cbefbaa9a03e8d`, range `0x132000..0x2cad8c`. Previous failure evidence remains frozen. `CONFIG_T5AI_CP_BLE_TRACE` defaults off; this local build explicitly enables it. SRAM ABI requires the matched vendor CP binary SHA-256 `0edde387b5694ac6687e04d318e4f7346acd29e585b699eba28ed70540d91856`. See workspace diagnosis for addresses/offsets and limitations. Hardware healthy heartbeat confirms 32 populated samples and advancing synchronized event counts at CP environment `0x28070554`. Build, compiled memory-guard/ring tests and 65 board/kernel tests pass. This is instrumentation, not a recovery fix. UART capture `bt-cp-ring-raw-2026-10-03.bin` began before flashing and is bounded to 720 seconds; verify its actual current status before claiming monitoring is active.
 
 ## AP crash and fault-context follow-up
 

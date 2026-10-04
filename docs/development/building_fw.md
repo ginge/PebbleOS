@@ -16,7 +16,7 @@ Unhygienix ("The village fishmonger") is the independent Tuya T5AI board:
 ```
 
 It retains the Gabbro app platform and Round 2 companion identity. Use its
-{doc}`board tooling <../boards/unhygienix_tooling>` for exact-range `tyutool`
+{doc}`board tooling <../boards/unhygienix/tooling>` for exact-range `tyutool`
 flashing and CP packaging. The generic recovery imaging and Bluetooth/PBZ
 firmware update instructions below do not apply to Unhygienix.
 

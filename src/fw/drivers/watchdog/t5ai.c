@@ -2,7 +2,6 @@
 
 #include <pbl/drivers/watchdog.h>
 #include <pbl/soc/t5ai/reset.h>
-#include <pbl/soc/t5ai/hci_ipc.h>
 
 #include <cmsis_core.h>
 
@@ -100,12 +99,6 @@ McuRebootReason watchdog_get_reset_flag(void) {
 }
 
 NORETURN t5ai_force_whole_chip_reset(uint8_t reason) {
-#if CONFIG_T5AI_CP_BLE_TRACE
-  /* UART context capture is only safe before interrupt-masked reset paths. */
-  if (__get_PRIMASK() == 0u && __get_IPSR() == 0u) {
-    t5ai_hci_report_fault_context();
-  }
-#endif
   __disable_irq();
 
   t5ai_reset_reason_set_ap(reason);

@@ -51,7 +51,7 @@ to Pebble's shared `GColor` values.
 | Area | Current implementation and remaining work |
 | --- | --- |
 | Bluetooth stability/recovery | Physical BLE/BT PLL configuration is applied after CP Bluetooth initialization. Live RF reconfiguration recovered the failed state; the installed fix passed 15 minutes connected, bonded reconnection after hardware reset and a 10-hour connected-idle observation. Exact internal failure mechanism remains unproven; broader reconnect and cold-boot validation are still required. |
-| App/watchface stall | The captured whole-chip reset followed the process-manager assertion for an App task stuck in privileged code. The initiating blocked operation is unknown; fault-context instrumentation is diagnostic, not a fix. |
+| App/watchface stall | The captured whole-chip reset followed the process-manager assertion for an App task stuck in privileged code. The initiating blocked operation is unknown; the temporary CP SRAM and pre-reset fault-context experiment was removed on 2026-10-04. |
 | Low power and wake alarms | `soc/t5ai/freertos.c` idles with WFI but ignores the requested idle duration; `vPortEnableTimer()` returns false. `rtc_alarm_set()` ignores its deadline and `rtc_alarm_is_initialized()` returns false. Tick suppression, hardware alarm/wake routing and deeper sleep remain unfinished. |
 | Serial console input | `src/fw/console/dbgserial_input_t5ai.c` contains no-op initialization, callback registration and input/DMA enable functions. UART logging and CP-shell AP commands work; a general bidirectional console is not established. |
 | Persistent flash logging | The build selects `src/fw/debug/flash_logging_unavailable.c`: writes fail and dump requests report no saved logs. Serial logging remains available. |
@@ -119,7 +119,7 @@ python pbl flash --tyutool tyutool_cli --tyutool-tty /dev/serial/by-id/usb-1a86_
 stored apps/data. `--t5ai-cp` additionally writes the validated CP artifacts
 produced by `python pbl waf t5ai_cp --t5ai-cp-stock build/inputs/stock-cp.bin`.
 The legacy AP/CP guard scripts remain available for rollback and validation.
-See [dependency and tooling alignment](unhygienix_tooling.md) for setup and CP inputs.
+See [dependency and tooling alignment](tooling.md) for setup and CP inputs.
 Never pass logical `build/pebbleos.bin` directly to tyutool.
 
 ## Flashing and tracing
@@ -189,8 +189,8 @@ through the pinned mailbox/HCI ABI. Do not start the vendor AP Bluetooth host.
 The RF initialization hook applies BLE/BT PLL configuration `0x0202` after
 successful CP Bluetooth initialization. CP packaging verifies the stock image
 hash, preserves existing code/data addresses and emits a validated manifest.
-See [tooling](unhygienix_tooling.md) and the
-[CP hook](../../boards/unhygienix/tuya/cp/README.md) for packaging and rollback.
+See [tooling](tooling.md) and the
+[CP hook](../../../boards/unhygienix/tuya/cp/README.md) for packaging and rollback.
 
 Diagnostic CP BLE sampling requires an ELF matching the exact pinned stock
 image; its SRAM ABI is not portable across CP builds. Disable the diagnostic
@@ -265,3 +265,10 @@ isolation validation. Define recovery and rollback before enabling updates.
 - `tools/t5ai_image.py`: protected-block encoding and verification.
 - `tools/unhygienix_cp.py`: CP packaging and manifest validation.
 - `tools/unhygienix_trace.py`: runtime capture and log decoding.
+
+```{toctree}
+:maxdepth: 1
+
+tooling
+history/index
+```

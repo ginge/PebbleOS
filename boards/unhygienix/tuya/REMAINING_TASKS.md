@@ -1,7 +1,7 @@
 # Unhygienix validation and remaining work
 
-The [operator handoff](../../../docs/boards/unhygienix.md) records current hardware
-support and implementation gaps. The [tooling guide](../../../docs/boards/unhygienix_tooling.md)
+The [operator handoff](../../../docs/boards/unhygienix/index.md) records current hardware
+support and implementation gaps. The [tooling guide](../../../docs/boards/unhygienix/tooling.md)
 records dependency, build, packaging and flash procedures.
 
 1. Verify watchface install/launch and selection persistence.

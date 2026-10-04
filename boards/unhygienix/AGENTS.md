@@ -31,8 +31,8 @@
   unsupported raw-flash operations remain disabled. CP manifests must record
   `unhygienix` and be regenerated from the hash-verified stock CP input;
   do not relabel manifests to bypass validation.
-See [operator handoff](../../docs/boards/unhygienix.md) and
-[build/flash tooling](../../docs/boards/unhygienix_tooling.md) for current procedures.
+See [operator handoff](../../docs/boards/unhygienix/index.md) and
+[build/flash tooling](../../docs/boards/unhygienix/tooling.md) for current procedures.
 
 ## Current soak-test plan
 

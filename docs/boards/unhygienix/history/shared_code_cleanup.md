@@ -1,7 +1,7 @@
 # Unhygienix shared-code cleanup
 
 This retained report records dated observations, not current operating instructions.
-Use the [operator handoff](unhygienix.md) and [tooling guide](unhygienix_tooling.md)
+Use the [operator handoff](../index.md) and [tooling guide](../tooling.md)
 for current procedures. Obsolete commands and machine-specific paths have been
 omitted. Artifact labels are descriptive; external captures are not distributed
 with this repository. Recorded dates, measurements and SHA-256 values are retained.
@@ -9,7 +9,7 @@ with this repository. Recorded dates, measurements and SHA-256 values are retain
 
 ## Latest checkpoint — 2026-10-03
 
-The [CP and storage checkpoint](unhygienix_history_cp_storage_checkpoint.md) records
+The [CP and storage checkpoint](cp_storage_checkpoint.md) records
 implemented mailbox/CRC and NOR-cache fixes, 2.75 MiB PFS migration, six loaded
 faces and five successful encrypted reconnects. Later diagnostic runs reproduced
 supervision loss and an App privileged-code stall/reset. Root causes and reliable
@@ -18,7 +18,7 @@ The latest recorded image is diagnostic. Capture state is a dated observation,
 not proof of current monitoring; verify device visibility and received bytes.
 Cold-boot persistence, overnight soak and power behavior remain open.
 
-See the [implementation-gap inventory](unhygienix.md#implementation-gaps)
+See the [implementation-gap inventory](../index.md#implementation-gaps)
 for explicit low-power/RTC-alarm, console-input, flash-logging, boot-version and
 OTP placeholders, disabled coredumps/audio/optional hardware, and gated updates.
 Native watchdog and primary peripheral paths are implemented; device identity

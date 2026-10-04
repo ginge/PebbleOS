@@ -48,6 +48,3 @@ int t5ai_hci_ipc_request_system_reboot(void);
 bool t5ai_hci_ipc_faulted(void);
 void t5ai_hci_ipc_poll(void);
 void t5ai_hci_ipc_get_diagnostics(T5AIHCIIpcDiagnostics *diagnostics);
-
-/* Opt-in UART history/context report before a thread-mode diagnostic reset. */
-void t5ai_hci_report_fault_context(void);

@@ -1,7 +1,7 @@
 # Unhygienix: Bluetooth, power and scrolling checkpoint
 
 This retained report records dated observations, not current operating instructions.
-Use the [operator handoff](unhygienix.md) and [tooling guide](unhygienix_tooling.md)
+Use the [operator handoff](../index.md) and [tooling guide](../tooling.md)
 for current procedures. Obsolete commands and machine-specific paths have been
 omitted. Artifact labels are descriptive; external captures are not distributed
 with this repository. Recorded dates, measurements and SHA-256 values are retained.
@@ -28,7 +28,7 @@ deleting bonds. The current fix calls that physical configurator immediately
 after successful Bluetooth initialization in the existing CP HCI-reset thread.
 The precise internal RF/PLL failure mechanism remains unproven.
 
-Source: [CP hook and build instructions](../../boards/unhygienix/tuya/cp/README.md),
+Source: [CP hook and build instructions](../../../../boards/unhygienix/tuya/cp/README.md),
 `boards/unhygienix/tuya/cp/ble_rf_init.c`, and `tools/patch_unhygienix_cp_rf.py`.
 The tool verifies the pinned stock CP image, appends the compiled hook and
 redirects one Bluetooth-init call. Existing code/data addresses and the AP ABI
