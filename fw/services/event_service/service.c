@@ -7,7 +7,6 @@
 #include "process_management/app_manager.h"
 #include "process_management/worker_manager.h"
 #include "pbl/kernel/mutex.h"
-#include <pbl/kernel/debug.h>
 #include "pbl/services/event_service.h"
 #include "syscall/syscall_internal.h"
 #include "syscall/syscall.h"
@@ -109,22 +108,6 @@ static bool prv_event_service_send_event(struct pbl_msgq *queue, PebbleEvent *e)
   bool success = (pbl_msgq_put(queue, e, PBL_NO_WAIT) == 0);
   return success;
 }
-
-#ifdef CONFIG_SOC_T5AI
-static void prv_log_full_process_queue(PebbleTask task, struct pbl_msgq *queue) {
-  struct pbl_thread *handle = pebble_task_get_thread(task);
-  if (handle == NULL) {
-    return;
-  }
-
-  struct pbl_thread_saved_regs regs;
-  pbl_thread_saved_regs(handle, &regs);
-  PBL_LOG_ERR("T5AI full process queue: task=%u state=%u priority=%u waiting=%u LR=%p PC=%p",
-              (unsigned)task, (unsigned)pbl_thread_state(handle),
-              (unsigned)pbl_thread_prio_get(handle), (unsigned)pbl_msgq_num_used(queue),
-              (void *)regs.lr, (void *)regs.pc);
-}
-#endif
 
 void event_service_handle_subscription(PebbleSubscriptionEvent *subscription) {
   if (subscription->subscribe) {
@@ -232,9 +215,6 @@ void event_service_handle_event(PebbleEvent *e) {
       } else {
         if (!prv_event_service_send_event(service->subscribers[i], e)) {
           PBL_LOG_ERR("Queue full! %d not delivered to task %d!", (int)e->type, (int)i);
-#ifdef CONFIG_SOC_T5AI
-          prv_log_full_process_queue(i, service->subscribers[i]);
-#endif
 #ifndef CONFIG_RELEASE
           // For 3rd party apps, just close them. For a 1st party app or other task, reboot
           // the watch

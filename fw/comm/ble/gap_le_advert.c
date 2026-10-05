@@ -12,9 +12,6 @@
 #include "kernel/pbl_malloc.h"
 #include "pbl/services/analytics/analytics.h"
 #include "pbl/services/regular_timer.h"
-#ifdef CONFIG_SOC_T5AI
-#include "pbl/services/system_task.h"
-#endif
 #include <pbl/logging/logging.h>
 #include "system/passert.h"
 #include "pbl/util/list.h"
@@ -280,14 +277,7 @@ unlock:
 //! Runs once per second on the NewTimers task; never block on bt_lock there
 //! (it stalls every other timer in the system) — bounce to KernelMain.
 static void prv_cycle_timer_callback(void *unused) {
-#ifdef CONFIG_SOC_T5AI
-  /* T5AI bring-up starts Bluetooth before the filesystem-backed launcher
-   * task. The system task is already available and provides the same required
-   * handoff away from the shared NewTimers task. */
-  system_task_add_callback(prv_cycle_kernelmain_cb, NULL);
-#else
   launcher_task_add_callback(prv_cycle_kernelmain_cb, NULL);
-#endif
 }
 
 // -----------------------------------------------------------------------------
