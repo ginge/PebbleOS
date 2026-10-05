@@ -2,10 +2,12 @@
 
 #include <pbl/mcu/cache.h>
 #include <pbl/logging/logging.h>
-#include <pbl/soc/t5ai/kernel.h>
 #include <pbl/soc/t5ai/memory.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/flash_ipc.h>
+#include <pbl/kernel/mutex.h>
+#include <pbl/kernel/sched.h>
+#include <pbl/kernel/thread.h>
 #include <pbl/soc/t5ai/mb_ipc.h>
 #include <pbl/soc/t5ai/saradc_ipc.h>
 
@@ -13,8 +15,6 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
-
-#include <pbl/soc/t5ai/kernel.h>
 
 PBL_LOG_MODULE_DECLARE(driver_flash, CONFIG_DRIVER_FLASH_LOG_LEVEL);
 
@@ -113,8 +113,8 @@ enum {
 
 static T5AIMbIpcSocket *s_flash_socket;
 static T5AIMbIpcSocket *s_saradc_socket;
-static struct pbl_mutex *s_flash_mutex;
-static struct pbl_mutex *s_saradc_mutex;
+static PBL_MUTEX_DEFINE(s_flash_mutex);
+static PBL_MUTEX_DEFINE(s_saradc_mutex);
 static FlashCommand s_flash_command __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
 static SaradcCommand s_saradc_command __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
 static T5AIFlashDiagnostics s_flash_diagnostics = {.active_command = UINT32_MAX};
@@ -278,11 +278,6 @@ static void prv_saradc_notify(uint8_t channel, const T5AICPMailboxFrame *frame, 
 }
 
 status_t t5ai_flash_ipc_init(void) {
-  s_flash_mutex = t5ai_mutex_create();
-  s_saradc_mutex = t5ai_mutex_create();
-  if (s_flash_mutex == NULL || s_saradc_mutex == NULL) {
-    return E_OUT_OF_MEMORY;
-  }
   status_t status = t5ai_mb_ipc_init();
   if (FAILED(status)) {
     return status;
@@ -378,7 +373,7 @@ status_t t5ai_flash_ipc_read(uint32_t offset, void *buffer, size_t length) {
   if (buffer == NULL || length == 0u || length > FLASH_MAX_TRANSFER_BYTES) {
     return E_INVALID_ARGUMENT;
   }
-  pbl_mutex_lock(s_flash_mutex, PBL_FOREVER);
+  pbl_mutex_lock(&s_flash_mutex, PBL_FOREVER);
   /* CPU0's read buffer remains leased until READ_DONE. Keep copying and CRC
    * validation inside the same priority boost as both handshakes. */
   const pbl_prio_t previous_priority = prv_boost_client_priority();
@@ -408,7 +403,7 @@ status_t t5ai_flash_ipc_read(uint32_t offset, void *buffer, size_t length) {
   status = prv_flash_transaction(FLASH_READ_DONE);
 out:
   prv_restore_client_priority(previous_priority);
-  pbl_mutex_unlock(s_flash_mutex);
+  pbl_mutex_unlock(&s_flash_mutex);
   return status;
 }
 
@@ -416,7 +411,7 @@ status_t t5ai_flash_ipc_write(uint32_t offset, const void *buffer, size_t length
   if (buffer == NULL || length == 0u || length > FLASH_MAX_TRANSFER_BYTES) {
     return E_INVALID_ARGUMENT;
   }
-  pbl_mutex_lock(s_flash_mutex, PBL_FOREVER);
+  pbl_mutex_lock(&s_flash_mutex, PBL_FOREVER);
   s_flash_command = (FlashCommand){
       .part_and_address = offset << FLASH_ADDRESS_SHIFT,
       .buffer = (uint32_t)(uintptr_t)buffer,
@@ -425,7 +420,7 @@ status_t t5ai_flash_ipc_write(uint32_t offset, const void *buffer, size_t length
   };
   dcache_flush((void *)buffer, length);
   const status_t status = prv_flash_transaction(FLASH_WRITE);
-  pbl_mutex_unlock(s_flash_mutex);
+  pbl_mutex_unlock(&s_flash_mutex);
   return status;
 }
 
@@ -433,10 +428,10 @@ status_t t5ai_flash_ipc_erase_4k(uint32_t offset) {
   if ((offset & (FLASH_ERASE_BLOCK_BYTES - 1u)) != 0u) {
     return E_INVALID_ARGUMENT;
   }
-  pbl_mutex_lock(s_flash_mutex, PBL_FOREVER);
+  pbl_mutex_lock(&s_flash_mutex, PBL_FOREVER);
   s_flash_command = (FlashCommand){.part_and_address = offset << FLASH_ADDRESS_SHIFT};
   const status_t status = prv_flash_transaction(FLASH_ERASE_SECTOR);
-  pbl_mutex_unlock(s_flash_mutex);
+  pbl_mutex_unlock(&s_flash_mutex);
   return status;
 }
 
@@ -586,8 +581,8 @@ status_t t5ai_saradc_read_peak(uint8_t channel, uint8_t samples, uint16_t *peak)
       samples > SARADC_MAX_SAMPLES) {
     return E_INVALID_ARGUMENT;
   }
-  pbl_mutex_lock(s_saradc_mutex, PBL_FOREVER);
+  pbl_mutex_lock(&s_saradc_mutex, PBL_FOREVER);
   const status_t status = prv_saradc_read_peak_locked(channel, samples, peak);
-  pbl_mutex_unlock(s_saradc_mutex);
+  pbl_mutex_unlock(&s_saradc_mutex);
   return status;
 }

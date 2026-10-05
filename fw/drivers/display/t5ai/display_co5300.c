@@ -16,7 +16,7 @@
 #include "system/passert.h"
 #include "system/profiler.h"
 
-#include <pbl/soc/t5ai/kernel.h>
+#include <pbl/kernel/mutex.h>
 
 #include <cmsis_core.h>
 
@@ -185,7 +185,8 @@ static bool s_enabled;
 static bool s_updating;
 static bool s_rotated;
 static uint8_t s_brightness;
-static struct pbl_mutex *s_panel_mutex;
+static PBL_MUTEX_DEFINE(s_panel_mutex);
+static bool s_panel_mutex_ready;
 static bool s_brightness_dirty;
 static uint8_t s_panel_row[PANEL_ROW_BYTES] __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
 static uint32_t s_dma_test_source[DISPLAY_DMA_TEST_WORDS]
@@ -294,14 +295,14 @@ static void prv_apply_brightness(void) {
 
 void display_co5300_set_brightness(uint8_t level) {
   // Before display_init(), only cache the requested level.
-  if (s_panel_mutex) {
-    pbl_mutex_lock(s_panel_mutex, PBL_FOREVER);
+  if (s_panel_mutex_ready) {
+    pbl_mutex_lock(&s_panel_mutex, PBL_FOREVER);
   }
   s_brightness = level;
   s_brightness_dirty = true;
   prv_apply_brightness();
-  if (s_panel_mutex) {
-    pbl_mutex_unlock(s_panel_mutex);
+  if (s_panel_mutex_ready) {
+    pbl_mutex_unlock(&s_panel_mutex);
   }
 }
 
@@ -679,11 +680,8 @@ static bool prv_panel_init(void) {
 }
 
 void display_init(void) {
-  if (!s_panel_mutex) {
-    s_panel_mutex = t5ai_mutex_create();
-    PBL_ASSERTN(s_panel_mutex);
-  }
-  pbl_mutex_lock(s_panel_mutex, PBL_FOREVER);
+  s_panel_mutex_ready = true;
+  pbl_mutex_lock(&s_panel_mutex, PBL_FOREVER);
   if (!s_initialized && !s_brightness_dirty) {
     s_brightness = T5AI_AMOLED_MIN_BRIGHTNESS;
   }
@@ -696,7 +694,7 @@ void display_init(void) {
   if (!s_initialized) {
     PBL_LOG_ERR("CO5300 initialization failed");
   }
-  pbl_mutex_unlock(s_panel_mutex);
+  pbl_mutex_unlock(&s_panel_mutex);
 }
 
 static void prv_display_clear(void) {
@@ -717,9 +715,9 @@ static void prv_display_clear(void) {
 }
 
 void display_clear(void) {
-  pbl_mutex_lock(s_panel_mutex, PBL_FOREVER);
+  pbl_mutex_lock(&s_panel_mutex, PBL_FOREVER);
   prv_display_clear();
-  pbl_mutex_unlock(s_panel_mutex);
+  pbl_mutex_unlock(&s_panel_mutex);
 }
 
 static void prv_display_set_enabled(bool enabled) {
@@ -732,9 +730,9 @@ static void prv_display_set_enabled(bool enabled) {
 }
 
 void display_set_enabled(bool enabled) {
-  pbl_mutex_lock(s_panel_mutex, PBL_FOREVER);
+  pbl_mutex_lock(&s_panel_mutex, PBL_FOREVER);
   prv_display_set_enabled(enabled);
-  pbl_mutex_unlock(s_panel_mutex);
+  pbl_mutex_unlock(&s_panel_mutex);
 }
 
 void display_set_rotated(bool rotated) {
@@ -743,7 +741,7 @@ void display_set_rotated(bool rotated) {
 
 static void prv_display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb,
                                bool use_dma, bool invert_colors) {
-  pbl_mutex_lock(s_panel_mutex, PBL_FOREVER);
+  pbl_mutex_lock(&s_panel_mutex, PBL_FOREVER);
   PBL_ASSERTN(!s_updating);
   s_updating = true;
   const uint32_t frame_start = prv_draw_ticks();
@@ -830,7 +828,7 @@ static void prv_display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb
   }
   s_updating = false;
   prv_apply_brightness();
-  pbl_mutex_unlock(s_panel_mutex);
+  pbl_mutex_unlock(&s_panel_mutex);
   uccb();
 }
 

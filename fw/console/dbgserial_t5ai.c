@@ -4,10 +4,9 @@
 #include "dbgserial.h"
 
 #include <pbl/mcu/interrupts.h>
-#include <pbl/soc/t5ai/kernel.h>
+#include <pbl/kernel/mutex.h>
+#include <pbl/kernel/sched.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
-
-#include <pbl/soc/t5ai/kernel.h>
 
 #include <stdarg.h>
 #include <stdbool.h>
@@ -17,19 +16,20 @@
 
 static uint8_t s_t5ai_buffer[T5AI_DBG_SERIAL_BUFFER_SIZE];
 static size_t s_t5ai_buffer_length;
-static struct pbl_mutex *s_t5ai_mutex;
+static PBL_MUTEX_DEFINE(s_t5ai_mutex);
+static bool s_t5ai_mutex_ready;
 
 static bool prv_lock(void) {
-  if (s_t5ai_mutex == NULL || !pbl_kernel_is_running()) {
+  if (!s_t5ai_mutex_ready || !pbl_kernel_is_running()) {
     return false;
   }
-  pbl_mutex_lock(s_t5ai_mutex, PBL_FOREVER);
+  pbl_mutex_lock(&s_t5ai_mutex, PBL_FOREVER);
   return true;
 }
 
 static void prv_unlock(bool locked) {
   if (locked) {
-    pbl_mutex_unlock(s_t5ai_mutex);
+    pbl_mutex_unlock(&s_t5ai_mutex);
   }
 }
 
@@ -48,7 +48,7 @@ static void prv_putchar(uint8_t c) {
 }
 
 void dbgserial_init(void) {
-  s_t5ai_mutex = t5ai_mutex_create();
+  s_t5ai_mutex_ready = true;
 }
 
 void dbgserial_change_baud_rate(uint32_t new_baud) {

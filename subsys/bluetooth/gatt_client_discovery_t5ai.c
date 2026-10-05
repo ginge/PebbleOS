@@ -9,7 +9,7 @@
 
 #include <services/gatt/ble_svc_gatt.h>
 
-#include <pbl/soc/t5ai/kernel.h>
+#include <pbl/kernel/sem.h>
 
 #include "comm/bt_conn_mgr.h"
 #include "nimble_gattc_op_queue.h"
@@ -26,7 +26,7 @@ PBL_LOG_MODULE_DECLARE(bt, CONFIG_BT_LOG_LEVEL);
 
 static bool s_discovery_in_progress;
 static bool s_stop_discovery_requested;
-static struct pbl_sem * s_discovery_stopped;
+static PBL_SEM_DEFINE(s_discovery_stopped, 0, 1);
 
 //! Marks the end of a discovery run, letting the next queued GATT client
 //! procedure start. Every terminal path of the discovery chain must end here.
@@ -306,7 +306,7 @@ static int prv_find_dsc_cb(uint16_t conn_handle, const struct ble_gatt_error *er
   enum pbl_bt_errno errno;
 
   if (s_stop_discovery_requested) {
-    pbl_sem_give(s_discovery_stopped);
+    pbl_sem_give(&s_discovery_stopped);
     prv_discovery_finished();
     prv_free_discovery_context(context);
     return BLE_HS_EDONE;
@@ -382,7 +382,7 @@ static int prv_find_chr_cb(uint16_t conn_handle, const struct ble_gatt_error *er
   enum pbl_bt_errno errno;
 
   if (s_stop_discovery_requested) {
-    pbl_sem_give(s_discovery_stopped);
+    pbl_sem_give(&s_discovery_stopped);
     prv_discovery_finished();
     prv_free_discovery_context(context);
     return BLE_HS_EDONE;
@@ -447,7 +447,7 @@ static int prv_find_inc_svc_cb(uint16_t conn_handle, const struct ble_gatt_error
   enum pbl_bt_errno errno;
 
   if (s_stop_discovery_requested) {
-    pbl_sem_give(s_discovery_stopped);
+    pbl_sem_give(&s_discovery_stopped);
     prv_discovery_finished();
     prv_free_discovery_context(context);
     return BLE_HS_EDONE;
@@ -505,7 +505,6 @@ static int prv_find_inc_svc_cb(uint16_t conn_handle, const struct ble_gatt_error
 }
 
 void nimble_discover_init(void) {
-  s_discovery_stopped = t5ai_sem_create(1, 0);
 }
 
 static enum pbl_bt_errno prv_start_discovery(const GAPLEConnection *connection, const struct pbl_bt_att_handle_range *data) {
@@ -587,7 +586,7 @@ enum pbl_bt_errno pbl_bt_gatt_stop_discovery(GAPLEConnection *connection) {
 
   if (s_discovery_in_progress) {
     s_stop_discovery_requested = true;
-    pbl_sem_take(s_discovery_stopped, PBL_TICKS(PBL_TICK_FOREVER));
+    pbl_sem_take(&s_discovery_stopped, PBL_TICKS(PBL_TICK_FOREVER));
   }
 
   return PBL_BT_ERRNO_OK;
