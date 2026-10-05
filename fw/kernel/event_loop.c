@@ -488,6 +488,8 @@ static PBL_NOINLINE void prv_extended_event_handler(PebbleEvent *e) {
         wakeup_handle_significant_clock_change();
         pbl_cron_handle_clock_change(set_time_info->utc_time_delta, set_time_info->gmt_offset_delta,
                                      set_time_info->dst_changed);
+      } else {
+        pbl_cron_handle_clock_correction();
       }
 
       // Always reschedule wakeup timers on any time change to prevent timers from
@@ -626,11 +628,12 @@ void launcher_main_loop(void) {
   prv_launcher_main_loop_init();
 
   while (1) {
-    pbl_task_wdt_feed_self();
-
     // We make this PebbleEvent static to save stack space
     static PebbleEvent e;
-    if (event_take_timeout(&e, 1000)) {
+    pbl_task_wdt_set_waiting(true);
+    const bool taken = event_take_timeout(&e, PBL_FOREVER);
+    pbl_task_wdt_set_waiting(false);
+    if (taken) {
       const PebbleTaskBitset kernel_main_task_bit = (1 << PebbleTask_KernelMain);
       const bool is_not_masked_out_from_kernel_main = !(e.task_mask & kernel_main_task_bit);
       if (is_not_masked_out_from_kernel_main) {

@@ -130,6 +130,9 @@ struct pbl_cron_job {
    */
   int32_t offset_seconds;
 
+  /** Scheduled with pbl_cron_job_schedule_at(); internal. */
+  bool absolute;
+
   union {
     /** All flags. */
     uint8_t flags;
@@ -166,6 +169,14 @@ void pbl_cron_handle_clock_change(int32_t utc_time_delta, int32_t gmt_offset_del
                                   bool dst_changed);
 
 /**
+ * @brief Catch up with a small correction of the wall clock.
+ *
+ * For corrections too small to recalculate execution times for: re-arms the wakeup timer for the
+ * corrected time and runs the jobs that are now due.
+ */
+void pbl_cron_handle_clock_correction(void);
+
+/**
  * @brief Schedule a job, or reschedule it if already scheduled.
  *
  * The job runs once, at its next matching time. The subsystem references the job until it fires
@@ -175,6 +186,17 @@ void pbl_cron_handle_clock_change(int32_t utc_time_delta, int32_t gmt_offset_del
  * @return Execution time, in seconds since the epoch.
  */
 time_t pbl_cron_job_schedule(struct pbl_cron_job *job);
+
+/**
+ * @brief Schedule a job at a fixed time, or reschedule it if already scheduled.
+ *
+ * The job runs once at @p utc_time; its schedule fields are ignored. The time does not follow
+ * time zone, DST or clock changes: a job the clock is moved past runs right away.
+ *
+ * @param job Job.
+ * @param utc_time Execution time, in seconds since the epoch.
+ */
+void pbl_cron_job_schedule_at(struct pbl_cron_job *job, time_t utc_time);
 
 /**
  * @brief Schedule a job to run right after another one.

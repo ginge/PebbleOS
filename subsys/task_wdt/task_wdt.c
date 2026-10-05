@@ -26,6 +26,10 @@ PBL_LOG_MODULE_DEFINE(task_wdt, CONFIG_TASK_WDT_LOG_LEVEL);
 
 #define NUM_CHANNELS CONFIG_TASK_WDT_CHANNELS
 _Static_assert(NUM_CHANNELS <= 8, "the reboot reason records the channels as 8-bit masks");
+#ifdef CONFIG_WATCHDOG
+_Static_assert(CONFIG_TASK_WDT_CHECK_PERIOD_MS < CONFIG_WATCHDOG_TIMEOUT_MS / 2,
+               "the hardware watchdog must outlast the check period");
+#endif
 
 struct channel {
   struct pbl_thread *thread;
@@ -34,6 +38,7 @@ struct channel {
   pbl_task_wdt_callback_t callback;
   void *user_data;
   bool active;
+  bool waiting;
 };
 
 struct expired {
@@ -95,7 +100,7 @@ static size_t prv_collect_expired(struct expired *expired, uint8_t *fed_mask,
       continue;
     }
     *active_mask |= 1u << i;
-    if (!prv_reached(now, ch->deadline)) {
+    if (ch->waiting || !prv_reached(now, ch->deadline)) {
       *fed_mask |= 1u << i;
       continue;
     }
@@ -296,6 +301,21 @@ void pbl_task_wdt_feed_thread(struct pbl_thread *thread) {
   for (int i = 0; i < NUM_CHANNELS; i++) {
     struct channel *ch = &s_channels[i];
     if (ch->active && ch->thread == thread) {
+      prv_feed_locked(ch, now);
+    }
+  }
+  pbl_irq_unlock();
+}
+
+void pbl_task_wdt_set_waiting(bool waiting) {
+  struct pbl_thread *thread = pbl_thread_current();
+
+  pbl_irq_lock();
+  pbl_tick_t now = pbl_uptime_ticks();
+  for (int i = 0; i < NUM_CHANNELS; i++) {
+    struct channel *ch = &s_channels[i];
+    if (ch->active && ch->thread == thread) {
+      ch->waiting = waiting;
       prv_feed_locked(ch, now);
     }
   }
