@@ -49,27 +49,12 @@
 #include "pbl/services/services.h"
 #include "pbl/services/boot_splash.h"
 #include "pbl/services/clock.h"
-#include "pbl/cron/cron.h"
-#include "pbl/services/data_logging/data_logging_service.h"
 #include "pbl/services/compositor/compositor.h"
-#include "pbl/services/comm_session/app_session_capabilities.h"
-#include "pbl/services/comm_session/default_kernel_sender.h"
-#include "pbl/services/comm_session/session.h"
-#include "pbl/services/firmware_update.h"
-#include "pbl/services/poll_remote.h"
-#include "pbl/services/put_bytes/put_bytes.h"
-#include "pbl/services/services_normal.h"
-#include "pbl/services/shared_prf_storage/shared_prf_storage.h"
-#include "pbl/services/light.h"
 #include "pbl/services/regular_timer.h"
 #include "pbl/services/system_task.h"
-#ifdef CONFIG_TOUCH
-#include "pbl/services/touch/touch.h"
-#endif
 #include "pbl/services/new_timer/new_timer_service.h"
 #include "pbl/services/new_timer/new_timer.h"
 #include "pbl/services/analytics/analytics.h"
-#include "pbl/services/accel_manager.h"
 #include "pbl/services/prf_update.h"
 #include "kernel/ui/kernel_ui.h"
 #include "kernel/kernel_applib_state.h"
@@ -160,26 +145,7 @@ int main(void) {
 #ifdef CONFIG_SOC_T5AI
 #include <pbl/bluetooth/init.h>
 #include <pbl/services/bluetooth/bluetooth_ctl.h>
-#include <pbl/services/bluetooth/bluetooth_persistent_storage.h>
 
-static void prv_t5ai_bluetooth_init(void) {
-  /* The CP shell is ready before its flash and HCI services. Normal service
-   * startup reaches this point well after reset on other platforms; preserve
-   * that ordering here until CP service readiness is exposed through the
-   * mailbox ABI. */
-  pbl_thread_sleep(PBL_MSEC(2000));
-
-  firmware_update_init();
-  put_bytes_init();
-  poll_remote_init();
-  shared_prf_storage_init();
-  bt_persistent_storage_init();
-  comm_default_kernel_sender_init();
-  comm_session_app_session_capabilities_init();
-  comm_session_init();
-  pbl_bt_init();
-  bt_ctl_init();
-}
 
 #endif
 
@@ -370,16 +336,6 @@ static PBL_NOINLINE void prv_main_task_init(void) {
 
   // Stop boot splash before initializing compositor
   boot_splash_stop();
-#ifdef CONFIG_SOC_T5AI
-  /* Initialize the subset of common services supported by the T5AI mailbox
-   * integration. Persistent services are initialized around Bluetooth below. */
-  pbl_cron_init();
-  light_init();
-  accel_manager_init();
-#ifdef CONFIG_TOUCH
-  touch_init();
-#endif
-#endif
   // Can't use the compositor framebuffer until the compositor is initialized
   compositor_init();
   kernel_ui_init();
@@ -390,21 +346,14 @@ static PBL_NOINLINE void prv_main_task_init(void) {
 
 #ifdef CONFIG_SOC_T5AI
   t5ai_power_init();
-#endif
 
-#ifndef CONFIG_SOC_T5AI
+  // CP shell readiness precedes flash/HCI readiness; retain the qualified settling delay.
+  pbl_thread_sleep(PBL_MSEC(2000));
+#endif
   pbl_bt_init();
-#else
-  prv_t5ai_bluetooth_init();
-#endif
 
-#ifndef CONFIG_SOC_T5AI
   services_init();
-#else
-  // T5AI initializes hardware-facing common services in its board-specific
-  // sequence above. Its writable PFS is now available, so initialize the full
-  // set of normal services required by the shared protocol endpoint table.
-  services_normal_init();
+#ifdef CONFIG_SOC_T5AI
   // Keep the controller initialized but unavailable to phones until persistent
   // services (especially Activity on a fallback RTC) have finished their
   // synchronous PFS startup. Otherwise an early SetTime can block KernelMain
