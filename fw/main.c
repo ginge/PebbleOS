@@ -85,9 +85,9 @@
 
 #ifndef CONFIG_SOC_T5AI
 static TimerID s_lowpower_timer = TIMER_INVALID_ID;
+#endif
 #ifndef CONFIG_MFG
 static TimerID s_uptime_timer = TIMER_INVALID_ID;
-#endif
 #endif
 static void main_task(void *parameter);
 
@@ -145,8 +145,6 @@ int main(void) {
 #ifdef CONFIG_SOC_T5AI
 #include <pbl/bluetooth/init.h>
 #include <pbl/services/bluetooth/bluetooth_ctl.h>
-
-
 #endif
 
 static void init_drivers(void) {
@@ -170,12 +168,10 @@ static void init_drivers(void) {
   flash_enable_write_protection();
   flash_prf_set_protection(true);
 
-#ifndef CONFIG_SOC_T5AI
   uint8_t vibe_cali = mfg_info_get_vibe_cali();
   if (vibe_cali != MFG_INFO_VIBE_CALI_INVALID) {
     vibe_apply_calibration(vibe_cali);
   }
-#endif
 
 #ifdef CONFIG_MIC
   mic_init(MIC);
@@ -208,7 +204,7 @@ static void clear_reset_loop_detection_bits(void) {
   boot_bit_clear(BOOT_BIT_RESET_LOOP_DETECT_THREE);
 }
 
-#if !defined(CONFIG_MFG) && !defined(CONFIG_SOC_T5AI)
+#ifndef CONFIG_MFG
 static void uptime_callback(void *data) {
   PBL_LOG_VERBOSE("Uptime reached 15 minutes, set stable bit.");
   new_timer_delete(s_uptime_timer);
@@ -303,12 +299,10 @@ static PBL_NOINLINE void prv_main_task_init(void) {
 
   services_early_init();
 
-#ifndef CONFIG_SOC_T5AI
   debug_print_last_launched_app();
 
   // Do this early before things can screw ith it.
   check_prf_update();
-#endif
 
 #if defined(CONFIG_PBLBOOT) && defined(CONFIG_RECOVERY_FW) && !defined(CONFIG_MFG)
   // Invalidate slot0/1 when booting PRF, so we force main firmware re-install
@@ -366,9 +360,7 @@ static PBL_NOINLINE void prv_main_task_init(void) {
 #if defined(CONFIG_SOC_SF32LB52) && !defined(SF32LB52_USE_LXT)
   rc10k_init();
 #endif
-#ifndef CONFIG_SOC_T5AI
   rtc_calibrate_frequency(mfg_info_get_rtc_freq());
-#endif
 
   clear_reset_loop_detection_bits();
 
@@ -381,13 +373,13 @@ static PBL_NOINLINE void prv_main_task_init(void) {
   s_lowpower_timer = new_timer_create();
   new_timer_start(s_lowpower_timer, 10 * 1000, prv_low_power_debug_config_callback, NULL,
                   0 /*flags*/);
+#endif
 
 #ifndef CONFIG_MFG
   s_uptime_timer = new_timer_create();
   new_timer_start(s_uptime_timer, 15 * 60 * 1000, uptime_callback, NULL, 0 /*flags*/);
 #else
   boot_bit_set(BOOT_BIT_FW_STABLE);
-#endif
 #endif
 
   // Initialize button driver at the last moment to prevent "system on" button press from

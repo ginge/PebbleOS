@@ -4,12 +4,15 @@
 #include "system/bootbits.h"
 
 #include <pbl/logging/logging.h>
+#include <pbl/kernel/sched.h>
 #include <pbl/soc/t5ai/retained.h>
 
 #include "console/dbgserial.h"
 
 #include <inttypes.h>
 #include <stdint.h>
+
+PBL_LOG_MODULE_DEFINE(soc_t5ai_bootbits, LOG_LEVEL_DEBUG);
 
 void boot_bit_init(void) {
   t5ai_retained_init();
@@ -21,9 +24,16 @@ void boot_bit_init(void) {
 void boot_bit_set(BootBitValue bit) {
   t5ai_retained_write(RTC_BKP_BOOTBIT_DR,
                       t5ai_retained_read(RTC_BKP_BOOTBIT_DR) | bit);
+  if (bit == BOOT_BIT_FW_STABLE) {
+    PBL_LOG_DBG("Firmware stable bit readback: bits=0x%08" PRIx32 " ticks=%" PRIu32,
+                boot_bits_get(), pbl_uptime_ticks());
+  }
 }
 
 void boot_bit_clear(BootBitValue bit) {
+  if (bit == BOOT_BIT_RESET_LOOP_DETECT_ONE) {
+    PBL_LOG_DBG("Startup boot bits: 0x%08" PRIx32, boot_bits_get());
+  }
   t5ai_retained_write(RTC_BKP_BOOTBIT_DR,
                       t5ai_retained_read(RTC_BKP_BOOTBIT_DR) & ~bit);
 }

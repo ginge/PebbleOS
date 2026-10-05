@@ -60,7 +60,8 @@ void mfg_info_set_model(const char* model) {
 }
 
 uint8_t mfg_info_get_vibe_cali(void) {
-  return prv_fetch_struct().vibe_cali;
+  // This board has no provisioned manufacturing region or vibration motor.
+  return MFG_INFO_VIBE_CALI_INVALID;
 }
 
 void mfg_info_set_vibe_cali(uint8_t cali) {
