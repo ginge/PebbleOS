@@ -3,6 +3,7 @@
 #include <pbl/logging/logging.h>
 PBL_LOG_MODULE_DEFINE(hci_t5ai, LOG_LEVEL_DEBUG);
 #include <pbl/soc/t5ai/hci_ipc.h>
+#include <pbl/soc/t5ai/power.h>
 #include <pbl/soc/t5ai/flash_ipc.h>
 
 #include <kernel/pebble_tasks.h>
@@ -359,6 +360,10 @@ void ble_transport_ll_reinit(void) {
 }
 
 void ble_transport_ll_init(void) {
+  t5ai_power_init();
+  // CP shell readiness precedes flash/HCI readiness. Preserve the qualified delay.
+  pbl_thread_sleep(PBL_MSEC(2000));
+
   if (s_acl_tx_queue == NULL) {
     s_acl_tx_queue = &s_acl_tx_messages;
   }

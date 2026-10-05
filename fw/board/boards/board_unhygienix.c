@@ -7,6 +7,10 @@
 #include <pbl/drivers/gpio.h>
 #include <pbl/drivers/mic/t5ai/definitions.h>
 #include <pbl/soc/t5ai/memory.h>
+#include <pbl/soc/t5ai/cp_mailbox.h>
+#include <pbl/logging/logging.h>
+
+PBL_LOG_MODULE_DEFINE(board_unhygienix, LOG_LEVEL_DEBUG);
 
 #define T5AI_GPIO_BASE 0x44000400u
 #define T5AI_GPIO_OUTPUT (1u << 1)
@@ -131,6 +135,8 @@ const BoardConfigButton BOARD_CONFIG_BUTTON = {
 const BoardConfigPower BOARD_CONFIG_POWER = {.low_power_threshold = 5};
 const BoardConfigActuator BOARD_CONFIG_VIBE = {.ctl = {.pin = UINT8_MAX}};
 void board_early_init(void) {
+  // CP supervision starts before the scheduler; service it before storage startup.
+  t5ai_cp_mailbox_enable_rx_interrupt();
   prv_enable_display_psram_cache();
   // P19 holds the module power rail on. Preload HIGH in the same write that
   // enables output so initialization cannot glitch the rail low.
@@ -143,4 +149,10 @@ void board_early_init(void) {
 }
 void board_init(void) {
   i2c_init(I2C0_BUS);
+
+  // Keep CP awake until the AP implements the low-voltage suspend/resume contract.
+  const status_t status = t5ai_cp_mailbox_vote_app_sleep(false);
+  if (FAILED(status)) {
+    PBL_LOG_ERR("App sleep vote failed: %ld", (long)status);
+  }
 }

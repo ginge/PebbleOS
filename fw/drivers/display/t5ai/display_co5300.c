@@ -682,7 +682,11 @@ static bool prv_panel_init(void) {
 void display_init(void) {
   s_panel_mutex_ready = true;
   pbl_mutex_lock(&s_panel_mutex, PBL_FOREVER);
-  if (!s_initialized && !s_brightness_dirty) {
+  if (s_initialized) {
+    pbl_mutex_unlock(&s_panel_mutex);
+    return;
+  }
+  if (!s_brightness_dirty) {
     s_brightness = T5AI_AMOLED_MIN_BRIGHTNESS;
   }
   prv_dma_init();

@@ -2,6 +2,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "pbl/services/boot_splash.h"
+#include <pbl/services/boot_splash/t5ai.h>
 
 #include "board/display.h"
 #include "board/splash.h"
@@ -20,6 +21,7 @@
 
 static uint8_t s_t5ai_splash_row[PBL_DISPLAY_WIDTH];
 static uint16_t s_t5ai_splash_y;
+static bool s_splash_requested;
 
 static bool prv_t5ai_splash_next_row(DisplayRow *row) {
   if (s_t5ai_splash_y >= PBL_DISPLAY_HEIGHT) {
@@ -60,6 +62,15 @@ static void prv_t5ai_splash_complete(void) {
 }
 
 void boot_splash_start(void) {
+  // The stock early call precedes timer services required by CP transactions.
+  s_splash_requested = true;
+}
+
+void t5ai_boot_splash_render(void) {
+  if (!s_splash_requested) {
+    return;
+  }
+  s_splash_requested = false;
   display_init();
 
   // T5AI's 67,600-byte framebuffer does not fit in the remaining internal
@@ -71,6 +82,7 @@ void boot_splash_start(void) {
 }
 
 void boot_splash_stop(void) {
+  s_splash_requested = false;
   // The static splash remains in panel GRAM until the compositor's first
   // normal frame replaces it.
 }

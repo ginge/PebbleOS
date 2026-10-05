@@ -1,12 +1,16 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <pbl/drivers/backlight.h>
 #include <pbl/drivers/display/t5ai.h>
+#include <pbl/services/boot_splash/t5ai.h>
+#include "board/board.h"
 
 static uint8_t s_brightness;
 
 void backlight_init(void) {
   s_brightness = 0u;
   backlight_refresh();
+  t5ai_boot_splash_render();
+  backlight_set_brightness(BOARD_CONFIG.backlight_on_percent);
 }
 
 uint8_t backlight_get_level(uint8_t brightness) {

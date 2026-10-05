@@ -30,12 +30,6 @@
 #include <pbl/drivers/vibe.h>
 #include <pbl/drivers/watchdog.h>
 #include <pbl/drivers/sf32lb52/rc10k.h>
-#ifdef CONFIG_SOC_T5AI
-#include <pbl/soc/t5ai/cp_mailbox.h>
-#include <pbl/soc/t5ai/power.h>
-#include <cmsis_core.h>
-
-#endif
 
 #include "resource/resource.h"
 #include "resource/system_resource.h"
@@ -83,9 +77,7 @@
 #include <pbl/drivers/qemu/qemu_serial.h>
 #endif
 
-#ifndef CONFIG_SOC_T5AI
 static TimerID s_lowpower_timer = TIMER_INVALID_ID;
-#endif
 #ifndef CONFIG_MFG
 static TimerID s_uptime_timer = TIMER_INVALID_ID;
 #endif
@@ -141,11 +133,6 @@ int main(void) {
 
   pbl_kernel_start();
 }
-
-#ifdef CONFIG_SOC_T5AI
-#include <pbl/bluetooth/init.h>
-#include <pbl/services/bluetooth/bluetooth_ctl.h>
-#endif
 
 static void init_drivers(void) {
   board_init();
@@ -212,11 +199,9 @@ static void uptime_callback(void *data) {
 }
 #endif
 
-#ifndef CONFIG_SOC_T5AI
 static void prv_low_power_debug_config_callback(void *data) {
   new_timer_delete(s_lowpower_timer);
 }
-#endif
 
 static PBL_NOINLINE void prv_main_task_init(void) {
   // The Snowy bootloader does not clear the watchdog flag itself. Clear the
@@ -234,21 +219,11 @@ static PBL_NOINLINE void prv_main_task_init(void) {
 
   task_init();
 
-#ifdef CONFIG_SOC_T5AI
-  /* CP0 starts supervising CPU1 as soon as the pre-scheduler power-up
-   * indication is acknowledged. Start mailbox dispatch and its dedicated
-   * heartbeat task before storage/resource initialization can block
-   * KernelMain longer than CP0's watchdog window. */
-  t5ai_cp_mailbox_enable_rx_interrupt();
-#endif
-
   memory_layout_setup_mpu();
 
   board_early_init();
 
-#ifndef CONFIG_SOC_T5AI
   boot_splash_start();
-#endif
 
   kernel_applib_init();
 
@@ -267,22 +242,6 @@ static PBL_NOINLINE void prv_main_task_init(void) {
   system_task_timer_init();
 
   init_drivers();
-
-#ifdef CONFIG_SOC_T5AI
-  /* Pebble does not yet participate in the vendor low-voltage suspend/resume
-   * contract. Keep CP0 out of low voltage until that contract is implemented;
-   * otherwise its Bluetooth controller can stop servicing a live connection
-   * after the configured idle timeout. */
-  const status_t app_sleep_vote_status = t5ai_cp_mailbox_vote_app_sleep(false);
-  if (FAILED(app_sleep_vote_status)) {
-    PBL_LOG_ERR("T5AI app sleep vote failed: %ld", (long)app_sleep_vote_status);
-  }
-
-  // T5AI elects its active clock once; the scheduler uses WFI for idle.
-
-  boot_splash_start();
-  backlight_set_brightness(BOARD_CONFIG.backlight_on_percent);
-#endif
 
   clock_init();
 
@@ -324,9 +283,7 @@ static PBL_NOINLINE void prv_main_task_init(void) {
   // display FPGA shares the 32 kHz clock signal with bluetooth. If the FPGA is
   // not programmed when we attempt to initialize bluetooth, it prevents the
   // clock from reaching the bluetooth module and initialization fails.
-#ifndef CONFIG_SOC_T5AI
   display_init();
-#endif
 
   // Stop boot splash before initializing compositor
   boot_splash_stop();
@@ -337,23 +294,9 @@ static PBL_NOINLINE void prv_main_task_init(void) {
 #ifdef CONFIG_QEMU
   qemu_serial_init();
 #endif
-
-#ifdef CONFIG_SOC_T5AI
-  t5ai_power_init();
-
-  // CP shell readiness precedes flash/HCI readiness; retain the qualified settling delay.
-  pbl_thread_sleep(PBL_MSEC(2000));
-#endif
   pbl_bt_init();
 
   services_init();
-#ifdef CONFIG_SOC_T5AI
-  // Keep the controller initialized but unavailable to phones until persistent
-  // services (especially Activity on a fallback RTC) have finished their
-  // synchronous PFS startup. Otherwise an early SetTime can block KernelMain
-  // while PPoG callbacks fill its event queue.
-  bt_ctl_set_enabled(true);
-#endif
 
   // The RTC needs be calibrated after the mfg registry service has been initialized so we can
   // load the measured frequency.
@@ -366,14 +309,12 @@ static PBL_NOINLINE void prv_main_task_init(void) {
 
   PBL_ASSERTN(pbl_task_wdt_add(NULL, CONFIG_TASK_WDT_TIMEOUT_MS, NULL, NULL) >= 0);
 
-#ifndef CONFIG_SOC_T5AI
   // Leave the board with stop and sleep mode debugging enabled for at least 10
   // seconds to give OpenOCD time to start and still able to connect when it is
   // ready to flash in the new image via JTAG
   s_lowpower_timer = new_timer_create();
   new_timer_start(s_lowpower_timer, 10 * 1000, prv_low_power_debug_config_callback, NULL,
                   0 /*flags*/);
-#endif
 
 #ifndef CONFIG_MFG
   s_uptime_timer = new_timer_create();
@@ -390,10 +331,6 @@ static PBL_NOINLINE void prv_main_task_init(void) {
 }
 
 static void main_task(void *parameter) {
-#ifdef CONFIG_SOC_T5AI
-  /* Ensure device interrupts are active as the first privileged task starts. */
-  __enable_irq();
-#endif
   prv_main_task_init();
   launcher_main_loop();
 }
