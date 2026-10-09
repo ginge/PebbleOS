@@ -8,6 +8,7 @@ PBL_LOG_MODULE_DEFINE(t5ai_reboot_reason, LOG_LEVEL_DEBUG);
 #include "pbl/mcu/interrupts.h"
 #include <pbl/soc/t5ai/retained.h>
 #include <pbl/soc/t5ai/reset.h>
+#include <pbl/soc/t5ai/state_trace.h>
 
 #include <pbl/soc/t5ai/kernel.h>
 
@@ -15,6 +16,9 @@ _Static_assert(sizeof(RebootReason) == sizeof(uint32_t[4]),
                "RebootReason is a funny size");
 
 void reboot_reason_set(RebootReason *reason) {
+  if (reason->code == RebootReasonCode_Watchdog) {
+    t5ai_state_trace_freeze((uint32_t)reason->code);
+  }
   uint32_t *raw = (uint32_t *)reason;
   if (t5ai_retained_read(REBOOT_REASON_REGISTER_1)) {
     if (!mcu_state_is_isr() && __get_BASEPRI() == 0 &&

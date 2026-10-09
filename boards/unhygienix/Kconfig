@@ -6,3 +6,14 @@ config BOARD_UNHYGIENIX
     help
       Unhygienix (The village fishmonger).
       Waveshare T5-E1 Touch AMOLED 1.75 using the PebbleOS kernel.
+
+config T5AI_STATE_TRACE
+    bool "Record T5AI app and background task state across reset"
+    depends on BOARD_UNHYGIENIX
+    default n
+    help
+      Optional diagnostic recorder; disabled in normal builds.
+      Sample task scheduling state into a bounded RAM ring once per second.
+      Print valid records on the next boot if RAM survives the reset.
+      Adds a 1536-byte thread stack and an 848-byte retained ring.
+      No stack or register tracing; does not change watchdog timing.

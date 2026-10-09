@@ -20,6 +20,11 @@ PBL_LOG_MODULE_DECLARE(driver_flash, CONFIG_DRIVER_FLASH_LOG_LEVEL);
 
 #define T5AI_FLASH_IPC_MAX_TRANSFER 0x200u
 #define T5AI_FLASH_IPC_ATTEMPTS 2u
+// CP erase requests complete before begin() returns. The shared flash API
+// still needs a nonzero initial poll delay to consume the completion and release
+// its erase semaphore. It computes duration * 7 / 8, so 2 ms yields 1 ms;
+// 0 or 1 would skip polling and strand the completion callback.
+#define T5AI_FLASH_COMPLETION_POLL_DURATION_MS 2u
 #define T5AI_PFS_PAGE_SIZE 0x1000u
 #define T5AI_PFS_HEADER_SIZE 32u
 #define T5AI_PFS_VERSION 0x5001u
@@ -376,6 +381,15 @@ status_t flash_impl_read_sync(void *buffer, FlashAddress address, size_t length)
     return E_INVALID_ARGUMENT;
   }
 
+  // The resource bank is immutable and mapped through the protected XIP aperture.
+  // PFS and shared records must continue through the CP physical-flash service.
+  if (address >= FLASH_REGION_SYSTEM_RESOURCES_BANK_0_BEGIN &&
+      address < FLASH_REGION_SYSTEM_RESOURCES_BANK_0_END &&
+      length <= FLASH_REGION_SYSTEM_RESOURCES_BANK_0_END - address) {
+    memcpy(buffer, (const void *)(uintptr_t)address, length);
+    return S_SUCCESS;
+  }
+
   uint8_t *output = buffer;
   while (length != 0) {
     size_t chunk = 0;
@@ -555,11 +569,11 @@ status_t flash_impl_erase_resume(FlashAddress address) {
   return S_NO_ACTION_REQUIRED;
 }
 uint32_t flash_impl_get_typical_subsector_erase_duration_ms(void) {
-  return 50;
+  return T5AI_FLASH_COMPLETION_POLL_DURATION_MS;
 }
 
 uint32_t flash_impl_get_typical_sector_erase_duration_ms(void) {
-  return 800;
+  return T5AI_FLASH_COMPLETION_POLL_DURATION_MS;
 }
 
 status_t flash_impl_read_security_register(uint32_t address, uint8_t *value) {

@@ -86,3 +86,105 @@ write ranges, default PFS preservation, explicit provisioning and rejection of
 corrupt AP/CP inputs before any write. Hardware qualification still requires the
 watchface regression, 25 reconnect cycles, cold-boot bond/face restoration and an
 overnight connected-idle soak. Preserve the complete first failure trace.
+
+## Task-state recorder
+
+`CONFIG_T5AI_STATE_TRACE` is an optional compile-time diagnostic flag, disabled
+by default. Enable it explicitly for an investigation:
+
+```sh
+pbl configure --board unhygienix -DCONFIG_T5AI_STATE_TRACE=y
+pbl build
+```
+
+Disable it again in the same build directory:
+
+```sh
+pbl configure --board unhygienix -DCONFIG_T5AI_STATE_TRACE=n
+pbl build
+```
+
+CMake equivalents are `cmake -S . -B build -DBOARD=unhygienix
+-DCONFIG_T5AI_STATE_TRACE=y` (or `n`) followed by `cmake --build build`.
+The override persists in that build directory's CMake cache. Check `.config`
+for `CONFIG_T5AI_STATE_TRACE=y` or `# CONFIG_T5AI_STATE_TRACE is not set`.
+Rebuild and flash the resulting firmware to change the watch's behavior;
+there is no runtime toggle.
+
+When disabled, CMake excludes `soc/t5ai/state_trace.c` and the start/freeze
+hooks compile to empty inline functions. There is no recorder thread, sampling,
+retained ring or `T5STATE` output. When enabled, the recorder adds a 1536-byte
+thread stack and an 848-byte retained ring, plus thread bookkeeping and code.
+A dedicated thread samples KernelBG and App once per second into a 16-entry
+internal-RAM ring. Sampling performs no logging, allocation, flash writes,
+stack walks, or register capture. This flag does not change watchdog timing:
+the board independently configures checks every 1000 ms and 2000 ms overdue
+before reset; the task timeout remains 5000 ms.
+
+The T5 watchdog reason setter and whole-chip reset path freeze the first
+failure snapshot. On the next boot, valid retained records appear in the
+normal UART trace with the `T5STATE` prefix. Record checksums reject torn or
+corrupt samples. Retention through the vendor whole-chip boot path still
+requires hardware validation; power loss can erase the ring. There is no
+persistent-flash fallback.
+
+Each sample reports uptime ticks, the background callback address, and paired
+BG/APP records with thread ID, cumulative CPU ticks, state, base/effective
+priority, and wait-queue address. States are 0 ready, 1 running, 2 blocked,
+3 suspended, 4 dead, and 255 absent. Compare CPU counters only for the same
+thread ID; app IDs change when threads are recreated. Resolve callback
+addresses with the exact candidate ELF. `same_callback_ticks` measures how
+long the sampled pointer stayed unchanged; repeated invocations of the same
+function are indistinguishable. A zero callback means no callback was active
+when sampled.
+
+A ready KernelBG with little CPU progress while the app advances supports
+starvation. A consistently blocked KernelBG and stable wait queue supports a
+wait on an object. Increasing KernelBG CPU time indicates continued execution
+rather than complete starvation. The ring freezes on the first watchdog
+report even if throttling later recovers; reboot starts a fresh recording.
+
+### QMI8658 polling isolation
+
+Periodic accelerometer I2C acquisition runs on the static `QMI8658` worker
+(priority 2, 1536-byte stack). NewTimers only signals a binary semaphore;
+KernelBG only delivers the acquired sample and runs the existing shake filter.
+The sensor ODRs, requested sampling intervals, startup settling and axis mapping
+are unchanged. Configuration and explicit uncached `accel_peek()` calls remain
+synchronous. A driver-local mutex serializes register-pointer/read pairs with
+configuration writes.
+
+Only one acquisition or delivery is outstanding. Ticks during that work are
+dropped, and delivery uses the nonblocking, droppable system-task API. A full
+KernelBG queue drops that sample and allows the next tick to retry; no catch-up
+burst is generated. Power, rotation and rate changes invalidate stale samples.
+This isolates periodic I2C waits from KernelBG; it does not establish the cause
+of the previously observed stalls or prove hardware stability. Validate with
+MU-TH-UR T app loading and a sustained accelerometer subscription after flashing.
+
+`python3 -m unittest tools.tests.test_t5ai_qmi8658 -v` compiles the production
+driver with controlled I2C and scheduler stubs. It checks pending-work bounds,
+queue pressure, read failures, stale samples, startup settling, and that neither
+the timer nor the delivery callback performs I2C.
+
+### Synchronous flash erase completion
+
+T5 CP flash erase IPC completes synchronously: all requested 4 KiB erases
+finish before the T5 driver's `erase_*_begin()` returns. The stock flash API
+still polls once to consume the completion, release its erase semaphore and
+deliver callbacks. The T5 driver therefore advertises a 2 ms completion-poll
+duration, which the shared API rounds to a 1 ms first poll. This is a scheduling
+hint after synchronous completion, not a claim about physical erase time.
+Do not set it to zero or one: the shared API would skip polling and strand the
+completion.
+
+The previous 50/800 ms hints inserted 43/700 ms sleeps after already-completed
+erases. Settings/database rewrites kept their mutex held through those sleeps.
+The driver-local change removes that avoidable delay without changing database
+locking, rewrite atomicity, watchdog limits or the CP flash protocol. Actual
+flash work, settings scans and scheduling delays can still extend mutex holds;
+compare the `FIRM-1649` hold-time logs across a phone full sync after flashing.
+
+Host validation: `python3 -m unittest tools.tests.test_t5ai_flash_completion -v`
+checks the production T5 driver; native `test_flash_api` covers both blocking
+completion and asynchronous callbacks with the short polling hint.

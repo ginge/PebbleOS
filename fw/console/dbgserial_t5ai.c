@@ -4,6 +4,7 @@
 #include "dbgserial.h"
 
 #include <pbl/mcu/interrupts.h>
+#include <pbl/kernel/irq.h>
 #include <pbl/kernel/mutex.h>
 #include <pbl/kernel/sched.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
@@ -18,6 +19,12 @@ static uint8_t s_t5ai_buffer[T5AI_DBG_SERIAL_BUFFER_SIZE];
 static size_t s_t5ai_buffer_length;
 static PBL_MUTEX_DEFINE(s_t5ai_mutex);
 static bool s_t5ai_mutex_ready;
+
+static bool prv_can_write(void) {
+  // Runtime mailbox output needs interrupts and a schedulable worker.
+  return !mcu_state_is_isr() &&
+         !(pbl_kernel_is_started() && (pbl_irq_is_locked() || pbl_sched_is_locked()));
+}
 
 static bool prv_lock(void) {
   if (!s_t5ai_mutex_ready || !pbl_kernel_is_running()) {
@@ -59,7 +66,7 @@ void dbgserial_restore_baud_rate(void) {
 }
 
 void dbgserial_putstr(const char* str) {
-  if (mcu_state_is_isr()) {
+  if (!prv_can_write()) {
     return;
   }
   const bool locked = prv_lock();
@@ -74,7 +81,7 @@ void dbgserial_putstr(const char* str) {
 }
 
 void dbgserial_putchar(uint8_t c) {
-  if (mcu_state_is_isr()) {
+  if (!prv_can_write()) {
     return;
   }
   const bool locked = prv_lock();
@@ -84,9 +91,8 @@ void dbgserial_putchar(uint8_t c) {
 }
 
 void dbgserial_putchar_lazy(uint8_t c) {
-  // The CP mailbox transport cannot take its task mutex or wait for an ACK
-  // from an interrupt. Do not disturb a partially assembled task message.
-  if (mcu_state_is_isr()) {
+  // Do not disturb a partially assembled task message when output cannot block.
+  if (!prv_can_write()) {
     return;
   }
   const bool locked = prv_lock();
@@ -95,7 +101,7 @@ void dbgserial_putchar_lazy(uint8_t c) {
 }
 
 void dbgserial_flush(void) {
-  if (mcu_state_is_isr()) {
+  if (!prv_can_write()) {
     return;
   }
   const bool locked = prv_lock();

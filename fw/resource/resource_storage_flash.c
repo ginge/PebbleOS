@@ -9,7 +9,6 @@
 #include "pbl/services/process_management/app_storage.h"
 #include "system/bootbits.h"
 #include <pbl/logging/logging.h>
-#include <pbl/crc/crc.h>
 #include "pbl/util/size.h"
 
 #include <stdlib.h>
@@ -130,20 +129,12 @@ static uint32_t resource_storage_system_bank_metadata_size(ResourceStoreEntry *e
 static uint32_t resource_storage_system_bank_get_crc(ResourceStoreEntry *entry, uint32_t num_bytes,
                                                      uint32_t entry_offset) {
   uint32_t start_offset = resource_store_get_metadata_size(entry) + entry_offset;
-#ifdef CONFIG_SOC_T5AI
-  return pbl_crc32_legacy((const void *)(uintptr_t)(BANK.begin + start_offset), num_bytes);
-#else
   return flash_crc32_legacy(BANK.begin + start_offset, num_bytes);
-#endif
 }
 
 static uint32_t resource_storage_system_bank_read(ResourceStoreEntry *entry, uint32_t offset,
                                                   void *data, size_t num_bytes) {
-#ifdef CONFIG_SOC_T5AI
-  memcpy(data, (const void *)(uintptr_t)(BANK.begin + offset), num_bytes);
-#else
   flash_read_bytes(data, BANK.begin + offset, num_bytes);
-#endif
   return num_bytes;
 }
 

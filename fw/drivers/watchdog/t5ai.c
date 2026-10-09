@@ -2,6 +2,7 @@
 
 #include <pbl/drivers/watchdog.h>
 #include <pbl/soc/t5ai/reset.h>
+#include <pbl/soc/t5ai/state_trace.h>
 
 #include <cmsis_core.h>
 
@@ -105,6 +106,7 @@ McuRebootReason watchdog_get_reset_flag(void) {
 }
 
 PBL_NORETURN void t5ai_force_whole_chip_reset(uint8_t reason) {
+  t5ai_state_trace_freeze(reason);
   __disable_irq();
 
   t5ai_reset_reason_set_ap(reason);

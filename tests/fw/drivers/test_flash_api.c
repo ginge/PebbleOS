@@ -100,12 +100,14 @@ status_t flash_impl_erase_resume(FlashAddress addr) {
   return S_SUCCESS;
 }
 
+static uint32_t s_erase_duration_ms = 100;
+
 uint32_t flash_impl_get_typical_subsector_erase_duration_ms(void) {
-  return 100;
+  return s_erase_duration_ms;
 }
 
 uint32_t flash_impl_get_typical_sector_erase_duration_ms(void) {
-  return 100;
+  return s_erase_duration_ms;
 }
 
 status_t flash_impl_get_write_status(void) {
@@ -181,6 +183,7 @@ static void callback(void *context, status_t status) {
 void test_flash_api__initialize(void) {
   callback_context = NULL;
   callback_status = -12345;
+  s_erase_duration_ms = 100;
 
   get_sector_base_calls = 0;
   get_subsector_base_calls = 0;
@@ -243,4 +246,30 @@ void test_flash_api__handle_uncorrectable_erase_error(void) {
   }
   cl_assert(i > 1 && i < 20);
   cl_assert_equal_i(uncorrectable_erase_error_cb_called, true);
+}
+
+// Synchronous CP-backed parts must still poll once to release the erase token.
+void test_flash_api__synchronous_erase_completion_is_consumed(void) {
+  s_erase_duration_ms = 2;
+  flash_erase_sector_blocking(0);
+  flash_erase_subsector_blocking(0);
+  cl_assert_equal_i(get_erase_status_calls, 2);
+  cl_assert_equal_i(erase_sector_begin_calls, 1);
+  cl_assert_equal_i(erase_subsector_begin_calls, 1);
+  s_erase_duration_ms = 100;
+}
+
+void test_flash_api__synchronous_erase_still_delivers_async_callback(void) {
+  s_erase_duration_ms = 2;
+  TimerID timer = flash_api_get_erase_poll_timer_for_test();
+  flash_erase_sector(0, callback, &s_erase_duration_ms);
+  cl_assert_equal_i(s_new_timer_start_param_timeout_ms, 1);
+  cl_assert_equal_i(callback_status, -12345);
+  cl_assert(stub_new_timer_is_scheduled(timer));
+  stub_new_timer_fire(timer);
+  cl_assert_equal_i(callback_status, S_SUCCESS);
+  cl_assert(callback_context == &s_erase_duration_ms);
+  // The completion must release the token for the next erase too.
+  flash_erase_subsector_blocking(0);
+  cl_assert_equal_i(get_erase_status_calls, 2);
 }

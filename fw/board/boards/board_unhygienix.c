@@ -6,9 +6,11 @@
 #include <pbl/drivers/i2c.h>
 #include <pbl/drivers/gpio.h>
 #include <pbl/drivers/mic/t5ai/definitions.h>
+#include <pbl/soc/t5ai/state_trace.h>
 #include <pbl/soc/t5ai/memory.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/logging/logging.h>
+#include "system/passert.h"
 
 PBL_LOG_MODULE_DEFINE(board_unhygienix, LOG_LEVEL_DEBUG);
 
@@ -38,6 +40,35 @@ static void prv_enable_display_psram_cache(void) {
   mpu_set_region(&s_display_psram_region);
   __DSB();
   __ISB();
+}
+
+// Only the NOLOAD framebuffer is tested; adjacent PSRAM caches remain untouched.
+extern uint32_t __t5ai_framebuffer_start__[];
+extern uint32_t __t5ai_framebuffer_end__[];
+
+static bool prv_validate_framebuffer_ram(void) {
+  volatile uint32_t *const words = __t5ai_framebuffer_start__;
+  const size_t word_count =
+      ((uintptr_t)__t5ai_framebuffer_end__ - (uintptr_t)words) / sizeof(*words);
+  const uint32_t seed = 0x3ca5c3a5u;
+
+  for (size_t i = 0; i < word_count; ++i) {
+    words[i] = seed ^ (uint32_t)i;
+  }
+  __DSB();
+  for (size_t i = 0; i < word_count; ++i) {
+    if (words[i] != (seed ^ (uint32_t)i)) {
+      return false;
+    }
+    words[i] = ~(seed ^ (uint32_t)i);
+  }
+  __DSB();
+  for (size_t i = 0; i < word_count; ++i) {
+    if (words[i] != ~(seed ^ (uint32_t)i)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 static void prv_assert_power_latch(void) {
@@ -146,6 +177,7 @@ void board_early_init(void) {
   /* The T5AI CP owns reset supervision and monitors the AP heartbeat. The
    * vendor AP adapter deliberately leaves both local watchdogs disabled. */
   watchdog_init();
+  t5ai_state_trace_start();
 }
 void board_init(void) {
   i2c_init(I2C0_BUS);
@@ -155,4 +187,8 @@ void board_init(void) {
   if (FAILED(status)) {
     PBL_LOG_ERR("App sleep vote failed: %ld", (long)status);
   }
+
+  // The boot stages map PSRAM; verify the handoff before any framebuffer use.
+  (void)t5ai_cp_mailbox_enable_psram();
+  PBL_ASSERTN(prv_validate_framebuffer_ram());
 }

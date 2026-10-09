@@ -6,6 +6,10 @@
 #include <pbl/drivers/i2c.h>
 #include <pbl/drivers/rtc.h>
 #include <pbl/kernel/kernel.h>
+#include <pbl/kernel/irq.h>
+#include <pbl/kernel/mutex.h>
+#include <pbl/kernel/sem.h>
+#include <pbl/kernel/thread.h>
 #include "kernel/util/sleep.h"
 #include "pbl/services/new_timer/new_timer.h"
 #include "pbl/services/system_task.h"
@@ -82,26 +86,51 @@ static uint64_t s_shake_previous_us;
 static uint64_t s_shake_holdoff_us;
 static uint64_t s_startup_us;
 static bool s_initialized;
-static bool s_poll_pending;
 static bool s_rotated;
 static AccelDriverSample s_last_sample;
 static bool s_last_sample_valid;
+// One acquisition/delivery may be outstanding. Timer ticks while it is pending
+// are dropped rather than building a backlog on KernelBG or the timer service.
+static bool s_poll_pending;
+static uint32_t s_generation;
+static uint32_t s_sample_generation;
+static AccelDriverSample s_pending_sample;
+static PBL_SEM_DEFINE(s_poll_signal, 0, 1);
+static PBL_MUTEX_DEFINE(s_io_lock);
+static struct pbl_thread s_poll_thread;
+PBL_THREAD_STACK_DEFINE(s_poll_stack, 1536);
+
+static void prv_invalidate_poll(void) {
+  pbl_irq_lock();
+  ++s_generation;
+  pbl_irq_unlock();
+}
+
+static void prv_finish_poll(void) {
+  pbl_irq_lock();
+  s_poll_pending = false;
+  pbl_irq_unlock();
+}
 
 static bool prv_read(uint8_t reg, uint8_t *data, size_t length) {
+  (void)pbl_mutex_lock(&s_io_lock, PBL_FOREVER);
   i2c_use(I2C_QMI8658);
   bool result = i2c_write_block(I2C_QMI8658, 1, &reg);
   if (result) {
     result = i2c_read_block(I2C_QMI8658, length, data);
   }
   i2c_release(I2C_QMI8658);
+  pbl_mutex_unlock(&s_io_lock);
   return result;
 }
 
 static bool prv_write(uint8_t reg, uint8_t value) {
   const uint8_t data[] = {reg, value};
+  (void)pbl_mutex_lock(&s_io_lock, PBL_FOREVER);
   i2c_use(I2C_QMI8658);
   const bool result = i2c_write_block(I2C_QMI8658, sizeof(data), data);
   i2c_release(I2C_QMI8658);
+  pbl_mutex_unlock(&s_io_lock);
   return result;
 }
 
@@ -190,14 +219,16 @@ static void prv_detect_shake(const AccelDriverSample *sample) {
   }
 }
 
-static void prv_poll(void *context) {
+static void prv_deliver_sample(void *context) {
   (void)context;
-  s_poll_pending = false;
-  if (!s_initialized || !s_active) {
-    return;
-  }
-  AccelDriverSample sample;
-  if (prv_read_sample(&sample) != QMI8658_SAMPLE_READY) {
+  // Only this callback touches the shake filter and delivers manager callbacks.
+  // The worker cannot overwrite the slot until delivery has finished.
+  pbl_irq_lock();
+  const bool valid = s_active && s_sample_generation == s_generation;
+  const AccelDriverSample sample = s_pending_sample;
+  pbl_irq_unlock();
+  if (!valid) {
+    prv_finish_poll();
     return;
   }
   if (sample.timestamp_us < s_startup_us) {
@@ -205,6 +236,7 @@ static void prv_poll(void *context) {
     s_shake_baseline_valid = false;
   }
   if (sample.timestamp_us - s_startup_us < QMI8658_STARTUP_SETTLE_MS * 1000u) {
+    prv_finish_poll();
     return;
   }
   s_last_sample = sample;
@@ -213,16 +245,51 @@ static void prv_poll(void *context) {
   if (s_num_samples != 0u) {
     accel_cb_new_sample(&sample);
   }
+  prv_finish_poll();
+}
+
+// I2C waits belong to the sensor worker, never KernelBG or NewTimers.
+static void prv_acquire_sample(void) {
+  pbl_irq_lock();
+  const bool active = s_initialized && s_active;
+  const uint32_t generation = s_generation;
+  pbl_irq_unlock();
+  AccelDriverSample sample;
+  if (!active || prv_read_sample(&sample) != QMI8658_SAMPLE_READY) {
+    prv_finish_poll();
+    return;
+  }
+  pbl_irq_lock();
+  const bool valid = s_active && generation == s_generation;
+  if (valid) {
+    s_pending_sample = sample;
+    s_sample_generation = generation;
+  }
+  pbl_irq_unlock();
+  if (!valid || !system_task_add_callback_droppable(prv_deliver_sample, NULL)) {
+    prv_finish_poll();
+  }
+}
+
+static void prv_poll_entry(void *context) {
+  (void)context;
+  while (true) {
+    if (pbl_sem_take(&s_poll_signal, PBL_FOREVER) == 0) {
+      prv_acquire_sample();
+    }
+  }
 }
 
 static void prv_timer_callback(void *context) {
   (void)context;
-  if (!s_active || s_poll_pending) {
-    return;
+  pbl_irq_lock();
+  const bool schedule = s_active && !s_poll_pending;
+  if (schedule) {
+    s_poll_pending = true;
   }
-  s_poll_pending = true;
-  if (!system_task_add_callback(prv_poll, NULL)) {
-    s_poll_pending = false;
+  pbl_irq_unlock();
+  if (schedule) {
+    pbl_sem_give(&s_poll_signal);
   }
 }
 
@@ -231,11 +298,15 @@ static bool prv_update_power(void) {
   if (active == s_active) {
     return true;
   }
+  prv_invalidate_poll();
   if (!prv_write(QMI8658_CTRL7, active ? QMI8658_ACCEL_ENABLE : 0u)) {
     PBL_LOG_ERR("Could not %s QMI8658", active ? "enable" : "disable");
     return false;
   }
+  pbl_irq_lock();
   s_active = active;
+  ++s_generation;
+  pbl_irq_unlock();
   s_last_sample_valid = false;
   s_shake_baseline_valid = false;
   if (active) {
@@ -271,15 +342,30 @@ void accel_init(void) {
     PBL_LOG_ERR("Could not create QMI8658 poll timer");
     return;
   }
+  const struct pbl_thread_attr attr = {
+    .name = "QMI8658",
+    .entry = prv_poll_entry,
+    .prio = PBL_PRIO_IDLE + 2,
+    .privileged = true,
+    .stack = s_poll_stack,
+    .stack_size = sizeof(s_poll_stack),
+  };
+  if (pbl_thread_create(&s_poll_thread, &attr) != 0) {
+    PBL_LOG_ERR("Could not create QMI8658 worker");
+    return;
+  }
   s_initialized = true;
 }
 
 void accel_set_rotated(bool rotated) {
+  pbl_irq_lock();
   if (s_rotated != rotated) {
+    ++s_generation;
     s_shake_baseline_valid = false;
     s_last_sample_valid = false;
   }
   s_rotated = rotated;
+  pbl_irq_unlock();
 }
 
 uint32_t accel_set_sampling_interval(uint32_t interval_us) {
@@ -293,10 +379,12 @@ uint32_t accel_set_sampling_interval(uint32_t interval_us) {
       rate = &s_rates[i];
     }
   }
+  prv_invalidate_poll();
   if (s_initialized && !prv_write(QMI8658_CTRL2, QMI8658_ACCEL_RANGE_4G | rate->odr)) {
     PBL_LOG_ERR("Could not set QMI8658 sampling rate");
     return s_interval_us;
   }
+  prv_invalidate_poll();
   s_requested_interval_us = requested_interval_us;
   s_interval_us = rate->interval_us;
   if (s_timer != TIMER_INVALID_ID && s_active) {

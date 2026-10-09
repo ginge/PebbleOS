@@ -24,10 +24,6 @@
 #include "system/profiler.h"
 #include "pbl/util/math.h"
 #include "pbl/util/testing.h"
-#ifdef CONFIG_SOC_T5AI
-#include <cmsis_core.h>
-#include <pbl/soc/t5ai/cp_mailbox.h>
-#endif
 
 PBL_LOG_MODULE_DEFINE(service_compositor, CONFIG_SERVICE_COMPOSITOR_LOG_LEVEL);
 
@@ -41,34 +37,6 @@ PBL_LOG_MODULE_DEFINE(service_compositor, CONFIG_SERVICE_COMPOSITOR_LOG_LEVEL);
 // the boot stages map its uncached aperture before entering the AP image.
 static FrameBuffer s_framebuffer __attribute__((section(".t5ai_framebuffer"), aligned(32)));
 
-// The pinned BK7258 AP BSP does not initialize the PSRAM controller: its
-// bk_psram_init() implementation is disabled and AP startup merely probes the
-// already-mapped aperture. Verify the same boot handoff here before normal
-// framebuffer initialization. This section is NOLOAD and dedicated to the
-// compositor, so a destructive test cannot corrupt another PSRAM owner.
-static bool prv_validate_t5ai_framebuffer_ram(void) {
-  volatile uint32_t *const words = (volatile uint32_t *)&s_framebuffer;
-  const size_t word_count = sizeof(s_framebuffer) / sizeof(*words);
-  const uint32_t seed = 0x3ca5c3a5u;
-
-  for (size_t i = 0; i < word_count; ++i) {
-    words[i] = seed ^ (uint32_t)i;
-  }
-  __DSB();
-  for (size_t i = 0; i < word_count; ++i) {
-    if (words[i] != (seed ^ (uint32_t)i)) {
-      return false;
-    }
-    words[i] = ~(seed ^ (uint32_t)i);
-  }
-  __DSB();
-  for (size_t i = 0; i < word_count; ++i) {
-    if (words[i] != ~(seed ^ (uint32_t)i)) {
-      return false;
-    }
-  }
-  return true;
-}
 #else
 static FrameBuffer s_framebuffer;
 #endif
@@ -130,10 +98,6 @@ static void prv_animation_update(Animation *animation, const AnimationProgress d
 static void prv_finish_transition(void);
 
 void compositor_init(void) {
-#ifdef CONFIG_SOC_T5AI
-  (void)t5ai_cp_mailbox_enable_psram();
-  PBL_ASSERTN(prv_validate_t5ai_framebuffer_ram());
-#endif
   const GSize fb_size = GSize(DISP_COLS, DISP_ROWS);
   framebuffer_init(&s_framebuffer, &fb_size);
   framebuffer_clear(&s_framebuffer);
