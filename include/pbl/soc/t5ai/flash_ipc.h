@@ -15,6 +15,7 @@ status_t t5ai_flash_ipc_read(uint32_t offset, void *buffer, size_t length);
 status_t t5ai_flash_ipc_write(uint32_t offset, const void *buffer, size_t length);
 status_t t5ai_flash_ipc_erase_4k(uint32_t offset);
 
+#ifdef CONFIG_T5AI_FLASH_PROFILE
 /* Lock-free diagnostic samples; fields may span adjacent transactions. */
 typedef struct {
   uint32_t count;
@@ -34,3 +35,4 @@ typedef struct {
 } T5AIFlashDiagnostics;
 
 void t5ai_flash_ipc_get_diagnostics(T5AIFlashDiagnostics *diagnostics);
+#endif

@@ -1,4 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
+#include <pbl/soc/t5ai/interrupt_profile.h>
+#include <pbl/soc/t5ai/reboot_trace.h>
 #include "board/board.h"
 #include <cmsis_core.h>
 #include <pbl/drivers/mpu.h>
@@ -9,6 +11,7 @@
 #include <pbl/soc/t5ai/state_trace.h>
 #include <pbl/soc/t5ai/memory.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
+#include <pbl/soc/t5ai/power.h>
 #include <pbl/logging/logging.h>
 #include "system/passert.h"
 
@@ -131,7 +134,12 @@ static I2CBus s_i2c0_bus = {
     .name = "i2c0",
 };
 I2CBus *const I2C0_BUS = &s_i2c0_bus;
-PBL_IRQ_CONNECT(I2C0, 5, i2c_irq_handler, I2C0_BUS, 0);
+static void prv_i2c_irq_handler(void) {
+  const uint32_t irq_start = t5ai_interrupt_profile_irq_enter();
+  i2c_irq_handler(I2C0_BUS);
+  t5ai_interrupt_profile_irq_exit(0, irq_start);
+}
+PBL_IRQ_CONNECT(I2C0, 5, prv_i2c_irq_handler, , 0);
 
 static const I2CSlavePort s_i2c_pcf85063 = {
     .bus = &s_i2c0_bus,
@@ -167,6 +175,7 @@ const BoardConfigPower BOARD_CONFIG_POWER = {.low_power_threshold = 5};
 const BoardConfigActuator BOARD_CONFIG_VIBE = {.ctl = {.pin = UINT8_MAX}};
 void board_early_init(void) {
   // CP supervision starts before the scheduler; service it before storage startup.
+  t5ai_reboot_trace_start();
   t5ai_cp_mailbox_enable_rx_interrupt();
   prv_enable_display_psram_cache();
   // P19 holds the module power rail on. Preload HIGH in the same write that
@@ -187,6 +196,9 @@ void board_init(void) {
   if (FAILED(status)) {
     PBL_LOG_ERR("App sleep vote failed: %ld", (long)status);
   }
+
+  // Vote after the scheduler and CP mailbox are ready; keep the active rate at 240 MHz.
+  t5ai_power_init();
 
   // The boot stages map PSRAM; verify the handoff before any framebuffer use.
   (void)t5ai_cp_mailbox_enable_psram();

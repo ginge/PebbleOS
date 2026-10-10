@@ -102,15 +102,18 @@ bool accel_get_double_tap_detection_enabled(void) {
   return false;
 }
 
+static bool s_timer_queue_full;
+
 void new_timer_add_work_callback_from_isr(NewTimerWorkCallback cb, void *data) {
 }
 bool new_timer_add_work_callback(NewTimerWorkCallback cb, void *data) {
-  return true;
+  return !s_timer_queue_full;
 }
 
 // Unit Test Code
 
 void test_accel_manager__initialize(void) {
+  s_timer_queue_full = false;
   accel_manager_init();
 
   s_sampling_interval_us = 1000000 / ACCEL_SAMPLING_25HZ;
@@ -268,4 +271,15 @@ void test_accel_manager__batched_samples(void) {
   stub_pebble_tasks_set_current(PebbleTask_KernelMain);
   sys_accel_manager_set_sample_buffer(main_session, fake_buf, 3);
   cl_assert_equal_i(s_num_samples, 7); /* 300ms / (1000ms / 25 samps) */
+}
+
+static void prv_offload_noop(void) {
+}
+
+void test_accel_manager__offload_queue_result(void) {
+  cl_assert(accel_offload_work(prv_offload_noop));
+  s_timer_queue_full = true;
+  cl_assert(!accel_offload_work(prv_offload_noop));
+  s_timer_queue_full = false;
+  cl_assert(accel_offload_work(prv_offload_noop));
 }

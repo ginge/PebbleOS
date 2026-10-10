@@ -223,7 +223,30 @@ void arch_switch_request(void) {
 #define RESTORE_REGS "  ldmia r0!, {r3, r4-r11, r14} \n msr control, r3 \n"
 #endif
 
-// r1 -> thread's MPU words; clobbers r2, r4-r11.
+// r1 -> thread's MPU words; clobbers r2-r12. r0 remains the next stack pointer.
+#ifdef CONFIG_MPU_TYPE_ARMV8M
+// Disable every old task region before changing bases: Armv8-M forbids overlap.
+#define RESTORE_MPU \
+  "  mrs r12, primask \n"                                                   \
+  "  cpsid i \n"                                                            \
+  "  dsb \n"                                                                \
+  "  ldr r2, =0xe000ed98 \n" /* MPU_RNR */                                    \
+  "  mov r4, #" STR(FIRST_MPU_REGION) " \n"                                  \
+  "  str r4, [r2] \n"                                                        \
+  "  ldr r2, =0xe000ed9c \n" /* MPU_RBAR and its aliases */                   \
+  "  ldmia r1!, {r4-r11} \n"                                                 \
+  "  mov r3, #0 \n"                                                          \
+  "  str r3, [r2, #4] \n"  /* MPU_RLAR */                                   \
+  "  str r3, [r2, #12] \n" /* MPU_RLAR_A1 */                                \
+  "  str r3, [r2, #20] \n" /* MPU_RLAR_A2 */                                \
+  "  str r3, [r2, #28] \n" /* MPU_RLAR_A3 */                                \
+  "  dsb \n"                                                                \
+  "  isb \n"                                                                \
+  "  stmia r2!, {r4-r11} \n"                                                 \
+  "  dsb \n"                                                                \
+  "  isb \n"                                                                \
+  "  msr primask, r12 \n"
+#else
 #define RESTORE_MPU \
   "  ldr r2, =0xe000ed98 \n"            /* MPU_RNR */                      \
   "  mov r4, #" STR(FIRST_MPU_REGION) " \n"                                  \
@@ -231,6 +254,7 @@ void arch_switch_request(void) {
   "  ldr r2, =0xe000ed9c \n"            /* MPU_RBAR and its aliases */      \
   "  ldmia r1!, {r4-r11} \n"                                                 \
   "  stmia r2!, {r4-r11} \n"
+#endif
 
 PBL_NAKED void PendSV_Handler(void) {
   __asm volatile(
@@ -396,7 +420,7 @@ void arch_start(void) {
   }
 }
 
-#ifndef CONFIG_SOC_SF32LB52
+#if !defined(CONFIG_SOC_SF32LB52) && !defined(CONFIG_SOC_T5AI)
 void SysTick_Handler(void) {
   pbl_kernel_tick_isr();
 }

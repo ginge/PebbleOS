@@ -17,3 +17,77 @@ config T5AI_STATE_TRACE
       Print valid records on the next boot if RAM survives the reset.
       Adds a 1536-byte thread stack and an 848-byte retained ring.
       No stack or register tracing; does not change watchdog timing.
+
+config T5AI_REMINDER_PROFILE
+    bool "Measure pin/reminder rewrite phases and flash calls"
+    depends on BOARD_UNHYGIENIX
+    default n
+    help
+      Temporary timing diagnostics for pindb and reminderdb. No stack/register tracing.
+      Reports phase wall/CPU times and synchronous flash call totals after DB unlock.
+      Keeps shared source unchanged; disables LTO in intercepted translation units.
+
+config T5AI_REBOOT_TRACE
+    bool "Trace T5 CP heartbeat and AP reset lifecycle"
+    depends on BOARD_UNHYGIENIX
+    default n
+    help
+      Bounded RAM event ring and low-priority UART drain thread.
+      Records heartbeat attempts, sends, acknowledgements and reset entry.
+      No stack/register tracing or watchdog policy changes.
+      Adds a 1536-byte stack, 776-byte retained ring and 776-byte replay buffer.
+
+config T5AI_INTERRUPT_PROFILE
+    bool "Measure T5 tick gaps, kernel interrupt masks and clock changes"
+    depends on T5AI_REBOOT_TRACE
+    default n
+    help
+      Temporary bounded counters, printed by the existing reboot trace worker.
+      No stack or general-register tracing, logging in interrupt context,
+      clock writes, task priority changes or tick compensation.
+      Disables LTO on intercepted kernel files to preserve diagnostic hooks.
+
+config T5AI_HEAP_TRACE
+    bool "Trace bounded kernel allocation history and OOM callers"
+    depends on T5AI_REBOOT_TRACE
+    default n
+    help
+      Keep the last 16 kernel heap operations without allocation or logging.
+      Existing reboot worker prints heap totals every ten seconds, and recent
+      operations when low. Croak OOM dumps history before the existing handler.
+      No stack walks, priority changes or allocator policy changes.
+
+config T5AI_FAULT_TRACE
+    bool "Capture minimal T5 HardFault evidence"
+    depends on BOARD_UNHYGIENIX
+    default n
+    help
+      Wrap only the fatal HardFault vector, preserving the stock handler.
+      Send PC/LR, exception context, SCB fault status and active MPU regions
+      through bounded emergency CP logs. Recover one original exception
+      frame only at MemManage entry. No heap, task locks or stack dump.
+      Adds a private 512-byte fault stack; delivery is best effort.
+
+config T5AI_FLASH_PROFILE
+    bool "Measure T5 flash IPC operation durations"
+    depends on BOARD_UNHYGIENIX
+    default n
+    help
+      Keep lock-free read/write/erase timing and active-operation samples.
+      Disabled builds contain no sampling counters or timestamp reads.
+
+config T5AI_DISPLAY_PROFILE
+    bool "Measure T5 display frame durations"
+    depends on BOARD_UNHYGIENIX
+    default n
+    help
+      Keep frame and DMA-failure counters and periodically log draw/render
+      timing. Disabled builds contain no frame sampling or diagnostic logs.
+
+config T5AI_HCI_PROFILE
+    bool "Measure T5 HCI traffic and task state"
+    depends on BOARD_UNHYGIENIX
+    default n
+    help
+      Keep transport counters and print periodic heartbeat and disconnect
+      snapshots. Disabled builds omit diagnostic counters and task sampling.

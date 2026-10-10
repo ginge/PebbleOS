@@ -1,6 +1,7 @@
 /* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include <pbl/soc/t5ai/interrupt_profile.h>
 #include <pbl/drivers/exti.h>
 #include <pbl/drivers/gpio.h>
 
@@ -127,6 +128,7 @@ void exti_disable(ExtiConfig cfg) {
 }
 
 void GPIO_IRQHandler(void) {
+  const uint32_t irq_start = t5ai_interrupt_profile_irq_enter();
   const uint32_t status_low = T5AI_GPIO_STATUS_0_31;
   const uint32_t status_high = T5AI_GPIO_STATUS_32_55;
   bool should_context_switch = false;
@@ -151,6 +153,7 @@ void GPIO_IRQHandler(void) {
   }
 
   (void)(should_context_switch);
+  t5ai_interrupt_profile_irq_exit(1, irq_start);
 }
 
 PBL_IRQ_CONNECT(GPIO, 6, GPIO_IRQHandler, , 0);

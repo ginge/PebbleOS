@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include <pbl/soc/t5ai/interrupt_profile.h>
+#include <pbl/soc/t5ai/reboot_trace.h>
 #include <pbl/soc/t5ai/rtc.h>
 #include <pbl/soc/t5ai/memory.h>
 
@@ -70,8 +72,8 @@ typedef struct {
   T5AIMailboxMessage ack;
   T5AIMailboxTransmitHandler handler;
   void *context;
-  struct pbl_sem * completion;
-  struct pbl_mutex *mutex;
+  struct pbl_sem completion;
+  struct pbl_mutex mutex;
   TxState state;
   bool synchronous;
   uint8_t sequence;
@@ -116,6 +118,7 @@ static void prv_send_reset(void);
 static uint32_t prv_bootstrap_ticks(uint32_t milliseconds);
 
 static PBL_NORETURN void prv_reset_after_timeout(uint8_t channel) {
+  t5ai_reboot_trace_event(T5RebootTrace_MailboxTimeout, channel);
   RebootReason reason = {
       .code = RebootReasonCode_MailboxTimeout,
       .extra.value = channel,
@@ -210,7 +213,7 @@ static void prv_finish_tx(TxChannel *tx, const T5AIMailboxMessage *ack, status_t
   tx->ack = *ack;
   tx->state = tx->synchronous ? TxState_Complete : TxState_Idle;
   if (tx->synchronous) {
-    (void)pbl_sem_give(tx->completion);
+    (void)pbl_sem_give(&tx->completion);
   } else if (tx->handler != NULL) {
     T5AIMailboxTransmitHandler handler = tx->handler;
     void *context = tx->context;
@@ -328,20 +331,6 @@ static status_t prv_schedule_tx(void) {
   return S_SUCCESS;
 }
 
-static status_t prv_ensure_sync_channel(TxChannel *tx) {
-  pbl_irq_lock();
-  if (tx->completion == NULL) {
-    tx->completion = t5ai_sem_create(1, 0);
-  }
-  if (tx->mutex == NULL) {
-    tx->mutex = t5ai_mutex_create();
-  }
-  const status_t status =
-      tx->completion != NULL && tx->mutex != NULL ? S_SUCCESS : E_OUT_OF_MEMORY;
-  pbl_irq_unlock();
-  return status;
-}
-
 static void prv_mailbox_task(void *context) {
   (void)context;
   while (true) {
@@ -383,12 +372,14 @@ static void prv_mailbox_task(void *context) {
 }
 
 void MAILBOX_IRQHandler(void) {
+  const uint32_t irq_start = t5ai_interrupt_profile_irq_enter();
   MBOX_CH1_CTRL &= ~MBOX_INTERRUPT_ENABLE;
   bool task_woken = false;
   if (s_wake != NULL) {
     (void)pbl_sem_give(s_wake);
   }
   (void)(task_woken);
+  t5ai_interrupt_profile_irq_exit(2, irq_start);
 }
 
 static void prv_send_reset(void) {
@@ -446,6 +437,10 @@ static void prv_bootstrap_resynchronize(uint32_t timeout_ms) {
 status_t t5ai_mailbox_channel_init(void) {
   if (s_initialized) {
     return S_SUCCESS;
+  }
+  for (unsigned i = 0; i < T5AI_MAILBOX_CHANNEL_COUNT; ++i) {
+    pbl_sem_init(&s_tx[i].completion, 0, 1);
+    pbl_mutex_init(&s_tx[i].mutex);
   }
   s_wake = t5ai_sem_create(1, 0);
   if (s_wake == NULL) {
@@ -534,17 +529,13 @@ status_t t5ai_mailbox_channel_send(uint8_t channel, const T5AIMailboxMessage *me
     return E_INVALID_ARGUMENT;
   }
   TxChannel *tx = &s_tx[index];
-  status_t init_status = prv_ensure_sync_channel(tx);
-  if (FAILED(init_status)) {
-    return init_status;
-  }
-  pbl_mutex_lock(tx->mutex, PBL_FOREVER);
-  while (pbl_sem_take(tx->completion, PBL_TICKS(0u)) == 0) {
+  pbl_mutex_lock(&tx->mutex, PBL_FOREVER);
+  while (pbl_sem_take(&tx->completion, PBL_TICKS(0u)) == 0) {
   }
   pbl_irq_lock();
   if (tx->state != TxState_Idle) {
     pbl_irq_unlock();
-    pbl_mutex_unlock(tx->mutex);
+    pbl_mutex_unlock(&tx->mutex);
     return E_BUSY;
   }
   tx->message = *message;
@@ -556,7 +547,7 @@ status_t t5ai_mailbox_channel_send(uint8_t channel, const T5AIMailboxMessage *me
   (void)pbl_sem_give(s_wake);
 
   const bool taken =
-      pbl_sem_take(tx->completion, PBL_TICKS(timeout_ms == UINT32_MAX
+      pbl_sem_take(&tx->completion, PBL_TICKS(timeout_ms == UINT32_MAX
                                         ? PBL_TICK_FOREVER
                                         : prv_milliseconds_to_ticks(timeout_ms)));
   if (taken != 0) {
@@ -574,7 +565,7 @@ status_t t5ai_mailbox_channel_send(uint8_t channel, const T5AIMailboxMessage *me
   pbl_irq_lock();
   tx->state = TxState_Idle;
   pbl_irq_unlock();
-  pbl_mutex_unlock(tx->mutex);
+  pbl_mutex_unlock(&tx->mutex);
   return status;
 }
 

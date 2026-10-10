@@ -11,7 +11,7 @@ HEADERS = [
     "pbl/drivers/rtc.h", "pbl/kernel/kernel.h", "pbl/kernel/irq.h",
     "pbl/kernel/mutex.h", "pbl/kernel/sem.h", "pbl/kernel/thread.h",
     "kernel/util/sleep.h", "pbl/services/new_timer/new_timer.h",
-    "pbl/services/system_task.h", "system/status_codes.h", "pbl/logging/logging.h",
+    "system/status_codes.h", "pbl/logging/logging.h",
 ]
 STUB = r"""
 #pragma once
@@ -27,6 +27,7 @@ typedef int TimerID;
 #define I2C_QMI8658 0
 #define PBL_FOREVER -1
 #define PBL_PRIO_IDLE 0
+#define PBL_PRIO_MAX 4
 #define E_ERROR -1
 #define S_SUCCESS 0
 #define PBL_LOG_MODULE_DEFINE(...)
@@ -57,7 +58,7 @@ void psleep(unsigned);
 TimerID new_timer_create(void);
 bool new_timer_start(TimerID, uint32_t, void (*)(void *), void *, int);
 bool new_timer_stop(TimerID);
-bool system_task_add_callback_droppable(void (*)(void *), void *);
+bool accel_offload_work(void (*)(void));
 void accel_cb_new_sample(const AccelDriverSample *);
 void accel_cb_shake_detected(IMUCoordinateAxis, int);
 """
@@ -65,9 +66,10 @@ HARNESS = r"""
 #include "stub.h"
 #include <assert.h>
 #include <string.h>
-static unsigned irq_depth, io, delivered, wakes;
+static unsigned irq_depth, io, delivered, wakes, created;
+static uint8_t last_reg;
 static bool ready = true, fail_read, full, tick_in_read, invalidate_in_read;
-static void (*queued)(void *);
+static void (*queued)(void);
 static unsigned now_ms = 200;
 #include "fw/drivers/imu/qmi8658/qmi8658_t5ai.c"
 void pbl_irq_lock(void) { ++irq_depth; }
@@ -79,19 +81,20 @@ void pbl_mutex_unlock(struct pbl_mutex *m) { assert(m->held); m->held = 0; }
 int pbl_sem_take(struct pbl_sem *s, int t) { (void)t; assert(s->count); --s->count; return 0; }
 void pbl_sem_give(struct pbl_sem *s) { assert(!irq_depth); assert(!s->count); ++s->count; ++wakes; }
 int pbl_thread_create(struct pbl_thread *t, const struct pbl_thread_attr *a) {
- (void)t; assert(a->entry == prv_poll_entry && a->prio == 2); return 0;
+ (void)t; assert(a->entry == prv_poll_entry && a->prio == 3 && a->privileged);
+ ++created; return 0;
 }
 void i2c_use(int b) { (void)b; assert(s_io_lock.held && !irq_depth); }
 void i2c_release(int b) { (void)b; }
 bool i2c_write_block(int b, size_t n, const uint8_t *p) {
- (void)b; (void)n; (void)p; ++io; return true;
+ (void)b; (void)n; last_reg = p[0]; ++io; return true;
 }
 bool i2c_read_block(int b, size_t n, uint8_t *p) {
  (void)b; ++io;
  if (tick_in_read) { unsigned old = wakes; prv_timer_callback(NULL); assert(wakes == old); }
  if (invalidate_in_read) { prv_invalidate_poll(); invalidate_in_read = false; }
  memset(p, 0, n);
- if (n == 1) *p = ready ? 1 : 0;
+ if (n == 1) *p = last_reg == QMI8658_WHO_AM_I ? QMI8658_ID : (ready ? 1 : 0);
  else { p[1] = 0x20; p[3] = 0x10; p[5] = 0xe0; }
  return !fail_read;
 }
@@ -102,8 +105,7 @@ bool new_timer_start(TimerID t, uint32_t ms, void (*cb)(void *), void *d, int f)
  (void)t; (void)ms; (void)cb; (void)d; (void)f; return true;
 }
 bool new_timer_stop(TimerID t) { (void)t; return true; }
-bool system_task_add_callback_droppable(void (*cb)(void *), void *d) {
- (void)d; assert(!irq_depth); if (full) return false;
+bool accel_offload_work(void (*cb)(void)) { assert(!irq_depth); if (full) return false;
  assert(!queued); queued = cb; return true;
 }
 void accel_cb_new_sample(const AccelDriverSample *s) {
@@ -119,12 +121,13 @@ static void acquire(void) {
  pbl_sem_take(&s_poll_signal, PBL_FOREVER); prv_acquire_sample();
 }
 static void deliver(void) {
- assert(queued); void (*cb)(void *) = queued; queued = NULL;
- unsigned old = io; cb(NULL); assert(io == old); // KernelBG never touches I2C.
+ assert(queued); void (*cb)(void) = queued; queued = NULL;
+ unsigned old = io; cb(); assert(io == old); // NewTimers delivery never touches I2C.
  assert(!s_poll_pending && !irq_depth);
 }
 int main(void) {
- s_initialized = s_active = true; s_num_samples = 1;
+ accel_init(); assert(s_initialized && created == 1);
+ s_active = true; s_num_samples = 1;
  tick_in_read = true;
  acquire(); assert(s_poll_pending && queued); deliver(); assert(delivered == 1);
  // Queue pressure drops a sample and permits a fresh acquisition next tick.

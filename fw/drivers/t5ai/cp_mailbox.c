@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include <pbl/soc/t5ai/reboot_trace.h>
 #include <pbl/soc/t5ai/rtc.h>
 #include <pbl/soc/t5ai/memory.h>
 
@@ -157,6 +158,7 @@ static void prv_receive(T5AIMailboxMessage *message, void *context) {
   if (channel == CP_CONTROL_RX_CHANNEL &&
       (uint8_t)message->header == (CP_HEARTBEAT_COMMAND | CP_RESPONSE_FLAG) &&
       s_heartbeat_in_flight) {
+    t5ai_reboot_trace_event(T5RebootTrace_HeartbeatResponse, 0u);
     s_heartbeat_in_flight = false;
     message->parameter1 = 0u;
     message->parameter2 = 0u;
@@ -366,6 +368,8 @@ void t5ai_cp_mailbox_announce_power_up(void) {
 
 static void prv_heartbeat_complete(const T5AIMailboxMessage *ack, status_t status, void *context) {
   (void)context;
+  t5ai_reboot_trace_event(T5RebootTrace_HeartbeatAck,
+                         FAILED(status) ? (uint32_t)status : (ack ? ack->parameter3 : UINT32_MAX));
   /* Tuya normally completes heartbeat processing in the physical ACK. */
   if (PASSED(status) && ack != NULL && ack->parameter3 == CP_ACK_STATE_COMPLETE) {
     s_heartbeat_in_flight = false;
@@ -375,7 +379,12 @@ static void prv_heartbeat_complete(const T5AIMailboxMessage *ack, status_t statu
 }
 
 void t5ai_cp_mailbox_heartbeat(void) {
+  t5ai_reboot_trace_event(T5RebootTrace_HeartbeatAttempt, 0u);
   if (!s_runtime_initialized || s_heartbeat_in_flight || t5ai_mailbox_channel_faulted()) {
+    t5ai_reboot_trace_event(T5RebootTrace_HeartbeatSkip,
+                           (!s_runtime_initialized ? 1u : 0u) |
+                           (s_heartbeat_in_flight ? 2u : 0u) |
+                           (t5ai_mailbox_channel_faulted() ? 4u : 0u));
     return;
   }
   s_heartbeat_parameter = 0u;
@@ -391,6 +400,7 @@ void t5ai_cp_mailbox_heartbeat(void) {
   s_heartbeat_in_flight = true;
   const status_t status = t5ai_mailbox_channel_send_async(
       CP_CONTROL_CHANNEL, &s_control_message, prv_heartbeat_complete, NULL);
+  t5ai_reboot_trace_event(T5RebootTrace_HeartbeatSend, (uint32_t)status);
   if (FAILED(status)) {
     s_heartbeat_in_flight = false;
   }
@@ -398,11 +408,10 @@ void t5ai_cp_mailbox_heartbeat(void) {
 
 static void prv_heartbeat_task(void *context) {
   (void)context;
-  pbl_tick_t last_wake = pbl_uptime_ticks();
   for (;;) {
     t5ai_cp_mailbox_heartbeat();
-    last_wake += pbl_ms_to_ticks(CP_HEARTBEAT_PERIOD_MS);
-    pbl_thread_sleep(PBL_TICKS(last_wake - pbl_uptime_ticks()));
+    // A missed absolute deadline must not underflow into an unbounded sleep.
+    pbl_thread_sleep(PBL_MSEC(CP_HEARTBEAT_PERIOD_MS));
   }
 }
 

@@ -12,6 +12,7 @@ void display_co5300_set_brightness(uint8_t level);
 void display_co5300_update_cpu(NextRowCallback nrcb, UpdateCompleteCallback uccb);
 
 // Durations use the 32 kHz AON clock, independent of CPU frequency.
+#ifdef CONFIG_T5AI_DISPLAY_PROFILE
 typedef struct {
   uint32_t frames;
   uint32_t total_update_ticks;
@@ -22,3 +23,4 @@ typedef struct {
 } T5AIDrawStats;
 
 extern volatile T5AIDrawStats g_t5ai_draw_stats;
+#endif

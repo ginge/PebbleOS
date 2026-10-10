@@ -74,6 +74,7 @@ static uint16_t prv_read_le16(const uint8_t *data, size_t offset) {
   return (uint16_t)data[offset] | ((uint16_t)data[offset + 1u] << 8);
 }
 
+#ifdef CONFIG_T5AI_FLASH_PROFILE
 static void prv_log_flash_operation(const char *name, const T5AIFlashOperationDiagnostics *sample) {
   PBL_LOG_DBG("T5AI flash timing: op=%s count=%lu max_ms=%lu last_ms=%lu tick=%lu offset=%lx len=%lu",
       name, (unsigned long)sample->count, (unsigned long)sample->max_ms,
@@ -92,6 +93,8 @@ static void prv_log_flash_diagnostics(void) {
       (unsigned long)pbl_uptime_ticks());
 }
 
+#endif
+
 static bool s_started;
 static bool s_reset_scheduled;
 static uint8_t s_active_connections;
@@ -102,6 +105,7 @@ static struct pbl_thread * s_hci_task;
 static struct pbl_msgq *s_acl_tx_queue;
 static PBL_MSGQ_DEFINE(s_acl_tx_messages, sizeof(struct os_mbuf *), T5AI_HCI_ACL_TX_QUEUE_CAPACITY);
 
+#ifdef CONFIG_T5AI_HCI_PROFILE
 static void prv_log_task_state(PebbleTask task) {
   struct pbl_thread * handle = pebble_task_get_thread(task);
   if (handle == NULL) {
@@ -114,6 +118,8 @@ static void prv_log_task_state(PebbleTask task) {
                  (unsigned)pbl_thread_prio_get(handle),
                  (unsigned)stack.high_water / sizeof(uint32_t));
 }
+
+#endif
 
 static bool prv_started(void) {
   return __atomic_load_n(&s_started, __ATOMIC_ACQUIRE);
@@ -180,7 +186,9 @@ static void prv_send_queued_acl(struct os_mbuf *acl) {
 
 static void prv_hci_task(void *unused) {
   (void)unused;
+#if defined(CONFIG_T5AI_HCI_PROFILE) || defined(CONFIG_T5AI_FLASH_PROFILE)
   pbl_tick_t last_trace_tick = pbl_uptime_ticks();
+#endif
   for (;;) {
     if (prv_started() && t5ai_hci_ipc_faulted()) {
       PBL_LOG_ERR("T5AI HCI worker detected transport fault");
@@ -193,8 +201,10 @@ static void prv_hci_task(void *unused) {
     }
     t5ai_hci_ipc_poll();
 
+#if defined(CONFIG_T5AI_HCI_PROFILE) || defined(CONFIG_T5AI_FLASH_PROFILE)
     const pbl_tick_t now = pbl_uptime_ticks();
     if ((now - last_trace_tick) >= pbl_ms_to_ticks(T5AI_HCI_TRACE_INTERVAL_MS)) {
+#ifdef CONFIG_T5AI_HCI_PROFILE
       T5AIHCIIpcDiagnostics diagnostics;
       t5ai_hci_ipc_get_diagnostics(&diagnostics);
       const unsigned queued = s_acl_tx_queue == NULL ? 0u :
@@ -208,9 +218,13 @@ static void prv_hci_task(void *unused) {
                      (unsigned long)diagnostics.acl_received,
                      (unsigned long)diagnostics.commands_received,
                      (unsigned long)diagnostics.send_busy_retries);
+#endif
+#ifdef CONFIG_T5AI_FLASH_PROFILE
       prv_log_flash_diagnostics();
+#endif
       last_trace_tick = now;
     }
+#endif
     pbl_thread_sleep(PBL_MSEC(T5AI_HCI_POLL_INTERVAL_MS));
   }
 }
@@ -247,7 +261,10 @@ static void prv_receive_event(const uint8_t *data, size_t length) {
   }
 
   if (data[T5AI_HCI_EVENT_CODE_OFFSET] == BLE_HCI_EVCODE_DISCONN_CMP) {
+#ifdef CONFIG_T5AI_FLASH_PROFILE
     prv_log_flash_diagnostics();
+#endif
+#ifdef CONFIG_T5AI_HCI_PROFILE
     T5AIHCIIpcDiagnostics diagnostics;
     t5ai_hci_ipc_get_diagnostics(&diagnostics);
     PBL_LOG_DBG("T5AI HCI disconnect snapshot: rx=%lu ack=%lu cmd=%lu evt=%lu acl=%lu rsp=%lu mack=%lu",
@@ -270,6 +287,8 @@ static void prv_receive_event(const uint8_t *data, size_t length) {
     prv_log_task_state(PebbleTask_App);
     prv_log_task_state(PebbleTask_BTHost);
     prv_log_task_state(PebbleTask_BTHCI);
+
+#endif
 
     if (s_active_connections == 0u) {
       PBL_LOG_WRN("Dropping stale T5AI HCI disconnect from prior AP generation");

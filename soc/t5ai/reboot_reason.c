@@ -1,6 +1,7 @@
 /* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include <pbl/soc/t5ai/reboot_trace.h>
 #include "system/reboot_reason.h"
 
 #include <pbl/logging/logging.h>
@@ -15,7 +16,10 @@ PBL_LOG_MODULE_DEFINE(t5ai_reboot_reason, LOG_LEVEL_DEBUG);
 _Static_assert(sizeof(RebootReason) == sizeof(uint32_t[4]),
                "RebootReason is a funny size");
 
+static bool s_boot_reason_pending = true;
+
 void reboot_reason_set(RebootReason *reason) {
+  t5ai_reboot_trace_event(T5RebootTrace_ReasonSet, reason->code);
   if (reason->code == RebootReasonCode_Watchdog) {
     t5ai_state_trace_freeze((uint32_t)reason->code);
   }
@@ -52,8 +56,8 @@ void reboot_reason_get(RebootReason *reason) {
   raw[1] = t5ai_retained_read(REBOOT_REASON_STUCK_TASK_PC);
   raw[2] = t5ai_retained_read(REBOOT_REASON_STUCK_TASK_LR);
   raw[3] = t5ai_retained_read(REBOOT_REASON_STUCK_TASK_CALLBACK);
-  if (raw[0] == 0u) {
-    const uint8_t hardware_reason = t5ai_reset_reason_get_ap();
+  if (raw[0] == 0u && s_boot_reason_pending) {
+    const uint8_t hardware_reason = t5ai_reset_reason_get_boot_ap();
     if ((hardware_reason & 0xf0u) == T5AI_RESET_REASON_MAILBOX_BASE) {
       reason->code = RebootReasonCode_MailboxTimeout;
       reason->extra.value = hardware_reason & 0x0fu;
@@ -65,6 +69,11 @@ void reboot_reason_get(RebootReason *reason) {
 }
 
 void reboot_reason_clear(void) {
+  if (s_boot_reason_pending) {
+    PBL_LOG_INFO("T5AI boot reset sources: AP=%u CP=%u", t5ai_reset_reason_get_boot_ap(),
+                 t5ai_reset_reason_get_boot_cp());
+  }
+  s_boot_reason_pending = false;
   t5ai_retained_write(REBOOT_REASON_REGISTER_1, 0);
   t5ai_retained_write(REBOOT_REASON_STUCK_TASK_PC, 0);
   t5ai_retained_write(REBOOT_REASON_STUCK_TASK_LR, 0);

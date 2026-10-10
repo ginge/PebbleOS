@@ -38,6 +38,10 @@ Evidence: `build/traces/erase-delay-fix-20261009/flash-results.json` and
 
 ## Remaining stock-code refactor work
 
+See the [2026-10-09 detailed handoff](../../../docs/boards/unhygienix/refactor_handoff.md)
+for scope, file ownership, known failed approaches, acceptance checks and the
+last-flashed candidate.
+
 The historical [shared-code audit](../../../docs/boards/unhygienix/history/shared_code_cleanup.md)
 contains superseded startup/kernel work. The remaining candidates are:
 

@@ -13,6 +13,17 @@ with Getafix. Getafix DVT and DVT2 remain independent Round 2 hardware targets.
 Unhygienix is excluded from release matrices. Recovery firmware, OTA, PBZ
 bundles, bulk erase and unsupported raw-flash operations remain disabled.
 
+## Latest refactor handoff — 2026-10-09
+
+Read the [detailed refactor handoff](refactor_handoff.md) before continuing.
+It records completed extractions, the five remaining refactor slices, deferred
+KernelBG diagnosis, and the exact last-flashed candidate and hardware evidence.
+The watch was boot looping before the latest erase-delay fix. Its short
+post-flash capture recovered one KernelBG stall and observed no further reboot;
+stability and app persistence are not qualified. SARADC timeouts remain.
+Older hardware successes below are dated evidence, not proof these issues have
+been resolved. No live capture is running at this handoff.
+
 ## Current status
 
 The native target configures, builds, packages, boots, logs over USB, renders
@@ -328,5 +339,6 @@ isolation validation. Define recovery and rollback before enabling updates.
 :maxdepth: 1
 
 tooling
+refactor_handoff
 history/index
 ```

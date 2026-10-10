@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <pbl/kernel/idle.h>
+#include <pbl/soc/t5ai/interrupt_profile.h>
+#include <pbl/soc/t5ai/tick.h>
 
 #include "pbl/soc/t5ai/power.h"
 #include "pbl/drivers/rtc.h"
@@ -25,18 +27,22 @@ void pbl_soc_idle(pbl_tick_t expected_idle_ticks) {
   (void)expected_idle_ticks;
 
   const RtcTicks start = rtc_get_ticks();
+  const uint32_t profile_start = t5ai_interrupt_profile_irq_enter();
   __disable_irq();
   if (pbl_idle_confirm()) {
     __DSB();
     __WFI();
     __ISB();
   }
+  t5ai_interrupt_profile_irq_exit(3, profile_start);
   __enable_irq();
   s_wfi_ticks += rtc_get_ticks() - start;
 }
 
 bool pbl_soc_tick_enable(void) {
   t5ai_power_update_clock();
+  t5ai_interrupt_profile_start();
+  t5ai_tick_start();
   return false;
 }
 

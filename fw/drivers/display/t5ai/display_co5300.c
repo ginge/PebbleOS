@@ -14,7 +14,9 @@
 #include <pbl/logging/logging.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include "system/passert.h"
+#ifdef CONFIG_T5AI_DISPLAY_PROFILE
 #include "system/profiler.h"
+#endif
 
 #include <pbl/kernel/mutex.h>
 
@@ -199,6 +201,7 @@ static uint8_t s_dma_rows[DISPLAY_DMA_BUFFER_COUNT][PANEL_DMA_BUFFER_BYTES]
 static bool s_dma_pending;
 static unsigned s_dma_buffer;
 
+#ifdef CONFIG_T5AI_DISPLAY_PROFILE
 // Read-only diagnostics via the CP console; no per-frame UART traffic.
 volatile T5AIDrawStats g_t5ai_draw_stats;
 static uint32_t s_last_frame_start;
@@ -206,6 +209,7 @@ static bool s_have_frame_start;
 static uint32_t prv_draw_ticks(void) {
   return T5AI_AON_RTC_COUNT_LOW;
 }
+#endif
 static uint16_t s_rgb565[DISPLAY_COLOR_COUNT];
 static bool s_dma_display_enabled;
 static bool s_dma_display_failed;
@@ -515,7 +519,9 @@ static bool prv_pixel_stream_finish_dma(size_t *aperture_word, size_t length) {
   if (complete) {
     *aperture_word += length / sizeof(uint32_t);
   } else {
+#ifdef CONFIG_T5AI_DISPLAY_PROFILE
     ++g_t5ai_draw_stats.dma_failures;
+#endif
   }
   return complete;
 }
@@ -748,12 +754,14 @@ static void prv_display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb
   pbl_mutex_lock(&s_panel_mutex, PBL_FOREVER);
   PBL_ASSERTN(!s_updating);
   s_updating = true;
+#ifdef CONFIG_T5AI_DISPLAY_PROFILE
   const uint32_t frame_start = prv_draw_ticks();
   if (s_have_frame_start) {
     g_t5ai_draw_stats.last_interval_ticks = frame_start - s_last_frame_start;
   }
   s_have_frame_start = true;
   s_last_frame_start = frame_start;
+#endif
   DisplayRow row;
   bool full_stream = false;
   size_t aperture_word = 0u;
@@ -804,6 +812,7 @@ static void prv_display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb
     }
     prv_pixel_stream_end();
   }
+#ifdef CONFIG_T5AI_DISPLAY_PROFILE
   const uint32_t elapsed = prv_draw_ticks() - frame_start;
   ++g_t5ai_draw_stats.frames;
   g_t5ai_draw_stats.total_update_ticks += elapsed;
@@ -830,6 +839,7 @@ static void prv_display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb
                 (unsigned long)PROFILER_NODE_GET_TOTAL_CYCLES(text_render_flash),
                 (unsigned long)PROFILER_NODE_GET_COUNT(text_render_flash));
   }
+#endif
   s_updating = false;
   prv_apply_brightness();
   pbl_mutex_unlock(&s_panel_mutex);

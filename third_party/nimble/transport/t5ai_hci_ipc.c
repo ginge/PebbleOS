@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include <pbl/soc/t5ai/reboot_trace.h>
 #include <pbl/mcu/cache.h>
 #include <pbl/logging/logging.h>
 PBL_LOG_MODULE_DEFINE(t5ai_hci_ipc, LOG_LEVEL_DEBUG);
@@ -102,7 +103,9 @@ static uint8_t s_pending_frame_count;
 static uint8_t s_event_payload[T5AI_HCI_MAX_EVENT_SIZE]
     __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
 static uint8_t s_acl_payload[T5AI_HCI_MAX_ACL_SIZE] __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
+#ifdef CONFIG_T5AI_HCI_PROFILE
 static T5AIHCIIpcDiagnostics s_diagnostics;
+#endif
 
 _Static_assert(sizeof(T5AIHCIMessage) == T5AI_HCI_MESSAGE_WIRE_SIZE, "T5AI HCI IPC ABI changed");
 
@@ -145,10 +148,14 @@ static status_t prv_send_frame(T5AIMIPCFrame *frame) {
     if (status != E_BUSY) {
       return status;
     }
+#ifdef CONFIG_T5AI_HCI_PROFILE
     ++s_diagnostics.send_busy_retries;
+#endif
     pbl_thread_sleep(PBL_MSEC(T5AI_HCI_BUSY_RETRY_DELAY_MS));
   } while (pbl_uptime_ticks() - start < pbl_ms_to_ticks(T5AI_HCI_SEND_TIMEOUT_MS));
+#ifdef CONFIG_T5AI_HCI_PROFILE
   ++s_diagnostics.send_timeouts;
+#endif
   PBL_LOG_ERR("T5AI HCI MIPC send timed out: header=%08lx object=%08lx",
                 (unsigned long)frame->header, (unsigned long)frame->object);
   return E_AGAIN;
@@ -218,7 +225,9 @@ static bool prv_is_transport_ack(const T5AIMIPCFrame *frame, T5AIMIPCData *data)
 static status_t prv_queue_pending_frame(const T5AIMIPCFrame *frame) {
   pbl_irq_lock();
   if (s_pending_frame_count == T5AI_HCI_PENDING_FRAME_CAPACITY) {
+#ifdef CONFIG_T5AI_HCI_PROFILE
     ++s_diagnostics.pending_queue_exhaustions;
+#endif
     pbl_irq_unlock();
     return E_OUT_OF_RESOURCES;
   }
@@ -226,9 +235,11 @@ static status_t prv_queue_pending_frame(const T5AIMIPCFrame *frame) {
       (uint8_t)((s_pending_frame_head + s_pending_frame_count) % T5AI_HCI_PENDING_FRAME_CAPACITY);
   s_pending_frames[tail] = (T5AIHCIPendingFrame){.frame = *frame};
   ++s_pending_frame_count;
+#ifdef CONFIG_T5AI_HCI_PROFILE
   if (s_pending_frame_count > s_diagnostics.pending_queue_high_water) {
     s_diagnostics.pending_queue_high_water = s_pending_frame_count;
   }
+#endif
   pbl_irq_unlock();
   return S_SUCCESS;
 }
@@ -318,7 +329,9 @@ static void prv_worker(void *context) {
     T5AIMIPCFrame frame;
     while (prv_dequeue_pending_frame(&frame)) {
       if (prv_retire_request(&frame) || prv_retire_event_response(&frame)) {
+#ifdef CONFIG_T5AI_HCI_PROFILE
         ++s_diagnostics.transport_acks_received;
+#endif
         continue;
       }
       if ((uint8_t)frame.header !=
@@ -353,7 +366,9 @@ static void prv_route_frame(uint8_t logical_channel, const T5AICPMailboxFrame *f
     return;
   }
   T5AIMIPCFrame pending;
+#ifdef CONFIG_T5AI_HCI_PROFILE
   ++s_diagnostics.frames_received;
+#endif
   memcpy(&pending, (const void *)frame->address, sizeof(pending));
   (void)t5ai_cp_mailbox_acknowledge_frame(frame, true);
   if (FAILED(prv_queue_pending_frame(&pending))) {
@@ -399,13 +414,17 @@ static status_t prv_respond_to_event(T5AIHCIMessage *message) {
         pbl_irq_unlock();
       }
       if (PASSED(result)) {
+#ifdef CONFIG_T5AI_HCI_PROFILE
         ++s_diagnostics.responses_sent;
+#endif
       }
       return result;
     }
   }
   pbl_irq_unlock();
+#ifdef CONFIG_T5AI_HCI_PROFILE
   ++s_diagnostics.response_exhaustions;
+#endif
   PBL_LOG_ERR("T5AI HCI event response slots exhausted");
   return result;
 }
@@ -424,9 +443,13 @@ static status_t prv_handle_command(T5AIMIPCFrame *frame, uint8_t expected, bool 
      * rereading the remote descriptor afterwards races that reuse. */
     const uint8_t subtype = message->subtype;
     if (subtype == T5AI_HCI_EVENT_TO_HOST) {
+#ifdef CONFIG_T5AI_HCI_PROFILE
       ++s_diagnostics.events_received;
+#endif
     } else {
+#ifdef CONFIG_T5AI_HCI_PROFILE
       ++s_diagnostics.acl_received;
+#endif
     }
     const uint32_t request = message->request;
     const size_t request_length = message->request_length;
@@ -448,13 +471,17 @@ static status_t prv_handle_command(T5AIMIPCFrame *frame, uint8_t expected, bool 
       }
     }
   } else if (message->subtype == expected) {
+#ifdef CONFIG_T5AI_HCI_PROFILE
     ++s_diagnostics.commands_received;
+#endif
     s_exchange_result = message->result;
     *matched = true;
   }
   status_t ack_status = prv_mipc_ack(frame, remote_data);
   if (PASSED(ack_status)) {
+#ifdef CONFIG_T5AI_HCI_PROFILE
     ++s_diagnostics.mipc_acks_sent;
+#endif
   }
   return FAILED(status) ? status : ack_status;
 }
@@ -462,7 +489,9 @@ static status_t prv_handle_command(T5AIMIPCFrame *frame, uint8_t expected, bool 
 static status_t prv_exchange(uint8_t subtype, const void *payload, size_t length) {
   T5AIHCIOutbound *request = prv_allocate_request();
   if (request == NULL) {
+#ifdef CONFIG_T5AI_HCI_PROFILE
     ++s_diagnostics.request_exhaustions;
+#endif
     PBL_LOG_ERR("T5AI HCI request slots exhausted: subtype=%u", subtype);
     prv_mark_faulted();
     return E_OUT_OF_RESOURCES;
@@ -490,7 +519,9 @@ static status_t prv_exchange(uint8_t subtype, const void *payload, size_t length
   }
 
   if (pbl_sem_take(s_exchange_ready, PBL_TICKS(pbl_ms_to_ticks(T5AI_HCI_SEND_TIMEOUT_MS))) != 0) {
+#ifdef CONFIG_T5AI_HCI_PROFILE
     ++s_diagnostics.exchange_timeouts;
+#endif
     PBL_LOG_ERR("T5AI HCI exchange timed out: subtype=%u", subtype);
     __atomic_store_n(&s_expected_subtype, T5AI_HCI_NO_EXPECTED_SUBTYPE, __ATOMIC_RELEASE);
     prv_mark_faulted();
@@ -626,6 +657,7 @@ int t5ai_hci_ipc_send_acl(const uint8_t *data, size_t length) {
 }
 
 int t5ai_hci_ipc_request_system_reboot(void) {
+  t5ai_reboot_trace_event(T5RebootTrace_CPResetRequest, 0u);
   /* CPU1's local NVIC reset leaves CPU0 and the Bluetooth radio alive. Match
    * Tuya's AP reset path by asking CPU0 to perform the whole-chip reboot. The
    * request is intentionally asynchronous because a successful CPU0 handler
@@ -649,6 +681,7 @@ void t5ai_hci_ipc_poll(void) {
   }
 }
 
+#ifdef CONFIG_T5AI_HCI_PROFILE
 void t5ai_hci_ipc_get_diagnostics(T5AIHCIIpcDiagnostics *diagnostics) {
   if (diagnostics == NULL) {
     return;
@@ -667,3 +700,4 @@ void t5ai_hci_ipc_get_diagnostics(T5AIHCIIpcDiagnostics *diagnostics) {
   }
   pbl_irq_unlock();
 }
+#endif

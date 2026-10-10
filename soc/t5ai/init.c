@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <stdint.h>
+#include <pbl/soc/t5ai/reboot_trace.h>
+#include <pbl/soc/t5ai/reset.h>
 #include <cmsis_core.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include "pbl/mcu/cache.h"
@@ -37,6 +39,8 @@ void SystemInit(void) {
 
 void pbl_soc_early_init(void) {
   SystemInit();
+  t5ai_reset_reason_capture_boot();
+  t5ai_reboot_trace_capture_boot();
   icache_enable();
   dcache_enable();
 

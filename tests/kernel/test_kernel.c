@@ -4,6 +4,7 @@
 #include "clar.h"
 
 #include "pbl/kernel/kernel.h"
+#include "pbl/kernel/idle.h"
 
 #include "kernel_test.h"
 
@@ -130,6 +131,32 @@ void test_kernel__tick_time_slices(void) {
   prv_spawn(1, "b", 2, prv_spin_entry, (void *)'B');
   pbl_test_kernel_run();
   cl_assert_equal_s(s_trace, "ABABABAB");
+}
+
+static void prv_catchup_sleeper(void *arg) {
+  const char c = (char)(uintptr_t)arg;
+  prv_trace(c);
+  pbl_thread_sleep(PBL_TICKS(c == 'A' ? 5 : 10));
+  cl_assert_equal_i(pbl_uptime_ticks(), 54);
+  prv_trace(c == 'A' ? 'a' : 'b');
+}
+
+static void prv_catchup_tick(void *arg) {
+  (void)arg;
+  pbl_test_isr_enter();
+  pbl_idle_slept(53);
+  pbl_kernel_tick_isr();
+  pbl_test_isr_exit();
+  cl_assert_equal_i(pbl_uptime_ticks(), 54);
+  cl_assert_equal_s(s_trace, "ABab");
+  pbl_test_kernel_stop();
+}
+
+void test_kernel__elapsed_tick_catchup_expires_deadlines(void) {
+  prv_spawn(0, "a", 3, prv_catchup_sleeper, (void *)'A');
+  prv_spawn(1, "b", 3, prv_catchup_sleeper, (void *)'B');
+  prv_spawn(2, "tick", 2, prv_catchup_tick, NULL);
+  pbl_test_kernel_run();
 }
 
 // ---- semaphores -------------------------------------------------------------

@@ -13,6 +13,7 @@ STUB_HEADERS = {
 #include <stdbool.h>
 void t5ai_power_init(void);
 void t5ai_power_update_clock(void);
+void t5ai_power_sync_tick_clock(void);
 """,
     "pbl/soc/t5ai/cp_mailbox.h": """
 #include <stdbool.h>
@@ -55,7 +56,7 @@ int xTaskCreate(void (*)(void *),const char *,unsigned,void *,unsigned,void *);
 """,
     "cmsis_core.h": """
 extern uint32_t SystemCoreClock;
-static struct { uint32_t CTRL, LOAD; } s_systick;
+static struct { uint32_t CTRL, LOAD, VAL; } s_systick;
 #define SysTick (&s_systick)
 #define SysTick_CTRL_ENABLE_Msk 1u
 #define CONFIG_KERNEL_TICK_HZ 1000u
@@ -69,6 +70,71 @@ static struct { uint32_t CTRL, LOAD; } s_systick;
 
 
 class T5AIPowerTest(unittest.TestCase):
+    def test_board_startup_elects_clock(self):
+        # Compile the real board startup function with the real power driver.
+        board = (ROOT / "fw/board/boards/board_unhygienix.c").read_text()
+        start = board.index("void board_init(void) {")
+        end = board.index("\n}", start) + 2
+        startup = board[start:end]
+        harness = r"""
+#include <assert.h>
+#include <stdint.h>
+#include <sys/mman.h>
+#include T5AI_POWER_SOURCE
+uint32_t SystemCoreClock;
+static unsigned votes, stage;
+#define FAILED(s) ((s) < 0)
+#define PBL_ASSERTN(s) assert(s)
+#define I2C0_BUS 0
+static void i2c_init(int bus) { assert(bus == 0 && stage == 0); stage = 1; }
+static status_t t5ai_cp_mailbox_vote_app_sleep(bool allow) {
+  assert(!allow && stage == 1); stage = 2; return S_SUCCESS;
+}
+status_t t5ai_cp_mailbox_vote_cpu1_frequency(T5AICpuFrequency frequency) {
+  assert(frequency == T5AICpuFrequency_240MHz && stage == 2);
+  ++votes;
+  *(volatile uint32_t *)0x44010020u = 0x31u;
+  *(volatile uint32_t *)0x44010014u = 16u;
+  return S_SUCCESS;
+}
+static status_t t5ai_cp_mailbox_enable_psram(void) {
+  assert(votes == 1 && SystemCoreClock == 240000000u);
+  assert(SysTick->LOAD == 239999u && SysTick->VAL == 0u);
+  stage = 3; return S_SUCCESS;
+}
+static bool prv_validate_framebuffer_ram(void) { return stage == 3; }
+BOARD_STARTUP
+int main(void) {
+  assert(mmap((void *)0x44010000u, 4096, PROT_READ | PROT_WRITE,
+              MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) != MAP_FAILED);
+  *(volatile uint32_t *)0x44010020u = 0x37u;
+  *(volatile uint32_t *)0x44010014u = 16u;
+  SystemCoreClock = 60000000u;
+  SysTick->CTRL = 1u; SysTick->LOAD = 59999u; SysTick->VAL = 17u;
+  board_init();
+  assert(votes == 1 && stage == 3 && s_initialized);
+  return 0;
+}
+""".replace("BOARD_STARTUP", startup)
+        self.run_harness(harness)
+
+    def run_harness(self, source):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            for name, contents in STUB_HEADERS.items():
+                header = directory / name
+                header.parent.mkdir(parents=True, exist_ok=True)
+                header.write_text(contents)
+            (directory / "startup.c").write_text(source)
+            executable = directory / "startup"
+            subprocess.run([
+                "cc", "-std=gnu11", "-Wall", "-Wextra", "-Werror",
+                "-I", str(directory),
+                f'-DT5AI_POWER_SOURCE="{ROOT / "soc/t5ai/power.c"}"',
+                str(directory / "startup.c"), "-o", str(executable),
+            ], check=True)
+            subprocess.run([str(executable)], check=True)
+
     def test_active_clock_election(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
