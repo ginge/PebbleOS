@@ -18,12 +18,10 @@ static const SystemResourceBank s_resource_banks[] = {
     .begin = FLASH_REGION_SYSTEM_RESOURCES_BANK_0_BEGIN,
     .end = FLASH_REGION_SYSTEM_RESOURCES_BANK_0_END,
   },
-#ifndef CONFIG_SOC_T5AI
   {
     .begin = FLASH_REGION_SYSTEM_RESOURCES_BANK_1_BEGIN,
     .end = FLASH_REGION_SYSTEM_RESOURCES_BANK_1_END,
   },
-#endif
 };
 
 //! Index into s_resource_banks
@@ -36,58 +34,21 @@ static bool s_valid_resources_found = false;
 
 const ResourceStoreImplementation g_system_bank_impl;
 
-#ifdef CONFIG_SOC_T5AI
-static bool prv_t5ai_system_bank_metadata_valid(const ResourceVersion *expected_version) {
-  ResourceManifest manifest;
-  memcpy(&manifest, (const void *)(uintptr_t)BANK.begin, sizeof(manifest));
-
-  if (!resource_version_matches(&manifest.version, expected_version)) {
-    return false;
-  }
-  if (manifest.num_resources == 0) {
-    return true;
-  }
-  if (manifest.num_resources > MAX_RESOURCES_FOR_SYSTEM_STORE) {
-    return false;
-  }
-
-  ResTableEntry last_entry;
-  const uintptr_t last_entry_address =
-      BANK.begin + MANIFEST_SIZE + (manifest.num_resources - 1u) * TABLE_ENTRY_SIZE;
-  memcpy(&last_entry, (const void *)last_entry_address, sizeof(last_entry));
-
-  const uint32_t resource_end = last_entry.offset + last_entry.length;
-  const uint32_t bank_size = BANK.end - BANK.begin;
-  return last_entry.resource_id == manifest.num_resources && resource_end >= last_entry.offset &&
-         SYSTEM_STORE_METADATA_BYTES <= bank_size &&
-         resource_end <= bank_size - SYSTEM_STORE_METADATA_BYTES;
-}
-#endif
-
 static void resource_storage_system_bank_init(void) {
   boot_bit_clear(BOOT_BIT_NEW_SYSTEM_RESOURCES_AVAILABLE);
 
-#ifndef CONFIG_SOC_T5AI
   ResourceStoreEntry entry = {
     .id = 0, // resource id 0 means the store itself
     .impl = &g_system_bank_impl,
     .length = ENTRY_LENGTH_UNSET
   };
-#endif
 
   // Increment s_active_bank and call resource_storage_generic_check for each value to find
   // a bank that's valid.
   for (s_active_bank = 0; s_active_bank < ARRAY_LENGTH(s_resource_banks); ++s_active_bank) {
     PBL_LOG_INFO("Checking bank %u for system resources", s_active_bank);
-#ifdef CONFIG_SOC_T5AI
-    // Unhygienix resources are immutable at runtime and are flashed with the matching
-    // firmware image. Validate the compact manifest and table bounds at boot;
-    // individual resources retain their existing CRC check when accessed.
-    const bool valid = prv_t5ai_system_bank_metadata_valid(&SYSTEM_RESOURCE_VERSION);
-#else
     const bool valid =
         resource_storage_generic_check(SYSTEM_APP, 0, &entry, &SYSTEM_RESOURCE_VERSION);
-#endif
     if (valid) {
       PBL_LOG_INFO("Valid system resources found!");
       s_valid_resources_found = true;

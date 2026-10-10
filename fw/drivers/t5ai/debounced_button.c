@@ -6,9 +6,9 @@
 #include "board/board.h"
 #include <pbl/drivers/button.h>
 #include <pbl/drivers/exti.h>
-#include <pbl/services/system_task.h>
+#include <pbl/kernel/sem.h>
+#include <pbl/kernel/thread.h>
 #include "kernel/events.h"
-#include "pbl/services/new_timer/new_timer.h"
 #include "system/bootbits.h"
 #include "system/passert.h"
 #include "system/reset.h"
@@ -19,12 +19,14 @@
 
 #define RESET_HOLD_MS 5000u
 
-#define DEBOUNCE_PERIOD_MS 2u
-#define NUM_DEBOUNCE_SAMPLES 20u
-#define RESET_BUTTONS ((1u << BUTTON_ID_SELECT) | (1u << BUTTON_ID_BACK))
+#define DEBOUNCE_PERIOD_MS      2u
+#define NUM_DEBOUNCE_SAMPLES    20u
+#define RESET_BUTTONS           ((1u << BUTTON_ID_SELECT) | (1u << BUTTON_ID_BACK))
 #define RESET_THRESHOLD_SAMPLES (RESET_HOLD_MS / DEBOUNCE_PERIOD_MS)
 
-static TimerID s_debounce_timer = TIMER_INVALID_ID;
+static PBL_SEM_DEFINE(s_button_signal, 0, 1);
+static struct pbl_thread s_button_thread;
+PBL_THREAD_STACK_DEFINE(s_button_stack, 1536);
 static uint32_t s_sample_counts[NUM_BUTTONS];
 static uint32_t s_debounced_state;
 static uint32_t s_hard_reset_samples;
@@ -33,8 +35,7 @@ static bool prv_button_present(ButtonId id) {
   return BOARD_CONFIG_BUTTON.buttons[id].pin != UINT8_MAX;
 }
 
-static void prv_sample_buttons(void *context) {
-  (void)context;
+static bool prv_sample_buttons(void) {
   bool sampling_required = false;
 
   for (ButtonId id = BUTTON_ID_BACK; id < NUM_BUTTONS; ++id) {
@@ -73,8 +74,8 @@ static void prv_sample_buttons(void *context) {
         boot_bit_set(BOOT_BIT_FORCE_PRF);
       }
       RebootReason reason = {
-        .code = force_prf ? RebootReasonCode_PrfResetButtonsHeld :
-                            RebootReasonCode_ResetButtonsHeld,
+        .code =
+            force_prf ? RebootReasonCode_PrfResetButtonsHeld : RebootReasonCode_ResetButtonsHeld,
       };
       reboot_reason_set(&reason);
       system_hard_reset();
@@ -84,28 +85,39 @@ static void prv_sample_buttons(void *context) {
   }
 #endif
 
-  if (!sampling_required) {
-    (void)new_timer_stop(s_debounce_timer);
-  }
-}
-
-static void prv_restart_debounce_timer(void *context) {
-  (void)context;
-  PBL_ASSERTN(new_timer_start(s_debounce_timer, DEBOUNCE_PERIOD_MS,
-                              prv_sample_buttons, NULL,
-                              TIMER_START_FLAG_REPEATING));
+  return sampling_required;
 }
 
 static void prv_button_interrupt_handler(void) {
-  PBL_ASSERTN(system_task_add_callback_from_isr(
-      prv_restart_debounce_timer, NULL));
+  // Coalesce edges without a droppable work queue or a KernelBG dependency.
+  pbl_sem_give(&s_button_signal);
+}
+
+static void prv_button_entry(void *context) {
+  (void)context;
+  while (true) {
+    if (pbl_sem_take(&s_button_signal, PBL_FOREVER) != 0) {
+      continue;
+    }
+    do {
+      pbl_thread_sleep(PBL_MSEC(DEBOUNCE_PERIOD_MS));
+    } while (prv_sample_buttons());
+  }
 }
 
 void debounced_button_init(void) {
   button_init();
 
-  s_debounce_timer = new_timer_create();
-  PBL_ASSERTN(s_debounce_timer != TIMER_INVALID_ID);
+  // Match timer-service urgency without claiming an unqualified hardware timer.
+  const struct pbl_thread_attr attr = {
+    .name = "Buttons",
+    .entry = prv_button_entry,
+    .prio = PBL_PRIO_MAX,
+    .privileged = true,
+    .stack = s_button_stack,
+    .stack_size = sizeof(s_button_stack),
+  };
+  PBL_ASSERTN(pbl_thread_create(&s_button_thread, &attr) == 0);
 
   for (ButtonId id = BUTTON_ID_BACK; id < NUM_BUTTONS; ++id) {
     if (!prv_button_present(id)) {
@@ -116,18 +128,16 @@ void debounced_button_init(void) {
       .pin = button->pin,
       .pull = button->pull,
     };
-    exti_configure_pin(exti, ExtiTrigger_RisingFalling,
-                       prv_button_interrupt_handler);
+    exti_configure_pin(exti, ExtiTrigger_RisingFalling, prv_button_interrupt_handler);
     exti_enable(exti);
   }
 
   if (button_get_state_bits() != 0u) {
-    prv_restart_debounce_timer(NULL);
+    pbl_sem_give(&s_button_signal);
   }
 }
 
-void command_put_raw_button_event(const char *button_index,
-                                  const char *is_button_down_event) {
+void command_put_raw_button_event(const char *button_index, const char *is_button_down_event) {
   const int id = atoi(button_index);
   const int is_down = atoi(is_button_down_event);
   if (id < 0 || id >= NUM_BUTTONS || (is_down != 0 && is_down != 1)) {

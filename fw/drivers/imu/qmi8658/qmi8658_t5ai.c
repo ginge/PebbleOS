@@ -12,7 +12,6 @@
 #include <pbl/kernel/thread.h>
 #include "kernel/util/sleep.h"
 #include "pbl/services/new_timer/new_timer.h"
-#include "pbl/services/system_task.h"
 #include "system/status_codes.h"
 #include <pbl/logging/logging.h>
 
@@ -90,7 +89,7 @@ static bool s_rotated;
 static AccelDriverSample s_last_sample;
 static bool s_last_sample_valid;
 // One acquisition/delivery may be outstanding. Timer ticks while it is pending
-// are dropped rather than building a backlog on KernelBG or the timer service.
+// are dropped rather than building a backlog on the sensor worker or timer service.
 static bool s_poll_pending;
 static uint32_t s_generation;
 static uint32_t s_sample_generation;
@@ -219,8 +218,7 @@ static void prv_detect_shake(const AccelDriverSample *sample) {
   }
 }
 
-static void prv_deliver_sample(void *context) {
-  (void)context;
+static void prv_deliver_sample(void) {
   // Only this callback touches the shake filter and delivers manager callbacks.
   // The worker cannot overwrite the slot until delivery has finished.
   pbl_irq_lock();
@@ -266,7 +264,7 @@ static void prv_acquire_sample(void) {
     s_sample_generation = generation;
   }
   pbl_irq_unlock();
-  if (!valid || !system_task_add_callback_droppable(prv_deliver_sample, NULL)) {
+  if (!valid || !accel_offload_work(prv_deliver_sample)) {
     prv_finish_poll();
   }
 }
@@ -345,7 +343,8 @@ void accel_init(void) {
   const struct pbl_thread_attr attr = {
     .name = "QMI8658",
     .entry = prv_poll_entry,
-    .prio = PBL_PRIO_IDLE + 2,
+    // Acquire ahead of apps; blocking I2C remains below NewTimers.
+    .prio = PBL_PRIO_MAX - 1,
     .privileged = true,
     .stack = s_poll_stack,
     .stack_size = sizeof(s_poll_stack),

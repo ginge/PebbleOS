@@ -117,6 +117,7 @@ static PBL_MUTEX_DEFINE(s_flash_mutex);
 static PBL_MUTEX_DEFINE(s_saradc_mutex);
 static FlashCommand s_flash_command __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
 static SaradcCommand s_saradc_command __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
+#ifdef CONFIG_T5AI_FLASH_PROFILE
 static T5AIFlashDiagnostics s_flash_diagnostics = {.active_command = UINT32_MAX};
 
 static void prv_sample_operation(T5AIFlashOperationDiagnostics *sample,
@@ -152,6 +153,8 @@ void t5ai_flash_ipc_get_diagnostics(T5AIFlashDiagnostics *diagnostics) {
   diagnostics->active_tick =
       __atomic_load_n(&s_flash_diagnostics.active_tick, __ATOMIC_RELAXED);
 }
+
+#endif
 
 static bool s_flash_available;
 static bool s_saradc_available = true;
@@ -311,11 +314,13 @@ static status_t prv_flash_transaction(uint8_t command) {
    * called from KernelBG while app and Bluetooth work is runnable, so keep the
    * client just below the physical mailbox worker until that handshake is
    * complete. Blocking waits still yield normally. */
+#ifdef CONFIG_T5AI_FLASH_PROFILE
   const pbl_tick_t trace_start = pbl_uptime_ticks();
   const uint32_t trace_offset = s_flash_command.part_and_address >> FLASH_ADDRESS_SHIFT;
   const uint32_t trace_length = (uint16_t)s_flash_command.length_and_status;
   __atomic_store_n(&s_flash_diagnostics.active_tick, trace_start, __ATOMIC_RELAXED);
   __atomic_store_n(&s_flash_diagnostics.active_command, command, __ATOMIC_RELAXED);
+#endif
   const pbl_prio_t previous_priority = prv_boost_client_priority();
   t5ai_mb_ipc_discard(s_flash_socket);
   status_t status = t5ai_mb_ipc_send(s_flash_socket, command, &s_flash_command,
@@ -357,6 +362,7 @@ static status_t prv_flash_transaction(uint8_t command) {
   prv_flash_fault(E_ERROR, command);
   status = E_ERROR;
 out:
+#ifdef CONFIG_T5AI_FLASH_PROFILE
   const uint32_t elapsed_ms = (pbl_uptime_ticks() - trace_start) * (1000u / PBL_TICK_HZ);
   T5AIFlashOperationDiagnostics *sample = command == FLASH_READ ? &s_flash_diagnostics.read :
       command == FLASH_WRITE ? &s_flash_diagnostics.write :
@@ -365,6 +371,7 @@ out:
     prv_sample_operation(sample, elapsed_ms, trace_offset, trace_length);
   }
   __atomic_store_n(&s_flash_diagnostics.active_command, UINT32_MAX, __ATOMIC_RELAXED);
+#endif
   prv_restore_client_priority(previous_priority);
   return status;
 }

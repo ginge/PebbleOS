@@ -50,10 +50,7 @@ void t5ai_power_init(void) {
       PROFILER_START;
     }
   }
-  t5ai_power_update_clock();
-  if (SysTick->CTRL & SysTick_CTRL_ENABLE_Msk) {
-    SysTick->LOAD = SystemCoreClock / CONFIG_KERNEL_TICK_HZ - 1u;
-  }
+  t5ai_power_sync_tick_clock();
   PBL_LOG_DBG("Active CPU clock: %lu Hz", (unsigned long)SystemCoreClock);
 }
 
@@ -65,4 +62,18 @@ void t5ai_power_update_clock(void) {
     PBL_LOG_ERR("Unsupported CPU clock source");
   }
   PBL_LOG_DBG("Active CPU clock: %lu Hz", (unsigned long)SystemCoreClock);
+}
+
+void t5ai_power_sync_tick_clock(void) {
+  const uint32_t actual_hz = prv_core_clock_hz();
+  if (actual_hz == 0u) {
+    return;
+  }
+  SystemCoreClock = actual_hz;
+  const uint32_t reload = actual_hz / CONFIG_KERNEL_TICK_HZ - 1u;
+  if ((SysTick->CTRL & SysTick_CTRL_ENABLE_Msk) && SysTick->LOAD != reload) {
+    SysTick->LOAD = reload;
+    // Discard the residual period calibrated against the previous clock.
+    SysTick->VAL = 0u;
+  }
 }

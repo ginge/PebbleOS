@@ -239,8 +239,9 @@ extern void accel_offload_work_from_isr(AccelOffloadCallback cb);
  * lock held.
  *
  * @param cb Work to run.
+ * @return True if queued; false if the timer work queue remained full.
  */
-extern void accel_offload_work(AccelOffloadCallback cb);
+extern bool accel_offload_work(AccelOffloadCallback cb);
 
 /**
  * @brief Select high or normal shake sensitivity.

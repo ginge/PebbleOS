@@ -6,6 +6,41 @@ The operator has deferred further KernelBG stall investigation and asked to
 retain the remaining stock-code refactor list. This document records work; it
 does not authorize enabling unsupported update/recovery operations.
 
+## Investigation tracing disabled and flashed — 2026-10-10
+
+Operator requested all investigation tracing disabled and build-gated, then flash.
+All nine T5 flags are n: STATE_TRACE, REMINDER_PROFILE, REBOOT_TRACE,
+INTERRUPT_PROFILE, HEAP_TRACE, FAULT_TRACE, FLASH_PROFILE, DISPLAY_PROFILE,
+HCI_PROFILE. All default off. Added the last three gates for previously
+unconditional flash transaction sampling, display frame/DMA-failure counters,
+and HCI counters/periodic heartbeat/disconnect/task snapshots. Disabled source
+hooks are no-ops; diagnostic translation units, wrappers, no-LTO overrides and
+fatal vector interception are excluded. Stock operational logging and upstream
+FIRM-1649 mutex warnings remain unchanged. CP supervision heartbeat, actual
+transport/flash behavior, reset-reason preservation and MPU fix remain active.
+No task priority changes. Preserve all prior dirty work.
+
+14 scoped tests pass (MPU restore, fault capture/entry, reset and flash).
+Ten actual production compiler combinations pass for flash/display/HCI flags,
+including enabled and disabled and independent flash/HCI combinations. Firmware,
+image-map, protected image and loghash checks pass. Diagnostic symbols/counters
+absent from linked ELF; both MPU restore callers retain disable-before-replace
+sequence. Legacy board/kernel static suite:54 tests,10 failures/9 errors; identical
+failures/errors with pre-slice sources substituted. Obsolete Waf/FreeRTOS/source
+assumptions were not repaired in this slice. Existing BLE LTO warnings remain.
+
+BUILD6242298ee15c33b52d86a204e2c9b240139d0d13; FLASH1606112/RAM96672/display118272.
+Kernel heap30304, +6528 versus MPU diagnostic. Candidate exact artifacts/source/
+config/dictionary/tests/compile combinations sealed BEFORE hardware validation:
+build/traces/tracing-disabled-20261010/,117-file manifest verified before/after
+AP-only flash. Programming31.2s,physical0x132000..0x2d29fe end exclusive;
+CP/resources/PFS excluded. Exact BUILD booted15:31:24 London (programming reboot).
+Brief raw/index/decoded boot verification:build/traces/tracing-disabled-boot-20261010/.
+Capture stopped after verification; no long trace remains. Previous diagnostic
+capture closed at236698 bytes,10-file final manifest preserved. A stock filesystem
+warning "Couldn't resolve last written pg" appeared at15:31:25; persistence and
+stability are not qualified. Separate watchdog/OOM causes remain unresolved.
+
 ## ARMv8 task MPU restore fix flashed — 2026-10-10
 
 Operator requested flash. Sealed80-file candidate manifest verified before and
