@@ -140,11 +140,18 @@ The operator attributed the intervening face exit to syncing another watchface.
 Evidence: `build/traces/wdt-cause-20261011/analysis.md`. Continue draw/syscall
 optimization independently. The bounded run is not long-term
 stability qualification. Both lightweight diagnostic flags are now disabled in
-the firmware build; their opt-in, default-off implementations remain available.
+the built and flashed firmware (fresh boot reached communication readiness); their opt-in, default-off implementations remain available.
 The SDK compatibility cache TODO and draw optimization work remain separate.
 Evidence:
 `build/traces/wdt-recovery-effectiveness-20261010/analysis.txt`;
 baseline: `build/traces/bg-pick-light-20261010/`.
+
+## Candidate fix: end BG recovery on progress, not a fixed timer — 2026-10-11
+
+The operator reported a reboot during the diagnostic-free validation. A
+raw/decoded UART capture started before a requested hardware reset,
+using the same flashed image with diagnostic flags off. Treat the reset boot as
+commanded. Reproduction showed that the earlier accepted recovery was not reliable. Evidence: `build/traces/reboot-repro-trace-off-20261011/`.
 
 ## Remaining stock-code refactor work
 
@@ -174,3 +181,56 @@ Stock `main.c`, native kernel wrappers/startup, SoC-local delay selection and
 most common service restoration are already completed; do not repeat those
 extractions. Hardware qualification and remaining peripheral implementations
 are separate work from this refactor list.
+
+2026-10-11 reproduction update: three spontaneous reboots were captured after
+one commanded reset with diagnostics disabled. Each follows unrecovered KernelBG
+watchdog expiry and reports AP=112 (0x60 + Watchdog=16), CP=16. Recovery is not
+reliable under this reproduction; the earlier accepted disposition is superseded
+by this evidence. Root cause of failed recovery is still open. Frozen evidence:
+`build/traces/reboot-repro-trace-off-20261011/three-reboots/analysis.txt`.
+
+2026-10-11 candidate update: expiry-only priority/CPU probes reproduced reset
+with App priority successfully lowered 2/2 → 0/0 and BG READY at 1/1. BG received
+240 then 237 ms CPU between checks, but fixed 300 ms App unthrottling interrupted
+recovery before the communication callback fed. Recovery now keeps the affected
+App throttled until a successful BG feed; the watchdog's two-second grace remains
+unchanged. Timer expiry checks and priority restoration are atomic, and an old
+recovery cannot change a replacement App. A separate T5 flash priority scope race
+now preserves concurrent throttle/priority changes instead of restoring a stale
+base priority. Both regression cases fail before their fixes and pass afterwards.
+Twelve focused host tests plus native kernel/watchdog suites pass. Initial combined
+candidate bounded capture contains five recovery reports and seven expiry reports,
+with no subsequent boot in that interval;
+this is not long-term qualification or an isolated comparison of the two fixes.
+Evidence: `build/traces/wdt-recovery-cpu-20261011/` and
+`build/traces/wdt-progress-recovery-20261011/`. Draw cost remains open.
+
+
+2026-10-11 final-candidate validation **failed**: build
+`a6a8697cb47428676579b5930585b9fd24401a5d` rebooted with AP=112/CP=16.
+App remained at priority 0 throughout the final grace checks. BG CPU advanced
+356 → 1027 → 1688 ticks while executing the default communication receiver;
+the sampled PC/LR includes PFS/FTL flash reads. This proves the remaining failure
+can occur despite sustained BG scheduling. Do not mark the reboot issue fixed.
+The progress-driven recovery and flash priority corrections are candidates,
+not sufficient fixes. An expanded expiry-only SoC probe records existing flash
+operation counts/timings and a settings full-sync marker to distinguish slow
+transactions from long filesystem work. Evidence:
+`build/traces/wdt-progress-recovery-final-20261011/analysis.md`.
+
+
+2026-10-11 targeted probe captured two further watchdog resets after the
+commanded reset. Both have settings mark-all-dirty active for over 7.5 seconds,
+App at 0/0, advancing BG CPU and over 100 completed small writes in the final
+roughly two seconds. Completed read maxima are 8/9 ms; writes 22/25 ms, with no
+erases completed in those intervals. Investigate synchronous settings rewrite
+and T5 per-write overhead/durability-safe batching, rather than assuming a
+scheduler failure or one stuck flash request. CP reference code toggles flash
+protection around each write; its contribution needs measurement. Frozen report:
+`build/traces/wdt-flash-recovery-20261011/two-reproductions/analysis.md`.
+
+
+Capture finished at operator request (175,988 raw bytes flushed). See the
+[settings full-sync watchdog investigation](../../../docs/boards/unhygienix/settings_sync_watchdog.md) for the two
+reproductions, verified CP binary findings, limitations and staged debugging
+plan. No live UART capture remains; diagnostic firmware is still flashed.

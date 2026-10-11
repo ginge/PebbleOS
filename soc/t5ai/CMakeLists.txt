@@ -117,6 +117,22 @@ if(CONFIG_T5AI_BG_PICK_TRACE)
   cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_bg_pick_trace_call_boundaries)
 endif()
 
+if(CONFIG_T5AI_WDT_RECOVERY_TRACE)
+  pbl_library_sources(wdt_recovery_trace.c)
+  set_property(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/wdt_recovery_trace.c
+    APPEND PROPERTY COMPILE_OPTIONS -mgeneral-regs-only -fno-lto)
+  pbl_link_options(-Wl,--wrap=pbl_task_wdt_add -Wl,--wrap=settings_blob_db_mark_all_dirty)
+  function(t5ai_wdt_recovery_trace_call_boundaries)
+    set_property(SOURCE ${PBL_BASE}/subsys/task_wdt/task_wdt.c
+      DIRECTORY ${PBL_BASE}/subsys/task_wdt APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+    set_property(SOURCE ${PBL_BASE}/fw/services/blob_db/settings_blob_db.c
+      DIRECTORY ${PBL_BASE}/fw/services/blob_db APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+    set_property(SOURCE ${PBL_BASE}/fw/services/blob_db/endpoint2.c
+      DIRECTORY ${PBL_BASE}/fw/services/blob_db APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+  endfunction()
+  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_wdt_recovery_trace_call_boundaries)
+endif()
+
 if(CONFIG_T5AI_WDT_CAUSE_TRACE)
   pbl_library_sources(wdt_cause_trace.c)
   set_property(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/wdt_cause_trace.c

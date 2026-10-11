@@ -47,6 +47,9 @@ static SystemTaskEventCallback s_current_cb;
 
 static int s_wdt_channel = -1;
 static TimerID s_throttle_timer = TIMER_INVALID_ID;
+static uint32_t s_watchdog_feed_count;
+static uint32_t s_throttle_feed_count;
+static uint32_t s_throttled_app_id;
 
 static bool s_should_block_callbacks = false;
 static uint32_t s_raised_priority_refcount;
@@ -56,10 +59,20 @@ static bool prv_is_accepting_callbacks() {
 }
 
 static void prv_app_throttle_end(void *data) {
+  pbl_irq_lock();
   struct pbl_thread *app = pebble_task_get_thread(PebbleTask_App);
-  if (app) {
-    pbl_thread_prio_set(app, APP_TASK_PRIORITY);
+  if (!app || app->id != s_throttled_app_id) {
+    pbl_irq_unlock();
+    return;
   }
+  if (__atomic_load_n(&s_watchdog_feed_count, __ATOMIC_RELAXED) == s_throttle_feed_count) {
+    // Give BG the full watchdog grace period to finish and prove progress.
+    pbl_irq_unlock();
+    new_timer_start(s_throttle_timer, APP_THROTTLE_TIME_MS, prv_app_throttle_end, NULL, 0);
+    return;
+  }
+  pbl_thread_prio_set(app, APP_TASK_PRIORITY);
+  pbl_irq_unlock();
   PBL_LOG_DBG("Ending App Throttling");
 }
 
@@ -78,6 +91,8 @@ static void prv_app_throttle_start(void) {
     PBL_LOG_DBG("Starting App Throttling for %s", name);
   }
 
+  s_throttled_app_id = app->id;
+  s_throttle_feed_count = __atomic_load_n(&s_watchdog_feed_count, __ATOMIC_RELAXED);
   pbl_thread_prio_set(app, PBL_PRIO_IDLE);
   new_timer_start(s_throttle_timer, APP_THROTTLE_TIME_MS, prv_app_throttle_end, NULL, 0);
 }
@@ -152,7 +167,9 @@ void system_task_timer_init(void) {
 }
 
 void system_task_watchdog_feed(void) {
-  pbl_task_wdt_feed(s_wdt_channel);
+  if (pbl_task_wdt_feed(s_wdt_channel) == 0) {
+    __atomic_add_fetch(&s_watchdog_feed_count, 1u, __ATOMIC_RELAXED);
+  }
 }
 
 static void handle_system_task_send_failure(SystemTaskEventCallback cb, uintptr_t caller_lr) {

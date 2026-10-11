@@ -786,3 +786,85 @@ the trace does not prove settings compaction caused that episode.
 firmware build. Both remain default-off, opt-in diagnostics. The heavier App/BG
 tracers and display profiler remain disabled. SDK compatibility caching remains
 enabled with its existing removal TODO; expensive drawing is a separate issue.
+
+The diagnostic-free image was built, sealed and AP-only flashed successfully.
+Fresh UART logs show the matching build ID
+`3a61b846c6a0ee93d7bc8758610f5dda4c5b808d` reaching “Ready for communication.”
+ELF checks confirm the watchdog caller and selector trace wrappers are absent.
+Static RAM is 96,704 bytes, 416 bytes below the traced image; raw flash image
+is 1,606,944 bytes. Evidence: `build/validation/wdt-trace-disabled-20261011/`.
+
+The operator subsequently reported a reboot during validation. Diagnostic removal
+is therefore not stability qualification. A fresh raw/decoded UART capture was
+started before an explicitly requested hardware reset, with the same flashed
+build and diagnostics still disabled. Evidence is being collected in
+`build/traces/reboot-repro-trace-off-20261011/`; the commanded boot is labelled
+in `session.json` and must not be counted as a spontaneous reboot. This reopens
+reboot investigation while retaining the watchdog recovery changes.
+
+2026-10-11 reproduction update: three spontaneous reboots were captured after
+one commanded reset with diagnostics disabled. Each follows unrecovered KernelBG
+watchdog expiry and reports AP=112 (0x60 + Watchdog=16), CP=16. Recovery is not
+reliable under this reproduction; the earlier accepted disposition is superseded
+by this evidence. Root cause of failed recovery is still open. Frozen evidence:
+`build/traces/reboot-repro-trace-off-20261011/three-reboots/analysis.txt`.
+
+## BG recovery duration and flash priority scope (2026-10-11)
+
+An expiry-only SoC probe reproduced watchdog resets while App base/effective
+priority changed from 2/2 to 0/0. BG remained READY at 1/1 holding four mutexes;
+it received 240 and 237 scheduled CPU ticks (1 ms each) in the next intervals.
+This establishes task switching and effective throttling in the sampled episode,
+rather than an inherited App priority defeating the recovery callback.
+
+The system-task recovery service previously restored App priority after 300 ms
+without checking whether BG had fed. It now rechecks at that interval and keeps
+the same App throttled until a successful `system_task_watchdog_feed`, retaining
+the watchdog's existing timeout and grace. A replacement App is left alone.
+The check/restore decision is protected from a new watchdog recovery interrupting
+it. This shared change belongs to the recovery service that owns the timer; no
+SoC scheduler workaround or draw sleep is added.
+
+Separately, the T5 flash client's temporary priority scope now restores its old
+base priority only while its own boost is still installed. Snapshot/boost and
+check/restore are atomic. A concurrent throttle or other priority change is
+preserved. Nested mailbox transactions and normal priority restoration still
+work. The race is host-reproduced but not separately attributed to hardware
+resets; the hardware candidate contains both corrections.
+
+Regression tests execute actual recovery and flash-priority helpers. They cover
+delayed/failed feeds, repeated recovery, replacement Apps, nested flash boosts
+and externally changed priorities. Twelve focused host tests and both native
+kernel/watchdog suites pass. Exact flashed diagnostic candidate and raw traces:
+`build/traces/wdt-progress-recovery-20261011/`; failing CPU probe evidence:
+`build/traces/wdt-recovery-cpu-20261011/`. Keep stability qualification separate
+from improved recovery, and keep the draw/SDK cache TODO open.
+
+
+The final candidate failed hardware validation: build
+`a6a8697cb47428676579b5930585b9fd24401a5d` reset AP=112/CP=16 despite App
+staying at priority 0. BG CPU advanced 356 → 1027 → 1688 ticks during the same
+communication callback. Saved execution locations include PFS/FTL flash reads;
+these are resume contexts, not fault PCs or definitive handler identification.
+The latest probe therefore also selects `T5AI_FLASH_PROFILE` (80 bytes of
+counters), prints operation counts/max/last timing only on expiry, and wraps
+`settings_blob_db_mark_all_dirty` to identify that full-sync operation without
+changing shared source. No periodic worker is added. The marker is a hypothesis
+check; the last settings log alone does not prove that operation caused reset.
+The preliminary five-recovery/no-reboot interval does not establish stability.
+
+
+Expanded flash/full-sync diagnostic image and trace:
+`build/traces/wdt-flash-recovery-20261011/`. The capture starts before flashing;
+exclude pre-flash traffic, and distinguish the commanded flash boot from later
+boots using reset-source records. `T5REC io` op 0/1/2 denotes read/write/erase;
+counts and maxima are cumulative and last fields may span adjacent transactions.
+`T5REC flash settings=1` identifies active settings mark-all-dirty work, with
+`settings_start` in uptime ticks. This probe remains enabled for reproduction;
+the previous heavy tracers and display profiler remain disabled.
+
+
+Capture finished at operator request (175,988 raw bytes flushed). See the
+[settings full-sync watchdog investigation](settings_sync_watchdog.md) for the two
+reproductions, verified CP binary findings, limitations and staged debugging
+plan. No live UART capture remains; diagnostic firmware is still flashed.

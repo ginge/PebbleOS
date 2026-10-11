@@ -5,6 +5,7 @@
 #include <pbl/soc/t5ai/memory.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/flash_ipc.h>
+#include <pbl/kernel/irq.h>
 #include <pbl/kernel/mutex.h>
 #include <pbl/kernel/sched.h>
 #include <pbl/kernel/thread.h>
@@ -160,17 +161,25 @@ static bool s_flash_available;
 static bool s_saradc_available = true;
 
 static pbl_prio_t prv_boost_client_priority(void) {
-  const pbl_prio_t previous = pbl_thread_prio_get(pbl_thread_current());
+  pbl_irq_lock();
+  struct pbl_thread *thread = pbl_thread_current();
+  const pbl_prio_t previous = pbl_thread_prio_get(thread);
   if (previous < MB_IPC_CLIENT_PRIORITY) {
-    pbl_thread_prio_set(pbl_thread_current(), MB_IPC_CLIENT_PRIORITY);
+    pbl_thread_prio_set(thread, MB_IPC_CLIENT_PRIORITY);
   }
+  pbl_irq_unlock();
   return previous;
 }
 
 static void prv_restore_client_priority(pbl_prio_t previous) {
-  if (previous < MB_IPC_CLIENT_PRIORITY) {
-    pbl_thread_prio_set(pbl_thread_current(), previous);
+  pbl_irq_lock();
+  struct pbl_thread *thread = pbl_thread_current();
+  // Preserve a throttle or other priority change made during the transaction.
+  if (previous < MB_IPC_CLIENT_PRIORITY &&
+      pbl_thread_prio_get(thread) == MB_IPC_CLIENT_PRIORITY) {
+    pbl_thread_prio_set(thread, previous);
   }
+  pbl_irq_unlock();
 }
 
 #if UINTPTR_MAX == UINT32_MAX

@@ -103,6 +103,16 @@ config T5AI_BG_PICK_TRACE
       Report peak observed ready age and selector gaps from the AON RTC every
       five seconds using an existing timer task. No dedicated stack or ring.
 
+config T5AI_WDT_RECOVERY_TRACE
+    bool "Log priorities and flash activity at KernelBG watchdog expiry"
+    select T5AI_FLASH_PROFILE
+    depends on BOARD_UNHYGIENIX && !T5AI_WDT_CAUSE_TRACE
+    default n
+    help
+      Snapshot App and KernelBG base/effective priorities, held mutex count,
+      state and wait queue only when the watchdog invokes BG recovery.
+      No periodic sampling or diagnostic task is added.
+
 config T5AI_WDT_CAUSE_TRACE
     bool "Trace watchdog suspension and public feed callers"
     depends on T5AI_BG_PICK_TRACE

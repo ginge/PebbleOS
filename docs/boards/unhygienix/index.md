@@ -13,6 +13,14 @@ with Getafix. Getafix DVT and DVT2 remain independent Round 2 hardware targets.
 Unhygienix is excluded from release matrices. Recovery firmware, OTA, PBZ
 bundles, bulk erase and unsupported raw-flash operations remain disabled.
 
+## Watchdog investigation — 2026-10-11
+
+Two phone full-sync watchdog resets were captured with FdF animating. App
+throttling works, but the settings rewrite remains active beyond the recovery
+grace while BG runs and completes many small flash writes. Investigation is
+open. Read the [evidence and debugging plan](settings_sync_watchdog.md).
+Tracing has finished; the diagnostic firmware remains flashed.
+
 ## Latest refactor handoff — 2026-10-09
 
 Read the [detailed refactor handoff](refactor_handoff.md) before continuing.
