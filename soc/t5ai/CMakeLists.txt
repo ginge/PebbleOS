@@ -5,6 +5,7 @@ endif()
 pbl_library()
 pbl_library_sources(init.c idle.c tick.c delay.c power.c retained.c bootbits.c reboot_reason.c flash_translation.c)
 pbl_library_sources(resource_storage.c)
+pbl_library_sources_ifdef(CONFIG_T5AI_DISPLAY_PROFILE display_profile.c)
 pbl_library_sources_ifdef(CONFIG_T5AI_STATE_TRACE state_trace.c)
 pbl_library_sources_ifdef(CONFIG_T5AI_REBOOT_TRACE reboot_trace.c)
 pbl_library_sources_ifdef(CONFIG_SERVICE_VOICE voice_memory.c)
@@ -98,4 +99,98 @@ if(CONFIG_T5AI_FAULT_TRACE)
       DIRECTORY ${PBL_BASE}/kernel APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
   endfunction()
   cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_fault_trace_call_boundaries)
+endif()
+
+if(CONFIG_T5AI_BG_PICK_TRACE)
+  pbl_library_sources(bg_pick_trace.c)
+  set_property(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/bg_pick_trace.c
+    APPEND PROPERTY COMPILE_OPTIONS -mgeneral-regs-only -fno-lto)
+  pbl_link_options(-Wl,--wrap=sched_switch_in -Wl,--wrap=system_task_timer_init)
+  function(t5ai_bg_pick_trace_call_boundaries)
+    foreach(source sched.c arch/arm/arch.c)
+      set_property(SOURCE ${PBL_BASE}/kernel/${source} DIRECTORY ${PBL_BASE}/kernel
+        APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+    endforeach()
+    set_property(SOURCE ${PBL_BASE}/fw/services/system_task/service.c
+      DIRECTORY ${PBL_BASE}/fw/services/system_task APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+  endfunction()
+  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_bg_pick_trace_call_boundaries)
+endif()
+
+if(CONFIG_T5AI_WDT_CAUSE_TRACE)
+  pbl_library_sources(wdt_cause_trace.c)
+  set_property(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/wdt_cause_trace.c
+    APPEND PROPERTY COMPILE_OPTIONS -mgeneral-regs-only -fno-lto)
+  foreach(symbol pbl_task_wdt_suspend pbl_task_wdt_resume pbl_task_wdt_feed_all
+                 pbl_task_wdt_add pbl_task_wdt_feed pbl_task_wdt_feed_thread)
+    pbl_link_options(-Wl,--wrap=${symbol})
+  endforeach()
+  function(t5ai_wdt_cause_trace_call_boundaries)
+    set_property(SOURCE ${PBL_BASE}/subsys/task_wdt/task_wdt.c
+      DIRECTORY ${PBL_BASE}/subsys/task_wdt APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+    set_property(SOURCE ${PBL_BASE}/fw/services/settings/settings_file.c
+      DIRECTORY ${PBL_BASE}/fw/services/settings APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+  endfunction()
+  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_wdt_cause_trace_call_boundaries)
+endif()
+
+if(CONFIG_T5AI_BG_TRACE)
+  pbl_library_sources(bg_trace.c)
+  foreach(symbol sched_block pbl_mutex_lock_lr pbl_mutex_unlock
+                 system_task_timer_init)
+    pbl_link_options(-Wl,--wrap=${symbol})
+  endforeach()
+  function(t5ai_bg_trace_call_boundaries)
+    # Observe internal timeout wakeups as well as external object wakeups.
+    # GCC instrumentation supplies state boundaries without editing common code.
+    file(READ ${PBL_BASE}/kernel/sched.c scheduler)
+    string(REGEX MATCHALL "[a-zA-Z_][a-zA-Z_0-9]*\\(" names "${scheduler}")
+    set(excluded "")
+    foreach(name IN LISTS names)
+      string(REPLACE "(" "" name "${name}")
+      if(NOT name MATCHES "^(sched_block|sched_wake|sched_tick|sched_switch_in)$")
+        list(APPEND excluded ${name})
+      endif()
+    endforeach()
+    list(REMOVE_DUPLICATES excluded)
+    list(JOIN excluded "," excluded)
+    set_property(SOURCE ${PBL_BASE}/kernel/sched.c DIRECTORY ${PBL_BASE}/kernel
+      APPEND PROPERTY COMPILE_OPTIONS -fno-lto -finstrument-functions
+      -finstrument-functions-exclude-function-list=${excluded})
+    foreach(source mutex.c sem.c msgq.c poll.c thread.c arch/arm/arch.c)
+      set_property(SOURCE ${PBL_BASE}/kernel/${source} DIRECTORY ${PBL_BASE}/kernel
+        APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+    endforeach()
+    set_property(SOURCE ${PBL_BASE}/fw/services/system_task/service.c
+      DIRECTORY ${PBL_BASE}/fw/services/system_task APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+  endfunction()
+  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_bg_trace_call_boundaries)
+endif()
+
+if(CONFIG_T5AI_APP_TRACE)
+  pbl_library_sources(app_trace.c)
+  set_property(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/app_trace.c
+    APPEND PROPERTY COMPILE_OPTIONS -mgeneral-regs-only -fno-lto)
+  set_property(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/tick.c
+    APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+  pbl_link_options(-Wl,--wrap=pbl_msgq_get)
+  function(t5ai_app_trace_call_boundaries)
+    set_property(SOURCE ${PBL_BASE}/fw/process_management/process_manager.c
+      DIRECTORY ${PBL_BASE}/fw/process_management APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+  endfunction()
+  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_app_trace_call_boundaries)
+endif()
+
+if(CONFIG_T5AI_SDK_COMPAT_CACHE)
+  pbl_library_sources(sdk_compat.c)
+  foreach(symbol process_manager_process_setup process_manager_process_cleanup
+                 process_manager_compiled_with_legacy2_sdk
+                 process_manager_compiled_with_legacy3_sdk)
+    pbl_link_options(-Wl,--wrap=${symbol})
+  endforeach()
+  function(t5ai_sdk_compat_call_boundaries)
+    set_property(SOURCE ${PBL_BASE}/fw/process_management/process_manager.c
+      DIRECTORY ${PBL_BASE}/fw/process_management APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+  endfunction()
+  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_sdk_compat_call_boundaries)
 endif()

@@ -22,39 +22,39 @@
 PBL_LOG_MODULE_DEFINE(driver_accel_qmi8658, CONFIG_DRIVER_IMU_LOG_LEVEL);
 
 #define QMI8658_DEFAULT_INTERVAL_US 8000u
-#define QMI8658_ACCEL_SAMPLE_BYTES 6u
-#define QMI8658_ACCEL_X_OFFSET 0u
-#define QMI8658_ACCEL_Y_OFFSET 2u
-#define QMI8658_ACCEL_Z_OFFSET 4u
-#define QMI8658_ODR_125HZ 0x06u
-#define QMI8658_ODR_62_5HZ 0x07u
-#define QMI8658_ODR_31_25HZ 0x08u
-#define QMI8658_ODR_LOW_POWER_21HZ 0x0du
-#define QMI8658_ODR_LOW_POWER_11HZ 0x0eu
-#define QMI8658_ODR_LOW_POWER_3HZ 0x0fu
+#define QMI8658_ACCEL_SAMPLE_BYTES  6u
+#define QMI8658_ACCEL_X_OFFSET      0u
+#define QMI8658_ACCEL_Y_OFFSET      2u
+#define QMI8658_ACCEL_Z_OFFSET      4u
+#define QMI8658_ODR_125HZ           0x06u
+#define QMI8658_ODR_62_5HZ          0x07u
+#define QMI8658_ODR_31_25HZ         0x08u
+#define QMI8658_ODR_LOW_POWER_21HZ  0x0du
+#define QMI8658_ODR_LOW_POWER_11HZ  0x0eu
+#define QMI8658_ODR_LOW_POWER_3HZ   0x0fu
 
 #define QMI8658_WHO_AM_I 0x00u
-#define QMI8658_CTRL1 0x02u
-#define QMI8658_CTRL2 0x03u
-#define QMI8658_CTRL7 0x08u
-#define QMI8658_STATUS0 0x2eu
-#define QMI8658_AX_L 0x35u
-#define QMI8658_RESET 0x60u
+#define QMI8658_CTRL1    0x02u
+#define QMI8658_CTRL2    0x03u
+#define QMI8658_CTRL7    0x08u
+#define QMI8658_STATUS0  0x2eu
+#define QMI8658_AX_L     0x35u
+#define QMI8658_RESET    0x60u
 
-#define QMI8658_ID 0x05u
-#define QMI8658_RESET_COMMAND 0xb0u
+#define QMI8658_ID              0x05u
+#define QMI8658_RESET_COMMAND   0xb0u
 #define QMI8658_RESET_SETTLE_MS 10u
 // CTRL1 startup configuration matches the pinned Waveshare sensor driver.
-#define QMI8658_CTRL1_INIT 0x60u
-#define QMI8658_ACCEL_RANGE_4G 0x10u
-#define QMI8658_ACCEL_ENABLE 0x01u
-#define QMI8658_ACCEL_DATA_READY 0x01u
-#define QMI8658_COUNTS_PER_G 8192
+#define QMI8658_CTRL1_INIT        0x60u
+#define QMI8658_ACCEL_RANGE_4G    0x10u
+#define QMI8658_ACCEL_ENABLE      0x01u
+#define QMI8658_ACCEL_DATA_READY  0x01u
+#define QMI8658_COUNTS_PER_G      8192
 #define QMI8658_STARTUP_SETTLE_MS 100u
 #define QMI8658_SHAKE_INTERVAL_US 32000u
-#define QMI8658_SHAKE_HOLDOFF_US 500000u
-#define QMI8658_SHAKE_MIN_MG 175u
-#define QMI8658_SHAKE_MAX_MG 1200u
+#define QMI8658_SHAKE_HOLDOFF_US  500000u
+#define QMI8658_SHAKE_MIN_MG      175u
+#define QMI8658_SHAKE_MAX_MG      1200u
 
 typedef struct {
   uint32_t interval_us;
@@ -318,6 +318,15 @@ static bool prv_update_power(void) {
 }
 
 void accel_init(void) {
+#ifdef CONFIG_T5AI_ACCEL_DISABLED
+  // AP-only resets can leave the sensor powered from the previous firmware.
+  if (!prv_write(QMI8658_CTRL7, 0u)) {
+    PBL_LOG_ERR("Could not power down QMI8658 for diagnostic");
+  } else {
+    PBL_LOG_DBG("QMI8658 disabled for diagnostic: no worker, polling or sample delivery");
+  }
+  return;
+#endif
   if (!prv_write(QMI8658_RESET, QMI8658_RESET_COMMAND)) {
     PBL_LOG_ERR("QMI8658 reset failed");
     return;
@@ -341,13 +350,13 @@ void accel_init(void) {
     return;
   }
   const struct pbl_thread_attr attr = {
-    .name = "QMI8658",
-    .entry = prv_poll_entry,
-    // Acquire ahead of apps; blocking I2C remains below NewTimers.
-    .prio = PBL_PRIO_MAX - 1,
-    .privileged = true,
-    .stack = s_poll_stack,
-    .stack_size = sizeof(s_poll_stack),
+      .name = "QMI8658",
+      .entry = prv_poll_entry,
+      // Acquire ahead of apps; blocking I2C remains below NewTimers.
+      .prio = PBL_PRIO_MAX - 1,
+      .privileged = true,
+      .stack = s_poll_stack,
+      .stack_size = sizeof(s_poll_stack),
   };
   if (pbl_thread_create(&s_poll_thread, &attr) != 0) {
     PBL_LOG_ERR("Could not create QMI8658 worker");

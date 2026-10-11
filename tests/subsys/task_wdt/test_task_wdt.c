@@ -174,13 +174,36 @@ void test_task_wdt__unfed_channel_calls_back_then_resets(void) {
   cl_assert(s_reset);
   cl_assert(s_reset_ms >= TIMEOUT_MS + GRACE_MS);
   cl_assert(s_reset_ms < TIMEOUT_MS + GRACE_MS + PERIOD_MS);
-  // The callback ran on every check inside the grace period.
-  cl_assert_equal_i(s_callbacks, GRACE_MS / PERIOD_MS + 1);
+  // The grace period runs from the first expired check, which never resets.
+  cl_assert_equal_i(s_reset_ms, s_first_callback_ms + GRACE_MS);
+  cl_assert_equal_i(s_callbacks, 2);
 
   cl_assert_equal_i(s_reason.code, RebootReasonCode_Watchdog);
   cl_assert_equal_i(s_reason.data8[0], 0x0);
   cl_assert_equal_i(s_reason.data8[1], 0x1);
   cl_assert_equal_i(s_reason.watchdog.stuck_task_callback, (uint32_t)(uintptr_t)&s_work);
+}
+
+static void *prv_recovering_callback(int channel_id, void *user_data) {
+  s_callbacks++;
+  pbl_task_wdt_feed(channel_id);
+  return NULL;
+}
+
+static void prv_recovered_entry(void *arg) {
+  cl_assert(pbl_task_wdt_add(NULL, TIMEOUT_MS, prv_recovering_callback, NULL) >= 0);
+  prv_sleep_ms(TIMEOUT_MS + PERIOD_MS + GRACE_MS);
+  pbl_test_kernel_stop();
+}
+
+void test_task_wdt__callback_recovers_overdue_channel(void) {
+  // Already more than the grace period overdue when first found expired.
+  cl_assert(PERIOD_MS - TIMEOUT_MS >= GRACE_MS);
+  prv_spawn(0, "recovered", prv_recovered_entry, NULL);
+  pbl_test_kernel_run();
+  cl_assert(!s_reset);
+  cl_assert_equal_i(s_callbacks, 1);
+  cl_assert_equal_i(s_reason.code, RebootReasonCode_Unknown);
 }
 
 static void prv_late_feed_entry(void *arg) {
@@ -360,4 +383,94 @@ void test_task_wdt__waiting_is_per_thread(void) {
   cl_assert(s_reset);
   cl_assert_equal_i(s_callback_channel, 1);
   cl_assert_equal_i(s_reason.data8[0], 0x1);
+}
+
+static bool s_waiting_resumed;
+static bool s_release_waiter_early;
+static pbl_task_wdt_callback_t s_waiting_callback;
+
+static void prv_woken_waiter_entry(void *arg) {
+  cl_assert(pbl_task_wdt_add(NULL, TIMEOUT_MS, s_waiting_callback, NULL) >= 0);
+  pbl_task_wdt_set_waiting(true);
+  prv_sleep_ms(10 * TIMEOUT_MS);
+  pbl_task_wdt_set_waiting(false);
+  s_waiting_resumed = true;
+  s_wait_end_ms = prv_now_ms();
+  pbl_task_wdt_set_waiting(true);
+  prv_sleep_ms(2 * PERIOD_MS + GRACE_MS);
+  pbl_test_kernel_stop();
+}
+
+static void prv_starving_entry(void *arg) {
+  // Become busy before the waiter wakes, while letting TaskWDT preempt us.
+  prv_sleep_ms(10 * TIMEOUT_MS - PERIOD_MS / 2);
+  pbl_thread_prio_set(pbl_thread_current(), 3);
+  uint32_t end = prv_now_ms() + 60 * 1000;
+  while (prv_now_ms() < end) {
+    if (s_release_waiter_early && prv_now_ms() >= 10 * TIMEOUT_MS + PERIOD_MS / 2) {
+      pbl_thread_suspend(NULL);
+    }
+    pbl_test_tick(1);
+  }
+  // Bound a regression that exempts a READY waiter forever.
+  pbl_test_kernel_stop();
+}
+
+static void prv_start_waiter(pbl_task_wdt_callback_t callback, bool release_early) {
+  s_waiting_resumed = false;
+  s_release_waiter_early = release_early;
+  s_waiting_callback = callback;
+  prv_spawn(0, "waiter", prv_woken_waiter_entry, NULL);
+  prv_spawn(1, "busy", prv_starving_entry, NULL);
+  pbl_test_kernel_run();
+}
+
+void test_task_wdt__ready_waiter_expires_without_running(void) {
+  prv_start_waiter(prv_callback, false);
+  cl_assert(s_reset);
+  cl_assert(!s_waiting_resumed);
+  cl_assert_equal_i(pbl_thread_state(&s_threads[0]), PBL_THREAD_READY);
+  cl_assert(s_first_callback_ms >= 10 * TIMEOUT_MS + TIMEOUT_MS);
+  cl_assert_equal_i(s_reset_ms, s_first_callback_ms + GRACE_MS);
+}
+
+static void *prv_waiter_recovery(int channel_id, void *user_data) {
+  prv_callback(channel_id, user_data);
+  cl_assert_equal_i(pbl_thread_state(&s_threads[0]), PBL_THREAD_READY);
+  pbl_thread_prio_set(&s_threads[1], 0);
+  return NULL;
+}
+
+void test_task_wdt__ready_waiter_recovers_after_busy_thread_yields_cpu(void) {
+  prv_start_waiter(prv_waiter_recovery, false);
+  cl_assert(s_waiting_resumed);
+  cl_assert(!s_reset);
+  cl_assert_equal_i(s_callbacks, 1);
+  cl_assert_equal_i(s_reason.code, RebootReasonCode_Unknown);
+}
+
+void test_task_wdt__long_idle_wait_gets_timeout_after_wakeup(void) {
+  // Check period exceeds the timeout: the old idle deadline is already overdue
+  // at the first READY observation, but the waiter still gets time to resume.
+  cl_assert(PERIOD_MS > TIMEOUT_MS);
+  prv_start_waiter(prv_callback, true);
+  cl_assert(s_waiting_resumed);
+  cl_assert(!s_reset);
+  cl_assert_equal_i(s_callbacks, 0);
+}
+
+static void prv_waiting_without_blocking_entry(void *arg) {
+  cl_assert(pbl_task_wdt_add(NULL, TIMEOUT_MS, prv_callback, NULL) >= 0);
+  pbl_task_wdt_set_waiting(true);
+  while (prv_now_ms() < 60 * 1000) {
+    pbl_test_tick(1);
+  }
+  pbl_test_kernel_stop();
+}
+
+void test_task_wdt__waiting_flag_does_not_exempt_busy_thread(void) {
+  prv_spawn(0, "busy waiter", prv_waiting_without_blocking_entry, NULL);
+  pbl_test_kernel_run();
+  cl_assert(s_reset);
+  cl_assert(s_callbacks >= 1);
 }

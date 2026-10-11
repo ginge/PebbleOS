@@ -469,3 +469,320 @@ upstream timeline mutex warnings remain unchanged. Disabled trace headers compil
 to no-op hooks; diagnostic source files, linker wrappers, forced diagnostic
 no-LTO options and fatal-vector override are excluded by their existing flags.
 Candidate build/traces/tracing-disabled-20261010/ was sealed before flashing.
+
+
+## Animated watchface profiling
+
+`CONFIG_T5AI_DISPLAY_PROFILE=y` now selects the existing `CONFIG_PROFILER`.
+It leaves animation cadence, rendering, DMA ownership, clock policy and shared
+Pebble source unchanged. Normal builds still default both options off. Configure
+a separate build directory so an ongoing fault investigation keeps its own image:
+
+```sh
+pbl --build-dir build-fdf-profile configure --board unhygienix \
+  -DCONFIG_T5AI_DISPLAY_PROFILE=y
+pbl --build-dir build-fdf-profile build
+```
+
+The T5 active-clock initialization starts the stock DWT profiler. No console
+`profiler start` command is needed. Do not reset the profiler during a capture.
+Keep other optional diagnostics disabled for the timing baseline. Preserve the
+exact ELF, raw/protected images, `.config`, source diff and log dictionary before
+using the supported guarded AP-only flash procedure. Coordinate with the owner
+of any freeze investigation before resetting, flashing or opening a UART already
+owned by another capture process. Preparing this build does not require any of
+those hardware actions.
+
+After the freeze investigation releases the watch, flash the profiling candidate
+using the guarded procedure above, start one runtime capture with its matching
+dictionary, launch FdF Time and leave its animation running for at least 60 seconds:
+
+```sh
+python3 tools/unhygienix_trace.py --duration 90 \
+  --dict build-fdf-profile/pebbleos_loghash_dict.json \
+  --output build-fdf-profile/fdf-time.log
+python3 tools/unhygienix_display_profile.py build-fdf-profile/fdf-time.log \
+  --label 'FdF Time' --session 1 --first-window 10 --last-window 80 \
+  > build-fdf-profile/fdf-time-report.json
+```
+
+The sequence bounds above are examples: select the sequences actually captured
+while FdF Time was animating, excluding launch transitions, menus and static/idle
+time. Record the selected face, its settings, app version, launch/stop times and
+Bluetooth connection/sync state separately. The report label is operator-supplied;
+it does not identify the running app. Verify received UART bytes before claiming
+that capture is live. Repeat the same workload with normal Bluetooth activity
+only after obtaining an idle-connected baseline.
+
+Every sixteen display updates emit three matched records:
+
+- `T5FRAME`: update count, interval count, summed 32 kHz interval ticks (low/high
+  words), minimum and maximum intervals. The first boot window has only fifteen
+  intervals. Later windows include the interval from the preceding update.
+- `T5DRAW`: summed and maximum transfer microseconds, interval count exceeding
+  the exact 1/30-second budget, cumulative DMA failures, invalid-window flag and
+  CPU frequency. Transfer covers conversion, row callbacks and DMA waits after
+  acquiring the panel mutex; diagnostic logging is outside that duration.
+- `T5PHASE`: app-render, compositor and flash-text-render call counts and summed
+  elapsed microseconds derived from the existing profiler counters. Font timing
+  is nested within app rendering; do not add it to rendering time.
+
+`T5PEAK` computes rolling maxima on the watch before logging, counting every
+update. It reports peak counts in half-open 250 ms and 1 second windows, the
+shortest interval, and separate maxima for the latest sixteen-update window.
+The cumulative maxima survive dropped UART records; they include startup and
+menus. Use the local maxima for selected workload windows. Missing local peak
+records make their reported maximum a lower bound. Rolling windows may start
+before the selected sixteen-update window. A 128-entry history overflow flag
+invalidates the rolling peaks; the ring costs 512 bytes only in this diagnostic.
+The shortest interval is a burst bound and must not be presented as sustained FPS.
+
+`T5CADENCE` is now a sparse anchor every sixteen updates: cumulative frame number,
+raw start tick, transfer ticks, CPU frequency and DMA failures. Host monotonic
+receive timestamps allow independent clock-span and cumulative-count checks;
+these anchors do not reconstruct a per-frame timeline. UART buffering affects
+receipt times, so use long spans for calibration. The redundant legacy `DRAW`
+UART record is removed; its CP-visible counters remain. Per-update UART logging
+was found to lose records and has been replaced by these sparse anchors and
+on-device peak counters. Diagnostic logging adds overhead to subsequent intervals.
+
+In the JSON report, use `device_peak_sessions` for peak FPS. Local rolling peaks
+are `peak_250ms_fps` and `peak_1s_fps`; cumulative values have a `since_boot_` prefix.
+Check `history_overflow` and `missing_peak_windows`. `sparse_anchor_sessions`
+contains host calibration and counter gaps, not frame-rate burst measurements.
+
+The older aggregate records remain useful for phase timings. The old sampled `RENDER` record is
+replaced by `T5PHASE`; it no longer repeats stale last-render measurements when
+only the compositor updates. The reporter pairs records by sequence, separates
+observed counter restarts, rejects incomplete/invalid windows, and computes FPS
+from all included intervals rather than one sampled interval per sixteen frames.
+It reports phase means per call, transfer mean/maximum and interval mean/minimum/
+maximum. These are elapsed timings including preemption, not exclusive CPU time,
+per-frame percentiles or physical panel scan-rate measurements. Logging overhead
+appears in subsequent frame intervals. Clock changes and counter/aggregate
+anomalies invalidate the affected window. The 32-bit raw clock supports one wrap
+between successive updates; gaps of approximately 37 hours or more are ambiguous.
+The final partial window is not emitted.
+
+This measures the bottleneck without changing it. To establish whether the
+48 ms animation-service cadence applies to FdF Time, inspect the exact face's
+source/package for Animation API versus custom app-timer usage; FPS alone cannot
+prove the timer mechanism. No FdF package was present during preparation.
+
+```sh
+python3 -m unittest tools.tests.test_t5ai_display_profile -v
+```
+
+## KernelBG blocking and scheduling trace
+
+`CONFIG_T5AI_BG_TRACE=y` enables a T5-only diagnostic. All other investigation
+flags can remain disabled. Common source and standard priorities are unchanged.
+Board-local compiler instrumentation observes `sched_block`, `sched_wake`,
+`sched_tick` and `sched_switch_in`; observing the tick includes timeout wakeups.
+Linker wrappers capture KernelBG's block wait queue/caller and mutex lock/unlock
+object, caller, owner ID and acquisition LR. The scheduler hooks only update a
+bounded 64-record RAM ring. No stacks, registers, allocation or UART in hooks.
+A priority-3 worker drains the ring and samples per-thread scheduler CPU deltas
+once per second. This extra worker and compiler hooks perturb timing.
+
+`T5BG` state codes: ready=0, running=1, blocked=2, suspended=3, dead=4.
+Operation codes: generic wait=1, mutex acquisition=2, mutex release=3.
+`now`/`at` use the independent 32 kHz AON RTC. Segment durations >=100 ms
+are retained for active callbacks and for ready intervals. Normal idle poll waits
+are omitted from segment records. `lost` counts overwritten device ring records;
+UART loss is separate. Each segment is printed in two rows keyed by sequence.
+Callback changes are observed at the next instrumented scheduler/operation
+boundary, not by rewriting the callback dispatcher. Running elapsed time includes
+interrupts. Window ready/blocked/run totals include idle time since the previous
+sample, and must not all be assigned to the callback named at the sample end.
+Thread CPU deltas use kernel ticks. Owner ID/acquisition LR in segments are the
+values at operation entry; live blocked mutex snapshots refresh the current owner.
+The snapshot lists up to 32 live threads; IDs disambiguate truncated names.
+
+A long ready interval with another thread accumulating CPU proves scheduler
+starvation for that interval. A blocked mutex interval identifies the object and
+owner; the owner's state/waitq helps follow the dependency. A long ready interval
+inside operation 3 demonstrates preemption across mutex unlock, after releasing
+the lock. A running interval alone does not distinguish callback work from ISR
+occupancy. Missing records or uninstrumented IRQ/sleep paths limit attribution.
+
+Save the exact ELF, dictionary, config and source before AP-only flashing. Decode:
+
+```sh
+python3 tools/unhygienix_bg_trace.py CAPTURE/trace.log \
+  --elf CANDIDATE/pebbleos.elf > CAPTURE/bg-report.json
+python3 -m unittest tools.tests.test_t5ai_bg_trace -v
+```
+
+Disabling the flag omits the translation unit, wrappers, compiler instrumentation
+and no-LTO overrides. Existing diagnostic flags retain their independent gates.
+
+## App execution during BG starvation
+
+`CONFIG_T5AI_APP_TRACE=y` selects the BG trace worker and is incompatible with
+`T5AI_INTERRUPT_PROFILE`'s outer SysTick wrapper. T5's native tick entry samples
+PC and LR from a validated Armv8-M thread/PSP exception frame, at jittered 7–13 ms
+intervals. LR is the interrupted register, not a stack walk or necessarily a
+complete caller chain. Samples exclude handlers and intervals with SysTick
+masked. Pending ticks can concentrate samples at interrupt-unlock boundaries;
+use LR and source to interpret these. Sixteen-byte PC buckets can cross function
+boundaries; the decoder resolves both ends. The table is bounded to 256 buckets,
+four probes per sample. Five-second reports print only the twelve busiest
+PC/LR/event buckets; `overflow` counts rejected samples, while omitted lesser
+buckets and UART loss are separate. Tables use the board's existing reserved
+PSRAM cache section and are initialized after App creation, preserving kernel
+heap space. Sampling starts after that initialization.
+
+A linker wrapper matches the App thread and its exact event queue. Processing
+spans run from a successful receive until the next receive request, including
+post-dispatch event-loop upkeep. Spans >=100 ms retain wall time, scheduler CPU
+ticks, callback and queued count. A sixteen-record ring counts overwrites.
+`receive_ms` includes queue wait plus scheduling delay, not processing. Event
+254 denotes receive; 255 denotes startup/no observed event. Other event numbers
+are `PebbleEventType` in `fw/kernel/events.h`. CPU ticks include interrupts.
+No common source, task priorities or scheduling policy change. SysTick sampling,
+compiler boundaries and worker logs perturb timing; this is a diagnostic build.
+
+```sh
+python3 tools/unhygienix_app_trace.py CAPTURE/trace.log \
+  --elf CANDIDATE/pebbleos.elf > CAPTURE/app-report.json
+python3 -m unittest tools.tests.test_t5ai_app_trace tools.tests.test_t5ai_bg_trace
+```
+
+The firmware ELF resolves OS PCs. Loaded watchface RAM addresses need the exact
+matching watchface binary/debug symbols. Keep raw UART bytes, receive index,
+dictionary, ELF, configuration, source and hashes with each candidate. Disabling
+the flag restores the normal tick handler and removes the App queue wrapper and
+translation unit; BG tracing retains its independent gate.
+
+### Accelerometer-free comparison
+
+`CONFIG_T5AI_ACCEL_DISABLED=y` is a default-off Unhygienix/QMI8658 diagnostic.
+`accel_init()` writes CTRL7=0 once (also handles an AP-only reset leaving the
+sensor active), then returns before creating the sensor worker or poll timer.
+The stock service and APIs remain linked; reads report unavailable and no samples
+or shake events are produced. Sampling/rotation/shake API calls cannot restart
+acquisition because the driver remains uninitialized. A failed power-down write
+is logged, while worker/timer omission still prevents sensor acquisition load.
+Leave this flag off for normal firmware. No standard priorities change.
+
+Keep App/BG trace flags and the exact watchface consistent with the enabled run.
+Compare long event-processing spans, scheduled App ticks, BG READY intervals and
+resolved PC/LR hotspots using each candidate's own ELF. A TicToc or Launcher run
+cannot establish whether disabling the accelerometer changes FdF starvation.
+The driver and diagnostic tests cover both flag states, including subscriptions
+and peeks after disabled initialization.
+
+## SDK compatibility draw cache and scheduler audit (2026-10-10)
+
+`CONFIG_T5AI_SDK_COMPAT_CACHE` defaults on for this board. Its SoC-local linker
+wrappers publish App/Worker legacy SDK flags into the existing unprivileged
+read-only data region during process setup and invalidate them after cleanup.
+Normal graphics compatibility queries avoid privilege transitions and repeated
+process-context lookup. Unknown/uninitialized process flags retain the stock
+syscall fallback. This changes neither rendering semantics nor task priorities.
+Shared firmware source is unchanged; the board build preserves the process-manager
+call boundary for linker wrapping.
+
+`build/traces/sdk-compat-draw-20261010/` preserves the cache-only hardware sample:
+223 observed FdF event-9 render/upkeep spans, median 185 ms (176–216 ms), compared
+with the saved earlier 448 ms median. This is a large software-path improvement,
+not a direct panel-FPS measurement or a starvation fix. The faster run overflowed
+the original event-history ring; reboots and retained-sample selection limit it.
+Both captures reported 240 MHz active CPU with QMI enabled.
+
+The proposed completed-draw sleep checkpoint was removed and never flashed.
+Original FreeRTOS and current native definitions both use App priority 2 and
+KernelBG priority 1. Selector instrumentation in
+`build/traces/scheduler-picks-20261010/` observed valid KernelBG selections during
+Launcher activity and no selection of a lower-priority task while BG was runnable,
+but startup OOM prevented a stable FdF comparison. This does not rule out every
+scheduler or ARM exception defect. The common native kernel host suite passed all
+19 cases.
+
+Do not repeat the combined heavy App/BG diagnostic on the connected workload
+without budgeting its static allocations against real peak kernel-heap demand.
+That candidate repeatedly failed a 681-byte allocation with only 544–620 bytes
+free. The recovery image at `build/traces/sdk-cache-clean-20261010/` disables both
+heavy diagnostics and retains the SDK cache. Its internal static RAM is 96672
+bytes versus 105824 bytes for the selector candidate, reclaiming 9152 bytes for
+the heap aperture. Any follow-up scheduler probe should use small counters and
+existing timer infrastructure rather than a dedicated diagnostic thread, stack,
+PC table and full thread-history snapshots.
+
+
+## Lightweight KernelBG selector trace (2026-10-10)
+
+`CONFIG_T5AI_BG_PICK_TRACE` counts actual PendSV selector choices, reports the
+peak observed consecutive KernelBG ready age and samples App/BG scheduled ticks
+using an existing five-second timer. It adds 64 bytes of static internal RAM
+compared with the recovered image, with no dedicated task or stack. Do not
+combine it with the heavy App/BG tracers. Counts and ready/selector-gap peaks
+are cumulative; a startup gap peak must not be attributed to a later face.
+
+`build/traces/bg-pick-light-20261010/analysis.txt` records 200 seconds of FdF:
+zero BG selections/runtime, 475095 runnable-BG choices all selecting higher
+priority, and a still-growing observed ready-age peak of 197.734 seconds.
+The selector remains active. This narrows the issue without ruling out every
+ready-list or ARM-port defect; the other higher-priority tasks are aggregated.
+
+An actual-source host reproduction also establishes a generic watchdog flaw:
+KernelBG's waiting flag survives its transition from blocked to READY until it
+runs, while the watchdog exempts that flag regardless of thread state. The
+existing starvation recovery is consequently bypassed in this wait path.
+The relevant changes are `864cd70aa` and `fb1f13e12`. Correct waiting/deadline
+semantics and test READY starvation separately from idle waiting; this does
+not itself explain expensive draws. No shared source was changed in this run.
+
+The capture received fresh boot and runtime bytes, ended normally and left no
+monitor running. The lightweight diagnostic remains installed with SDK cache
+and QMI enabled. No OOM, assertion or second boot appeared in this bounded run.
+
+
+## Watchdog recovery hardware check (2026-10-10)
+
+`build/traces/wdt-recovery-effectiveness-20261010/` preserves the flashed image,
+matching dictionary/source, raw UART bytes and completed 300-second capture.
+The imported upstream grace-period fix and generic waiting-state correction
+produced four KernelBG expiry/recovery cycles, with recovery reports 1.003–1.007
+seconds after expiry. KernelBG selections resumed; no second boot/OOM/assertion
+was observed. FdF was observed across two launches, separated by Launcher; the
+reason for the intervening exit was not confirmed. Monitoring has ended.
+
+The peak continuous READY episode was still 64.699 seconds during an active
+communication callback. Settings compaction's global 60-second watchdog suspend
+is a candidate explanation for delayed intervention, but this image does not
+trace suspension callers. Do not claim a five-second bound, FPS improvement or
+long-term qualification. Preserve the separate draw-performance investigation.
+See `analysis.txt` for filtering, workload transitions and measurement limits.
+
+## Watchdog suspension caller trace (2026-10-11)
+
+The opt-in `CONFIG_T5AI_WDT_CAUSE_TRACE` diagnostic wraps watchdog suspend/resume
+and explicit BG feed APIs locally in the T5AI build. It uses the existing selector
+trace timer, adds 352 bytes of image static RAM, and changes no scheduling policy.
+Control calls preserve RTC, caller LR, current thread, BG state and callback; feed
+reports aggregate counts with only the latest context. Ring loss is reported.
+
+The completed captures in `build/traces/wdt-cause-20261011/` attribute two
+60-second requests to `settings_file_rewrite_filtered`, with explicit resumes
+after 0.6215 and 0.6156875 seconds. These preceded FdF; no further suspension was
+recorded during FdF. Seven watchdog recovery reports occurred; the peak recorded
+READY age was 5.564 seconds. The previous 64.699-second episode did not reproduce,
+so its cause remains open. The operator confirmed the face exit was caused by
+syncing another watchface. See `analysis.md` for exact coverage and limitations.
+Both captures have ended. Raw UART, exact flashed image, ELF, dictionary and
+source snapshots are retained. Host tracer tests and firmware checks passed.
+
+## Watchdog investigation disposition (2026-10-11)
+
+The operator considers starvation recovery fixed enough for now, with no
+recurrence of the prolonged stall during the latest trace. The generic waiting
+state correction and upstream grace-period fix are retained. Further work on
+the earlier, unattributed 64.699-second episode is deferred unless it recurs;
+the trace does not prove settings compaction caused that episode.
+
+`CONFIG_T5AI_WDT_CAUSE_TRACE` and `CONFIG_T5AI_BG_PICK_TRACE` are disabled in the
+firmware build. Both remain default-off, opt-in diagnostics. The heavier App/BG
+tracers and display profiler remain disabled. SDK compatibility caching remains
+enabled with its existing removal TODO; expensive drawing is a separate issue.

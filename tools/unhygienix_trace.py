@@ -219,7 +219,7 @@ def main(argv: list[str] | None = None) -> int:
                         continue
                     last_message = time.monotonic()
                     line = dehasher.commander_format_line(dehasher.dehash(message))
-                    _write_line(output, line)
+                    _write_line(output, f"[host_mono_ns={time.monotonic_ns()}] {line}")
             except KeyboardInterrupt:
                 _write_line(output, "--- trace stopped by user ---")
                 return 0

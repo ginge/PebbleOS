@@ -31,6 +31,7 @@ typedef int TimerID;
 #define E_ERROR -1
 #define S_SUCCESS 0
 #define PBL_LOG_MODULE_DEFINE(...)
+#define PBL_LOG_DBG(...)
 #define PBL_LOG_ERR(...)
 struct pbl_mutex { int held; };
 struct pbl_sem { int count; };
@@ -67,7 +68,8 @@ HARNESS = r"""
 #include <assert.h>
 #include <string.h>
 static unsigned irq_depth, io, delivered, wakes, created;
-static uint8_t last_reg;
+static uint8_t last_reg, last_value;
+static unsigned timers_created, timers_started;
 static bool ready = true, fail_read, full, tick_in_read, invalidate_in_read;
 static void (*queued)(void);
 static unsigned now_ms = 200;
@@ -87,7 +89,7 @@ int pbl_thread_create(struct pbl_thread *t, const struct pbl_thread_attr *a) {
 void i2c_use(int b) { (void)b; assert(s_io_lock.held && !irq_depth); }
 void i2c_release(int b) { (void)b; }
 bool i2c_write_block(int b, size_t n, const uint8_t *p) {
- (void)b; (void)n; last_reg = p[0]; ++io; return true;
+ (void)b; last_reg = p[0]; if (n == 2) last_value=p[1]; ++io; return true;
 }
 bool i2c_read_block(int b, size_t n, uint8_t *p) {
  (void)b; ++io;
@@ -100,9 +102,9 @@ bool i2c_read_block(int b, size_t n, uint8_t *p) {
 }
 void rtc_get_time_ms(time_t *s, uint16_t *ms) { *s = now_ms / 1000; *ms = now_ms % 1000; }
 void psleep(unsigned ms) { now_ms += ms; }
-TimerID new_timer_create(void) { return 1; }
+TimerID new_timer_create(void) { ++timers_created; return 1; }
 bool new_timer_start(TimerID t, uint32_t ms, void (*cb)(void *), void *d, int f) {
- (void)t; (void)ms; (void)cb; (void)d; (void)f; return true;
+ (void)t; (void)ms; (void)cb; (void)d; (void)f; ++timers_started; return true;
 }
 bool new_timer_stop(TimerID t) { (void)t; return true; }
 bool accel_offload_work(void (*cb)(void)) { assert(!irq_depth); if (full) return false;
@@ -126,6 +128,19 @@ static void deliver(void) {
  assert(!s_poll_pending && !irq_depth);
 }
 int main(void) {
+#ifdef CONFIG_T5AI_ACCEL_DISABLED
+ accel_init();
+ assert(io==1 && last_reg==QMI8658_CTRL7 && last_value==0);
+ assert(!s_initialized && !s_active && !created && !timers_created && !timers_started);
+ accel_set_num_samples(1); accel_enable_shake_detection(true);
+ accel_set_sampling_interval(32000); accel_set_rotated(true);
+ AccelDriverSample sample;
+ assert(accel_peek(&sample)==E_ERROR);
+ prv_timer_callback(NULL); prv_acquire_sample();
+ assert(io==1 && !wakes && !queued && !delivered && !timers_started);
+ assert(!s_shake_enabled && !s_poll_pending);
+ return 0;
+#endif
  accel_init(); assert(s_initialized && created == 1);
  s_active = true; s_num_samples = 1;
  tick_in_read = true;
@@ -152,6 +167,12 @@ int main(void) {
 
 class QMI8658PollingTest(unittest.TestCase):
     def test_bounded_worker_pipeline(self):
+        self.run_pipeline([])
+
+    def test_disabled_has_no_acquisition_or_delivery(self):
+        self.run_pipeline(["-DCONFIG_T5AI_ACCEL_DISABLED=1"])
+
+    def run_pipeline(self, flags):
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)
             (directory / "stub.h").write_text(STUB)
@@ -164,7 +185,7 @@ class QMI8658PollingTest(unittest.TestCase):
             binary = directory / "test"
             subprocess.run([
                 "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                "-I", str(directory), "-I", str(ROOT), str(harness),
+                *flags, "-I", str(directory), "-I", str(ROOT), str(harness),
                 "-o", str(binary),
             ], check=True)
             subprocess.run([str(binary)], check=True)

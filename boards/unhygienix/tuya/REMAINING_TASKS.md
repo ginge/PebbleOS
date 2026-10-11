@@ -4,6 +4,51 @@ The [operator handoff](../../../docs/boards/unhygienix/index.md) records current
 support and implementation gaps. The [tooling guide](../../../docs/boards/unhygienix/tooling.md)
 records dependency, build, packaging and flash procedures.
 
+## Next priorities — 2026-10-11
+
+1. **Replace display completion polling with interrupt-driven completion where
+   supported.** Audit the T5AI CO5300 QSPI/DMA path against other Pebble display
+   drivers and the pinned Tuya implementation, then adopt a driver-/SoC-local
+   completion interrupt and blocking wait if the hardware supports it. Current
+   `fw/drivers/display/t5ai/display_co5300.c` busy-polls DMA enable in
+   `prv_pixel_stream_finish_dma()` and polls QSPI command completion; the QSPI0
+   system interrupt route is enabled, but its NVIC line remains disabled.
+   Establish which DMA/QSPI event proves the full transfer has finished before
+   releasing buffers or starting the next transaction. Preserve cache coherency,
+   dirty-row streaming, transfer ordering, bounded timeout/error recovery and
+   shared Pebble display semantics; qualify IRQ ownership against the pinned CP.
+   Measure CPU time, draw latency and BG progress before/after on the same face
+   and configuration, and validate repeated partial/full redraws without hangs,
+   corruption or lost completions. Keep this distinct from the SDK compatibility
+   cache TODO below: eliminating transfer waits may not fix software render cost
+   or KernelBG starvation.
+2. **Heavily optimise accelerometer CPU and task resource use.** Profile the
+   QMI8658 acquisition, I2C, timer/offload and shake-filter costs, then investigate
+   interrupt-driven data-ready/FIFO batching and sensor motion/wake support,
+   subject to verified board wiring and QMI8658 capabilities. Reduce wakeups,
+   per-sample transactions, queue handoffs and dedicated task/stack overhead
+   where practical. The current pipeline uses a static priority-3 worker with a
+   1536-byte stack, a timer/semaphore acquisition trigger and NewTimers delivery;
+   it polls one sample rather than using the interrupt-driven FIFO batches used
+   by other sensors. Shake detection keeps polling active without subscribers
+   at approximately 31.25 Hz (32 ms) or faster. Configuration and uncached peeks
+   remain synchronous. Preserve requested rates, timestamps, axis/rotation
+   mapping, manager locking, shake sensitivity/settling/holdoff, stale-sample
+   rejection and bounded queue handling. Validate subscriptions, peeks, rate and
+   power transitions, shake-to-wake and sustained input under busy watchfaces;
+   compare CPU time, wakeup rates, stack/RAM use and delivery latency.
+
+Previous notes: [QMI8658 polling isolation and accelerometer-free comparison](../../../docs/boards/unhygienix/tooling.md),
+[shake/display wake behaviour](../../../docs/boards/unhygienix/index.md), and
+[input alignment, App render tracing and accelerometer-disabled/restored runs](../../../docs/boards/unhygienix/refactor_handoff.md).
+The 2026-10-10 FdF comparison reduced median render/upkeep wall time from 448 ms
+with the sensor enabled to 362 ms disabled, but KernelBG still starved; sensor
+load is measurable and is not required for that starvation. The sensor was
+subsequently restored. Preserve stock shared code and standard task priorities;
+keep these optimisations board-, SoC- or driver-local wherever possible.
+
+## Existing validation priorities
+
 1. Verify watchface install/launch and selection persistence.
 2. Run 25 disconnect/reconnect cycles, retaining the first complete failure trace.
 3. Cold boot and verify bond restoration, protocol reconnection and selected face.
@@ -35,6 +80,71 @@ Do not add stack/register tracing or change shared scheduling policy merely
 from sampled PCs. Preserve exact firmware, dictionary and first-failure logs.
 Evidence: `build/traces/erase-delay-fix-20261009/flash-results.json` and
 `build/traces/erase-delay-fix-flash-20261009.log`.
+
+## TODO: investigate and remove the SDK compatibility cache — 2026-10-10
+
+Treat `CONFIG_T5AI_SDK_COMPAT_CACHE` / `soc/t5ai/sdk_compat.c` as a temporary
+workaround and code smell, not the final draw-performance solution. The operator
+notes that other SoCs do not need this cache. Although it reduced observed FdF
+render/upkeep spans from a 448 ms median to 185 ms, it adds eight bytes of cached
+App/Worker flags in read-only-to-app RAM and does not resolve KernelBG starvation.
+
+- Establish why T5 pays such a large cost for the stock SDK compatibility queries
+  and drawing path compared with other SoCs. Audit syscall/context-switch costs,
+  memory/cache configuration, compiler settings and render handoff; do not assume
+  a SoC-specific cache is inherently necessary.
+- Fix the underlying cause and remeasure with the SDK cache disabled. Preserve
+  stock SDK semantics, privilege isolation and process lifecycle behavior.
+- Remove the cache and its linker/build glue once the underlying fix preserves
+  the performance gain. Avoid replacing it with further RAM-backed workarounds,
+  draw sleeps or unexplained priority changes.
+
+Measured evidence and limitations:
+`build/traces/sdk-compat-draw-20261010/analysis.txt`.
+The currently installed lighter firmware retains the cache; this TODO does not
+change firmware or disable it.
+
+## Resolved for now: KernelBG watchdog starvation recovery — 2026-10-11
+
+The lightweight selector trace reproduced FdF KernelBG READY starvation while
+PendSV continued choosing higher-priority work. The existing starvation recovery
+is bypassed by a generic watchdog regression: commit `fb1f13e12` marks KernelBG
+waiting before its poll wait, and `864cd70aa` exempts that flag unconditionally.
+After wakeup, a starved READY thread cannot run to clear the flag, so its expired
+channel never invokes the existing recovery callback. An actual-source host
+reproduction confirms that READY and RUNNING channels remain exempt.
+
+The generic watchdog now exempts genuinely blocked idle waits and starts a fresh
+timeout at the first observed runnable state, without requiring the starved
+thread to clear its waiting flag. No T5 sleep or priority workaround was added.
+The upstream grace-period fix `a8772bc52` is also imported. Four additional native
+scheduler tests cover READY starvation, recovery, long-idle wakeup and a busy
+thread retaining its waiting flag; the 17-test watchdog suite passes.
+
+The corrected image is flashed. The bounded hardware run recorded four KernelBG
+expiries, each followed by recovery about one second later, with KernelBG
+progress and no reset/OOM. The former idle-wait exemption is no longer preventing
+recovery. This restores recovery, not the underlying expensive draws.
+
+Peak observed READY age still reached 64.699 seconds during a communication
+callback with a 65189 ms pindb mutex hold. Settings compaction can globally suspend
+the watchdog for 60 seconds; this is a candidate explanation for the long gap,
+not established for that episode. The 2026-10-11 SoC-only caller trace captured
+two settings-compaction 60-second suspension requests, each explicitly resumed
+after about 0.62 seconds, before FdF. No suspension overlapped the captured FdF
+intervals; seven recovery reports and a 5.564-second peak READY age were recorded.
+The operator accepts this as fixed enough for now: no recurrence of the prolonged
+stall occurred during the latest trace. Further suspension investigation is
+deferred unless the symptom returns; the earlier episode remains unattributed.
+The operator attributed the intervening face exit to syncing another watchface.
+Evidence: `build/traces/wdt-cause-20261011/analysis.md`. Continue draw/syscall
+optimization independently. The bounded run is not long-term
+stability qualification. Both lightweight diagnostic flags are now disabled in
+the firmware build; their opt-in, default-off implementations remain available.
+The SDK compatibility cache TODO and draw optimization work remain separate.
+Evidence:
+`build/traces/wdt-recovery-effectiveness-20261010/analysis.txt`;
+baseline: `build/traces/bg-pick-light-20261010/`.
 
 ## Remaining stock-code refactor work
 

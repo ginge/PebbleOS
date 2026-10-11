@@ -2,6 +2,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <pbl/soc/t5ai/rtc.h>
+#include <pbl/soc/t5ai/display_profile.h>
 
 #include <pbl/soc/t5ai/memory.h>
 
@@ -15,7 +16,6 @@
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include "system/passert.h"
 #ifdef CONFIG_T5AI_DISPLAY_PROFILE
-#include "system/profiler.h"
 #endif
 
 #include <pbl/kernel/mutex.h>
@@ -202,7 +202,7 @@ static bool s_dma_pending;
 static unsigned s_dma_buffer;
 
 #ifdef CONFIG_T5AI_DISPLAY_PROFILE
-// Read-only diagnostics via the CP console; no per-frame UART traffic.
+// Opt-in counters and per-update UART timing diagnostics.
 volatile T5AIDrawStats g_t5ai_draw_stats;
 static uint32_t s_last_frame_start;
 static bool s_have_frame_start;
@@ -820,25 +820,8 @@ static void prv_display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb
   if (elapsed > g_t5ai_draw_stats.max_update_ticks) {
     g_t5ai_draw_stats.max_update_ticks = elapsed;
   }
-  if ((g_t5ai_draw_stats.frames & DISPLAY_DRAW_LOG_FRAME_MASK) == 0u) {
-    PBL_LOG_DBG("DRAW frames=%lu ticks=%lu last=%lu max=%lu interval=%lu dma_fail=%lu hz=%lu",
-                (unsigned long)g_t5ai_draw_stats.frames,
-                (unsigned long)g_t5ai_draw_stats.total_update_ticks,
-                (unsigned long)g_t5ai_draw_stats.last_update_ticks,
-                (unsigned long)g_t5ai_draw_stats.max_update_ticks,
-                (unsigned long)g_t5ai_draw_stats.last_interval_ticks,
-                (unsigned long)g_t5ai_draw_stats.dma_failures,
-                (unsigned long)SystemCoreClock);
-  }
-  if ((g_t5ai_draw_stats.frames & DISPLAY_DRAW_LOG_FRAME_MASK) == 0u) {
-    PBL_LOG_DBG("RENDER count=%lu last=%lu total=%lu comp=%lu font=%lu/%lu",
-                (unsigned long)PROFILER_NODE_GET_COUNT(render_app),
-                (unsigned long)PROFILER_NODE_GET_LAST_CYCLES(render_app),
-                (unsigned long)PROFILER_NODE_GET_TOTAL_CYCLES(render_app),
-                (unsigned long)PROFILER_NODE_GET_LAST_CYCLES(compositor),
-                (unsigned long)PROFILER_NODE_GET_TOTAL_CYCLES(text_render_flash),
-                (unsigned long)PROFILER_NODE_GET_COUNT(text_render_flash));
-  }
+  t5ai_display_profile_frame(frame_start, elapsed, SystemCoreClock,
+                             g_t5ai_draw_stats.dma_failures);
 #endif
   s_updating = false;
   prv_apply_brightness();

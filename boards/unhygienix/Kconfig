@@ -79,10 +79,12 @@ config T5AI_FLASH_PROFILE
 config T5AI_DISPLAY_PROFILE
     bool "Measure T5 display frame durations"
     depends on BOARD_UNHYGIENIX
+    select PROFILER
     default n
     help
-      Keep frame and DMA-failure counters and periodically log draw/render
-      timing. Disabled builds contain no frame sampling or diagnostic logs.
+      Enable the stock render profiler and report all-frame timing windows,
+      app/compositor phase totals and DMA failures every sixteen updates.
+      Disabled builds contain no frame sampling or diagnostic logs.
 
 config T5AI_HCI_PROFILE
     bool "Measure T5 HCI traffic and task state"
@@ -91,3 +93,61 @@ config T5AI_HCI_PROFILE
     help
       Keep transport counters and print periodic heartbeat and disconnect
       snapshots. Disabled builds omit diagnostic counters and task sampling.
+
+config T5AI_BG_PICK_TRACE
+    bool "Count actual KernelBG scheduler selections without a trace worker"
+    depends on BOARD_UNHYGIENIX && !T5AI_BG_TRACE && !T5AI_APP_TRACE
+    default n
+    help
+      Count runnable KernelBG selections by competing priority and App identity.
+      Report peak observed ready age and selector gaps from the AON RTC every
+      five seconds using an existing timer task. No dedicated stack or ring.
+
+config T5AI_WDT_CAUSE_TRACE
+    bool "Trace watchdog suspension and public feed callers"
+    depends on T5AI_BG_PICK_TRACE
+    default n
+    help
+      Record bounded suspend/resume events and last public feed callers with
+      RTC, thread and BG callback context. Use the existing selector report
+      timer, without allocating a diagnostic thread or changing watchdog policy.
+
+config T5AI_BG_TRACE
+    bool "Trace KernelBG scheduling and blocking"
+    depends on BOARD_UNHYGIENIX
+    default n
+    help
+      Record callback running, ready and blocked wall time using the AON RTC.
+      Capture wait objects, mutex owner and caller without stack walks.
+      Board-local compiler instrumentation and linker wrappers leave common
+      source unchanged. A bounded worker drains records outside scheduler locks.
+
+config T5AI_APP_TRACE
+    bool "Sample App PCs and event processing during BG starvation"
+    depends on BOARD_UNHYGIENIX && !T5AI_INTERRUPT_PROFILE
+    select T5AI_BG_TRACE
+    default n
+    help
+      Sample interrupted App thread PCs with jittered 7-13 ms intervals.
+      Trace the exact App event queue and report processing spans over 100 ms.
+      Bounded tables and the BG diagnostic worker keep logging outside ISRs.
+      Samples exclude masked interrupts and handler execution.
+
+config T5AI_ACCEL_DISABLED
+    bool "Disable QMI8658 acquisition for diagnostic comparison"
+    depends on BOARD_UNHYGIENIX && ACCEL_QMI8658_T5AI
+    default n
+    help
+      Power down the QMI8658 during initialization and skip its worker and
+      poll timer. Keep the stock accelerometer service and app APIs intact.
+      No periodic I2C reads, shake detection or sample delivery occur.
+
+config T5AI_SDK_COMPAT_CACHE
+    bool "Cache immutable process SDK compatibility flags"
+    depends on BOARD_UNHYGIENIX
+    default y
+    help
+      Avoid repeated privilege transitions in software drawing by publishing
+      App/Worker SDK flags in the existing unprivileged read-only data region.
+      Flags are refreshed before process launch and invalidated after cleanup.
+      Uses eight bytes, no allocation, locks or task-priority changes.

@@ -22,6 +22,11 @@ watchdog (`include/pbl/drivers/watchdog.h`).
   spinning with interrupts disabled, or an interrupt handler that never
   returns, starves the watchdog thread too; the hardware watchdog is the
   backstop for those.
+- A thread marked waiting for work is exempt only while actually blocked. The
+  first watchdog check that observes it runnable starts a fresh timeout, so
+  queued work that cannot get CPU time is still watched without requiring the
+  starved thread to clear its waiting flag. A long idle wait does not consume
+  that timeout. Explicitly marking the thread busy also restarts its timeout.
 - When a channel **expires**, the watchdog thread logs the stuck thread's
   name, saved PC and LR, stores them in the reboot reason
   (`RebootReasonCode_Watchdog`, with the fed and active channel masks in
@@ -29,9 +34,12 @@ watchdog (`include/pbl/drivers/watchdog.h`).
   the thread and returns a pointer naming the work it was doing, which lands
   in `stuck_task_callback`. It runs again on every check while the channel
   stays expired.
-- After `CONFIG_TASK_WDT_GRACE_MS` of a channel staying expired the system
-  resets through `reset_due_to_software_failure()`, so a core dump is
-  written. Without `CONFIG_WATCHDOG` it logs instead and keeps running. A
+- After `CONFIG_TASK_WDT_GRACE_MS` of a channel staying expired, counted
+  from the check that first found it expired, the system resets through
+  `reset_due_to_software_failure()`, so a core dump is written. That check
+  never resets, so the callback always gets the grace period to recover
+  the thread, and the next check runs once the grace period is over
+  instead of a full check period later. Without `CONFIG_WATCHDOG` it logs instead and keeps running. A
   channel fed again within the grace period clears the reboot reason and
   logs the recovery.
 - `pbl_task_wdt_suspend()` keeps every channel fed for a bounded time (or until

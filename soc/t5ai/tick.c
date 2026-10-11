@@ -15,7 +15,24 @@ void t5ai_tick_start(void) {
   s_accounted = T5AI_AON_RTC_COUNT_LOW;
 }
 
+#ifdef CONFIG_T5AI_APP_TRACE
+#include <pbl/soc/t5ai/app_trace.h>
+void __attribute__((naked)) SysTick_Handler(void) {
+  __asm volatile(
+      "tst lr, #4\n"
+      "ite eq\n"
+      "mrseq r0, msp\n"
+      "mrsne r0, psp\n"
+      "mov r1, lr\n"
+      "push {r4, lr}\n"
+      "bl t5ai_app_trace_tick\n"
+      "pop {r4, lr}\n"
+      "b t5ai_tick_body\n");
+}
+void __attribute__((used, noinline)) t5ai_tick_body(void) {
+#else
 void SysTick_Handler(void) {
+#endif
   t5ai_power_sync_tick_clock();
   const uint32_t now = T5AI_AON_RTC_COUNT_LOW;
   const uint32_t elapsed = (now - s_accounted) / AON_TICKS_PER_KERNEL_TICK;

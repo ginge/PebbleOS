@@ -2,9 +2,142 @@
 
 This is the current refactor handoff. It supersedes the paused September
 startup/FreeRTOS cleanup plan in the [historical audit](history/shared_code_cleanup.md).
-The operator has deferred further KernelBG stall investigation and asked to
-retain the remaining stock-code refactor list. This document records work; it
+The operator resumed targeted KernelBG stall tracing on 2026-10-10; see the
+latest evidence below. Retain the remaining stock-code refactor list. This document records work; it
 does not authorize enabling unsupported update/recovery operations.
+
+## Accelerometer restored — 2026-10-10
+
+Operator requested accelerometer re-enable. Configured
+`CONFIG_T5AI_ACCEL_DISABLED=n`, rebuilt and AP-only flashed successfully in
+31.3 seconds. QMI8658 driver/service are enabled; App/BG tracing remains enabled.
+Newly added SDK-cache source was preserved and `CONFIG_T5AI_SDK_COMPAT_CACHE=n`
+keeps this restoration consistent with the previous tested trace configuration.
+Six targeted tests plus image layout/CRC/loghash checks passed. Live UART
+verification showed repeated QMI8658 task CPU activity, confirming polling resumed.
+Evidence: `build/traces/app-bg-accel-restored-20261010/`. Verification capture ended;
+no monitor remains. This supersedes the installed-state notes below.
+
+## Accelerometer-disabled retrace — 2026-10-10
+
+Operator requested a build without accelerometer and a retrace. Added default-off
+`CONFIG_T5AI_ACCEL_DISABLED` in the board Kconfig and QMI driver-local init gate.
+It writes sensor CTRL7=0 and skips worker/timer creation. Standard service/API
+code and task priorities are unchanged. Normal and disabled driver tests pass;
+subscriptions/peeks cannot restart acquisition when uninitialized. Six targeted
+actual-source/decoder tests pass, plus firmware layout/CRC/loghash checks.
+
+Current installed AP: accelerometer acquisition disabled, App/BG tracing enabled.
+Candidate/evidence: `build/traces/app-bg-noaccel-20261010/`, especially `analysis.txt`,
+`comparison.json`, `per-instance.json` and `hardware-fdf/`. AP-only flash passed in
+31.4 seconds, physical `0x132000..0x2d334a`. Only autoconf delta from the previous
+App trace candidate is the disable flag; App/BG source is byte-identical.
+
+Initial capture ran Launcher/TicToc. Operator selected FdF; fresh 180-second
+capture received 161870 bytes. A brief button/Launcher interval was excluded by
+App ID. FdF redraw/upkeep: 469 long spans, median 362 ms wall / 336 scheduled ticks,
+versus 448 ms / 366 ticks with sensor enabled. App scheduled share rose from
+80.9% to 91.5%, and BG still got zero ticks in steady READY windows. One completed
+continuous BG READY segment lasted 107375 ms, ending when FdF exited to Launcher;
+relaunching FdF reproduced starvation. Compatibility-stub samples remained about
+27.5%, versus 28.3% before. No QMI worker symbol or runtime CPU row remains.
+No OOM/assertion/reset/watchdog/throttle log observed during the bounded FdF run.
+
+Conclusion: sensor load affects wall time, but acquisition/delivery is not needed
+for starvation. App fills freed capacity with the same rendering/SDK-query loop.
+Exact drawing caller and exclusive function CPU cost remain unproven. Sampling,
+UART and identity-transition limitations are recorded in the artifact report.
+No capture or monitor remains running. Disable this diagnostic flag in the next
+normal build to restore the accelerometer.
+
+## App render-path trace — 2026-10-10
+
+Operator clarified that App's large CPU share is expected and requested tracing
+what prevents BG progress. Added default-off `CONFIG_T5AI_APP_TRACE`: board-local
+SysTick PC/LR sampling plus a wrapper on the exact App event queue. Common source,
+standard priorities and runtime behavior are unchanged. Diagnostic tables use
+8192 bytes of the existing reserved PSRAM aperture; initialization waits for App
+creation. Actual-source/decoder/QMI tests: five passed. Image/layout/CRC/loghash
+checks passed; disabled generated commands omit App source and queue wrapper.
+
+The first candidate used internal RAM for the tables and caused startup OOM;
+reject it for starvation analysis. Evidence and explicit invalid-run note are in
+`build/traces/app-bg-trace-20261010/`. Corrected installed candidate/evidence:
+`build/traces/app-bg-trace-20261010-psram/`, with exact ELF, dictionary, config,
+source snapshots, raw UART/index, reports, manifests and `analysis.txt`.
+
+Corrected 180-second capture: 136242 bytes; no OOM/reset/throttle warning observed.
+FdF Time thread 18 had 299 long render-finished/next-event spans, median 448 ms
+wall / 366 scheduled App ticks (429–547 ms wall range). This includes redraw
+upkeep after dispatch; render-finished's trivial handler alone is not blamed.
+Stable event receives were immediate/sub-millisecond, typically two events still
+queued. KernelBG remained continuously READY for at least 111692 ms, with zero
+CPU in the stable READY windows. App median 832 ticks per roughly 1026 ms window.
+
+11012 App samples, 22 collision rejects. About 28% hit the SDK-compatibility
+syscall-stub bucket, which spans legacy2 and legacy3 stubs. Other busy addresses
+resolve syscall/task/context bookkeeping and software pixel row lookup/blending.
+Inference: software redraw work amplified by repeated SDK queries keeps App
+runnable; exact loaded-face drawing caller and inclusive per-function cost remain
+unproven. Do not simply lower App priority. No scheduling/graphics fix made.
+See `analysis.txt` for measured counts, source paths and sampling limits.
+
+No capture or monitor remains running. Installed AP has corrected App/BG tracing.
+
+## KernelBG blocking trace — 2026-10-10
+
+Operator requested definitive BG blocking attribution. Added default-off
+`CONFIG_T5AI_BG_TRACE`, implemented entirely in T5 source/build options.
+Common source and standard priorities are unchanged. Compiler hooks observe
+four scheduler boundaries including timeout wakeups; linker wrappers record
+BG wait objects and mutex lock/unlock caller/owner. Hooks only update a bounded
+64-record ring; a priority-3 worker prints snapshots outside locks. Scheduled
+running time includes interrupts. No stack/register walks were added.
+
+Candidate and all evidence: `build/traces/bg-block-trace-20261010/`.
+BUILD `96b51260007fb8bc1adea8fe1f264927699acad4`; AP-only flash passed in
+31.5 seconds, physical `0x132000..0x2d35d0`. CP/resources/PFS not selected.
+Candidate manifest verified before/after hardware capture. Firmware layout,
+CRC protection and loghash checks passed; three actual-source/decoder/QMI tests
+passed. Disabled CMake commands omit trace source, hooks, wrappers and no-LTO
+options. Existing dirty display work was preserved; display tracing disabled
+for this capture. Source, ELF, dictionary, raw bytes, index and reports retained.
+
+The completed 180-second host capture received 118726 bytes. **No capture or
+monitor remains running.** The installed AP still has BG tracing enabled.
+Actual runtime bytes verified before and during capture. First throttle/reboot
+raw and decoded evidence frozen independently under `hardware/first-*`.
+
+Definite observations:
+
+- One completed **163520 ms continuously READY** interval for KernelBG,
+  originally waking from poll, before it could resume. In 98 stable windows
+  BG CPU delta was zero. Median per ~1026 ms window: FdF Time 832 scheduler
+  ticks, QMI8658 115, trace worker 22. This proves starvation for these
+  intervals, rather than lock blocking. Frame frequency does not measure
+  this app-thread CPU occupancy; app instruction-level attribution is absent.
+- At 16:42:07.423 London, app throttling followed another **5413 ms READY**
+  interval. By 16:42:08.488 BG was blocked in receiver callback
+  `prv_default_kernel_receiver_bg_cb` (`0x02146d61`), through `prv_put`, on
+  waitq `0x28011268`: the putters of **s_system_task_queue** at `0x28011250`.
+  The actual msgq path blocks there only when the queue is full. Thus the
+  queue consumer was trying to enqueue into its own full queue. Exact enqueue
+  caller inside receiver/endpoint processing is not captured. The receiver's
+  rescheduling paths call system_task_add_callback; that non-app path permits
+  a 3000ms wait, longer than the watchdog's 2000ms expiry grace.
+  A full boot followed at 16:42:11. The sequence is consistent with task-WDT
+  expiry but lacks an independent final reset-path marker; do not generalize
+  it as the cause of earlier resets.
+- After reboot: **797 ms BLOCKED** in pfs_read on **s_pfs_mutex**, owner ID 1
+  (**KernelMain**), during timeline initialization. Separate READY spans across
+  pfs_read unlock were 1012/848/227 ms. A Bluetooth unlock earlier spanned
+  2933 ms READY. These distinguish mutex contention from post-release CPU delay.
+
+No device-ring overwrites reported. Three emitted segment pairs lack a half
+in decoded output, so UART evidence is incomplete. Instrumentation adds load
+(~22 ticks per typical 1026ms window); it is diagnostic, not a behavior fix.
+Next correction needs app/background progress and safe receiver requeueing under
+full-queue conditions, preserving stock priorities and scoped source rules.
 
 ## Investigation tracing disabled and flashed — 2026-10-10
 
