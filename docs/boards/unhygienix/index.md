@@ -19,7 +19,9 @@ Two phone full-sync watchdog resets were captured with FdF animating. App
 throttling works, but the settings rewrite remains active beyond the recovery
 grace while BG runs and completes many small flash writes. Investigation is
 open. Read the [evidence and debugging plan](settings_sync_watchdog.md).
-Tracing has finished; the diagnostic firmware remains flashed.
+Tracing has finished; the diagnostic firmware remains flashed. The
+[flash optimisation and robustness audit](flash_optimisation.md) ranks driver,
+transport and settings rewrite changes, with the required measurements.
 
 ## Latest refactor handoff — 2026-10-09
 
@@ -347,6 +349,8 @@ isolation validation. Define recovery and rollback before enabling updates.
 :maxdepth: 1
 
 tooling
+settings_sync_watchdog
+flash_optimisation
 refactor_handoff
 history/index
 ```

@@ -5,6 +5,9 @@
 #include <pbl/soc/t5ai/memory.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/flash_ipc.h>
+#ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
+#include <pbl/soc/t5ai/io_trace.h>
+#endif
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/mutex.h>
 #include <pbl/kernel/sched.h>
@@ -332,8 +335,16 @@ static status_t prv_flash_transaction(uint8_t command) {
 #endif
   const pbl_prio_t previous_priority = prv_boost_client_priority();
   t5ai_mb_ipc_discard(s_flash_socket);
+#ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
+  uint32_t send_start = pbl_uptime_ticks();
+#endif
   status_t status = t5ai_mb_ipc_send(s_flash_socket, command, &s_flash_command,
                                      sizeof(s_flash_command), IPC_TIMEOUT_MS);
+#ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
+  if (command == FLASH_WRITE) {
+    t5ai_io_trace_sample(T5IO_WRITE_SEND, pbl_uptime_ticks() - send_start);
+  }
+#endif
   if (FAILED(status)) {
     prv_flash_fault(status, command);
     goto out;
@@ -372,6 +383,11 @@ static status_t prv_flash_transaction(uint8_t command) {
   status = E_ERROR;
 out:
 #ifdef CONFIG_T5AI_FLASH_PROFILE
+#ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
+  if (command == FLASH_WRITE) {
+    t5ai_io_trace_sample(T5IO_WRITE_TOTAL, pbl_uptime_ticks() - trace_start);
+  }
+#endif
   const uint32_t elapsed_ms = (pbl_uptime_ticks() - trace_start) * (1000u / PBL_TICK_HZ);
   T5AIFlashOperationDiagnostics *sample = command == FLASH_READ ? &s_flash_diagnostics.read :
       command == FLASH_WRITE ? &s_flash_diagnostics.write :
@@ -389,7 +405,13 @@ status_t t5ai_flash_ipc_read(uint32_t offset, void *buffer, size_t length) {
   if (buffer == NULL || length == 0u || length > FLASH_MAX_TRANSFER_BYTES) {
     return E_INVALID_ARGUMENT;
   }
+#ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
+  uint32_t lock_start = pbl_uptime_ticks();
+#endif
   pbl_mutex_lock(&s_flash_mutex, PBL_FOREVER);
+#ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
+  t5ai_io_trace_sample(T5IO_READ_LOCK, pbl_uptime_ticks() - lock_start);
+#endif
   /* CPU0's read buffer remains leased until READ_DONE. Keep copying and CRC
    * validation inside the same priority boost as both handshakes. */
   const pbl_prio_t previous_priority = prv_boost_client_priority();
@@ -427,7 +449,13 @@ status_t t5ai_flash_ipc_write(uint32_t offset, const void *buffer, size_t length
   if (buffer == NULL || length == 0u || length > FLASH_MAX_TRANSFER_BYTES) {
     return E_INVALID_ARGUMENT;
   }
+#ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
+  uint32_t lock_start = pbl_uptime_ticks();
+#endif
   pbl_mutex_lock(&s_flash_mutex, PBL_FOREVER);
+#ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
+  t5ai_io_trace_sample(T5IO_WRITE_LOCK, pbl_uptime_ticks() - lock_start);
+#endif
   s_flash_command = (FlashCommand){
       .part_and_address = offset << FLASH_ADDRESS_SHIFT,
       .buffer = (uint32_t)(uintptr_t)buffer,

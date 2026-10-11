@@ -136,3 +136,114 @@ bounded rewrite time, no watchdog resets, verified saved settings after reset,
 and no loss of atomic replacement behavior. Then revalidate with diagnostics
 disabled. The current host regressions and native kernel/watchdog tests pass;
 that validates the candidate logic, not hardware stability.
+
+
+## AP phase trace implementation — 2026-10-11
+
+The next diagnostic stage is implemented in `soc/t5ai/settings_sync_trace.c`,
+selected by the existing default-off `T5AI_WDT_RECOVERY_TRACE`. Driver hooks are
+local to T5 flash IPC and mailbox receive; shared settings source is untouched.
+Linker wrappers around settings file/iterator boundaries run with LTO disabled
+on those objects. No task, allocation or per-transaction logging is added.
+Statistics are printed at BG watchdog expiry and after each file rewrite returns.
+The CP binary and flash ABI are unchanged in this stage: completion-wait timing
+cannot distinguish CP protection, program and service-queue time internally.
+That decomposition remains the next CP diagnostic step if indicated.
+
+`T5SYNC timing kind=io` stage meanings:
+
+| Stage | Interval |
+| --- | --- |
+| 0 | T5 read-client flash mutex acquisition |
+| 1 | T5 write-client flash mutex acquisition |
+| 2 | Flash WRITE request send, including logical/physical send handshake |
+| 3 | WRITE completion availability wait in mailbox receive |
+| 4 | WRITE completion response acknowledgement |
+| 5 | Whole WRITE transaction, excluding outer mutex, CRC/cache preparation |
+
+Timings use uptime ticks (1 ms in this build). Each stage has count, cumulative
+elapsed ticks and maximum. `write_hist` buckets are 0, 1, 2–4, 5–9, 10–19,
+20–49 and >=50 ticks for stage 5. Counts include all tasks; nested intervals
+must not be summed as independent work. Failed send attempts contribute to
+send/whole-transaction samples; a receive timeout has no completion-wait sample.
+The initial shared flash API lock is outside the measured T5 mutex interval.
+A completion already available when receive starts can have zero wait even if
+CP service overlapped request-send time. Do not equate stage 3 alone with all CP
+service time.
+
+`T5SYNC file` names the preferences file, tracing thread, per-boot file sequence,
+rewrite start tick, committed-record count and committed key+value bytes.
+`kind=record` resets for each file: stage 0 is first record header through its
+commit header, 1 header writes, 2 key writes, 3 value writes, 4 gaps before first
+and between subsequent record writes. Gaps include search/read/preparation and
+scheduling delay; stage 0 excludes that preparation and overlaps 1–3. Counts
+follow active-low write-complete headers during the owning rewrite, not a
+same-file function wrapper (linker wrapping does not intercept that call).
+`T5SYNC active` identifies current stage: 0 between records/preparation, 1 record
+body, 2 header, 3 key, 4 value, plus its start tick. File completion reports status
+and wall ticks, including summary-log overhead before the final report.
+
+Snapshots can span adjacent updates; small timing overhead and disabled LTO mean
+this is diagnostic evidence, not a production performance benchmark. Counter
+sums wrap at 32 bits; compare within a boot and keep captures bounded. Preserve
+raw data and the exact dictionary/image for every flash. No protection behavior,
+watchdog deadline, recovery policy, cache or settings commit ordering is changed.
+
+Thirteen focused host tests pass, including actual wrapper execution, failed
+record commit exclusion, stage attribution, uptime wraparound, histogram edges,
+and no logging while a record write is measured. Existing recovery/flash tests
+also pass. The repository clang-format file requires an unsupported option in
+installed clang-format 21; new C files were formatted with compatible Google,
+100-column, right-pointer settings without changing repository configuration.
+
+
+### First phase probe correction
+
+Build `d53984ecd018a71e6655c926a0df93ba97f83622` used command 3 (READ)
+for the mailbox wait/ack filter, while WRITE is command 5 in the pinned ABI.
+Its IO stages 3/4 therefore describe READs and must not be attributed to writes;
+IO stage 2/5 and settings record stages remain valid. That capture was stopped
+and retained. A cross-source regression test now checks the filter against the
+flash driver's actual WRITE command. The corrected image/capture is sealed in
+`build/traces/settings-sync-write-phases-20261011/`; fourteen tests pass.
+
+
+### Corrected phase trace findings
+
+Build `9e746e8aafa3dca60abea77dc74fd7dd0be70d3a` captured a watchdog reset
+at device time 11:23:25 (AP=112/CP=16). The shell rewrite **completed** its
+19 records/363 bytes in 7,695 ticks: record write sequences took 1,541 ticks,
+while gaps took 6,055, including 5,966 before the first record write. That gap
+includes setup/filesystem/locking and scheduling, not exclusively flash service.
+The following notification rewrite had zero committed records at the last
+expiry; completing the shell file did not feed the enclosing BG handler's
+watchdog. BG did run during recovery. This is excessive handler wall duration
+with real progress, not evidence of a deadlock or absent task switching.
+
+On the next boot the same shell payload completed in 1,916 ticks, with 1,525 in
+record writes and only 295 in gaps. Notification preferences completed in
+1,161 ticks. The major difference is the missing initial ~6-second delay, not
+a change to record count or record write cost.
+
+Corrected per-boot cumulative WRITE measurements put 99.10%/98.07% of whole
+transaction time inside `t5ai_mb_ipc_send`. In the second boot: 1,405 writes,
+23,232 ticks send / 23,689 whole, 254 completion-wait, 132 ACK, only 7 T5-client
+mutex-wait ticks. Whole-write peak is 21 ticks there; first-boot peak 25 ticks.
+The latest histogram has 1,247 writes at 10–19 ticks and 158 at 20–49, none
+outside those buckets. This localizes the measured cost to the **request send
+and logical-response handshake**, not the later completion wait or T5 mutex.
+It does not yet identify CP protection/programming time. Next split socket lock,
+physical send and logical-response wait inside `prv_transmit` before choosing a
+CP patch. This is a more focused next step than assuming protection dominates.
+
+The subsequent trace also has recurring BG expiry/recovery with unchanged flash
+counts and file owner0. Those are separate from the completed sync; do not
+interpret retained file statistics as an active rewrite. The analysed prefix
+contains one spontaneous reboot. Raw prefix, per-boot summaries and full report:
+`build/traces/settings-sync-write-phases-20261011/analysed-prefix/`,
+`analysis-summary.json`, `analysis.md`. The parent capture has now finished at its 30-minute limit with 277,311 raw UART
+bytes. Its final WRITE counters remain unchanged from the analysed prefix, and
+there is no additional boot banner after the captured spontaneous reset. The
+last report is cut at the configured capture limit; this is not stability
+qualification. See the [full flash audit](flash_optimisation.md) for optimisation
+ranking, read-lease/error-handling findings and the bounded-progress fix design.

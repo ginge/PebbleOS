@@ -8,6 +8,10 @@ PBL_LOG_MODULE_DEFINE(t5ai_mb_ipc, LOG_LEVEL_DEBUG);
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/mailbox_channel.h>
 #include <pbl/soc/t5ai/mb_ipc.h>
+#ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
+#include <pbl/kernel/sched.h>
+#include <pbl/soc/t5ai/io_trace.h>
+#endif
 
 #include <pbl/soc/t5ai/kernel.h>
 
@@ -355,6 +359,9 @@ status_t t5ai_mb_ipc_receive(T5AIMbIpcSocket *socket, uint8_t *command, void *da
   if (socket == NULL) {
     return E_INVALID_ARGUMENT;
   }
+#ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
+  uint32_t wait_start = pbl_uptime_ticks();
+#endif
   if (socket->rx_in_process) {
     (void)pbl_sem_take(socket->rx_ready, PBL_TICKS(0u));
   } else if (pbl_sem_take(socket->rx_ready, PBL_TICKS(pbl_ms_to_ticks(timeout_ms))) != 0) {
@@ -369,6 +376,11 @@ status_t t5ai_mb_ipc_receive(T5AIMbIpcSocket *socket, uint8_t *command, void *da
     return E_AGAIN;
   }
   T5AIMailboxMessage request = socket->rx_message;
+#ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
+  const bool trace_write = socket->server_port == 1u &&
+      (uint8_t)(request.parameter2 >> MB_IPC_USER_COMMAND_SHIFT) == 5u;
+  if (trace_write) { t5ai_io_trace_sample(T5IO_WRITE_WAIT, pbl_uptime_ticks() - wait_start); }
+#endif
   const size_t received_length = (uint16_t)request.parameter2;
   status_t status = S_SUCCESS;
   if ((uint8_t)request.header != MB_IPC_COMMAND_SEND || request.parameter3 == 0u ||
@@ -392,7 +404,13 @@ status_t t5ai_mb_ipc_receive(T5AIMbIpcSocket *socket, uint8_t *command, void *da
    * only. A delayed response can be rejected as stale after the CP has already
    * completed the flash operation; propagating that rejection turns a
    * successful write into a fatal Pebble flash error. */
+#ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
+  uint32_t ack_start = pbl_uptime_ticks();
+#endif
   (void)prv_respond(socket, &request);
+#ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
+  if (trace_write) { t5ai_io_trace_sample(T5IO_WRITE_ACK, pbl_uptime_ticks() - ack_start); }
+#endif
   socket->rx_in_process = false;
   return status;
 }

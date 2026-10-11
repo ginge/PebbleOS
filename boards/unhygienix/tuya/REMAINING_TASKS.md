@@ -234,3 +234,21 @@ Capture finished at operator request (175,988 raw bytes flushed). See the
 [settings full-sync watchdog investigation](../../../docs/boards/unhygienix/settings_sync_watchdog.md) for the two
 reproductions, verified CP binary findings, limitations and staged debugging
 plan. No live UART capture remains; diagnostic firmware is still flashed.
+
+
+## Flash optimisation and rewrite robustness — 2026-10-11
+
+See the [audited avenues and implementation sequence](../../../docs/boards/unhygienix/flash_optimisation.md).
+The reset remains open; documentation of a candidate is not qualification.
+
+- Split request-send timing into socket lock, physical handshake and logical
+  response; measure CP protection, notifications, programming and service wait.
+- Add record/file progress only after verified success, using the existing
+  current-thread watchdog feed without prematurely releasing App throttling.
+- Correct dirty-all allocation/write/open error propagation and preserve old
+  settings on abort; resolve READ_DONE cleanup on failed read validation.
+- Evaluate sequential dirty-all copy using existing temporary-file semantics
+  to remove setter searches and combine key/value I/O.
+- Keep global deadlines, CP ownership and write durability intact. Do not add
+  caches or blindly retry mutations. SDK compatibility cache removal stays
+  tracked separately above.

@@ -53,6 +53,10 @@ CONFIG_ACCEL_SENSITIVITY=y
 CONFIG_APP_SCALING=y
 CONFIG_ORIENTATION_MANAGER=y
 
+# Keep watchdog/settings phase tracing and flash timing opt-in.
+# CONFIG_T5AI_WDT_RECOVERY_TRACE is not set
+# CONFIG_T5AI_FLASH_PROFILE is not set
+
 # Use the bounded general flash cache to retain SRAM for the kernel heap.
 # CONFIG_T5AI_PFS_HEADER_CACHE is not set
 

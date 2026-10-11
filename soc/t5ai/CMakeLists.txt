@@ -118,11 +118,20 @@ if(CONFIG_T5AI_BG_PICK_TRACE)
 endif()
 
 if(CONFIG_T5AI_WDT_RECOVERY_TRACE)
-  pbl_library_sources(wdt_recovery_trace.c)
+  pbl_library_sources(wdt_recovery_trace.c settings_sync_trace.c)
   set_property(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/wdt_recovery_trace.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/settings_sync_trace.c
     APPEND PROPERTY COMPILE_OPTIONS -mgeneral-regs-only -fno-lto)
   pbl_link_options(-Wl,--wrap=pbl_task_wdt_add -Wl,--wrap=settings_blob_db_mark_all_dirty)
+  foreach(symbol settings_file_mark_all_dirty
+                 settings_raw_iter_write_header settings_raw_iter_write_key settings_raw_iter_write_val)
+    pbl_link_options(-Wl,--wrap=${symbol})
+  endforeach()
   function(t5ai_wdt_recovery_trace_call_boundaries)
+    foreach(source settings_file.c settings_raw_iter.c)
+      set_property(SOURCE ${PBL_BASE}/fw/services/settings/${source}
+        DIRECTORY ${PBL_BASE}/fw/services/settings APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+    endforeach()
     set_property(SOURCE ${PBL_BASE}/subsys/task_wdt/task_wdt.c
       DIRECTORY ${PBL_BASE}/subsys/task_wdt APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
     set_property(SOURCE ${PBL_BASE}/fw/services/blob_db/settings_blob_db.c

@@ -50,6 +50,7 @@ int __real_pbl_task_wdt_add(struct pbl_thread *thread,uint32_t ms,
 void t5ai_flash_ipc_get_diagnostics(T5AIFlashDiagnostics *d){
  assert(!locked);*d=(T5AIFlashDiagnostics){.read={.count=12,.max_ms=8}};
 }
+void t5ai_io_trace_dump(void) {}
 status_t __real_settings_blob_db_mark_all_dirty(void){
  assert(s_settings_active==1&&s_settings_start==123);return -7;
 }

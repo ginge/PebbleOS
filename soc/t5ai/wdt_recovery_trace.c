@@ -74,9 +74,12 @@ static void prv_dump(unsigned phase) {
                    phase, bg.id, bg.base, bg.effective, bg.held, bg.state, bg.waitq);
 }
 
+extern void t5ai_io_trace_dump(void);
+
 static void *prv_expired(int channel, void *data) {
   prv_dump(0);
   prv_flash_dump(0);
+  t5ai_io_trace_dump();
   void *work = s_callback ? s_callback(channel, s_data) : NULL;
   prv_dump(1);
   return work;

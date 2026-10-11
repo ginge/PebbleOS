@@ -868,3 +868,28 @@ Capture finished at operator request (175,988 raw bytes flushed). See the
 [settings full-sync watchdog investigation](settings_sync_watchdog.md) for the two
 reproductions, verified CP binary findings, limitations and staged debugging
 plan. No live UART capture remains; diagnostic firmware is still flashed.
+
+
+## Settings sync phase trace (2026-10-11)
+
+The AP phase diagnostic is sealed in
+`build/traces/settings-sync-phases-20261011/`. It retains the pinned CP and
+existing recovery candidates. It adds 480 bytes static RAM (total 97,216 bytes),
+no task/heap allocation, and buffered timings dumped on expiry or file completion.
+The linked settings call boundaries are verified in `settings-call-boundaries.txt`.
+Thirteen focused tests pass; packaging and layout checks pass. See the
+[stage definitions and limits](settings_sync_watchdog.md#ap-phase-trace-implementation--2026-10-11).
+Completion-wait timing is an AP observation; CP protection/program splitting
+is not implemented in this image. The 30-minute capture begins before flashing;
+exclude pre-flash data and label the commanded boot before interpreting resets.
+
+
+## Trace disabled for commit — 2026-10-11
+
+The board defaults explicitly disable `T5AI_WDT_RECOVERY_TRACE` and
+`T5AI_FLASH_PROFILE`. The local build override is also disabled. Diagnostic
+sources and tests remain available behind the opt-in flag; settings linker
+wrappers, diagnostic LTO exclusions, counters and timing hooks are excluded
+when disabled. Earlier enabled-probe descriptions above are historical.
+The capture has finished. The watch still has the previously flashed diagnostic
+image until a subsequent flash; this configuration change does not update it.
