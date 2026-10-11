@@ -30,6 +30,7 @@ void test_log(const char *, ...);
 HARNESS = r"""
 #include <assert.h>
 #include SOURCE
+void t5ai_flash_phase_trace_dump(void) {}
 static uint32_t now;
 static int locked, logs;
 static status_t result;

@@ -165,6 +165,8 @@ static void prv_receive(T5AIMailboxMessage *message, void *context) {
     message->parameter3 = CP_ACK_STATE_COMPLETE;
     return;
   }
+  /* This compatibility ACK does not park AP execution or prevent XIP reads.
+   * CP code must not use it as exclusive ownership for a flash-to-SPI mux. */
   if (channel == CP_FLASH_NOTIFY_RX_CHANNEL) {
     if (message->parameter1 == CP_FLASH_NOTIFY_REQUEST) {
       message->parameter1 = CP_FLASH_NOTIFY_ACK;

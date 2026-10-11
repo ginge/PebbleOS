@@ -118,16 +118,32 @@ if(CONFIG_T5AI_BG_PICK_TRACE)
 endif()
 
 if(CONFIG_T5AI_WDT_RECOVERY_TRACE)
-  pbl_library_sources(wdt_recovery_trace.c settings_sync_trace.c)
+  if(CONFIG_T5AI_REMINDER_PROFILE)
+    message(FATAL_ERROR "Select one settings linker-wrapper profiler at a time")
+  endif()
+  pbl_library_sources(wdt_recovery_trace.c settings_sync_trace.c flash_phase_trace.c)
   set_property(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/wdt_recovery_trace.c
     ${CMAKE_CURRENT_SOURCE_DIR}/settings_sync_trace.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/flash_phase_trace.c
     APPEND PROPERTY COMPILE_OPTIONS -mgeneral-regs-only -fno-lto)
   pbl_link_options(-Wl,--wrap=pbl_task_wdt_add -Wl,--wrap=settings_blob_db_mark_all_dirty)
-  foreach(symbol settings_file_mark_all_dirty
+  foreach(symbol pfs_open pfs_close prefs_private_lock alerts_preferences_lock
+                 pbl_mutex_lock_lr pbl_mutex_unlock flash_read_bytes flash_write_bytes
+                 flash_erase_sector_blocking settings_file_mark_all_dirty
                  settings_raw_iter_write_header settings_raw_iter_write_key settings_raw_iter_write_val)
     pbl_link_options(-Wl,--wrap=${symbol})
   endforeach()
   function(t5ai_wdt_recovery_trace_call_boundaries)
+    set_property(SOURCE ${PBL_BASE}/kernel/mutex.c DIRECTORY ${PBL_BASE}/kernel
+      APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+    foreach(pair "fw/services/filesystem|pfs.c" "fw/drivers/flash|flash_api.c"
+                 "fw/drivers/flash|flash_erase.c")
+      string(REPLACE "|" ";" parts "${pair}")
+      list(GET parts 0 directory)
+      list(GET parts 1 source)
+      set_property(SOURCE ${PBL_BASE}/${directory}/${source} DIRECTORY ${PBL_BASE}/${directory}
+        APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+    endforeach()
     foreach(source settings_file.c settings_raw_iter.c)
       set_property(SOURCE ${PBL_BASE}/fw/services/settings/${source}
         DIRECTORY ${PBL_BASE}/fw/services/settings APPEND PROPERTY COMPILE_OPTIONS -fno-lto)

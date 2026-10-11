@@ -13,6 +13,7 @@
 #include <pbl/kernel/sched.h>
 #include <pbl/kernel/thread.h>
 #include <pbl/soc/t5ai/mb_ipc.h>
+#include <pbl/soc/t5ai/rtc.h>
 #include <pbl/soc/t5ai/saradc_ipc.h>
 
 #include <stdbool.h>
@@ -52,6 +53,8 @@ PBL_LOG_MODULE_DECLARE(driver_flash, CONFIG_DRIVER_FLASH_LOG_LEVEL);
 #define IPC_TIMEOUT_MS 5000u
 #define SARADC_IPC_TIMEOUT_MS 2000u
 #define IPC_STALE_RESPONSE_LIMIT 4u
+// Pinned CP server: FLASH_SVR_WAIT_TIME=50 at a 1 kHz FreeRTOS tick.
+#define FLASH_READ_LEASE_AON_TICKS (T5AI_AON_RTC_HZ / 20u)
 #define SARADC_NOTIFY_RX_CHANNEL 0x4cu
 #define SARADC_NOTIFY_ACK 2u
 #define MB_IPC_CLIENT_PRIORITY (CONFIG_KERNEL_NUM_PRIORITIES - 2u)
@@ -306,6 +309,15 @@ status_t t5ai_flash_ipc_init(void) {
   return status;
 }
 
+bool t5ai_flash_ipc_is_available(void) {
+  return s_flash_available;
+}
+
+static void prv_flash_quarantine(void) {
+  s_flash_available = false;
+  t5ai_mb_ipc_poison(s_flash_socket);
+}
+
 static void prv_flash_fault(status_t status, uint8_t command) {
   const bool ambiguous = status == E_AGAIN;
   if (ambiguous) {
@@ -357,6 +369,8 @@ static status_t prv_flash_transaction(uint8_t command) {
     if (FAILED(status)) {
       PBL_LOG_ERR("T5AI flash completion failed expected=%u status=%ld", command,
                   (long)status);
+      // An invalid completion cannot establish whether CP owns a read lease.
+      prv_flash_quarantine();
       prv_flash_fault(status, command);
       goto out;
     }
@@ -379,6 +393,7 @@ static status_t prv_flash_transaction(uint8_t command) {
     goto out;
   }
   PBL_LOG_ERR("T5AI flash stale completion limit expected=%u", command);
+  prv_flash_quarantine();
   prv_flash_fault(E_ERROR, command);
   status = E_ERROR;
 out:
@@ -420,25 +435,48 @@ status_t t5ai_flash_ipc_read(uint32_t offset, void *buffer, size_t length) {
       .length_and_status = (uint32_t)length,
   };
   status_t status = prv_flash_transaction(FLASH_READ);
-  if (FAILED(status) ||
-      !t5ai_cp_mailbox_shared_range_valid((uintptr_t)s_flash_command.buffer, length)) {
-    status = FAILED(status) ? status : E_ERROR;
-    if (s_flash_available) {
-      prv_flash_fault(status, FLASH_READ);
-    }
+  if (FAILED(status)) {
     goto out;
   }
-  const void *source = (const void *)(uintptr_t)s_flash_command.buffer;
-  dcache_invalidate((void *)source, length);
-  if (prv_crc32(source, length) != s_flash_command.crc) {
+  const uint32_t lease_start = t5ai_mb_ipc_last_receive_aon(s_flash_socket);
+  // Only a validated, timely successful response establishes a lease.
+  if ((uint32_t)(T5AI_AON_RTC_COUNT_LOW - lease_start) >= FLASH_READ_LEASE_AON_TICKS) {
+    prv_flash_quarantine();
+    status = E_AGAIN;
+    prv_flash_fault(status, FLASH_READ);
+    goto out;
+  }
+  if ((uint16_t)s_flash_command.length_and_status != length ||
+      !t5ai_cp_mailbox_shared_range_valid((uintptr_t)s_flash_command.buffer, length)) {
+    prv_flash_quarantine();
     status = E_ERROR;
     prv_flash_fault(status, FLASH_READ);
     goto out;
   }
-  memcpy(buffer, source, length);
+  const void *source = (const void *)(uintptr_t)s_flash_command.buffer;
+  dcache_invalidate((void *)source, length);
+  const bool valid_payload = prv_crc32(source, length) == s_flash_command.crc;
+  if (valid_payload) {
+    memcpy(buffer, source, length);
+  } else {
+    status = E_ERROR;
+    prv_flash_fault(status, FLASH_READ);
+  }
 
+  // A preemption or long validation may outlive CP's buffer ownership.
+  if ((uint32_t)(T5AI_AON_RTC_COUNT_LOW - lease_start) >= FLASH_READ_LEASE_AON_TICKS) {
+    prv_flash_quarantine();
+    status = FAILED(status) ? status : E_AGAIN;
+    prv_flash_fault(status, FLASH_READ);
+    goto out;
+  }
+  // CRC failure does not relinquish CP's buffer. Always finish a known lease.
   memset(&s_flash_command, 0, sizeof(s_flash_command));
-  status = prv_flash_transaction(FLASH_READ_DONE);
+  const status_t release_status = prv_flash_transaction(FLASH_READ_DONE);
+  if (FAILED(release_status)) {
+    prv_flash_quarantine();
+  }
+  status = FAILED(status) ? status : release_status;
 out:
   prv_restore_client_priority(previous_priority);
   pbl_mutex_unlock(&s_flash_mutex);

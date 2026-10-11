@@ -123,7 +123,7 @@ static status_t prv_read_with_retry(uint32_t offset, void *buffer, size_t length
   status_t status = E_ERROR;
   for (unsigned attempt = 0; attempt < T5AI_FLASH_IPC_ATTEMPTS; ++attempt) {
     status = t5ai_flash_ipc_read(offset, buffer, length);
-    if (PASSED(status)) {
+    if (PASSED(status) || !t5ai_flash_ipc_is_available()) {
       break;
     }
   }

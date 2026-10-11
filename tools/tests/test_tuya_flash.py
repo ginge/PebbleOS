@@ -217,6 +217,7 @@ void t5ai_retained_write(uint8_t index, uint32_t value) {
   (void)value;
 }
 
+bool t5ai_flash_ipc_is_available(void) { return true; }
 status_t t5ai_flash_ipc_init(void) { memset(storage, 0xff, sizeof(storage)); return S_SUCCESS; }
 status_t t5ai_flash_ipc_read(uint32_t offset, void *buffer, size_t length) {
   assert(length <= 0x200); reads++;

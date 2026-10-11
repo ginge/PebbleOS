@@ -20,6 +20,7 @@ static bool fail_mutation, apply_mutation, fail_read, corrupt_write;
 static unsigned fail_erase_at;
 static const uint32_t base = FLASH_REGION_BASE_ADDRESS;
 status_t t5ai_flash_ipc_init(void) { return S_SUCCESS; }
+bool t5ai_flash_ipc_is_available(void) { return !fail_read; }
 status_t t5ai_flash_ipc_read(uint32_t offset, void *out, size_t n) {
   reads++;
   if (fail_read) return E_INVALID_OPERATION;
@@ -74,7 +75,7 @@ static void failed_write(uint32_t address, bool applied, bool unavailable) {
   if (unavailable) {
     uint8_t out = 0;
     assert(flash_impl_read_sync(&out, address, 1) == E_INVALID_OPERATION);
-    assert(reads > before); // Cannot serve old cache if transport is quarantined.
+    assert(reads == before + 1); // Stop after a quarantined read failure.
   } else {
     assert(read_byte(address) == (applied ? programmed : 0xff));
     assert(reads == before + 1); // Refetch even when the mutation changed nothing.

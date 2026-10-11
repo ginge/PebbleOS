@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -11,6 +12,8 @@
  * flash offsets; the CP server owns controller access and 34:32 protection.
  */
 status_t t5ai_flash_ipc_init(void);
+// False after an ambiguous transaction; no retry or reconnect may reuse it.
+bool t5ai_flash_ipc_is_available(void);
 status_t t5ai_flash_ipc_read(uint32_t offset, void *buffer, size_t length);
 status_t t5ai_flash_ipc_write(uint32_t offset, const void *buffer, size_t length);
 status_t t5ai_flash_ipc_erase_4k(uint32_t offset);

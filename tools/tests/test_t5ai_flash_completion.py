@@ -43,6 +43,7 @@ typedef struct { int unused; } FlashSecurityRegisters;
 #define SECTOR_ADDR_MASK (~(SECTOR_SIZE_BYTES-1u))
 #define SUBSECTOR_ADDR_MASK (~(SUBSECTOR_SIZE_BYTES-1u))
 status_t t5ai_flash_ipc_init(void);
+bool t5ai_flash_ipc_is_available(void);
 status_t t5ai_flash_ipc_read(uint32_t, void *, size_t);
 status_t t5ai_flash_ipc_write(uint32_t, const void *, size_t);
 status_t t5ai_flash_ipc_erase_4k(uint32_t);
@@ -55,6 +56,7 @@ HARNESS = r"""
 static unsigned erases;
 static bool fail;
 status_t t5ai_flash_ipc_init(void) { return S_SUCCESS; }
+bool t5ai_flash_ipc_is_available(void) { return true; }
 status_t t5ai_flash_ipc_read(uint32_t a, void *p, size_t n) {
  (void)a; memset(p, 0xff, n); return S_SUCCESS;
 }

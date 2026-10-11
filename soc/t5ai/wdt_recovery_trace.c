@@ -8,6 +8,7 @@
 #include <pbl/services/system_task.h>
 #include <pbl/task_wdt/task_wdt.h>
 #include <pbl/soc/t5ai/flash_ipc.h>
+#include <pbl/soc/t5ai/io_trace.h>
 
 PBL_LOG_MODULE_DEFINE(t5ai_wdt_recovery_trace, LOG_LEVEL_DEBUG);
 
@@ -22,7 +23,9 @@ status_t __real_settings_blob_db_mark_all_dirty(void);
 status_t __wrap_settings_blob_db_mark_all_dirty(void) {
   __atomic_store_n(&s_settings_start, pbl_uptime_ticks(), __ATOMIC_RELAXED);
   __atomic_store_n(&s_settings_active, 1u, __ATOMIC_RELAXED);
+  t5ai_flash_phase_trace_begin();
   status_t result = __real_settings_blob_db_mark_all_dirty();
+  t5ai_flash_phase_trace_end();
   __atomic_store_n(&s_settings_active, 0u, __ATOMIC_RELAXED);
   return result;
 }

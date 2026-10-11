@@ -16,6 +16,8 @@ typedef struct {uint32_t count,max_ms,last_ms,last_tick,last_offset,last_length;
 typedef struct {T5AIFlashOperationDiagnostics read,write,erase;uint32_t active_command,active_tick;} T5AIFlashDiagnostics;
 void t5ai_flash_ipc_get_diagnostics(T5AIFlashDiagnostics*);
 void log_snapshot(const char*,unsigned,...);
+void t5ai_flash_phase_trace_begin(void);
+void t5ai_flash_phase_trace_end(void);
 #define PBL_LOG_SYNC_WRN log_snapshot
 """
 HARNESS = r"""
@@ -51,6 +53,8 @@ void t5ai_flash_ipc_get_diagnostics(T5AIFlashDiagnostics *d){
  assert(!locked);*d=(T5AIFlashDiagnostics){.read={.count=12,.max_ms=8}};
 }
 void t5ai_io_trace_dump(void) {}
+void t5ai_flash_phase_trace_begin(void) {}
+void t5ai_flash_phase_trace_end(void) {}
 status_t __real_settings_blob_db_mark_all_dirty(void){
  assert(s_settings_active==1&&s_settings_start==123);return -7;
 }
@@ -78,7 +82,7 @@ class RecoveryTraceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
             for header in ("pbl/kernel/irq.h", "pbl/kernel/sched.h", "pbl/kernel/thread.h", "pbl/logging/logging.h",
-                           "pbl/services/system_task.h", "pbl/task_wdt/task_wdt.h", "pbl/soc/t5ai/flash_ipc.h"):
+                           "pbl/services/system_task.h", "pbl/task_wdt/task_wdt.h", "pbl/soc/t5ai/flash_ipc.h", "pbl/soc/t5ai/io_trace.h"):
                 path = directory / header
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text('#include "stub.h"\n')

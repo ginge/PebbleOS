@@ -8,6 +8,7 @@ PBL_LOG_MODULE_DEFINE(t5ai_mb_ipc, LOG_LEVEL_DEBUG);
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/mailbox_channel.h>
 #include <pbl/soc/t5ai/mb_ipc.h>
+#include <pbl/soc/t5ai/rtc.h>
 #ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
 #include <pbl/kernel/sched.h>
 #include <pbl/soc/t5ai/io_trace.h>
@@ -64,6 +65,7 @@ struct T5AIMbIpcSocket {
   uint8_t tx_tag;
   uint8_t tx_command;
   uint32_t generation;
+  uint32_t rx_ack_aon;
   bool allocated;
   bool connected;
   bool poisoned;
@@ -249,8 +251,18 @@ static status_t prv_transmit(T5AIMbIpcSocket *socket, uint8_t command, uint8_t u
     dcache_flush((void *)data, length);
   }
   T5AIMailboxMessage ack;
+#ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
+  const bool trace_write_send =
+      socket->server_port == 1u && command == MB_IPC_COMMAND_SEND && user_command == 5u;
+  uint32_t phase_start = pbl_uptime_ticks();
+#endif
   status_t status = t5ai_mailbox_channel_send(MB_IPC_TX_CHANNEL, &socket->tx_message, &ack,
                                               MB_IPC_PHYSICAL_TIMEOUT_MS);
+#ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
+  if (trace_write_send) {
+    t5ai_io_trace_sample(T5IO_WRITE_PHYSICAL, pbl_uptime_ticks() - phase_start);
+  }
+#endif
   if (FAILED(status)) {
     PBL_LOG_ERR("T5AI MIPC physical send failed: status=%ld cmd=%u user=%u tag=%u port=%u>%u",
                   (long)status, command, user_command, socket->tx_tag, socket->client_port,
@@ -266,7 +278,16 @@ static status_t prv_transmit(T5AIMbIpcSocket *socket, uint8_t command, uint8_t u
     socket->tx_in_process = false;
     return E_INVALID_OPERATION;
   }
-  return prv_wait_for_logical_response(socket, timeout_ms);
+#ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
+  phase_start = pbl_uptime_ticks();
+#endif
+  status = prv_wait_for_logical_response(socket, timeout_ms);
+#ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
+  if (trace_write_send) {
+    t5ai_io_trace_sample(T5IO_WRITE_LOGICAL, pbl_uptime_ticks() - phase_start);
+  }
+#endif
+  return status;
 }
 
 status_t t5ai_mb_ipc_open(uint8_t client_port, uint8_t server_port,
@@ -317,7 +338,15 @@ status_t t5ai_mb_ipc_send(T5AIMbIpcSocket *socket, uint8_t command, const void *
   if (socket == NULL || data == NULL || length == 0u || length > MB_IPC_MAX_PAYLOAD_BYTES) {
     return E_INVALID_ARGUMENT;
   }
+#ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
+  uint32_t lock_start = pbl_uptime_ticks();
+#endif
   pbl_mutex_lock(socket->mutex, PBL_FOREVER);
+#ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
+  if (socket->server_port == 1u && command == 5u) {
+    t5ai_io_trace_sample(T5IO_WRITE_SOCKET_LOCK, pbl_uptime_ticks() - lock_start);
+  }
+#endif
   status_t status;
   if (socket->connected) {
     status = prv_transmit(socket, MB_IPC_COMMAND_SEND, command, data, length, timeout_ms);
@@ -407,12 +436,24 @@ status_t t5ai_mb_ipc_receive(T5AIMbIpcSocket *socket, uint8_t *command, void *da
 #ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
   uint32_t ack_start = pbl_uptime_ticks();
 #endif
-  (void)prv_respond(socket, &request);
+  socket->rx_ack_aon = T5AI_AON_RTC_COUNT_LOW;
+  const status_t ack_status = prv_respond(socket, &request);
+  const uint8_t user_command = (uint8_t)(request.parameter2 >> MB_IPC_USER_COMMAND_SHIFT);
+  // A READ lease cannot be trusted after a rejected/late acknowledgement.
+  // Keep the vendor completion semantics for already completed mutations.
+  if (socket->server_port == 1u && (user_command == 3u || user_command == 4u) &&
+      FAILED(ack_status)) {
+    status = ack_status;
+  }
 #ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
   if (trace_write) { t5ai_io_trace_sample(T5IO_WRITE_ACK, pbl_uptime_ticks() - ack_start); }
 #endif
   socket->rx_in_process = false;
   return status;
+}
+
+uint32_t t5ai_mb_ipc_last_receive_aon(const T5AIMbIpcSocket *socket) {
+  return socket->rx_ack_aon;
 }
 
 void t5ai_mb_ipc_discard(T5AIMbIpcSocket *socket) {

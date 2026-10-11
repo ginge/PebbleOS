@@ -100,6 +100,7 @@ status_t __wrap_settings_file_mark_all_dirty(SettingsFile *file) {
   pbl_irq_unlock();
   status_t result = __real_settings_file_mark_all_dirty(file);
   t5ai_io_trace_dump();
+  t5ai_flash_phase_trace_dump();
   PBL_LOG_SYNC_WRN("T5SYNC done file=%" PRIu32 " elapsed_ticks=%" PRIu32 " status=%ld", s_file,
                    (uint32_t)(pbl_uptime_ticks() - s_start), (long)result);
   pbl_irq_lock();

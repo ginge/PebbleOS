@@ -3,8 +3,8 @@
 
 import hashlib
 import json
-from pathlib import Path
 import subprocess
+from pathlib import Path
 
 from tools.patch_unhygienix_cp_rf import (
     CP_XIP,
@@ -48,12 +48,23 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def build_cp(stock_path, output, compiler, objcopy):
+def build_cp(
+    stock_path, output, compiler, objcopy, flash_guard_elf=None, volatile_status=False
+):
+    if volatile_status and not flash_guard_elf:
+        raise ValueError("Volatile status requires hash-verified flash guard ELF")
     revisions = verify_dependencies()
     stock = Path(stock_path).read_bytes()
     verify_stock(stock)
     hook = compile_hook(CP_XIP + ((len(stock) + 15) & ~15), compiler, objcopy)
     image = install_hook(stock, hook)
+    flash_guard = None
+    if flash_guard_elf:
+        from tools.unhygienix_cp_flash import install_flash_guard
+
+        image, flash_guard = install_flash_guard(
+            stock, image, flash_guard_elf, compiler, objcopy, output, volatile_status
+        )
     protected = encode_protected_blocks(image)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
@@ -65,6 +76,7 @@ def build_cp(stock_path, output, compiler, objcopy):
     ).stdout.splitlines()[0]
     manifest = {
         "compiler": compiler_version,
+        "flash_guard": flash_guard,
         "schema": 1,
         "board": "unhygienix",
         "vendor_revisions": revisions,
@@ -90,6 +102,18 @@ def validate_manifest(output):
         or manifest.get("hook_sha256") != digest(SOURCE.read_bytes())
     ):
         raise ValueError("CP manifest does not match the pinned Unhygienix inputs")
+    guard = manifest.get("flash_guard")
+    if guard is not None:
+        from tools.unhygienix_cp_flash import ELF_SHA256, source_hashes
+
+        if (
+            guard.get("schema") != 1
+            or guard.get("elf_sha256") != ELF_SHA256
+            or guard.get("sources") != source_hashes()
+        ):
+            raise ValueError(
+                "CP flash guard manifest does not match source/verified ELF"
+            )
     for name in ("pebbleos.t5ai-cp.bin", "pebbleos.t5ai-cp-crc.bin"):
         if manifest.get("artifacts", {}).get(name) != digest(
             (output / name).read_bytes()
@@ -105,7 +129,23 @@ if __name__ == "__main__":
     parser.add_argument("--output", required=True)
     parser.add_argument("--compiler", required=True)
     parser.add_argument("--objcopy", required=True)
+    parser.add_argument(
+        "--flash-guard-elf",
+        help="Exact pinned stock ELF for CP flash diagnostics and deadlines",
+    )
+    parser.add_argument(
+        "--volatile-status",
+        action="store_true",
+        help="EXPERIMENTAL: GD25WQ64E volatile unprotect; hardware readback failed, keep disabled",
+    )
     args = parser.parse_args()
     if not args.stock:
         parser.error("configure T5AI_CP_STOCK with the pinned stock CP image")
-    build_cp(args.stock, args.output, args.compiler, args.objcopy)
+    build_cp(
+        args.stock,
+        args.output,
+        args.compiler,
+        args.objcopy,
+        args.flash_guard_elf,
+        args.volatile_status,
+    )
