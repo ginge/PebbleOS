@@ -1,0 +1,230 @@
+{
+  "archive": "/home/baz/Documents/ChatGPT/pebble/artifacts/unhygienix-flash-bypass-paused-20261011.tar.gz",
+  "archive_sha256": "71acc6ef4a02793fa1e1a1105deb33e1803c340d2b50ce03b358e4ce9359116e",
+  "archive_bytes": 236936677,
+  "source_base": "c0327d426",
+  "roots": [
+    {
+      "path": "build/traces/flash-cache-cleanup-20261009",
+      "files": 42,
+      "bytes": 40826280
+    },
+    {
+      "path": "build/traces/flash-cache-cleanup-hardware-20261009",
+      "files": 11,
+      "bytes": 240746
+    },
+    {
+      "path": "build/traces/flash-fault-probe-20261011",
+      "files": 114,
+      "bytes": 73316225
+    },
+    {
+      "path": "build/traces/flash-guard-20261011",
+      "files": 69,
+      "bytes": 68981359
+    },
+    {
+      "path": "build/traces/flash-owner-compat-fix-20261011",
+      "files": 122,
+      "bytes": 71593118
+    },
+    {
+      "path": "build/traces/flash-spi-adapter-20261011",
+      "files": 101,
+      "bytes": 2862557
+    },
+    {
+      "path": "build/traces/flash-spi-audit-20261011",
+      "files": 28,
+      "bytes": 2187063
+    },
+    {
+      "path": "build/traces/flash-spi-bus-audit-20261011",
+      "files": 112,
+      "bytes": 5089415
+    },
+    {
+      "path": "build/traces/flash-spi-cause-20261011",
+      "files": 21,
+      "bytes": 2200858
+    },
+    {
+      "path": "build/traces/flash-spi-clean-20261011",
+      "files": 13,
+      "bytes": 2092364
+    },
+    {
+      "path": "build/traces/flash-spi-compare-20261011",
+      "files": 14,
+      "bytes": 2100560
+    },
+    {
+      "path": "build/traces/flash-spi-compare-small-20261011",
+      "files": 19,
+      "bytes": 2692316
+    },
+    {
+      "path": "build/traces/flash-spi-config-20261011",
+      "files": 12,
+      "bytes": 2099617
+    },
+    {
+      "path": "build/traces/flash-spi-crmr-20261011",
+      "files": 13,
+      "bytes": 2100601
+    },
+    {
+      "path": "build/traces/flash-spi-cs-fix-20261011",
+      "files": 13,
+      "bytes": 2093300
+    },
+    {
+      "path": "build/traces/flash-spi-dma-contract-20261011",
+      "files": 22,
+      "bytes": 340040
+    },
+    {
+      "path": "build/traces/flash-spi-dpd-20261011",
+      "files": 12,
+      "bytes": 2099792
+    },
+    {
+      "path": "build/traces/flash-spi-dual-20261011",
+      "files": 12,
+      "bytes": 2099497
+    },
+    {
+      "path": "build/traces/flash-spi-fallback-20261011",
+      "files": 13,
+      "bytes": 2096726
+    },
+    {
+      "path": "build/traces/flash-spi-fault-context-20261011",
+      "files": 149,
+      "bytes": 13305253
+    },
+    {
+      "path": "build/traces/flash-spi-fifo-settle-20261011",
+      "files": 12,
+      "bytes": 2099239
+    },
+    {
+      "path": "build/traces/flash-spi-isolated-20261011",
+      "files": 19,
+      "bytes": 2185781
+    },
+    {
+      "path": "build/traces/flash-spi-latch-20261011",
+      "files": 19,
+      "bytes": 2205127
+    },
+    {
+      "path": "build/traces/flash-spi-master-map-20261011",
+      "files": 8,
+      "bytes": 1441085
+    },
+    {
+      "path": "build/traces/flash-spi-master-map-20261011-resolved",
+      "files": 23,
+      "bytes": 3109522
+    },
+    {
+      "path": "build/traces/flash-spi-mode3-20261011",
+      "files": 12,
+      "bytes": 2099179
+    },
+    {
+      "path": "build/traces/flash-spi-next-gate-20261011",
+      "files": 132,
+      "bytes": 11090567
+    },
+    {
+      "path": "build/traces/flash-spi-policy-contract-20261011",
+      "files": 20,
+      "bytes": 185598
+    },
+    {
+      "path": "build/traces/flash-spi-prefill-20261011",
+      "files": 20,
+      "bytes": 2467016
+    },
+    {
+      "path": "build/traces/flash-spi-radio-audit-20261011",
+      "files": 108,
+      "bytes": 3222751
+    },
+    {
+      "path": "build/traces/flash-spi-readwait-20261011",
+      "files": 12,
+      "bytes": 2099414
+    },
+    {
+      "path": "build/traces/flash-spi-rearm-20261011",
+      "files": 12,
+      "bytes": 2099636
+    },
+    {
+      "path": "build/traces/flash-spi-rearm-v2-20261011",
+      "files": 20,
+      "bytes": 2713932
+    },
+    {
+      "path": "build/traces/flash-spi-recovery-final-20261011",
+      "files": 32,
+      "bytes": 2552436
+    },
+    {
+      "path": "build/traces/flash-spi-rewrite-20261011",
+      "files": 225,
+      "bytes": 169150567
+    },
+    {
+      "path": "build/traces/flash-spi-rollback-20261011",
+      "files": 9,
+      "bytes": 88047
+    },
+    {
+      "path": "build/traces/flash-spi-settle-20261011",
+      "files": 13,
+      "bytes": 2092994
+    },
+    {
+      "path": "build/traces/flash-spi-stress-20261011",
+      "files": 20,
+      "bytes": 2274233
+    },
+    {
+      "path": "build/traces/flash-spi-timed-20261011",
+      "files": 14,
+      "bytes": 2100733
+    },
+    {
+      "path": "build/traces/flash-spi-txonly-20261011",
+      "files": 12,
+      "bytes": 2099564
+    },
+    {
+      "path": "build/traces/flash-spi-wire-20261011",
+      "files": 11,
+      "bytes": 2098793
+    },
+    {
+      "path": "build/traces/flash-volatile-20261011",
+      "files": 48,
+      "bytes": 2492116
+    },
+    {
+      "path": "build/traces/flash-volatile-v2-20261011",
+      "files": 23,
+      "bytes": 2268852
+    },
+    {
+      "path": "build/traces/flash-volatile-v3-20261011",
+      "files": 23,
+      "bytes": 2198791
+    }
+  ],
+  "total_files": 1759,
+  "scope": "All existing build/traces/flash-* directories at pause; includes historical failures and matched-source final rollback pair. Local archive; not uploaded."
+}

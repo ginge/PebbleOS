@@ -13,6 +13,15 @@ with Getafix. Getafix DVT and DVT2 remain independent Round 2 hardware targets.
 Unhygienix is excluded from release matrices. Recovery firmware, OTA, PBZ
 bundles, bulk erase and unsupported raw-flash operations remain disabled.
 
+## Current controller baseline and paused bypass — 2026-10-11
+
+Flash bypass development is paused. Active work returns to `tuya` with the
+controller path; the complete experiment is preserved on
+`codex/unhygienix-flash-bypass-paused`. Read the
+[pause decision, exact installed images and tradeoffs](flash_spi_bypass_paused.md).
+The operator confirmed the restored watch is usable. BG stalls remain unresolved;
+there is no qualified bypass speed result and no live capture is running.
+
 ## Watchdog investigation — 2026-10-11
 
 Two phone full-sync watchdog resets were captured with FdF animating. App

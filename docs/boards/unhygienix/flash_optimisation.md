@@ -798,3 +798,33 @@ repeated against the sealed baseline. Record acceptance failures, fallbacks,
 resets, IRQ-off maxima and flash phase times. The present evidence justifies
 SoC/board-local ownership and driver work; it does not justify modifying shared
 Pebble source or claiming a performance improvement.
+
+
+## RAM ownership rewrite checkpoint — 2026-10-11
+
+The [rewrite implementation and qualification record](flash_spi_rewrite_results.md)
+documents the versioned post-ACK RAM park/release path, unified offline TX/RX
+engine, paired-image checks, RAM allocations and preserved evidence. Two dry
+hardware runs reached at least 1360 and 1216 completed generations with zero
+reported ownership failures; the bounded run exercised parks up to 30 ms. The
+operator confirmed FdF animation and watch responsiveness. This is evidence of
+the exercised dry protocol, not exclusive flash-bus ownership or SPI command
+acceptance.
+
+SPI routing remains blocked pending verified exclusion/draining of CPU2, DMA
+and other enabled masters, followed by the read-only hardware gate. Latch/BP
+qualification and matched benchmarks were not run. No safety or speed claim is
+made for the rewritten transport. Both exact sealed controller baseline images
+were restored. BG stalls were observed on the restored baseline as well and
+remain a separate issue.
+
+
+### Extended ownership and bus audit — 2026-10-11
+
+The subsequent dry-only run completed at least 1712 AP/CP handoffs with no reported
+ownership failures, including 32 delayed 0–30 ms holds. CPU2 was powered down and
+no enabled general DMA channel appeared in 38 samples; BTDM/MAC clocks remained
+enabled. Autonomous master exclusion/drain remains unproved, so SPI routing,
+volatile status and performance gates remain blocked. The controller baseline
+was restored. See the [extended results](flash_spi_rewrite_results.md#extended-dry-ownership-and-bus-audit--2026-10-11)
+for exact images, raw capture evidence, test results and limitations.

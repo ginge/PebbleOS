@@ -1,7 +1,29 @@
 # Unhygienix flash SPI rewrite handoff
 
 Date: 2026-10-11  
-Status: implementation plan; rewrite not implemented or hardware-qualified.
+Status: the unsupported-owner diagnostic now probes at most once per CP boot;
+its finite hardware test completed 1920 controller writes with no unexpected reset
+and operator-reported stability. The old sealed controller AP independently
+reproduced a BG watchdog reset and predates committed recovery fixes. The updated
+controller-only rollback pair uses the unchanged sealed CP plus AP raw 7f5c9058...
+(build 54b161d1...), saved in `build/traces/flash-owner-compat-fix-20261011/controller-baseline/`.
+BG stalls remain unresolved. A controlled RAM UDF now produced a complete,
+checksum-valid hardware exception record with the exact expected PC and status;
+see `build/traces/flash-fault-probe-20261011/`. The controller pair was restored
+and the operator confirmed usability. Exclusive-master routing remains unqualified.
+The subsequent stricter frame-span check is host-tested and built, but unflashed. SPI admission and volatile packaging stay blocked. See
+[implementation and results](flash_spi_rewrite_results.md).
+
+## Paused by operator — 2026-10-11
+
+Bypass development and hardware qualification are paused. Preserve the complete
+experiment on `codex/unhygienix-flash-bypass-paused`; active development returns
+to `tuya` at controller source base `c0327d426` plus documentation only.
+Do not resume tests or deploy diagnostic candidates without a new instruction.
+Read [the pause decision and tradeoffs](flash_spi_bypass_paused.md) first.
+The implementation sequence below is retained as a historical/resumption plan,
+not an instruction to continue. On `tuya`, implementation file references refer
+to the experiment branch; the historical audit predating that branch is retained.
 
 ## Objective
 
@@ -14,7 +36,7 @@ The user permits a ground-up driver rewrite. This plan scopes that rewrite to
 the flash bypass and the T5AI ownership support it requires. Normal programming
 and erasing should continue through the stock flash controller initially.
 
-## Starting state
+## Starting state (historical)
 
 - Production repository: `/home/baz/coredevices/pebbleos`.
 - Reference workspace: `/home/baz/Documents/ChatGPT/pebble`. Do not edit its
@@ -239,6 +261,14 @@ variation without a correctness regression; otherwise keep the controller defaul
 Any failure returns to the sealed controller baseline with evidence preserved.
 
 ## Hardware and rollback procedure
+
+The current controller rollback pair is
+`build/traces/flash-owner-compat-fix-20261011/controller-baseline/manifest.json`:
+unchanged sealed CP raw `63e6a7f...`, current controller-only AP raw `7f5c9058...`.
+The original AP raw `80db6fab...` is retained as failure evidence: it independently
+reproduced a BG watchdog reset and predates committed recovery fixes. Use the
+current pair for subsequent recovery; preserve both generations and their logs.
+
 
 Use host hardware access when sandbox device nodes are absent. Re-enumerate both
 UARTs each session; previously verified identifiers are:
