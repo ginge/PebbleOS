@@ -1,12 +1,21 @@
 # SPDX-License-Identifier: Apache-2.0
 """Exercise real display instrumentation and its decoded-log report together."""
 
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
-from tools.unhygienix_display_profile import read_windows, summarize, read_cadence, summarize_cadence, read_peaks, summarize_peaks
+from tools.unhygienix_display_profile import (
+    read_cadence,
+    read_peaks,
+    read_transfer_windows,
+    read_windows,
+    summarize,
+    summarize_cadence,
+    summarize_peaks,
+    summarize_transfer,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -23,13 +32,16 @@ class DisplayProfileTest(unittest.TestCase):
                 p = d / name
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text(source)
-            (d / "test.c").write_text(r'''
+            (d / "test.c").write_text(r"""
 #include <stdint.h>
 static uint32_t count_render_app, cycles_render_app;
 static uint32_t count_compositor, cycles_compositor;
 static uint32_t count_text_render_flash, cycles_text_render_flash;
 #include "soc/t5ai/display_profile.c"
 int main(void) {
+  T5AITransferProfile transfer = {.rows=260, .panel_rows=466, .bytes=434312,
+      .dma_submits=260, .dma_frames=1, .convert_cycles=500000,
+      .wait_cycles=1000000, .observed_cycles=1800000, .wait_max_cycles=20000};
   uint32_t start = UINT32_MAX - 1000u;
   for (unsigned i = 0; i < 64; ++i) {
     if (i == 16) {
@@ -39,12 +51,12 @@ int main(void) {
     ++count_render_app; cycles_render_app += 2000000;
     ++count_compositor; cycles_compositor += 400000;
     ++count_text_render_flash; cycles_text_render_flash += 100000;
-    t5ai_display_profile_frame(start, 640u, i == 35 ? 50000000u : 100000000u, 0);
+    t5ai_display_profile_frame(start, 640u, i == 35 ? 50000000u : 100000000u, 0, &transfer);
     start += 1536u;
   }
   // Long idle intervals require a 64-bit span across sixteen frames.
   for (unsigned i = 0; i < 16; ++i) {
-    t5ai_display_profile_frame(start, 640u, 100000000u, 0);
+    t5ai_display_profile_frame(start, 640u, 100000000u, 0, &transfer);
     start += 0x20000000u;
   }
   s_history_count = 0;
@@ -52,15 +64,51 @@ int main(void) {
   s_peak250 = s_peak1000 = s_peak_interval = 0;
   start = UINT32_MAX - 2000u;
   for (unsigned i = 0; i < 64; ++i) {
-    t5ai_display_profile_frame(start, 640u, 100000000u, 0);
+    t5ai_display_profile_frame(start, 640u, 100000000u, 0, &transfer);
     start += 1000u;
   }
 }
-''')
-            subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                            "-DCONFIG_T5AI_DISPLAY_PROFILE", "-I", str(d), "-I", str(ROOT),
-                            "-I", str(ROOT / "include"), str(d / "test.c"), "-o", str(d / "test")], check=True)
+""")
+            subprocess.run(
+                [
+                    "cc",
+                    "-std=c11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-DCONFIG_T5AI_DISPLAY_PROFILE",
+                    "-I",
+                    str(d),
+                    "-I",
+                    str(ROOT),
+                    "-I",
+                    str(ROOT / "include"),
+                    str(d / "test.c"),
+                    "-o",
+                    str(d / "test"),
+                ],
+                check=True,
+            )
             output = subprocess.check_output([str(d / "test")], text=True)
+        transfer_rows, _ = read_transfer_windows(output.splitlines())
+        transfer_report = summarize_transfer(transfer_rows[:2])
+        self.assertEqual(transfer_report["dma_submissions_per_frame"], 260)
+        self.assertEqual(transfer_report["bytes_per_frame"], 434312)
+        self.assertEqual(transfer_report["dma_frames"], 32)
+        self.assertEqual(transfer_report["stages_per_frame_ms"]["convert_us"], 5)
+        self.assertEqual(transfer_report["stages_per_frame_ms"]["wait_us"], 10)
+        self.assertEqual(transfer_report["observed_dma_per_frame_ms"], 18)
+        lost_stage = [
+            line for line in output.splitlines() if not line.startswith("T5DMA seq=2 ")
+        ]
+        lost_rows, lost_rejected = read_transfer_windows(lost_stage)
+        self.assertNotIn(2, [w["seq"] for w in lost_rows])
+        self.assertIn(
+            {"session": 1, "seq": 2, "reason": "incomplete records"}, lost_rejected
+        )
+        self.assertEqual(
+            read_windows(lost_stage)[0], read_windows(output.splitlines())[0]
+        )
         device = read_peaks(output.splitlines())
         # Even if all earlier peak records are lost, the final device high-water
         # counters retain the true 32 FPS burst through a raw timer wrap.
@@ -71,7 +119,9 @@ int main(void) {
         self.assertFalse(peak["history_overflow"])
         rows, rejected = read_windows(output.splitlines())
         self.assertEqual([w["seq"] for w in rows[:4]], [1, 2, 4, 5])
-        self.assertEqual(rejected, [{"session": 1, "seq": 3, "reason": "invalid timing window"}])
+        self.assertEqual(
+            rejected, [{"session": 1, "seq": 3, "reason": "invalid timing window"}]
+        )
         report = summarize(rows[:2])
         self.assertEqual(report["frames"], 32)
         self.assertEqual(report["intervals"], 31)
@@ -96,7 +146,9 @@ int main(void) {
             elapsed += delta
             ticks = (ticks + delta) & 0xFFFFFFFF
             host = 1000000000 + elapsed * 31250
-            lines.append(f"[host_mono_ns={host}] T5CADENCE frame={frame} tick={ticks} elapsed=640 hz=240000000 dma_fail=0")
+            lines.append(
+                f"[host_mono_ns={host}] T5CADENCE frame={frame} tick={ticks} elapsed=640 hz=240000000 dma_fail=0"
+            )
         rows = read_cadence(lines)
         report = summarize_cadence(rows)
         self.assertEqual(report["peak_single_interval_fps"], 32)

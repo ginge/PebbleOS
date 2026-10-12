@@ -235,3 +235,14 @@ if(CONFIG_T5AI_SDK_COMPAT_CACHE)
   endfunction()
   cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_sdk_compat_call_boundaries)
 endif()
+
+if(CONFIG_T5AI_PIXEL_FAST_PATH)
+  pbl_library_sources(pixel_fast.c)
+  function(t5ai_pixel_fast_call_boundaries)
+    # Rename the stock definition without disabling LTO in the graphics library.
+    set_property(SOURCE ${PBL_BASE}/fw/applib/graphics/graphics_private.c
+      DIRECTORY ${PBL_BASE}/fw/applib APPEND PROPERTY COMPILE_DEFINITIONS
+      graphics_private_plot_pixel=t5ai_stock_graphics_private_plot_pixel)
+  endfunction()
+  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_pixel_fast_call_boundaries)
+endif()

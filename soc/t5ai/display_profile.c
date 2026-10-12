@@ -12,7 +12,7 @@
 PBL_LOG_MODULE_DEFINE(t5ai_display_profile, LOG_LEVEL_DEBUG);
 
 #define PROFILE_FRAMES 16u
-#define PEAK_HISTORY 128u
+#define PEAK_HISTORY   128u
 static uint32_t s_history[PEAK_HISTORY], s_history_head, s_history_count;
 static uint32_t s_first_start, s_peak250, s_peak1000, s_peak_interval, s_local250, s_local1000;
 static bool s_peak_started, s_peak_overflow;
@@ -38,12 +38,16 @@ static void prv_peak(uint32_t start) {
     count250 += start - s_history[(s_history_head + i) % PEAK_HISTORY] < T5AI_AON_RTC_HZ / 4u;
   }
   if (start - s_first_start >= T5AI_AON_RTC_HZ / 4u) {
-    if (count250 > s_peak250) s_peak250 = count250;
-    if (count250 > s_local250) s_local250 = count250;
+    if (count250 > s_peak250)
+      s_peak250 = count250;
+    if (count250 > s_local250)
+      s_local250 = count250;
   }
   if (start - s_first_start >= T5AI_AON_RTC_HZ) {
-    if (s_history_count > s_peak1000) s_peak1000 = s_history_count;
-    if (s_history_count > s_local1000) s_local1000 = s_history_count;
+    if (s_history_count > s_peak1000)
+      s_peak1000 = s_history_count;
+    if (s_history_count > s_local1000)
+      s_local1000 = s_history_count;
   }
 }
 
@@ -55,6 +59,7 @@ typedef struct {
 } Phase;
 
 static Phase s_render, s_compositor, s_font;
+static T5AITransferProfile s_transfer_window;
 static uint32_t s_sequence, s_frame, s_previous_start, s_previous_hz;
 static bool s_have_start;
 static struct {
@@ -90,7 +95,27 @@ static uint32_t prv_u32(uint64_t value) {
 }
 
 void t5ai_display_profile_frame(uint32_t start, uint32_t elapsed, uint32_t hz,
-                                uint32_t dma_failures) {
+                                uint32_t dma_failures, const T5AITransferProfile *transfer) {
+#define ADD(field) s_transfer_window.field += transfer->field
+  ADD(rows);
+  ADD(panel_rows);
+  ADD(bytes);
+  ADD(dma_submits);
+  ADD(dma_frames);
+  ADD(cpu_frames);
+  ADD(convert_cycles);
+  ADD(copy_cycles);
+  ADD(clean_cycles);
+  ADD(next_cycles);
+  ADD(command_cycles);
+  ADD(cpu_cycles);
+  ADD(wait_cycles);
+  ADD(kick_cycles);
+  ADD(observed_cycles);
+  ADD(lock_cycles);
+#undef ADD
+  if (transfer->wait_max_cycles > s_transfer_window.wait_max_cycles)
+    s_transfer_window.wait_max_cycles = transfer->wait_max_cycles;
   prv_peak(start);
   if (s_have_start) {
     const uint32_t interval = start - s_previous_start;
@@ -168,6 +193,22 @@ void t5ai_display_profile_frame(uint32_t start, uint32_t elapsed, uint32_t hz,
       (unsigned long)s_sequence, (unsigned long)s_render.count, (unsigned long)render,
       (unsigned long)s_compositor.count, (unsigned long)compositor, (unsigned long)s_font.count,
       (unsigned long)font);
+  const T5AITransferProfile *t = &s_transfer_window;
+#define US(field) (unsigned long)prv_u32(hz ? t->field * 1000000u / hz : 0u)
+  PBL_LOG_DBG(
+      "T5XFER seq=%lu rows=%lu panel_rows=%lu bytes=%lu dma_n=%lu dma_frames=%lu cpu_frames=%lu",
+      (unsigned long)s_sequence, (unsigned long)t->rows, (unsigned long)t->panel_rows,
+      (unsigned long)t->bytes, (unsigned long)t->dma_submits, (unsigned long)t->dma_frames,
+      (unsigned long)t->cpu_frames);
+  PBL_LOG_DBG(
+      "T5PREP seq=%lu convert_us=%lu copy_us=%lu clean_us=%lu next_us=%lu command_us=%lu cpu_us=%lu",
+      (unsigned long)s_sequence, US(convert_cycles), US(copy_cycles), US(clean_cycles),
+      US(next_cycles), US(command_cycles), US(cpu_cycles));
+  PBL_LOG_DBG("T5DMA seq=%lu wait_us=%lu kick_us=%lu observed_us=%lu wait_max_us=%lu lock_us=%lu",
+              (unsigned long)s_sequence, US(wait_cycles), US(kick_cycles), US(observed_cycles),
+              (unsigned long)prv_cycles_us(t->wait_max_cycles, hz), US(lock_cycles));
+#undef US
+  memset(&s_transfer_window, 0, sizeof(s_transfer_window));
   s_local250 = s_local1000 = 0u;
   memset(&s_window, 0, sizeof(s_window));
   s_render.count = s_compositor.count = s_font.count = 0u;

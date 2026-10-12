@@ -161,3 +161,14 @@ config T5AI_SDK_COMPAT_CACHE
       App/Worker SDK flags in the existing unprivileged read-only data region.
       Flags are refreshed before process launch and invalidated after cleanup.
       Uses eight bytes, no allocation, locks or task-priority changes.
+
+config T5AI_PIXEL_FAST_PATH
+    bool "Use the T5AI software pixel plotting fast path"
+    depends on BOARD_UNHYGIENIX && SCREEN_COLOR_DEPTH_BITS = 8
+    default n
+    help
+      Combine clipping and bitmap row addressing for rectangular and circular
+      8-bit destinations. Opaque pixels use direct stores and transparent
+      pixels skip the destination read. Partial alpha uses stock blending.
+      Uncommon formats and clip geometry retain the stock implementation.
+      Opt-in pending broader watchface and connected-soak coverage.

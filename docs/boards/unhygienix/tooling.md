@@ -893,3 +893,173 @@ wrappers, diagnostic LTO exclusions, counters and timing hooks are excluded
 when disabled. Earlier enabled-probe descriptions above are historical.
 The capture has finished. The watch still has the previously flashed diagnostic
 image until a subsequent flash; this configuration change does not update it.
+
+
+## Software pixel plotting fast path — 2026-10-12
+
+`CONFIG_T5AI_PIXEL_FAST_PATH` is an experimental, default-off, board-local
+replacement for `graphics_private_plot_pixel`. It combines ordinary clipping
+and row addressing, skips fully transparent pixels, and directly stores opaque
+pixels. Partial alpha uses the stock Photoshop-derived blend table unchanged.
+Circular row limits retain the stock signed conversion; negative/wrapped clip
+geometry, wide coordinates and other bitmap formats fall back to the original.
+
+The board CMake rule renames only the stock definition in its translation unit;
+all other callers and exported symbols resolve to the local implementation.
+LTO remains enabled. There are no added allocations, buffers, MPU changes,
+clock changes or scheduler changes, and shared Pebble sources are unchanged.
+The selected ARM implementation removes clipping, row-info and blend helper
+calls on opaque pixels. This is instruction-path evidence, not an FPS result.
+
+Configure a separate build with `-DCONFIG_T5AI_PIXEL_FAST_PATH=y` and
+`-DCONFIG_T5AI_DISPLAY_PROFILE=y`. Build the matching control with only
+`CONFIG_T5AI_PIXEL_FAST_PATH=n`. Keep SDK compatibility caching, CPU clock,
+accelerometer, watchface settings, Bluetooth activity and resource inputs equal.
+Use the display profiling workflow above; exclude boot/menu transitions and
+report sustained frame intervals and rendering separately from transfer time.
+
+`python3 -m unittest tools.tests.test_t5ai_pixel_fast` compiles the actual local
+implementation against the unchanged stock pixel, clipping, row-addressing and
+blend C bodies. It compares all 256-by-256 colour pairs at four alpha levels,
+all 65,536 opacity inputs, six bitmap formats, clipping/fallback cases, signed
+circular limits, random geometry and 260-by-260 framebuffers with row offsets
+above 64 KiB. Undefined-behaviour/bounds sanitizers are enabled.
+
+The matched profiling images and validation evidence are sealed under
+`build/traces/pixel-fast-20261012/{baseline,candidate}/`. The candidate adds
+256 bytes of FLASH; both linker maps report 97,440 bytes of RAM and 118,272
+bytes of display PSRAM. The offline FdF Time comparison at 240 MHz measured:
+
+| Pixel path | Complete windows / frames | FPS | Mean frame interval | Mean transfer |
+| --- | ---: | ---: | ---: | ---: |
+| Stock control | 15 / 240 | 6.057 | 165.085 ms | 21.658 ms |
+| Fast path, before control | 19 / 304 | 6.547 | 152.745 ms | 21.353 ms |
+| Fast path, after control/reboot | 15 / 240 | 6.526 | 153.240 ms | 21.418 ms |
+
+Each capture lasted about 60.5 seconds with phone Bluetooth disabled. Every
+complete valid 16-frame window was included; missing UART records were rejected
+without interpolation. All included windows had the observed FdF signature
+(`render_n=0`, `font_n=0`, `comp_n=16`), with no DMA failures. The candidate
+improved sustained FPS by 7.7–8.1% in these short runs. Using all received
+`T5FRAME` records, including windows lacking phase/draw records, gives
+6.076 FPS stock versus 6.534/6.531 FPS candidate (about 7.5% higher).
+
+The images differ only in `CONFIG_T5AI_PIXEL_FAST_PATH`; resources and other
+configuration are identical. This measures frame cadence, not isolated CPU
+render time: the phase probe does not bracket FdF's custom drawing path.
+Transfer remains about 21–22 ms. These runs establish a modest workload-specific
+gain, not a general FPS or long-term stability guarantee.
+
+The first cable-interrupted control run is invalid and retained separately.
+Connected exploratory runs contain phone full-sync activity, native UI changes,
+background-task stalls and app throttling; their aggregate rates are not used
+for qualification. The earlier background-stall problem remains unresolved.
+One offline candidate log also records a watchdog recovery. A transient UART
+busy error before the offline control flash wrote nothing; its successful retry
+and build-ID verification are retained.
+
+`comparison.json` records complete-window metrics, exclusions and frame-record
+cross-checks; `analyze.py` reproduces it. Sealed image manifests validate every
+listed artifact. The final watch image is the fast-path profiling candidate,
+build ID `40210cb8ec0151309c61e0a7c9133fd34573ed5d`, verified from its last boot.
+The source flag remains default-off pending broader watchface and connected-soak
+coverage. Phone Bluetooth can be re-enabled after this comparison.
+
+
+## FdF frame breakdown — 2026-10-12
+
+The next measurement keeps the pixel fast path enabled and adds driver-local
+cycle counters behind `CONFIG_T5AI_DISPLAY_PROFILE`. `T5XFER` reports logical
+rows, physical panel rows, payload bytes, DMA submissions and selected frame
+mode. `T5PREP` reports conversion, duplicated-row copies, cache cleaning,
+next-row callbacks, register commands and CPU streaming. `T5DMA` reports polling,
+submission, lock acquisition and submission-to-observed-completion durations.
+They share the existing sixteen-frame sequence number. The reporter's
+`--transfer` option requires every timing record; a lost stage rejects the
+whole window rather than creating a partial breakdown.
+
+Driver stages use DWT cycles converted at the window CPU clock. They include
+preemption, and individual stage differences use unsigned 32-bit subtraction.
+The frame timebase remains the independent 32 kHz AON RTC. DMA observation is
+an upper bound from submission to CPU observation, overlapping preparation of
+the next row; it is neither exact DMA bus time nor panel wire time and must not
+be added to conversion/copy/polling. Selected mode plus actual submission counts
+establish DMA use; failures remain separately reported.
+
+Two offline captures used operator-confirmed, animating FdF Time with phone
+Bluetooth disabled and CPU at 240 MHz. Evidence is under
+`build/traces/frame-breakdown-20261012/`, with ELF, dictionary, config, map,
+source snapshots, image hashes, guarded flash logs, verified boot IDs and raw
+UART bytes/index. The 90.23-second App/BG sampler run received 77,984 bytes;
+its 22 complete transfer windows measured 5.505 FPS and 26.329 ms display
+update time. This heavier build perturbs timing and is for hotspot discovery.
+The subsequent driver-only run disables both App/BG flags and uses the same
+pixel fast path and detailed display counters.
+
+The 60-second driver-only capture yielded 14 complete windows / 224 frames:
+
+| Measurement | Per frame |
+| --- | ---: |
+| Frame interval | 155.536 ms / 6.429 FPS |
+| Display update, total | 22.869 ms |
+| Colour conversion and horizontal scaling | 9.267 ms |
+| Duplicating vertically scaled rows | 6.501 ms |
+| Cache clean | 0.371 ms |
+| Next-row callbacks | 1.297 ms |
+| Register commands | 0.031 ms |
+| DMA submission | 0.735 ms |
+| CPU polling for DMA | 1.072 ms |
+| Panel mutex acquisition, outside update timer | 0.012 ms |
+| Submission-to-observed DMA completion, overlapping preparation | 21.965 ms |
+
+Every included frame sends 260 logical rows / 466 physical rows / 434,312 bytes,
+using 260 DMA submissions. There are zero DMA failures and zero CPU-fallback
+frames. The largest single observed polling span is 0.251 ms. Stage totals do
+not exhaust the update timer: loop/control work, instrumentation and unmeasured
+preemption remain. Compositor time is 6.137 ms per call and is outside display
+update. All included phase records have `comp_n=16`, `render_n=0`, `font_n=0`.
+Eleven incomplete transfer windows are explicitly rejected. Sparse hardware
+anchors cross-check against host time at 0.99937 RTC/host ratio and 6.446 FPS.
+The earlier lighter pixel experiment measured 6.53–6.55 FPS and about 21.4 ms
+update time; do not treat the new counters or sampler as zero-overhead.
+
+The App sampler retains 6,338 samples in received headers, with 80 bucket
+insertion overflows. Only the twelve busiest buckets per five-second report
+are printed; 3,954 retained bucket samples are available for symbolication.
+Pixel plotting (1,283), `gcolor_blend` (900) and `gcolor_alpha_blend` (815) are
+the dominant reported hotspots. Sixteen-byte buckets can straddle functions;
+RAM watchface PCs remain unresolved without the matching app binary. These
+counts are not exact function costs or a complete CPU percentage breakdown.
+
+The 499 reported long `PEBBLE_RENDER_FINISHED_EVENT` processing spans have
+median/mean wall duration 175/178.828 ms and App CPU duration 125/124.327 ms.
+CPU ticks are 1 ms and include interrupts while App is scheduled. The span
+includes render-finished dispatch, event-loop upkeep/drawing, and time preempted
+before the next queue receive; it is not an isolated render function timer.
+Only spans >=100 ms are retained. Queue receive itself is short in the sampled
+windows. This supports CPU-heavy drawing as the main target, while roughly
+54.5 ms per long event was not App execution in this heavier diagnostic build.
+It does not assign that whole difference to scheduler overhead.
+
+The measured priorities are partial-alpha pixel/blend work first, then row
+conversion/duplication. Faster DMA clocking or replacing the polling loop alone
+cannot recover the roughly 55 ms/frame required for 10 FPS. Interrupt completion
+may still help background responsiveness, especially if DMA submissions are
+batched. No new rendering algorithm, clocks, DMA configuration, scheduler
+policy or common Pebble source was changed during this measurement.
+
+Reproduce the reports with:
+
+```sh
+python3 tools/unhygienix_display_profile.py CAPTURE/fdf-offline.log --transfer
+python3 tools/unhygienix_app_trace.py CAPTURE/fdf-offline.log --elf CAPTURE/pebbleos.elf
+python3 -m unittest tools.tests.test_t5ai_display_profile tools.tests.test_t5ai_app_trace tools.tests.test_t5ai_bg_trace tools.tests.test_t5ai_pixel_fast tools.tests.test_t5ai_sdk_compat
+```
+
+Both diagnostic builds passed image/map validation and AP-only flashing; CP
+was unchanged. Nine relevant host tests and Python/style checks passed. The
+actual driver also compiled with display profiling and generic profiler disabled.
+The final installed image is the driver-only profiling build,
+`fec61e56318f9ec60c17ead01da5956d0cc8a6d5`, verified from UART boot output.
+Heavy App/BG tracing is off; detailed display profiling and pixel fast path are
+on. No hardware capture remains running. Phone Bluetooth can be re-enabled.

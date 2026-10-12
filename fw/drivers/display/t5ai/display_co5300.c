@@ -206,6 +206,15 @@ static unsigned s_dma_buffer;
 volatile T5AIDrawStats g_t5ai_draw_stats;
 static uint32_t s_last_frame_start;
 static bool s_have_frame_start;
+static T5AITransferProfile s_transfer;
+static uint32_t s_dma_started_cycles;
+#define TRANSFER_BEGIN(name)      const uint32_t name = DWT->CYCCNT
+#define TRANSFER_END(field, name) s_transfer.field += (uint32_t)(DWT->CYCCNT - (name))
+#else
+#define TRANSFER_BEGIN(name)
+#define TRANSFER_END(field, name)
+#endif
+#ifdef CONFIG_T5AI_DISPLAY_PROFILE
 static uint32_t prv_draw_ticks(void) {
   return T5AI_AON_RTC_COUNT_LOW;
 }
@@ -255,6 +264,7 @@ static bool prv_wait_command(void) {
 }
 
 static bool prv_command(uint8_t command, const uint8_t *data, size_t length, bool quad_data) {
+  TRANSFER_BEGIN(command_start);
   PBL_ASSERTN(length <= sizeof(s_panel_row));
   prv_power_up();
   // CO5300 framing uses 02h for registers and 32h for quad pixel data,
@@ -283,6 +293,7 @@ static bool prv_command(uint8_t command, const uint8_t *data, size_t length, boo
   const bool result = prv_wait_command();
   *prv_qspi(QSPI_CMD_C_CFG1) = 0;
   *prv_qspi(QSPI_CMD_C_CFG2) = 0;
+  TRANSFER_END(command_cycles, command_start);
   return result;
 }
 
@@ -352,6 +363,7 @@ static void prv_init_conversion_tables(void) {
 static void __attribute__((section(".t5ai_ramfunc"), noinline, optimize("O3")))
 prv_convert_row(uint8_t *destination, const uint8_t *source, bool reverse,
                 bool invert_colors) {
+  TRANSFER_BEGIN(convert_start);
   uint16_t *output = (uint16_t *)destination;
   unsigned previous_source_x = PBL_DISPLAY_WIDTH;
   uint16_t converted_pixel = 0u;
@@ -373,6 +385,7 @@ prv_convert_row(uint8_t *destination, const uint8_t *source, bool reverse,
     }
     output[x] = converted_pixel;
   }
+  TRANSFER_END(convert_cycles, convert_start);
 }
 
 static bool prv_pixel_stream_begin(void) {
@@ -394,13 +407,19 @@ static void prv_pixel_stream_end(void) {
 
 static size_t __attribute__((section(".t5ai_ramfunc"), noinline, optimize("O3")))
 prv_pixel_stream_write(const uint8_t *data, size_t length, size_t aperture_word) {
+  TRANSFER_BEGIN(cpu_start);
   PBL_ASSERTN((length % sizeof(uint32_t)) == 0u);
+#ifdef CONFIG_T5AI_DISPLAY_PROFILE
+  s_transfer.bytes += length;
+  s_transfer.panel_rows += length / PANEL_ROW_BYTES;
+#endif
 
   for (size_t offset = 0u; offset < length; offset += sizeof(uint32_t)) {
     uint32_t word;
     memcpy(&word, data + offset, sizeof(word));
     QSPI_DATA_APERTURE[aperture_word++] = word;
   }
+  TRANSFER_END(cpu_cycles, cpu_start);
   return aperture_word;
 }
 
@@ -478,6 +497,7 @@ static bool prv_dma_self_test(void) {
 }
 
 static void prv_pixel_stream_start_dma(const uint8_t *data, size_t length) {
+  TRANSFER_BEGIN(kick_start);
   PBL_ASSERTN(!s_dma_pending);
   PBL_ASSERTN(length != 0u && length <= DISPLAY_DMA_MAX_TRANSFER_BYTES);
   PBL_ASSERTN((length % sizeof(uint32_t)) == 0u);
@@ -504,15 +524,30 @@ static void prv_pixel_stream_start_dma(const uint8_t *data, size_t length) {
   DMA_CTRL |= DISPLAY_DMA_ENABLE;
 
   s_dma_pending = true;
+#ifdef CONFIG_T5AI_DISPLAY_PROFILE
+  s_dma_started_cycles = DWT->CYCCNT;
+  s_transfer.bytes += length;
+  s_transfer.panel_rows += length / PANEL_ROW_BYTES;
+  ++s_transfer.dma_submits;
+#endif
+  TRANSFER_END(kick_cycles, kick_start);
 }
 
 static bool prv_pixel_stream_finish_dma(size_t *aperture_word, size_t length) {
   if (!s_dma_pending) {
     return true;
   }
+  TRANSFER_BEGIN(wait_start);
   unsigned timeout = DISPLAY_DMA_POLL_COUNT;
   while ((DMA_CTRL & DISPLAY_DMA_ENABLE) && --timeout) {
   }
+#ifdef CONFIG_T5AI_DISPLAY_PROFILE
+  const uint32_t waited = DWT->CYCCNT - wait_start;
+  s_transfer.wait_cycles += waited;
+  if (waited > s_transfer.wait_max_cycles)
+    s_transfer.wait_max_cycles = waited;
+  s_transfer.observed_cycles += (uint32_t)(DWT->CYCCNT - s_dma_started_cycles);
+#endif
   const bool complete = timeout != 0u && (DMA_STATUS & DISPLAY_DMA_STATUS_BUS_ERROR) == 0u;
   DMA_CTRL = 0u;
   s_dma_pending = false;
@@ -579,10 +614,14 @@ static bool prv_stream_logical_row(uint16_t logical_y, const uint8_t *data,
   uint8_t *buffer = s_dma_rows[s_dma_buffer];
   const size_t length = (y1 - y0 + 1u) * PANEL_ROW_BYTES;
   prv_convert_row(buffer, data, false, invert_colors);
+  TRANSFER_BEGIN(copy_start);
   for (uint16_t y = y0 + 1u; y <= y1; ++y) {
     memcpy(buffer + (y - y0) * PANEL_ROW_BYTES, buffer, PANEL_ROW_BYTES);
   }
+  TRANSFER_END(copy_cycles, copy_start);
+  TRANSFER_BEGIN(clean_start);
   prv_dcache_clean(buffer, length);
+  TRANSFER_END(clean_cycles, clean_start);
   if (!prv_finish_row_dma(aperture_word)) {
     return false;
   }
@@ -749,9 +788,26 @@ void display_set_rotated(bool rotated) {
   s_rotated = rotated;
 }
 
+static bool prv_profile_next_row(NextRowCallback callback, DisplayRow *row) {
+  TRANSFER_BEGIN(next_start);
+  const bool result = callback(row);
+  TRANSFER_END(next_cycles, next_start);
+#ifdef CONFIG_T5AI_DISPLAY_PROFILE
+  s_transfer.rows += result;
+#endif
+  return result;
+}
+
 static void prv_display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb,
                                bool use_dma, bool invert_colors) {
+  TRANSFER_BEGIN(lock_start);
   pbl_mutex_lock(&s_panel_mutex, PBL_FOREVER);
+#ifdef CONFIG_T5AI_DISPLAY_PROFILE
+  memset(&s_transfer, 0, sizeof(s_transfer));
+  s_transfer.dma_frames = use_dma && !s_rotated;
+  s_transfer.cpu_frames = !use_dma || s_rotated;
+#endif
+  TRANSFER_END(lock_cycles, lock_start);
   PBL_ASSERTN(!s_updating);
   s_updating = true;
 #ifdef CONFIG_T5AI_DISPLAY_PROFILE
@@ -766,7 +822,7 @@ static void prv_display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb
   bool full_stream = false;
   size_t aperture_word = 0u;
   uint16_t expected_row = 0u;
-  while (s_initialized && nrcb(&row)) {
+  while (s_initialized && prv_profile_next_row(nrcb, &row)) {
     if (row.address >= PBL_DISPLAY_HEIGHT) {
       break;
     }
@@ -820,8 +876,8 @@ static void prv_display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb
   if (elapsed > g_t5ai_draw_stats.max_update_ticks) {
     g_t5ai_draw_stats.max_update_ticks = elapsed;
   }
-  t5ai_display_profile_frame(frame_start, elapsed, SystemCoreClock,
-                             g_t5ai_draw_stats.dma_failures);
+  t5ai_display_profile_frame(frame_start, elapsed, SystemCoreClock, g_t5ai_draw_stats.dma_failures,
+                             &s_transfer);
 #endif
   s_updating = false;
   prv_apply_brightness();
