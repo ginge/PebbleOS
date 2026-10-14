@@ -172,3 +172,45 @@ config T5AI_PIXEL_FAST_PATH
       pixels skip the destination read. Partial alpha uses stock blending.
       Uncommon formats and clip geometry retain the stock implementation.
       Opt-in pending broader watchface and connected-soak coverage.
+
+config T5AI_QMI8658_LEGACY
+    bool "Use legacy periodic QMI8658 single-sample acquisition"
+    depends on BOARD_UNHYGIENIX && ACCEL_QMI8658_T5AI
+    default n
+    help
+      Retain the previous timer-driven acquisition thread and single-sample
+      delivery for matched comparisons and hardware rollback.
+
+config T5AI_QMI8658_PROFILE
+    bool "Measure QMI8658 acquisition and delivery"
+    depends on BOARD_UNHYGIENIX && ACCEL_QMI8658_T5AI
+    default n
+    help
+      Bounded counters reported every five seconds. Worker CPU uses scheduler
+      ticks; transfer wall time includes blocking and preemption. No per-byte
+      tracing, priority changes or shared kernel instrumentation.
+
+config T5AI_I2C_RX_FIFO
+    bool "Batch T5AI I2C receive interrupts using the controller FIFO"
+    depends on BOARD_UNHYGIENIX && I2C_T5AI
+    default y
+    help
+      Experimental bounded 4/8/12-byte receive interrupts with a one-byte
+      tail. Retain byte-driven writes, bus frequency and completion semantics.
+
+config T5AI_I2C_PROFILE
+    bool "Measure T5AI I2C interrupt entries and handler cycles"
+    depends on T5AI_QMI8658_PROFILE
+    default n
+    help
+      Count I2C entries, received bytes and DWT handler cycles. Report using
+      the QMI five-second profile window without per-byte logging. Handler
+      cycles include nested preemption; do not add to scheduler CPU totals.
+
+config T5AI_I2C_RX_FIFO_LIMIT4
+    bool "Limit experimental T5AI I2C receive bursts to four bytes"
+    depends on T5AI_I2C_RX_FIFO
+    default n
+    help
+      Compare shorter bounded ISR bursts against the twelve-byte maximum.
+      Keep the same bus clock and single-byte tail policy.

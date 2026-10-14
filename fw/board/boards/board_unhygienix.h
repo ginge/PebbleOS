@@ -14,3 +14,6 @@ extern const BoardConfigButton BOARD_CONFIG_BUTTON;
 extern const BoardConfigPower BOARD_CONFIG_POWER;
 extern const BoardConfigActuator BOARD_CONFIG_VIBE;
 static const BoardConfigAccel BOARD_CONFIG_ACCEL = {.default_motion_sensitivity = 55U};
+
+// Waveshare T5-E1 Touch AMOLED 1.75 schematic: QMI_INT2 -> IO9.
+static const ExtiConfig BOARD_QMI8658_INT2 = {.pin = 9, .pull = GPIO_PuPd_NOPULL};

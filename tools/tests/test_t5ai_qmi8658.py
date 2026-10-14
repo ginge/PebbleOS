@@ -1,17 +1,26 @@
 # SPDX-License-Identifier: Apache-2.0
 """Exercise the production QMI8658 polling pipeline with a controlled scheduler."""
-from pathlib import Path
+
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 HEADERS = [
-    "board/board.h", "pbl/drivers/accel.h", "pbl/drivers/i2c.h",
-    "pbl/drivers/rtc.h", "pbl/kernel/kernel.h", "pbl/kernel/irq.h",
-    "pbl/kernel/mutex.h", "pbl/kernel/sem.h", "pbl/kernel/thread.h",
-    "kernel/util/sleep.h", "pbl/services/new_timer/new_timer.h",
-    "system/status_codes.h", "pbl/logging/logging.h",
+    "board/board.h",
+    "pbl/drivers/accel.h",
+    "pbl/drivers/i2c.h",
+    "pbl/drivers/rtc.h",
+    "pbl/kernel/kernel.h",
+    "pbl/kernel/irq.h",
+    "pbl/kernel/mutex.h",
+    "pbl/kernel/sem.h",
+    "pbl/kernel/thread.h",
+    "kernel/util/sleep.h",
+    "pbl/services/new_timer/new_timer.h",
+    "system/status_codes.h",
+    "pbl/logging/logging.h",
 ]
 STUB = r"""
 #pragma once
@@ -73,7 +82,7 @@ static unsigned timers_created, timers_started;
 static bool ready = true, fail_read, full, tick_in_read, invalidate_in_read;
 static void (*queued)(void);
 static unsigned now_ms = 200;
-#include "fw/drivers/imu/qmi8658/qmi8658_t5ai.c"
+#include "fw/drivers/imu/qmi8658/qmi8658_t5ai_legacy.c"
 void pbl_irq_lock(void) { ++irq_depth; }
 void pbl_irq_unlock(void) { assert(irq_depth); --irq_depth; }
 int pbl_mutex_lock(struct pbl_mutex *m, int t) {
@@ -183,11 +192,24 @@ class QMI8658PollingTest(unittest.TestCase):
             harness = directory / "test.c"
             harness.write_text(HARNESS)
             binary = directory / "test"
-            subprocess.run([
-                "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                *flags, "-I", str(directory), "-I", str(ROOT), str(harness),
-                "-o", str(binary),
-            ], check=True)
+            subprocess.run(
+                [
+                    "cc",
+                    "-std=c11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    *flags,
+                    "-I",
+                    str(directory),
+                    "-I",
+                    str(ROOT),
+                    str(harness),
+                    "-o",
+                    str(binary),
+                ],
+                check=True,
+            )
             subprocess.run([str(binary)], check=True)
 
 
