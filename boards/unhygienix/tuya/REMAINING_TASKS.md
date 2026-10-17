@@ -97,6 +97,41 @@ records dependency, build, packaging and flash procedures.
    GATT discovery consolidation is the next substantive cleanup; persistence
    reassessment and the remaining audit dispositions stay open.
 
+   Progress — 2026-10-17 (GATT discovery consolidation, based on `441534a95`):
+   removed the alternate T5AI engine and its CMake selection. The shared
+   NimBLE engine now emits/frees completed services incrementally, retains
+   Service Changed handles before freeing nodes, and frees subscription
+   contexts on immediate write failure. It preserves the newer stock
+   connection-validity, queue-completion and immediate-procedure-error paths;
+   failed-start completion now uses the same guarded notification helper.
+   The descriptor walk handles an empty first service without skipping later
+   nonempty services. A narrow generic response-time lease override defaults
+   to zero on stock boards and 120 seconds on T5AI, retaining its prior policy.
+   The common 10-second success tail is unchanged.
+   The new full-source ASan/UBSan harness passes 20 scripted scenarios under
+   both lease settings; four old-stock failure cases were reproduced first.
+   All four rebuilt native GATT suites pass; the broad tool suite passes 280
+   entries with one skipped ARM SDK/QEMU fault-entry test. Host allocation
+   accounting confirms early node release and no outstanding allocations at
+   terminal paths. The normal Unhygienix firmware ELF also built and linked
+   successfully; its log retains LTO warnings outside discovery. No firmware
+   was flashed, and physical qualification remains outstanding. Validation
+   artifacts are under
+   `/home/baz/Documents/ChatGPT/pebble/artifacts/upstream-cleanup-20261017/gatt/`.
+   Persistence reassessment and the remaining audit dispositions stay open.
+
+   Hardware update — 2026-10-17: the consolidated GATT candidate was flashed
+   AP-only after regenerating and validating the binary/protected image and
+   matching dictionary. The booted build ID matches the saved ELF. In a bounded
+   141-second post-flash capture, the phone restored its encrypted bond,
+   opened a protocol session and completed GATT discovery in 6499 ms. The
+   operator confirmed reconnect and responsiveness. One commanded flash boot
+   was seen; no later reset/watchdog expiry was observed. Battery ADC, transient
+   I2C/touch, resource-check and app-entry errors were retained and remain open.
+   This is a smoke test, not 25-cycle/cold-boot/soak or install qualification.
+   Capture is stopped; raw bytes, dictionary, exact images and report are at
+   `/home/baz/coredevices/pebbleos/build/traces/gatt-consolidation-20261017-145916/analysis.md`.
+
 2. **Replace display completion polling with interrupt-driven completion where
    supported.** Audit the T5AI CO5300 QSPI/DMA path against other Pebble display
    drivers and the pinned Tuya implementation, then adopt a driver-/SoC-local

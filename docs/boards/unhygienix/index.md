@@ -254,8 +254,26 @@ persistent-coredump, and unsafe general write paths remain disabled.
 The reconnect-time ATT failure was not mbuf exhaustion. The CP reads HCI packets
 through a pointer nested in the mailbox request, so the T5AI IPC layer must clean
 the pointed-to payload from the AP data cache before publishing the descriptor.
-T5AI also uses a local streaming GATT discovery implementation to release each
-completed service while leaving shared NimBLE discovery unchanged.
+GATT discovery now uses the shared NimBLE engine on every board. Once a
+service's descriptors are complete, the engine emits its compact service blob
+and frees the temporary service/characteristic/descriptor nodes. It caches only
+the Service Changed subscription handles before releasing those nodes. Empty
+services are emitted without skipping descriptor discovery for later services.
+Connection-validity checks and the existing queued-operation/error/cancellation
+paths remain in the shared engine; an immediate subscription-write failure
+also releases its callback context.
+
+`CONFIG_BT_GATT_DISCOVERY_LEASE_SECONDS` retains the 120-second T5AI response-time
+lease override when a range is queued. Other SoCs default to zero, retaining the
+firmware's existing lease policy. Successful discovery still applies the common
+10-second tail. This is a connection-responsiveness policy, not a longer ATT
+procedure timeout. No alternate T5AI discovery implementation remains.
+
+The full-source host harness exercises stock and T5AI lease settings with
+allocation accounting and AddressSanitizer/UndefinedBehaviorSanitizer. The
+four existing native GATT discovery/accessor/subscription/Service Changed
+suites also pass. These host checks do not replace watch discovery/reconnect
+and cold-boot qualification.
 
 ## Accelerometer and motion wake progress (2026-10-04)
 
