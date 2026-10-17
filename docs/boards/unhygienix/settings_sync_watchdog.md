@@ -2,8 +2,10 @@
 
 Status: reproduced twice on the targeted diagnostic candidate; reboot issue open.
 Hardware tracing has finished at the operator's request. No firmware was changed
-or flashed while documenting these findings. The diagnostic image remains on the
-watch, with expiry tracing and flash profiling enabled.
+or flashed while documenting these findings. The October 11 diagnostic image has since been replaced by the October 17
+GATT candidate, with investigation tracing/profiling disabled; see the
+[latest operator handoff](index.md#latest-implementation-status--2026-10-17).
+That bounded reconnect smoke test does not close the full-sync watchdog issue.
 
 ## Evidence and reproducible trigger
 

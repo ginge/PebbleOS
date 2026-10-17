@@ -13,7 +13,7 @@ set(sources
   pebble_pairing_service.c
   pp_ble_control.c
 )
-if(NOT CONFIG_RECOVERY_FW AND NOT CONFIG_SOC_T5AI)
+if(NOT CONFIG_RECOVERY_FW)
   list(APPEND sources bluetooth_persistent_storage_normal.c)
 else()
   list(APPEND sources bluetooth_persistent_storage_prf.c)

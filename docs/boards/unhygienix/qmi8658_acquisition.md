@@ -14,6 +14,19 @@ requests allowing batching use the sensor FIFO. The existing worker priority,
 100 kHz bus, axis mapping, 4 g range and rounded sampling periods are retained.
 Shared accelerometer service, kernel and I2C implementations are unchanged.
 
+## Integration update — 2026-10-17
+
+Commit `a53522389`, following the upstream merge, adapts the QMI driver and its
+GPIO/I2C integration to the current driver APIs. Production sources now live in
+`drivers/imu/qmi8658/`, `drivers/gpio/` and `drivers/i2c/`; historical paths and
+claims of unchanged I2C implementation below describe the earlier experiment.
+The October 17 GATT candidate has acquisition enabled, the legacy/profile flags
+off, and twelve-byte controller receive FIFO enabled. That image has been
+flashed, superseding the older note that the FIFO default change was unflashed.
+Its bounded Bluetooth smoke test does not repeat matched sensor CPU, shake,
+touch or low-power qualification. Earlier measurements remain historical results;
+no further CPU reduction is established. See the [current handoff](index.md).
+
 ## Hardware evidence
 
 The [Waveshare board schematic](https://files.waveshare.com/wiki/T5-E1-Touch-AMOLED-1.75/T5-E1-Touch-AMOLED-1.75_schematic.pdf)

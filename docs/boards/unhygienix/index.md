@@ -13,7 +13,44 @@ with Getafix. Getafix DVT and DVT2 remain independent Round 2 hardware targets.
 Unhygienix is excluded from release matrices. Recovery firmware, OTA, PBZ
 bundles, bulk erase and unsupported raw-flash operations remain disabled.
 
-## Top priority cleanup for main and upstream — 2026-10-14
+## Latest implementation status — 2026-10-17
+
+Source baseline: `tuya` at `ab3616d5e`, with an uncommitted normal Bluetooth
+persistence selection in the working tree. The port merged newer upstream
+`main` in `9b6537971`; `a53522389` adapts GPIO, I2C, RTC, battery, touch and
+QMI8658 integration to the current driver APIs. It also corrects the Armv8-M
+MPU restore selection and bounds native unregistered-task logging state.
+The unused alternate syscall header and duplicate multiwatch images are removed;
+`resource_storage_flash.c` matches the compared upstream `b3a2dcb88`.
+
+GATT discovery is consolidated into the shared engine in `ab3616d5e`. The full
+source sanitizer harness passes 20 scenarios at each of two lease settings,
+four native GATT suites pass, and the broad tools run passes 280 entries with
+one ARM SDK/QEMU fault-entry test skipped. The Unhygienix firmware built and
+linked, with existing LTO warnings. These are recorded checks for that candidate,
+not a fresh broad run against the later persistence experiment.
+
+The latest recorded AP flash is the default normal-persistence candidate, build
+ID `28416c29102c08546e1b83d6c23826ea3c476133`, on 2026-10-17 at 15:23 London time.
+The trace restored encrypted bonding, opened reversed PPoGATT and completed GATT
+discovery in 6890 ms. The operator confirmed responsiveness and, after a requested
+USB cold power cycle, the same face selected with phone connected and responsive.
+A host port-busy failure caused a 56.218-second capture gap after the second boot
+banner; the cold-cycle reconnection relies on operator observation. No fatal or
+watchdog event was decoded in captured portions. PFS/resource/app/animation and
+weather/timeline warnings remain. Capture is stopped. Exact images, matching
+dictionary, raw trace and limitations are preserved at
+`build/traces/persistence-test-20261017-152214/analysis.md`.
+
+The installed configuration has investigation tracing/profiling and task CPU
+metrics off, QMI acquisition enabled with its legacy path off, twelve-byte I2C
+receive FIFO enabled, and the SDK compatibility cache enabled. Previous notes
+that the October 11 diagnostic image remains installed are superseded. The
+normal-storage candidate is now installed; the earlier GATT candidate used PRF.
+Watchdog/full-sync failures and the paused flash bypass remain open as described
+below. No merge or release qualification is established.
+
+## Top priority cleanup for main and upstream — 2026-10-17
 
 Complete the [upstream divergence cleanup TODO](../../../boards/unhygienix/tuya/REMAINING_TASKS.md#next-priorities--2026-10-14)
 before proposing the port for merge to `main`. It references the complete
@@ -37,16 +74,18 @@ Two phone full-sync watchdog resets were captured with FdF animating. App
 throttling works, but the settings rewrite remains active beyond the recovery
 grace while BG runs and completes many small flash writes. Investigation is
 open. Read the [evidence and debugging plan](settings_sync_watchdog.md).
-Tracing has finished; the diagnostic firmware remains flashed. The
+Tracing has finished; the latest recorded installed image is the October 17
+GATT candidate described above. The reset mechanism remains unresolved. The
 [flash optimisation and robustness audit](flash_optimisation.md) ranks driver,
 transport and settings rewrite changes, with the required measurements.
 
-## Latest refactor handoff — 2026-10-09
+## Historical refactor handoff — 2026-10-09
 
 Read the [detailed refactor handoff](refactor_handoff.md) before continuing.
-It records completed extractions, the five remaining refactor slices, deferred
-KernelBG diagnosis, and the exact last-flashed candidate and hardware evidence.
-The watch was boot looping before the latest erase-delay fix. Its short
+It records completed extractions, earlier refactor slices and dated hardware
+evidence. Use the current remaining-work list for scope and the October 17
+status above for the latest recorded flash; its installed-state notes are historical.
+The watch was boot looping before the October 9 erase-delay fix. Its short
 post-flash capture recovered one KernelBG stall and observed no further reboot;
 stability and app persistence are not qualified. SARADC timeouts remain.
 Older hardware successes below are dated evidence, not proof these issues have
@@ -72,7 +111,7 @@ runs Pebble's NimBLE host against the CP-owned Bluetooth controller.
 | SARADC and charger-status input | Transactions proven; battery behavior blocked because no cell is fitted |
 | Bluetooth HCI command/event and ACL transport | Proven |
 | Connectable advertising and BlueZ connection | Proven |
-| Pebble GATT service discovery | Proven |
+| Pebble GATT service discovery | Shared engine installed; October 17 bounded reconnect/discovery smoke test passed (6499 ms); broader qualification pending |
 | Pairing, bonding, reconnect, and Pebble protocol session setup | Physical RF PLL fix installed; 15-minute connected run, bonded hardware-reset reconnection and 10-hour connected-idle observation passed; broader reconnect and cold-boot qualification pending |
 | Device identity | Phone recognizes the watch as Round 2; further compatibility remains under test |
 | Sustained phone sync and watchface transfer | Six transfers completed and all faces loaded; clean-image startup verified |
@@ -240,13 +279,41 @@ option unless that match has been verified.
 
 ## Bluetooth persistence
 
-The T5AI build uses Pebble's PRF Bluetooth persistence interface over the
-bounded shared-PRF partition. Writes are enabled, and the backend enumerates the
-saved BLE pairing so Bluetooth Settings shows the phone's name after reboot.
-A firmware-only AP flash does not overwrite the partition; the tested phone
-reconnected without a new pairing.
+Normal T5AI firmware now selects the existing normal Bluetooth backend, matching
+stock boards. Recovery firmware continues to select PRF. The SoC exception and
+temporary evaluation switch are removed, along with the T5AI-only airplane-mode
+stubs in the PRF backend. No persistence implementation was copied or added.
 
-This does not validate every storage failure mode. Cold power-cycle retention,
+The normal backend stores CCCDs, active-gateway state, cached capabilities and
+airplane mode in `gap_bonding_db`. Its existing initialization imports the shared
+PRF bond (encryption keys, flags and address-pinning requirement), local root
+keys, device name and pinned address, and continues PRF synchronization. PFS
+writes already fall within the existing T5AI flash allowlist; flash ownership
+and geometry are unchanged. The installed candidate now uses normal storage.
+
+The native `test_bluetooth_persistent_storage_migration` suite links the real
+normal backend, shared PRF storage, settings and PFS over fake flash. Five cases
+check import/repeated initialization, CCCD/gateway/settings/capability restoration,
+unchanged PRF bytes, stale-bond replacement and PRF-deletion re-export. All three
+persistence suites pass (17 cases). The normal-backend evaluation image built
+and packaged successfully after correcting the Python/nanopb tool mismatch;
+its preserved build log includes the initial missing-`protoc` failure.
+
+A confirmed rollback limitation remains: forgetting a phone in PRF firmware
+clears the shared record, but a later normal boot can export an older normal
+bond back into PRF. On 2026-10-17 the operator explicitly accepted re-pairing as
+recovery, so preserving old pairings is not a blocker to this cleanup. Re-pair
+through normal firmware if necessary; clear matching phone-side pairing state
+when needed. PRF firmware does not use normal-only CCCD/settings records.
+
+The bounded AP flash and operator cold-cycle check above passed. Broader hardware
+qualification remains open: independently verify CCCD restoration, gateway state,
+capability changes and airplane-mode persistence across a true cold power cycle.
+Record settings-write latency and heap low water. Repeat reconnects and watchface
+install/launch/selection checks, preserving the first failure trace. Host
+initialization tests do not establish real power-loss or CP flash behavior.
+
+This does not validate every storage failure mode. Retention beyond the bounded check,
 compaction, corruption recovery, endurance, and full-board recovery still need
 explicit tests before expanding writable-flash scope. Firmware, recovery,
 persistent-coredump, and unsafe general write paths remain disabled.
@@ -272,15 +339,16 @@ procedure timeout. No alternate T5AI discovery implementation remains.
 The full-source host harness exercises stock and T5AI lease settings with
 allocation accounting and AddressSanitizer/UndefinedBehaviorSanitizer. The
 four existing native GATT discovery/accessor/subscription/Service Changed
-suites also pass. These host checks do not replace watch discovery/reconnect
-and cold-boot qualification.
+suites also pass. The October 17 watch smoke test above additionally verifies
+one encrypted reconnect and discovery sequence. Broader reconnect and cold-boot
+qualification remain outstanding.
 
 ## Accelerometer and motion wake progress (2026-10-04)
 
 The QMI8658 driver previously delivered samples but left shake detection and
 sensitivity functions as no-ops. The driver now detects motion in software and
 calls Pebble's existing `accel_cb_shake_detected()` path. All production changes
-are local to `fw/drivers/imu/qmi8658/qmi8658_t5ai.c`; shared Pebble services
+are local to `drivers/imu/qmi8658/qmi8658_t5ai.c`; shared Pebble services
 were preserved.
 
 Shake detection keeps the sensor and polling timer active even without a data
@@ -374,7 +442,9 @@ isolation validation. Define recovery and rollback before enabling updates.
 - `boards/unhygienix/`: board configuration and Tuya reference/CP sources.
 - `fw/board/boards/board_unhygienix.c` and `.h`: board implementation.
 - `fw/board/board_t5ai.h` and `soc/t5ai/`: generic SoC types and startup.
-- `fw/drivers/t5ai/cp_mailbox.c`: mailbox ownership and ACK serialization.
+- `drivers/t5ai/cp_mailbox.c`: mailbox ownership and ACK serialization.
+- `drivers/imu/qmi8658/`, `drivers/i2c/`, `drivers/gpio/` and
+  `drivers/display/t5ai/`: current native driver integration.
 - `third_party/nimble/transport/t5ai_hci_ipc.c`: HCI transport.
 - `tools/unhygienix_image.py`: partition geometry and packaging.
 - `tools/t5ai_image.py`: protected-block encoding and verification.

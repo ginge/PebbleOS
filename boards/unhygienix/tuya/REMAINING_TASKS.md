@@ -4,6 +4,42 @@ The [operator handoff](../../../docs/boards/unhygienix/index.md) records current
 support and implementation gaps. The [tooling guide](../../../docs/boards/unhygienix/tooling.md)
 records dependency, build, packaging and flash procedures.
 
+## Current disposition — 2026-10-17
+
+The October 14 audit below remains the checklist; completed work must not be
+repeated merely because its original action still appears in the audit scope.
+Current committed source is `ab3616d5e` after upstream merge `9b6537971` and
+driver API adaptation `a53522389`.
+
+- Completed: QEMU metadata/unused override cleanup, diagnostic flag exclusions,
+  tool regression repair/reference staging, alternate syscall-header removal,
+  shared resource-bank condition restoration, duplicate image removal, and
+  shared GATT discovery consolidation. Recorded GATT validation: 280 tool entries
+  passed with one skip, four native suites passed and firmware ELF linked.
+- Hardware smoke-tested: the consolidated GATT image restored an encrypted bond,
+  opened the protocol session and discovered services in 6499 ms. The operator
+  confirmed responsiveness; the 141-second post-flash interval contained no
+  later boot or watchdog expiry. This does not close install, cold-boot,
+  reconnect-cycle or soak qualification. Exact evidence is linked below.
+- In progress, uncommitted: normal T5AI firmware selects the existing normal
+  Bluetooth backend; recovery keeps PRF. The SoC selection exception and temporary
+  evaluation switch are removed. Three native persistence suites pass (17 cases).
+  The normal-backend evaluation image built/packaged successfully; its initial
+  Python/protoc mismatch was corrected. The operator accepts re-pairing if needed;
+  old-bond preservation and the reproduced PRF-deletion re-export behavior do not
+  block this cleanup. A bounded flash/cold-cycle check now passes with a capture
+  gap recorded below; broader hardware qualification remains open. Evidence:
+  `/home/baz/Documents/ChatGPT/pebble/artifacts/upstream-cleanup-20261017/persistence/validation.txt`.
+- Open: remaining audit verdicts and justified exceptions, separate upstream
+  correctness patches, SDK compatibility-cache removal, display completion IRQ
+  investigation, exploratory accelerometer CPU measurement, and full hardware
+  qualification. Watchdog/full-sync failures, resource/app-entry warnings and
+  transient I2C/touch errors remain unresolved. Flash bypass remains paused.
+
+Latest recorded installed image and configuration are summarized in the
+[operator handoff](../../../docs/boards/unhygienix/index.md#latest-implementation-status--2026-10-17).
+No capture remains from the latest GATT test. Merge readiness remains unqualified.
+
 ## Next priorities — 2026-10-14
 
 1. **Top priority: upstream divergence cleanup and readiness to merge to main.**
@@ -132,11 +168,50 @@ records dependency, build, packaging and flash procedures.
    Capture is stopped; raw bytes, dictionary, exact images and report are at
    `/home/baz/coredevices/pebbleos/build/traces/gatt-consolidation-20261017-145916/analysis.md`.
 
+   Progress — 2026-10-17 (Bluetooth persistence cleanup, based on `ab3616d5e`):
+   restored stock normal/recovery backend selection; the Bluetooth service CMake
+   file matches `origin/main` exactly. Normal T5AI firmware uses the existing
+   normal backend and its PRF import/synchronization path. Removed the temporary
+   evaluation switch and T5AI-specific airplane-mode stubs from PRF. The normal
+   backend, shared PRF implementation, flash ownership and geometry are unchanged.
+   PFS/settings writes already fall within the T5AI flash allowlist.
+   Three native suites pass (17 cases), including five migration cases linking
+   real shared PRF, settings and PFS over fake flash. They cover key import and
+   repeated initialization, CCCD/gateway/settings/capability restoration, unchanged
+   PRF bytes, stale-bond replacement and PRF-deletion re-export. The final 56
+   focused tooling checks pass. Default firmware builds/packages successfully;
+   existing LTO warnings remain in the saved log.
+   Forgetting a phone in PRF can leave an older normal bond that normal boot
+   exports back into PRF. The operator explicitly accepts re-pairing as recovery
+   (2026-10-17), so this behavior does not block cleanup. No candidate was flashed;
+   physical CCCD/gateway/capability behavior, CP flash latency, heap low water,
+   cold-boot reconnect, installation and soak remain unqualified. The installed
+   watch still runs the earlier GATT candidate with PRF storage.
+   Default candidate: `build/traces/persistence-default-20261017/`; evidence:
+   `/home/baz/Documents/ChatGPT/pebble/artifacts/upstream-cleanup-20261017/persistence/validation.txt`.
+   Source selection is resolved; physical qualification, development-only product
+   policy and the remaining audit findings remain open.
+
+   Hardware update — 2026-10-17: default normal-persistence candidate flashed
+   AP-only, matching build ID `28416c29102c08546e1b83d6c23826ea3c476133`.
+   Trace shows restored encrypted bonding, reversed PPoGATT session and discovery
+   in 6890 ms; operator confirms connected/responsive before and after a requested
+   USB cold power cycle, with the same face selected. Two expected matching boot
+   banners were captured. A host port-busy error caused a 56.218-second gap after
+   the cold-boot banner; that reconnection is operator-confirmed, not independently
+   traced. No fatal/watchdog or gap-bonding update error was decoded in captured
+   portions. PFS startup/resource/app/animation/weather warnings remain. No
+   battery ADC or I2C error was decoded in this run; earlier issues stay open.
+   Capture stopped; installed image now uses normal persistence. Direct CCCD/
+   gateway/capability/airplane-mode qualification, latency/heap measurements,
+   repeated reconnects, controlled installs and soak remain open. Evidence:
+   `build/traces/persistence-test-20261017-152214/analysis.md`.
+
 2. **Replace display completion polling with interrupt-driven completion where
    supported.** Audit the T5AI CO5300 QSPI/DMA path against other Pebble display
    drivers and the pinned Tuya implementation, then adopt a driver-/SoC-local
    completion interrupt and blocking wait if the hardware supports it. Current
-   `fw/drivers/display/t5ai/display_co5300.c` busy-polls DMA enable in
+   `drivers/display/t5ai/display_co5300.c` busy-polls DMA enable in
    `prv_pixel_stream_finish_dma()` and polls QSPI command completion; the QSPI0
    system interrupt route is enabled, but its NVIC line remains disabled.
    Establish which DMA/QSPI event proves the full transfer has finished before
@@ -181,7 +256,8 @@ records dependency, build, packaging and flash procedures.
    entries by about 69%, but measured worker CPU was 2.42% versus 2.29%/2.16%
    in byte-mode controls, so no CPU reduction is claimed for that experiment.
    Animation, shake/wrist-to-wake and touch were operator-confirmed on the last
-   restored normal image. The later default change has not been flashed.
+   restored normal image. The October 17 GATT image includes the FIFO default
+   change, but its bounded smoke test did not repeat matched sensor measurements.
    Sensor FIFO throughput/timestamp limitations, DMA support not established,
    unqualified low-power transitions and the earlier unresolved freeze/reboot
    remain documented limitations; completion of the previous iteration does not qualify them.
@@ -310,9 +386,10 @@ last-flashed candidate.
 The historical [shared-code audit](../../../docs/boards/unhygienix/history/shared_code_cleanup.md)
 contains superseded startup/kernel work. The remaining candidates are:
 
-- Extract the single-bank system-resource policy and bounded metadata validator
-  from shared `resource_storage_flash.c` into a selected T5 backend. Preserve
-  fast boot validation, driver-local mapped reads and resource backend ordering.
+- Reassess resource-policy findings against the current source: as of
+  `441534a95`, shared `resource_storage_flash.c` matches the compared upstream
+  `b3a2dcb88`. The earlier extraction proposal is superseded; preserve the stock
+  implementation and review only deviations still present.
 - Resolve resource-watch callback ownership before restoring stock
   `resource_unwatch()` behavior; do not simply remove its T5 guard.
 - Select unavailable update, recovery, coredump and reset implementations or
@@ -378,10 +455,11 @@ protection around each write; its contribution needs measurement. Frozen report:
 `build/traces/wdt-flash-recovery-20261011/two-reproductions/analysis.md`.
 
 
-Capture finished at operator request (175,988 raw bytes flushed). See the
+Historical October 11 capture finished at operator request (175,988 raw bytes flushed). See the
 [settings full-sync watchdog investigation](../../../docs/boards/unhygienix/settings_sync_watchdog.md) for the two
 reproductions, verified CP binary findings, limitations and staged debugging
-plan. No live UART capture remains; diagnostic firmware is still flashed.
+plan. That capture has stopped. The October 17 GATT image supersedes the
+installed diagnostic firmware; the investigation findings remain open.
 
 
 ## Flash optimisation and rewrite robustness — 2026-10-11

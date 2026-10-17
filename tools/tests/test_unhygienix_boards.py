@@ -689,7 +689,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertIn("#define APP_SPACE_BUFFER PBL_KIB(300)", app_cache)
 
         build = (ROOT / "fw/services/bluetooth/CMakeLists.txt").read_text()
-        self.assertIn("NOT CONFIG_SOC_T5AI", build)
+        self.assertIn("if(NOT CONFIG_RECOVERY_FW)", build)
         self.assertIn("list(APPEND sources bluetooth_persistent_storage_prf.c)", build)
 
         shared_prf = (

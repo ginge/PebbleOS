@@ -285,13 +285,3 @@ void bt_persistent_storage_delete_all(void) {
 void bt_persistent_storage_delete_all_pairings(void) {
   bt_persistent_storage_delete_ble_pairing_by_id(BLE_BONDING_ID);
 }
-
-#ifdef CONFIG_SOC_T5AI
-bool bt_persistent_storage_get_airplane_mode_enabled(void) {
-  return false;
-}
-
-void bt_persistent_storage_set_airplane_mode_enabled(bool enabled) {
-  (void)enabled;
-}
-#endif

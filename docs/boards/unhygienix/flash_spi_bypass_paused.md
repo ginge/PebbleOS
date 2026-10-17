@@ -4,6 +4,14 @@ Date: 2026-10-11. Operator decision: pause bypass work, preserve it on a branch,
 and return to `tuya` on the current controller baseline. This decision overrides
 the next-step instructions in earlier experimental handoffs.
 
+Current-status update — 2026-10-17: the pause decision still applies. The
+`tuya` production branch has advanced through the upstream merge, driver API
+adaptation and shared GATT consolidation (`ab3616d5e`). References to
+`c0327d426` below describe the shelving checkpoint, not the current production
+HEAD or installed AP. The latest recorded flash is the controller-path GATT
+candidate; see the [operator handoff](index.md#latest-implementation-status--2026-10-17).
+No qualified bypass speed or stability result has been added.
+
 ## Branches and scope
 
 - `codex/unhygienix-flash-bypass-paused` preserves all accumulated AP/CP ownership,

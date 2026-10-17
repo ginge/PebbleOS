@@ -71,7 +71,6 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("put_bytes_init();", services)
         self.assertIn("services_init();", main)
         build = (ROOT / "fw/services/bluetooth/CMakeLists.txt").read_text()
-        self.assertIn("if(NOT CONFIG_RECOVERY_FW AND NOT CONFIG_SOC_T5AI)", build)
         self.assertIn("bluetooth_persistent_storage_prf.c", build)
         self.assertNotIn("bluetooth_persistent_storage_t5ai.c", build)
 

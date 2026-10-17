@@ -8,6 +8,27 @@ configuration is separate.
 Run commands from the PebbleOS repository root. Keep supplied build inputs and
 generated validation artifacts under `build/`.
 
+## Current validation baseline — 2026-10-17
+
+The [operator handoff](index.md#latest-implementation-status--2026-10-17)
+records source `ab3616d5e`, the latest AP-only GATT flash and its stopped capture.
+The upstream merge and driver adaptation use the current `drivers/` APIs;
+older diagnostic sections below retain the paths/configurations of their dates.
+Recorded GATT checks passed: 280 tool entries with one ARM SDK/QEMU skip,
+four native suites, and the Unhygienix firmware build/package checks. Existing
+LTO warnings remain. Logs and commands are under
+`/home/baz/Documents/ChatGPT/pebble/artifacts/upstream-cleanup-20261017/gatt/`.
+The hardware report and frozen images/dictionary are at
+`build/traces/gatt-consolidation-20261017-145916/analysis.md`.
+
+The uncommitted `CONFIG_T5AI_BT_NORMAL_STORAGE` evaluation defaults off and
+retains PRF in recovery. Native persistence/migration checks passed, but its
+separate `build-bt-persistence` firmware attempt stopped on missing `protoc`.
+It is not a qualified flash candidate. Complete build/package validation and
+preserve exact artifacts before hardware testing; cold-boot reconnect, CCCDs,
+gateway state and capabilities remain required. See the
+[current work list](../../../boards/unhygienix/tuya/REMAINING_TASKS.md#current-disposition--2026-10-17).
+
 ## Dependency setup
 
 ```sh

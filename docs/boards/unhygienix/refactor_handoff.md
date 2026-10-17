@@ -1,6 +1,16 @@
 # Unhygienix stock-code refactor handoff — 2026-10-09
 
-This is the current refactor handoff. It supersedes the paused September
+Current-status update — 2026-10-17: this is a historical investigation and
+refactor record. Use the [operator handoff](index.md#latest-implementation-status--2026-10-17)
+for the latest recorded flash/configuration and the
+[remaining-work list](../../../boards/unhygienix/tuya/REMAINING_TASKS.md#current-disposition--2026-10-17)
+for current scope. The upstream merge/driver API adaptation, restored stock
+resource-bank condition and shared GATT engine supersede the corresponding
+older extraction plans and source paths below. The October 17 GATT smoke test
+does not resolve the recorded watchdog, resource lifetime or persistence failures.
+Installed-image and capture claims below describe their dated sessions.
+
+This was the October 9 refactor handoff. It supersedes the paused September
 startup/FreeRTOS cleanup plan in the [historical audit](history/shared_code_cleanup.md).
 The operator resumed targeted KernelBG stall tracing on 2026-10-10; see the
 latest evidence below. Retain the remaining stock-code refactor list. This document records work; it
