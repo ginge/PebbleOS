@@ -139,13 +139,7 @@ void shell_event_loop_handle_event(PebbleEvent *e) {
       return;
 
     case PEBBLE_BATTERY_STATE_CHANGE_EVENT:
-#ifdef CONFIG_SOC_T5AI
-      // Unhygienix development power and both UARTs share one USB-C cable, and no
-      // battery is fitted for validation yet. Keep battery monitoring active
-      // but suppress its persistent charging modal so the launcher is visible.
-#else
       battery_ui_handle_state_change_event(e->battery_state.new_state);
-#endif
       return;
 
     case PEBBLE_COMM_SESSION_EVENT:

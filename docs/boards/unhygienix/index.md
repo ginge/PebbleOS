@@ -50,6 +50,12 @@ normal-storage candidate is now installed; the earlier GATT candidate used PRF.
 Watchdog/full-sync failures and the paused flash bypass remain open as described
 below. No merge or release qualification is established.
 
+Source update — 2026-10-17: battery state events now use the stock battery UI
+handler on T5AI; the SoC charging-UI bypass is removed at the operator's request.
+Both existing UI suites pass (14 cases), and firmware packaging succeeds.
+This candidate is not flashed; the installed build above still has the bypass.
+No battery driver/calibration or charger-control changes accompany this cleanup.
+
 ## Top priority cleanup for main and upstream — 2026-10-17
 
 Complete the [upstream divergence cleanup TODO](../../../boards/unhygienix/tuya/REMAINING_TASKS.md#next-priorities--2026-10-14)

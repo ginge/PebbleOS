@@ -207,6 +207,18 @@ No capture remains from the latest GATT test. Merge readiness remains unqualifie
    repeated reconnects, controlled installs and soak remain open. Evidence:
    `build/traces/persistence-test-20261017-152214/analysis.md`.
 
+   Progress — 2026-10-17 (stock battery UI restoration, based on `c06ee2a46`):
+   at the operator's request, removed the T5AI battery-event UI bypass entirely.
+   Charging/full-charge and low/critical battery events now use the stock handler;
+   no development flag or replacement UI was added. Battery driver/calibration
+   and charge controls are unchanged. Both existing native battery UI suites
+   pass (14 cases), and the firmware builds/packages with existing LTO warnings.
+   Candidate saved at `build/traces/stock-battery-ui-candidate-20261017/`;
+   not flashed. The installed persistence-test image still has the bypass.
+   First-use/onboarding and settings-migration exceptions are the next remaining
+   product-policy review. Battery behavior with a fitted cell stays unqualified.
+   Evidence: `/home/baz/Documents/ChatGPT/pebble/artifacts/upstream-cleanup-20261017/stock-battery-ui/validation.txt`.
+
 2. **Replace display completion polling with interrupt-driven completion where
    supported.** Audit the T5AI CO5300 QSPI/DMA path against other Pebble display
    drivers and the pinned Tuya implementation, then adopt a driver-/SoC-local
