@@ -1,19 +1,18 @@
 /* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/drivers/button.h>
-
 #include "board/board.h"
-
-#include <pbl/drivers/gpio/t5ai_legacy.h>
 
 #include <stdint.h>
 #include <stdlib.h>
 
+#include <pbl/drivers/button.h>
+#include <pbl/drivers/gpio.h>
+
 static bool s_rotated_180;
 
 static bool prv_button_present(ButtonId id) {
-  return BOARD_CONFIG_BUTTON.buttons[id].pin != UINT8_MAX;
+  return pbl_gpio_is_connected(&BOARD_CONFIG_BUTTON.buttons[id].gpio);
 }
 
 void button_set_rotated(bool rotated) {
@@ -32,9 +31,7 @@ bool button_is_pressed(ButtonId id) {
   }
 
   const ButtonConfig *button = &BOARD_CONFIG_BUTTON.buttons[id];
-  const InputConfig input = { .pin = button->pin };
-  const bool level = gpio_input_read(&input);
-  return button->active_high ? level : !level;
+  return pbl_gpio_get(&button->gpio) > 0;
 }
 
 uint8_t button_get_state_bits(void) {
@@ -53,7 +50,6 @@ void button_init(void) {
       continue;
     }
     const ButtonConfig *button = &BOARD_CONFIG_BUTTON.buttons[id];
-    const InputConfig input = { .pin = button->pin };
-    gpio_input_init_pull_up_down(&input, (GPIOPuPd_TypeDef)button->pull);
+    (void)pbl_gpio_configure(&button->gpio, PBL_GPIO_INPUT);
   }
 }

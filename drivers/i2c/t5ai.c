@@ -1,16 +1,17 @@
 /* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/drivers/i2c/t5ai_legacy_hal.h>
-#include <pbl/drivers/i2c/t5ai_legacy_definitions.h>
-#include <pbl/drivers/i2c/t5ai.h>
-#include <pbl/drivers/gpio/t5ai_legacy.h>
-#include <pbl/soc/t5ai/kernel.h>
-#include <pbl/soc/t5ai/delay.h>
 #include "system/passert.h"
 
-#include <cmsis_core.h>
+#include <errno.h>
 #include <stdint.h>
+
+#include <pbl/drivers/i2c/t5ai.h>
+#include <pbl/soc/t5ai/delay.h>
+#include <pbl/soc/t5ai/kernel.h>
+#include <pbl/util/misc.h>
+
+#include <cmsis_core.h>
 
 typedef volatile struct {
   uint32_t device_id;
@@ -76,8 +77,8 @@ typedef volatile struct {
 
 #ifdef CONFIG_T5AI_I2C_PROFILE
 #include <pbl/kernel/irq.h>
-#include <pbl/soc/t5ai/rtc.h>
 #include <pbl/logging/logging.h>
+#include <pbl/soc/t5ai/rtc.h>
 PBL_LOG_MODULE_DEFINE(t5ai_i2c_profile, LOG_LEVEL_DEBUG);
 static struct {
   uint32_t irq, cycles, maximum, rx_irq, rx_bytes, errors, started;
@@ -102,7 +103,9 @@ void t5ai_i2c_profile_dump(void) {
 }
 #endif
 
-static volatile bool s_recovery_required;
+static const struct pbl_i2c_t5ai *prv_dev(const struct pbl_i2c_bus *bus) {
+  return container_of(bus, const struct pbl_i2c_t5ai, bus);
+}
 
 static uint32_t prv_read_control(unsigned remaining) {
 #ifdef CONFIG_T5AI_I2C_RX_FIFO
@@ -130,12 +133,15 @@ static unsigned prv_read_count(uint32_t status) {
 #endif
 }
 
-static T5AII2CRegisters *prv_regs(I2CBus *bus) {
-  return (T5AII2CRegisters *)bus->hal->base;
+static T5AII2CRegisters *prv_regs(const struct pbl_i2c_bus *bus) {
+  return (T5AII2CRegisters *)prv_dev(bus)->base;
 }
 
-static void prv_complete(I2CBus *bus, I2CTransferEvent event) {
-  i2c_handle_transfer_event(bus, event);
+static void prv_complete(const struct pbl_i2c_bus *bus, enum pbl_i2c_event event) {
+  if (prv_dev(bus)->state->active) {
+    prv_dev(bus)->state->active = false;
+    pbl_i2c_bus_event(bus, event);
+  }
 }
 
 static void prv_write_status(T5AII2CRegisters *regs, uint32_t control) {
@@ -164,9 +170,9 @@ static void prv_configure_pin(uint8_t pin) {
 }
 
 // Called with the bus mutex held, never from an interrupt.
-static bool prv_wait_scl(const InputConfig *scl) {
+static bool prv_wait_scl(const struct pbl_gpio *scl) {
   for (unsigned us = 0; us < T5AI_I2C_RECOVERY_STRETCH_US; ++us) {
-    if (gpio_input_read(scl)) {
+    if (pbl_gpio_get_raw(scl) > 0) {
       return true;
     }
     delay_us(1u);
@@ -174,48 +180,44 @@ static bool prv_wait_scl(const InputConfig *scl) {
   return false;
 }
 
-static void prv_clear_bus(I2CBus *bus) {
-  const OutputConfig scl = {.pin = bus->hal->scl_pin, .active_high = false};
-  const OutputConfig sda = {.pin = bus->hal->sda_pin, .active_high = false};
-  const InputConfig scl_input = {.pin = bus->hal->scl_pin};
-  const InputConfig sda_input = {.pin = bus->hal->sda_pin};
-  gpio_output_init(&scl, GPIO_OType_OD);
-  gpio_output_init(&sda, GPIO_OType_OD);
-  T5AI_I2C_GPIO_BASE[bus->hal->scl_pin] |= T5AI_I2C_GPIO_PULL_UP | T5AI_I2C_GPIO_PULL_ENABLE;
-  T5AI_I2C_GPIO_BASE[bus->hal->sda_pin] |= T5AI_I2C_GPIO_PULL_UP | T5AI_I2C_GPIO_PULL_ENABLE;
-  if (prv_wait_scl(&scl_input)) {
-    for (unsigned i = 0; i < T5AI_I2C_RECOVERY_CLOCKS && !gpio_input_read(&sda_input); ++i) {
-      gpio_output_set(&scl, true);
+static void prv_clear_bus(const struct pbl_i2c_bus *bus) {
+  const struct pbl_gpio scl = prv_dev(bus)->scl;
+  const struct pbl_gpio sda = prv_dev(bus)->sda;
+  (void)pbl_gpio_configure(&scl, PBL_GPIO_OUTPUT_HIGH);
+  (void)pbl_gpio_configure(&sda, PBL_GPIO_OUTPUT_HIGH);
+  if (prv_wait_scl(&scl)) {
+    for (unsigned i = 0; i < T5AI_I2C_RECOVERY_CLOCKS && pbl_gpio_get_raw(&sda) == 0; ++i) {
+      (void)pbl_gpio_set_raw(&scl, false);
       delay_us(T5AI_I2C_BUS_FREE_US);
-      gpio_output_set(&scl, false);
-      if (!prv_wait_scl(&scl_input)) {
+      (void)pbl_gpio_set_raw(&scl, true);
+      if (!prv_wait_scl(&scl)) {
         break;
       }
       delay_us(T5AI_I2C_BUS_FREE_US);
     }
     // Generate STOP without ever driving either line high.
-    gpio_output_set(&scl, true);
-    gpio_output_set(&sda, true);
+    (void)pbl_gpio_set_raw(&scl, false);
+    (void)pbl_gpio_set_raw(&sda, false);
     delay_us(T5AI_I2C_BUS_FREE_US);
-    gpio_output_set(&scl, false);
-    if (prv_wait_scl(&scl_input)) {
+    (void)pbl_gpio_set_raw(&scl, true);
+    if (prv_wait_scl(&scl)) {
       delay_us(T5AI_I2C_BUS_FREE_US);
     }
-    gpio_output_set(&sda, false);
+    (void)pbl_gpio_set_raw(&sda, true);
     delay_us(T5AI_I2C_BUS_FREE_US);
   }
-  prv_configure_pin(bus->hal->scl_pin);
-  prv_configure_pin(bus->hal->sda_pin);
+  prv_configure_pin(prv_dev(bus)->scl.pin);
+  prv_configure_pin(prv_dev(bus)->sda.pin);
 }
 
-void i2c_hal_init(I2CBus *bus) {
-  PBL_ASSERTN(bus->hal->base == T5AI_I2C0_BASE);
-  PBL_ASSERTN(bus->hal->frequency != 0u);
+static int prv_init(const struct pbl_i2c_bus *bus) {
+  PBL_ASSERTN(prv_dev(bus)->base == T5AI_I2C0_BASE);
+  PBL_ASSERTN(prv_dev(bus)->frequency != 0u);
 #ifdef CONFIG_T5AI_I2C_PROFILE
   CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
   DWT->CTRL |= 1u;
 #endif
-  NVIC_DisableIRQ(bus->hal->irqn);
+  NVIC_DisableIRQ(prv_dev(bus)->irqn);
 
   // BAKP owns I2C0. The boot-stage CP PM service is not yet response-ready
   // here, so reproduce its authoritative zero-is-powered domain operation.
@@ -230,7 +232,7 @@ void i2c_hal_init(I2CBus *bus) {
   regs->global_control = T5AI_I2C_GLOBAL_RESET_RELEASE | T5AI_I2C_GLOBAL_CLOCK_GATE_BYPASS;
   regs->status = 0u;
   const uint32_t source_hz = T5AI_I2C_SOURCE_HZ;
-  const uint32_t clocks = (source_hz + bus->hal->frequency - 1u) / bus->hal->frequency;
+  const uint32_t clocks = (source_hz + prv_dev(bus)->frequency - 1u) / prv_dev(bus)->frequency;
   const uint32_t divider =
       ((clocks - T5AI_I2C_SCL_FIXED_CLOCKS) + T5AI_I2C_SCL_DIVIDER_CLOCKS - 1u) /
           T5AI_I2C_SCL_DIVIDER_CLOCKS -
@@ -242,12 +244,13 @@ void i2c_hal_init(I2CBus *bus) {
   regs->extended_config = T5AI_I2C_EXT_DATA_OUTPUT_ENABLE | T5AI_I2C_EXT_ADDRESS_OUTPUT_ENABLE;
 
   T5AI_SYSTEM_CPU1_INTERRUPT_ENABLE |= T5AI_I2C0_INTERRUPT_ENABLE;
-  NVIC_ClearPendingIRQ(bus->hal->irqn);
-  NVIC_SetPriority(bus->hal->irqn, T5AI_I2C_IRQ_PRIORITY);
-  NVIC_EnableIRQ(bus->hal->irqn);
+  NVIC_ClearPendingIRQ(prv_dev(bus)->irqn);
+  NVIC_SetPriority(prv_dev(bus)->irqn, T5AI_I2C_IRQ_PRIORITY);
+  NVIC_EnableIRQ(prv_dev(bus)->irqn);
+  return 0;
 }
 
-void i2c_hal_enable(I2CBus *bus) {
+static void prv_enable(const struct pbl_i2c_bus *bus) {
   T5AI_SYSTEM_POWER_SLEEP_WAKEUP &= ~T5AI_I2C_BACKUP_POWER_DOWN;
   T5AI_SYSTEM_DEVICE_CLOCK_ENABLE |= T5AI_I2C_CLOCK_ENABLE;
   prv_regs(bus)->global_control |= T5AI_I2C_GLOBAL_CLOCK_GATE_BYPASS;
@@ -255,37 +258,34 @@ void i2c_hal_enable(I2CBus *bus) {
   delay_us(T5AI_I2C_ENABLE_SETTLE_US);
 }
 
-void i2c_hal_disable(I2CBus *bus) {
+static void prv_disable(const struct pbl_i2c_bus *bus) {
   prv_regs(bus)->config &= ~T5AI_I2C_CONFIG_ENABLE;
 }
 
-bool i2c_hal_is_busy(I2CBus *bus) {
+static bool prv_is_busy(const struct pbl_i2c_bus *bus) {
   return (prv_regs(bus)->status & T5AI_I2C_STATUS_BUSY) != 0u;
 }
 
-void i2c_hal_abort_transfer(I2CBus *bus) {
+static void prv_abort(const struct pbl_i2c_bus *bus) {
+  prv_dev(bus)->state->active = false;
   T5AII2CRegisters *regs = prv_regs(bus);
   prv_stop(regs);
   regs->config &= ~T5AI_I2C_CONFIG_ENABLE;
-  NVIC_DisableIRQ(bus->hal->irqn);
-  NVIC_ClearPendingIRQ(bus->hal->irqn);
-  s_recovery_required = true;
+  NVIC_DisableIRQ(prv_dev(bus)->irqn);
+  NVIC_ClearPendingIRQ(prv_dev(bus)->irqn);
+  prv_dev(bus)->state->recovery_required = true;
 }
 
-void i2c_hal_init_transfer(I2CBus *bus) {
-  bus->state->transfer.idx = 0u;
-}
-
-void i2c_hal_start_transfer(I2CBus *bus) {
-  if (s_recovery_required) {
-    i2c_hal_init(bus);
-    i2c_hal_enable(bus);
-    s_recovery_required = false;
+static void prv_start(const struct pbl_i2c_bus *bus) {
+  if (prv_dev(bus)->state->recovery_required) {
+    prv_init(bus);
+    prv_enable(bus);
+    prv_dev(bus)->state->recovery_required = false;
   }
-  I2CTransfer *transfer = &bus->state->transfer;
+  struct pbl_i2c_transfer *transfer = &bus->state->transfer;
+  prv_dev(bus)->state->active = true;
   if (transfer->size == 0u) {
-    bus->state->transfer_event = I2CTransferEvent_Error;
-    pbl_sem_give(&bus->state->event_semaphore);
+    prv_complete(bus, PBL_I2C_EVENT_ERROR);
     return;
   }
 
@@ -293,93 +293,93 @@ void i2c_hal_start_transfer(I2CBus *bus) {
    * free interval is guaranteed. Leave margin above the 400 kHz tBUF minimum
    * before issuing another START. */
   delay_us(T5AI_I2C_BUS_FREE_US);
-  transfer->idx = 0u;
-  if (transfer->direction == I2CTransferDirection_Read &&
-      transfer->type == I2CTransferType_NoRegisterAddress) {
-    transfer->state = I2CTransferState_ReadData;
-    prv_start_address(prv_regs(bus), transfer->device_address, true);
+  prv_dev(bus)->state->index = 0u;
+  if (transfer->dir == PBL_I2C_READ && !transfer->with_reg) {
+    prv_dev(bus)->state->phase = T5AI_I2C_READ;
+    prv_start_address(prv_regs(bus), transfer->addr, true);
   } else {
-    transfer->state = transfer->type == I2CTransferType_SendRegisterAddress
-                          ? I2CTransferState_WriteRegAddress
-                          : I2CTransferState_WriteData;
-    prv_start_address(prv_regs(bus), transfer->device_address, false);
+    prv_dev(bus)->state->phase = transfer->with_reg ? T5AI_I2C_REGISTER : T5AI_I2C_WRITE;
+    prv_start_address(prv_regs(bus), transfer->addr, false);
   }
 }
 
-static void prv_irq_handler(I2CBus *bus) {
+static void prv_irq_handler(const struct pbl_i2c_bus *bus) {
   T5AII2CRegisters *regs = prv_regs(bus);
-  I2CTransfer *transfer = &bus->state->transfer;
+  struct pbl_i2c_transfer *transfer = &bus->state->transfer;
   const uint32_t status = regs->status;
+  if (!prv_dev(bus)->state->active)
+    return;
 
   if ((status & (T5AI_I2C_STATUS_TIMEOUT | T5AI_I2C_STATUS_ARB_LOST)) != 0u) {
-    i2c_hal_abort_transfer(bus);
-    prv_complete(bus, I2CTransferEvent_Error);
+    prv_abort(bus);
+    pbl_i2c_bus_event(bus, PBL_I2C_EVENT_ERROR);
     return;
   }
   if ((status & T5AI_I2C_STATUS_INTERRUPT) == 0u) {
     return;
   }
   if ((status & T5AI_I2C_STATUS_ACK) == 0u &&
-      (transfer->state != I2CTransferState_ReadData || (status & T5AI_I2C_STATUS_START) != 0u)) {
+      (prv_dev(bus)->state->phase != T5AI_I2C_READ || (status & T5AI_I2C_STATUS_START) != 0u)) {
     prv_stop(regs);
-    prv_complete(bus, I2CTransferEvent_NackReceived);
+    prv_complete(bus, PBL_I2C_EVENT_ERROR);
     return;
   }
 
-  switch (transfer->state) {
-    case I2CTransferState_WriteRegAddress:
-      regs->data = transfer->register_address;
-      transfer->state = transfer->direction == I2CTransferDirection_Read
-                            ? I2CTransferState_RepeatStart
-                            : I2CTransferState_WriteData;
+  switch (prv_dev(bus)->state->phase) {
+    case T5AI_I2C_REGISTER:
+      regs->data = transfer->reg;
+      prv_dev(bus)->state->phase =
+          transfer->dir == PBL_I2C_READ ? T5AI_I2C_RESTART : T5AI_I2C_WRITE;
       prv_write_status(regs, 0u);
       break;
-    case I2CTransferState_RepeatStart:
-      transfer->state = I2CTransferState_ReadData;
-      prv_start_address(regs, transfer->device_address, true);
+    case T5AI_I2C_RESTART:
+      prv_dev(bus)->state->phase = T5AI_I2C_READ;
+      prv_start_address(regs, transfer->addr, true);
       break;
-    case I2CTransferState_WriteData:
-      if (transfer->idx == transfer->size) {
+    case T5AI_I2C_WRITE:
+      if (prv_dev(bus)->state->index == transfer->size) {
         prv_stop(regs);
-        prv_complete(bus, I2CTransferEvent_TransferComplete);
+        prv_complete(bus, PBL_I2C_EVENT_COMPLETE);
       } else {
-        regs->data = transfer->data[transfer->idx++];
+        regs->data = transfer->data[prv_dev(bus)->state->index++];
         prv_write_status(regs, 0u);
       }
       break;
-    case I2CTransferState_ReadData:
+    case T5AI_I2C_READ:
       if ((status & T5AI_I2C_STATUS_START) != 0u) {
-        prv_write_status(regs, prv_read_control(transfer->size - transfer->idx));
+        prv_write_status(regs, prv_read_control(transfer->size - prv_dev(bus)->state->index));
         break;
       }
       const unsigned count = prv_read_count(status);
-      if (transfer->idx >= transfer->size || count > transfer->size - transfer->idx) {
-        i2c_hal_abort_transfer(bus);
-        prv_complete(bus, I2CTransferEvent_Error);
+      if (prv_dev(bus)->state->index >= transfer->size ||
+          count > transfer->size - prv_dev(bus)->state->index) {
+        prv_abort(bus);
+        pbl_i2c_bus_event(bus, PBL_I2C_EVENT_ERROR);
         break;
       }
       for (unsigned i = 0; i < count; ++i) {
-        transfer->data[transfer->idx++] = (uint8_t)regs->data;
+        transfer->data[prv_dev(bus)->state->index++] = (uint8_t)regs->data;
       }
 #ifdef CONFIG_T5AI_I2C_PROFILE
       ++s_profile.rx_irq;
       s_profile.rx_bytes += count;
 #endif
-      if (transfer->idx == transfer->size) {
+      if (prv_dev(bus)->state->index == transfer->size) {
         prv_stop(regs);
-        prv_complete(bus, I2CTransferEvent_TransferComplete);
+        prv_complete(bus, PBL_I2C_EVENT_COMPLETE);
       } else {
-        prv_write_status(regs, prv_read_control(transfer->size - transfer->idx));
+        prv_write_status(regs, prv_read_control(transfer->size - prv_dev(bus)->state->index));
       }
       break;
     default:
-      i2c_hal_abort_transfer(bus);
-      prv_complete(bus, I2CTransferEvent_Error);
+      prv_abort(bus);
+      pbl_i2c_bus_event(bus, PBL_I2C_EVENT_ERROR);
       break;
   }
 }
 
-void i2c_irq_handler(I2CBus *bus) {
+void pbl_i2c_t5ai_irq_handler(const struct pbl_i2c_t5ai *dev) {
+  const struct pbl_i2c_bus *bus = &dev->bus;
 #ifdef CONFIG_T5AI_I2C_PROFILE
   const uint32_t start = DWT->CYCCNT;
   const uint32_t status = prv_regs(bus)->status;
@@ -394,3 +394,12 @@ void i2c_irq_handler(I2CBus *bus) {
   s_profile.errors += (status & (T5AI_I2C_STATUS_TIMEOUT | T5AI_I2C_STATUS_ARB_LOST)) != 0u;
 #endif
 }
+
+const struct pbl_i2c_bus_ops pbl_i2c_t5ai_ops = {
+  .init = prv_init,
+  .enable = prv_enable,
+  .disable = prv_disable,
+  .is_busy = prv_is_busy,
+  .start_transfer = prv_start,
+  .abort_transfer = prv_abort,
+};

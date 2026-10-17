@@ -25,6 +25,7 @@ config GPIO_SF32LB
 
 config GPIO_T5AI
     bool "T5AI GPIO"
+    select INTC
     default y if SOC_T5AI
     help
       Support for the BK7258 AON GPIO controller used by T5AI.

@@ -1,21 +1,22 @@
 /* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/drivers/debounced_button.h>
-
 #include "board/board.h"
-#include <pbl/drivers/button.h>
-#include <pbl/drivers/exti.h>
-#include <pbl/kernel/sem.h>
-#include <pbl/kernel/thread.h>
 #include "kernel/events.h"
+#include "pbl/util/bitops.h"
 #include "system/bootbits.h"
 #include "system/passert.h"
 #include "system/reset.h"
-#include "pbl/util/bitops.h"
 
 #include <stdint.h>
 #include <stdlib.h>
+
+#include <pbl/drivers/button.h>
+#include <pbl/drivers/debounced_button.h>
+#include <pbl/drivers/gpio.h>
+#include <pbl/drivers/intc.h>
+#include <pbl/kernel/sem.h>
+#include <pbl/kernel/thread.h>
 
 #define RESET_HOLD_MS 5000u
 
@@ -32,7 +33,7 @@ static uint32_t s_debounced_state;
 static uint32_t s_hard_reset_samples;
 
 static bool prv_button_present(ButtonId id) {
-  return BOARD_CONFIG_BUTTON.buttons[id].pin != UINT8_MAX;
+  return pbl_gpio_is_connected(&BOARD_CONFIG_BUTTON.buttons[id].gpio);
 }
 
 static bool prv_sample_buttons(void) {
@@ -88,7 +89,7 @@ static bool prv_sample_buttons(void) {
   return sampling_required;
 }
 
-static void prv_button_interrupt_handler(void) {
+static void prv_button_interrupt_handler(void *arg) {
   // Coalesce edges without a droppable work queue or a KernelBG dependency.
   pbl_sem_give(&s_button_signal);
 }
@@ -124,12 +125,10 @@ void debounced_button_init(void) {
       continue;
     }
     const ButtonConfig *button = &BOARD_CONFIG_BUTTON.buttons[id];
-    const ExtiConfig exti = {
-      .pin = button->pin,
-      .pull = button->pull,
-    };
-    exti_configure_pin(exti, ExtiTrigger_RisingFalling, prv_button_interrupt_handler);
-    exti_enable(exti);
+    struct pbl_irq_spec irq;
+    PBL_ASSERTN(pbl_gpio_to_irq(&button->gpio, PBL_IRQ_TYPE_EDGE_BOTH, &irq) == 0);
+    PBL_ASSERTN(pbl_intc_request(&irq, prv_button_interrupt_handler, nullptr) == 0);
+    PBL_ASSERTN(pbl_intc_enable(&irq) == 0);
   }
 
   if (button_get_state_bits() != 0u) {

@@ -9,8 +9,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 HEADERS = [
     "board/board.h",
-    "pbl/drivers/accel.h",
-    "pbl/drivers/i2c/t5ai_legacy.h",
+    "pbl/drivers/accel.h", "pbl/drivers/gpio.h", "pbl/drivers/intc.h", "pbl/util/misc.h",
+    "pbl/drivers/i2c.h",
     "pbl/drivers/rtc.h",
     "pbl/kernel/kernel.h",
     "pbl/kernel/irq.h",
@@ -64,18 +64,55 @@ void pbl_mutex_unlock(struct pbl_mutex *);
 int pbl_sem_take(struct pbl_sem *, int);
 void pbl_sem_give(struct pbl_sem *);
 int pbl_thread_create(struct pbl_thread *, const struct pbl_thread_attr *);
-void i2c_use(int);
-void i2c_release(int);
-bool i2c_write_block(int, size_t, const uint8_t *);
-bool i2c_read_block(int, size_t, uint8_t *);
 void rtc_get_time_ms(time_t *, uint16_t *);
 void pbl_sleep_ms(unsigned);
 TimerID new_timer_create(void);
-bool new_timer_start(TimerID, uint32_t, void (*)(void *), void *, int);
+bool new_timer_start(TimerID,uint32_t,void (*)(void *),void *,int);
 bool new_timer_stop(TimerID);
-bool accel_offload_work(void (*)(void));
-void accel_cb_new_sample(const AccelDriverSample *);
-void accel_cb_shake_detected(IMUCoordinateAxis, int);
+
+#define PBL_ALIGNED(n) __attribute__((aligned(n)))
+#define CONFIG_KERNEL_STACK_ALIGN 8
+#define container_of(p,t,m) ((t *)((char *)(p)-offsetof(t,m)))
+struct pbl_accel { int unused; };
+struct pbl_i2c_dev { int unused; };
+struct pbl_gpio { unsigned pin; };
+struct pbl_intc { int unused; };
+struct pbl_irq_spec { const struct pbl_intc *intc; unsigned hwirq,type; };
+#define PBL_GPIO_INPUT 1
+#define PBL_ACCEL_EVENT_SHAKE 1
+struct pbl_accel_event { int type; IMUCoordinateAxis axis; int32_t direction; };
+struct pbl_accel_ops {
+ int (*init)(const struct pbl_accel *);
+ int (*set_rotated)(const struct pbl_accel *,bool);
+ int (*set_sampling_interval)(const struct pbl_accel *,uint32_t,uint32_t *);
+ uint32_t (*get_sampling_interval)(const struct pbl_accel *);
+ int (*set_num_samples)(const struct pbl_accel *,uint32_t);
+ uint32_t (*get_max_num_samples)(const struct pbl_accel *);
+ int (*peek)(const struct pbl_accel *,AccelDriverSample *);
+ int (*set_shake_detection)(const struct pbl_accel *,bool);
+ int (*set_shake_sensitivity_high)(const struct pbl_accel *,bool);
+ int (*set_shake_sensitivity_percent)(const struct pbl_accel *,uint8_t);
+};
+void pbl_mutex_init(struct pbl_mutex *);
+void pbl_sem_init(struct pbl_sem *,unsigned,unsigned);
+void pbl_accel_lock(const struct pbl_accel *);
+void pbl_accel_unlock(const struct pbl_accel *);
+void pbl_accel_report_sample(const struct pbl_accel *,const AccelDriverSample *);
+void pbl_accel_report_samples(const struct pbl_accel *,const AccelRawBatch *);
+void pbl_accel_report_event(const struct pbl_accel *,const struct pbl_accel_event *);
+bool new_timer_add_work_callback(void (*)(void *),void *);
+void new_timer_delete(TimerID);
+void pbl_i2c_use(const struct pbl_i2c_dev *);
+void pbl_i2c_release(const struct pbl_i2c_dev *);
+int pbl_i2c_write_block(const struct pbl_i2c_dev *,size_t,const uint8_t *);
+int pbl_i2c_read_block(const struct pbl_i2c_dev *,size_t,uint8_t *);
+int pbl_i2c_read_register_block(const struct pbl_i2c_dev *,uint8_t,unsigned,uint8_t *);
+int pbl_gpio_get_raw(const struct pbl_gpio *);
+int pbl_gpio_configure(const struct pbl_gpio *,uint32_t);
+int pbl_intc_request(const struct pbl_irq_spec *,void (*)(void *),void *);
+int pbl_intc_free(const struct pbl_irq_spec *);
+int pbl_intc_enable(const struct pbl_irq_spec *);
+int pbl_intc_disable(const struct pbl_irq_spec *);
 """
 HARNESS = r"""
 #include "stub.h"
@@ -85,9 +122,24 @@ static unsigned irq_depth, io, delivered, wakes, created;
 static uint8_t last_reg, last_value;
 static unsigned timers_created, timers_started;
 static bool ready = true, fail_read, full, tick_in_read, invalidate_in_read;
-static void (*queued)(void);
+static void (*queued)(void *);
+static void *queued_data;
 static unsigned now_ms = 200;
 #include "drivers/imu/qmi8658/qmi8658_t5ai_legacy.c"
+
+static struct pbl_qmi8658_state sensor_state;
+static const struct pbl_qmi8658 sensor={.state=&sensor_state,.int2_gpio={.pin=9},.int2={.hwirq=9}};
+static unsigned class_locked;
+void pbl_mutex_init(struct pbl_mutex *m){m->held=0;}
+void pbl_sem_init(struct pbl_sem *s,unsigned count,unsigned limit){(void)limit;s->count=count;}
+void pbl_accel_lock(const struct pbl_accel *a){(void)a;++class_locked;}
+void pbl_accel_unlock(const struct pbl_accel *a){(void)a;assert(class_locked);--class_locked;}
+void new_timer_delete(TimerID id){(void)id;}
+static int set_count(unsigned n){pbl_accel_lock(&sensor.accel);int ret=pbl_qmi8658_ops.set_num_samples(&sensor.accel,n);pbl_accel_unlock(&sensor.accel);return ret;}
+static int set_rotated(bool on){pbl_accel_lock(&sensor.accel);int ret=pbl_qmi8658_ops.set_rotated(&sensor.accel,on);pbl_accel_unlock(&sensor.accel);return ret;}
+static int set_shake(bool on){pbl_accel_lock(&sensor.accel);int ret=pbl_qmi8658_ops.set_shake_detection(&sensor.accel,on);pbl_accel_unlock(&sensor.accel);return ret;}
+static unsigned set_interval(unsigned us){uint32_t actual;pbl_accel_lock(&sensor.accel);assert(pbl_qmi8658_ops.set_sampling_interval(&sensor.accel,us,&actual)==0);pbl_accel_unlock(&sensor.accel);return actual;}
+static int read_sample(AccelDriverSample *sample){pbl_accel_lock(&sensor.accel);int ret=pbl_qmi8658_ops.peek(&sensor.accel,sample);pbl_accel_unlock(&sensor.accel);return ret;}
 void pbl_irq_lock(void) { ++irq_depth; }
 void pbl_irq_unlock(void) { assert(irq_depth); --irq_depth; }
 int pbl_mutex_lock(struct pbl_mutex *m, int t) {
@@ -100,19 +152,19 @@ int pbl_thread_create(struct pbl_thread *t, const struct pbl_thread_attr *a) {
  (void)t; assert(a->entry == prv_poll_entry && a->prio == 3 && a->privileged);
  ++created; return 0;
 }
-void i2c_use(int b) { (void)b; assert(s_io_lock.held && !irq_depth); }
-void i2c_release(int b) { (void)b; }
-bool i2c_write_block(int b, size_t n, const uint8_t *p) {
- (void)b; last_reg = p[0]; if (n == 2) last_value=p[1]; ++io; return true;
+void pbl_i2c_use(const struct pbl_i2c_dev *b) { (void)b; assert(sensor_state.io_lock.held && !irq_depth); }
+void pbl_i2c_release(const struct pbl_i2c_dev *b) { (void)b; }
+int pbl_i2c_write_block(const struct pbl_i2c_dev *b, size_t n, const uint8_t *p) {
+ (void)b; last_reg = p[0]; if (n == 2) last_value=p[1]; ++io; return 0;
 }
-bool i2c_read_block(int b, size_t n, uint8_t *p) {
+int pbl_i2c_read_block(const struct pbl_i2c_dev *b, size_t n, uint8_t *p) {
  (void)b; ++io;
  if (tick_in_read) { unsigned old = wakes; prv_timer_callback(NULL); assert(wakes == old); }
  if (invalidate_in_read) { prv_invalidate_poll(); invalidate_in_read = false; }
  memset(p, 0, n);
  if (n == 1) *p = last_reg == QMI8658_WHO_AM_I ? QMI8658_ID : (ready ? 1 : 0);
  else { p[1] = 0x20; p[3] = 0x10; p[5] = 0xe0; }
- return !fail_read;
+ return fail_read ? -EIO : 0;
 }
 void rtc_get_time_ms(time_t *s, uint16_t *ms) { *s = now_ms / 1000; *ms = now_ms % 1000; }
 void pbl_sleep_ms(unsigned ms) { now_ms += ms; }
@@ -121,57 +173,57 @@ bool new_timer_start(TimerID t, uint32_t ms, void (*cb)(void *), void *d, int f)
  (void)t; (void)ms; (void)cb; (void)d; (void)f; ++timers_started; return true;
 }
 bool new_timer_stop(TimerID t) { (void)t; return true; }
-bool accel_offload_work(void (*cb)(void)) { assert(!irq_depth); if (full) return false;
- assert(!queued); queued = cb; return true;
+bool new_timer_add_work_callback(void (*cb)(void *),void *data) { assert(!irq_depth); if (full) return false;
+ assert(!queued); queued = cb; queued_data=data; return true;
 }
-void accel_cb_new_sample(const AccelDriverSample *s) {
+void pbl_accel_report_sample(const struct pbl_accel *a,const AccelDriverSample *s) {
  assert(s->x == 500 && s->y == -1000 && s->z == -1000);
- assert(s_poll_pending); ++delivered;
+ assert(sensor_state.poll_pending); ++delivered;
  unsigned old = wakes; prv_timer_callback(NULL); assert(wakes == old);
 }
-void accel_cb_shake_detected(IMUCoordinateAxis a, int d) { (void)a; (void)d; }
+void pbl_accel_report_event(const struct pbl_accel *a,const struct pbl_accel_event *e) { (void)a; (void)e; assert(class_locked); }
 static void acquire(void) {
  unsigned old = io;
  prv_timer_callback(NULL); assert(io == old); // Timer never touches I2C.
- assert(s_poll_signal.count == 1);
- pbl_sem_take(&s_poll_signal, PBL_FOREVER); prv_acquire_sample();
+ assert(sensor_state.poll_signal.count == 1);
+ pbl_sem_take(&sensor_state.poll_signal, PBL_FOREVER); prv_acquire_sample();
 }
 static void deliver(void) {
- assert(queued); void (*cb)(void) = queued; queued = NULL;
- unsigned old = io; cb(); assert(io == old); // NewTimers delivery never touches I2C.
- assert(!s_poll_pending && !irq_depth);
+ assert(queued); void (*cb)(void *) = queued; queued = NULL;
+ unsigned old = io; cb(queued_data); assert(io == old); // NewTimers delivery never touches I2C.
+ assert(!sensor_state.poll_pending && !irq_depth);
 }
 int main(void) {
 #ifdef CONFIG_T5AI_ACCEL_DISABLED
- accel_init();
+ pbl_qmi8658_ops.init(&sensor.accel);
  assert(io==1 && last_reg==QMI8658_CTRL7 && last_value==0);
- assert(!s_initialized && !s_active && !created && !timers_created && !timers_started);
- accel_set_num_samples(1); accel_enable_shake_detection(true);
- accel_set_sampling_interval(32000); accel_set_rotated(true);
+ assert(!sensor_state.initialized && !sensor_state.active && !created && !timers_created && !timers_started);
+ set_count(1); set_shake(true);
+ set_interval(32000); set_rotated(true);
  AccelDriverSample sample;
- assert(accel_peek(&sample)==E_ERROR);
+ assert(read_sample(&sample)==-ENODEV);
  prv_timer_callback(NULL); prv_acquire_sample();
  assert(io==1 && !wakes && !queued && !delivered && !timers_started);
- assert(!s_shake_enabled && !s_poll_pending);
+ assert(!sensor_state.shake_enabled && !sensor_state.poll_pending);
  return 0;
 #endif
- accel_init(); assert(s_initialized && created == 1);
- s_active = true; s_num_samples = 1;
+ pbl_qmi8658_ops.init(&sensor.accel); assert(sensor_state.initialized && created == 1);
+ sensor_state.active = true; sensor_state.num_samples = 1;
  tick_in_read = true;
- acquire(); assert(s_poll_pending && queued); deliver(); assert(delivered == 1);
+ acquire(); assert(sensor_state.poll_pending && queued); deliver(); assert(delivered == 1);
  // Queue pressure drops a sample and permits a fresh acquisition next tick.
- full = true; acquire(); assert(!s_poll_pending && !queued); full = false;
+ full = true; acquire(); assert(!sensor_state.poll_pending && !queued); full = false;
  acquire(); deliver(); assert(delivered == 2);
  // No-ready and bus failures do not leave the pipeline stuck.
- ready = false; acquire(); assert(!s_poll_pending && !queued); ready = true;
- fail_read = true; acquire(); assert(!s_poll_pending && !queued); fail_read = false;
+ ready = false; acquire(); assert(!sensor_state.poll_pending && !queued); ready = true;
+ fail_read = true; acquire(); assert(!sensor_state.poll_pending && !queued); fail_read = false;
  // Reconfiguration during a transfer or queued delivery rejects stale data.
- invalidate_in_read = true; acquire(); assert(!s_poll_pending && !queued);
+ invalidate_in_read = true; acquire(); assert(!sensor_state.poll_pending && !queued);
  acquire(); prv_invalidate_poll(); deliver(); assert(delivered == 2);
  // Power-off while delivery is queued cannot deliver an old sample.
- acquire(); s_active = false; deliver(); assert(delivered == 2);
+ acquire(); sensor_state.active = false; deliver(); assert(delivered == 2);
  unsigned old = wakes; prv_timer_callback(NULL); assert(wakes == old);
- s_active = true; s_startup_us = now_ms * 1000;
+ sensor_state.active = true; sensor_state.startup_us = now_ms * 1000;
  acquire(); deliver(); assert(delivered == 2); // Startup transient suppressed.
  now_ms += 100; acquire(); deliver(); assert(delivered == 3);
  return 0;
@@ -200,15 +252,16 @@ class QMI8658PollingTest(unittest.TestCase):
             subprocess.run(
                 [
                     "cc",
-                    "-std=c11",
+                    "-std=gnu2x", "-DCONFIG_T5AI_QMI8658_LEGACY=1",
                     "-Wall",
-                    "-Wextra",
+                    "-Wextra", "-Wno-unused-parameter", "-Wno-unused-function",
                     "-Werror",
                     *flags,
                     "-I",
                     str(directory),
                     "-I",
                     str(ROOT),
+                    "-I", str(ROOT / "include"),
                     str(harness),
                     "-o",
                     str(binary),

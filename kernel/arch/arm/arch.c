@@ -232,7 +232,7 @@ void arch_switch_request(void) {
 #endif
 
 // r1 -> thread's MPU words; clobbers r2-r12. r0 remains the next stack pointer.
-#ifdef CONFIG_MPU_TYPE_ARMV8M
+#ifdef CONFIG_ARMV8_M_MAINLINE
 // Disable every old task region before changing bases: Armv8-M forbids overlap.
 #define RESTORE_MPU \
   "  mrs r12, primask \n"                                                   \

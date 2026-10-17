@@ -11,7 +11,7 @@
 
 #include "board/board.h"
 #include <pbl/soc/t5ai/delay.h>
-#include <pbl/drivers/gpio/t5ai_legacy.h>
+#include <pbl/drivers/gpio/t5ai.h>
 #include <pbl/logging/logging.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include "system/passert.h"
@@ -682,13 +682,13 @@ static bool prv_qspi_init(void) {
 }
 
 static bool prv_panel_init(void) {
-  const OutputConfig reset = {.pin = PANEL_RESET_PIN, .active_high = true};
-  gpio_output_init(&reset, GPIO_OType_PP);
-  gpio_output_set(&reset, true);
+  const struct pbl_gpio reset = PBL_GPIO(&T5AI_GPIO, PANEL_RESET_PIN, 0);
+  (void)pbl_gpio_configure(&reset, PBL_GPIO_OUTPUT_INACTIVE);
+  (void)pbl_gpio_set(&reset, true);
   delay_us(PANEL_RESET_PRECHARGE_US);
-  gpio_output_set(&reset, false);
+  (void)pbl_gpio_set(&reset, false);
   delay_us(PANEL_RESET_ASSERT_US);
-  gpio_output_set(&reset, true);
+  (void)pbl_gpio_set(&reset, true);
   delay_us(PANEL_RESET_SETTLE_US);
 
   const struct {

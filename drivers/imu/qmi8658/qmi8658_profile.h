@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #pragma once
 #ifdef CONFIG_T5AI_QMI8658_PROFILE
-#include <pbl/kernel/sched.h>
+#include <pbl/kernel/time.h>
 #include <pbl/soc/t5ai/rtc.h>
 #ifdef CONFIG_T5AI_I2C_PROFILE
 #include <pbl/drivers/i2c/t5ai.h>
@@ -96,8 +96,9 @@ static inline void qmi_profile_acquire_end(uint32_t n) {
   const uint32_t cpu = prv_profile_cpu();
   PBL_LOG_DBG(
       "QMISTATE interval_us=%lu batch=%lu shake=%lu age_us=%lu worker_cpu_ms=%lu fifo_max_us=%lu irq_req_max_us=%lu",
-      (unsigned long)s_interval_us, (unsigned long)s_num_samples, (unsigned long)s_shake_enabled,
-      (unsigned long)s_profile.latency_us, (unsigned long)(cpu - s_profile.previous_cpu),
+      (unsigned long)s_dev->state->interval_us, (unsigned long)s_dev->state->num_samples,
+      (unsigned long)s_dev->state->shake_enabled, (unsigned long)s_profile.latency_us,
+      (unsigned long)(cpu - s_profile.previous_cpu),
       (unsigned long)((uint64_t)s_profile.fifo_max_ticks * 1000000u / T5AI_AON_RTC_HZ),
       (unsigned long)((uint64_t)s_profile.irq_latency_max * 1000000u / T5AI_AON_RTC_HZ));
   PBL_LOG_DBG("QMIFIFO max_ticks prep=%lu req=%lu ack=%lu count=%lu data=%lu resume=%lu frames=%lu",

@@ -77,7 +77,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
 
     def test_t5ai_shared_i2c_bus_uses_cst92xx_qualified_standard_mode(self):
         board = (ROOT / "fw/board/boards/board_unhygienix.c").read_text()
-        self.assertIn(".frequency = 100000u", board)
+        self.assertIn("I2C0_IRQn, 100000u, 20, 21", board)
         self.assertNotIn(".frequency = 400000u", board)
 
 
@@ -85,8 +85,8 @@ class TuyaKernelCheckTest(unittest.TestCase):
         i2c = (ROOT / "drivers/i2c/t5ai.c").read_text()
         self.assertNotIn("static uint32_t prv_read_fifo_count", i2c)
         self.assertNotIn("static uint32_t prv_write_fifo_space", i2c)
-        self.assertIn("transfer->data[transfer->idx++] = (uint8_t)regs->data;", i2c)
-        self.assertIn("regs->data = transfer->data[transfer->idx++];", i2c)
+        self.assertIn("transfer->data[prv_dev(bus)->state->index++] = (uint8_t)regs->data;", i2c)
+        self.assertIn("regs->data = transfer->data[prv_dev(bus)->state->index++];", i2c)
         self.assertIn(
             "T5AI_I2C_STATUS_ACK | T5AI_I2C_STATUS_INT_MODE_MASK", i2c
         )
@@ -421,7 +421,7 @@ int main(void) {
         self.assertIn("__atomic_load_n", battery_get)
         self.assertNotIn("t5ai_saradc_read_peak", battery_get)
         self.assertIn("t5ai_thread_create(prv_battery_task", battery)
-        self.assertIn("#define T5AI_BATTERY_STARTUP_DELAY_MS 30000u", battery)
+        self.assertRegex(battery, r"#define T5AI_BATTERY_STARTUP_DELAY_MS\s+30000u")
         self.assertIn("s_t5ai_mutex", dbgserial)
         self.assertIn("T5AI_AON_PMU_R2", reset)
 
@@ -516,26 +516,24 @@ int main(void) {
         i2c = (ROOT / "drivers/i2c/t5ai.c").read_text()
         self.assertIn("T5AI_SYSTEM_CPU1_INTERRUPT_ENABLE |= T5AI_I2C0_INTERRUPT_ENABLE", i2c)
         self.assertNotIn("T5AI_SYSTEM_CPU0_INTERRUPT_ENABLE", i2c)
-        enable = i2c.split("void i2c_hal_enable", 1)[1].split(
-            "void i2c_hal_disable", 1
+        enable = i2c.split("static void prv_enable", 1)[1].split(
+            "static void prv_disable", 1
         )[0]
         self.assertIn("delay_us(T5AI_I2C_ENABLE_SETTLE_US);", enable)
-        start = i2c.split("void i2c_hal_start_transfer", 1)[1].split(
-            "void i2c_irq_handler", 1
+        start = i2c.split("static void prv_start", 1)[1].split(
+            "void pbl_i2c_t5ai_irq_handler", 1
         )[0]
         self.assertIn("delay_us(T5AI_I2C_BUS_FREE_US);", start)
-        disable = i2c.split("void i2c_hal_disable", 1)[1].split(
-            "bool i2c_hal_is_busy", 1
+        disable = i2c.split("static void prv_disable", 1)[1].split(
+            "static bool prv_is_busy", 1
         )[0]
-        self.assertNotIn("i2c_hal_abort_transfer", disable)
+        self.assertNotIn("prv_abort", disable)
         self.assertIn("~T5AI_I2C_CONFIG_ENABLE", disable)
-        self.assertIn("NVIC_SetPriority(bus->hal->irqn, T5AI_I2C_IRQ_PRIORITY)", i2c)
-        common_i2c = (ROOT / "drivers/i2c/t5ai_bus.c").read_text()
+        self.assertIn("NVIC_SetPriority(prv_dev(bus)->irqn, T5AI_I2C_IRQ_PRIORITY)", i2c)
+        common_i2c = (ROOT / "drivers/i2c/i2c.c").read_text()
         self.assertRegex(common_i2c, r"#define I2C_ERROR_TIMEOUT_MS\s+\(1000\)")
-        self.assertRegex(common_i2c, r"#define I2C_NACK_COUNT_MAX\s+\(1000\)")
-        self.assertNotIn("CONFIG_SOC_T5AI", common_i2c)
-        self.assertNotIn("prv_should_log_transfer_failure", common_i2c)
-        self.assertIn("pbl_mutex_lock(&bus->state->bus_mutex, PBL_FOREVER);", common_i2c)
+        self.assertFalse((ROOT / "drivers/i2c/t5ai_bus.c").exists())
+        self.assertIn("pbl_mutex_lock(&bus->state->mutex, PBL_FOREVER)", common_i2c)
         self.assertIn("if (!prv_external_rtc_read_raw(&control, registers))", rtc)
         self.assertIn("prv_set_retained_time(external_time);", rtc)
         self.assertIn("prv_external_rtc_write(fallback_time)", rtc)

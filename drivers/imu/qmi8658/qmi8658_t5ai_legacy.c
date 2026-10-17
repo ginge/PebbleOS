@@ -2,22 +2,25 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "board/board.h"
-#include "qmi8658_t5ai.h"
-#include <pbl/drivers/i2c/t5ai_legacy.h>
-#include <pbl/drivers/rtc.h>
-#include <pbl/kernel/kernel.h>
-#include <pbl/kernel/irq.h>
-#include <pbl/kernel/mutex.h>
-#include <pbl/kernel/sem.h>
-#include <pbl/kernel/thread.h>
-#include <pbl/kernel/delay.h>
 #include "pbl/services/new_timer/new_timer.h"
 #include "system/status_codes.h"
-#include <pbl/logging/logging.h>
 
+#include <errno.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#include <pbl/drivers/i2c.h>
+#include <pbl/drivers/imu/qmi8658.h>
+#include <pbl/drivers/rtc.h>
+#include <pbl/kernel/delay.h>
+#include <pbl/kernel/irq.h>
+#include <pbl/kernel/kernel.h>
+#include <pbl/kernel/mutex.h>
+#include <pbl/kernel/sem.h>
+#include <pbl/kernel/thread.h>
+#include <pbl/logging/logging.h>
+#include <pbl/util/misc.h>
 
 #ifdef CONFIG_T5AI_QMI8658_PROFILE
 PBL_LOG_MODULE_DEFINE(driver_accel_qmi8658, LOG_LEVEL_DEBUG);
@@ -67,81 +70,58 @@ typedef struct {
 
 // Poll intervals approximate the sensor ODRs; preserve the existing rounded periods.
 static const QMI8658Rate s_rates[] = {
-    {QMI8658_DEFAULT_INTERVAL_US, QMI8658_ODR_125HZ},
-    {16000u, QMI8658_ODR_62_5HZ},
-    {32000u, QMI8658_ODR_31_25HZ},
-    {48000u, QMI8658_ODR_LOW_POWER_21HZ},
-    {91000u, QMI8658_ODR_LOW_POWER_11HZ},
-    {333000u, QMI8658_ODR_LOW_POWER_3HZ},
+  {QMI8658_DEFAULT_INTERVAL_US, QMI8658_ODR_125HZ},
+  {16000u, QMI8658_ODR_62_5HZ},
+  {32000u, QMI8658_ODR_31_25HZ},
+  {48000u, QMI8658_ODR_LOW_POWER_21HZ},
+  {91000u, QMI8658_ODR_LOW_POWER_11HZ},
+  {333000u, QMI8658_ODR_LOW_POWER_3HZ},
 };
 
-static TimerID s_timer = TIMER_INVALID_ID;
-static uint32_t s_interval_us = QMI8658_DEFAULT_INTERVAL_US;
-static uint32_t s_requested_interval_us = QMI8658_DEFAULT_INTERVAL_US;
-static uint32_t s_num_samples;
-static bool s_shake_enabled;
-static bool s_active;
-static bool s_shake_sensitivity_high;
-static uint8_t s_shake_sensitivity_percent = 50u;
-static bool s_shake_baseline_valid;
-static int32_t s_shake_baseline[3];
-static uint64_t s_shake_previous_us;
-static uint64_t s_shake_holdoff_us;
-static uint64_t s_startup_us;
-static bool s_initialized;
-static bool s_rotated;
-static AccelDriverSample s_last_sample;
-static bool s_last_sample_valid;
 // One acquisition/delivery may be outstanding. Timer ticks while it is pending
 // are dropped rather than building a backlog on the sensor worker or timer service.
-static bool s_poll_pending;
-static uint32_t s_generation;
-static uint32_t s_sample_generation;
-static AccelDriverSample s_pending_sample;
-static PBL_SEM_DEFINE(s_poll_signal, 0, 1);
-static PBL_MUTEX_DEFINE(s_io_lock);
-static struct pbl_thread s_poll_thread;
-PBL_THREAD_STACK_DEFINE(s_poll_stack, 1536);
 
+static const struct pbl_qmi8658 *s_dev;
+static bool prv_queue_work(void (*work)(void));
 #include "qmi8658_profile.h"
 
 static void prv_invalidate_poll(void) {
   pbl_irq_lock();
-  ++s_generation;
+  ++s_dev->state->generation;
   pbl_irq_unlock();
 }
 
 static void prv_finish_poll(void) {
   pbl_irq_lock();
-  s_poll_pending = false;
+  s_dev->state->poll_pending = false;
   pbl_irq_unlock();
 }
 
 static bool prv_read(uint8_t reg, uint8_t *data, size_t length) {
-  (void)pbl_mutex_lock(&s_io_lock, PBL_FOREVER);
-  i2c_use(I2C_QMI8658);
+  (void)pbl_mutex_lock(&s_dev->state->io_lock, PBL_FOREVER);
+  pbl_i2c_use((&s_dev->i2c));
   const uint32_t started = qmi_profile_io_start();
-  bool result = i2c_write_block(I2C_QMI8658, 1, &reg);
+  bool result = (pbl_i2c_write_block((&s_dev->i2c), 1, &reg) == 0);
   qmi_profile_io_end(started, 1u, result);
   if (result) {
     const uint32_t read_started = qmi_profile_io_start();
-    result = i2c_read_block(I2C_QMI8658, length, data);
+    result = (pbl_i2c_read_block((&s_dev->i2c), length, data) == 0);
     qmi_profile_io_end(read_started, length, result);
   }
-  i2c_release(I2C_QMI8658);
-  pbl_mutex_unlock(&s_io_lock);
+  pbl_i2c_release((&s_dev->i2c));
+  pbl_mutex_unlock(&s_dev->state->io_lock);
   return result;
 }
 
 static bool prv_write(uint8_t reg, uint8_t value) {
   const uint8_t data[] = {reg, value};
-  (void)pbl_mutex_lock(&s_io_lock, PBL_FOREVER);
-  i2c_use(I2C_QMI8658);
+  (void)pbl_mutex_lock(&s_dev->state->io_lock, PBL_FOREVER);
+  pbl_i2c_use((&s_dev->i2c));
   const uint32_t started = qmi_profile_io_start();
-  const bool result = i2c_write_block(I2C_QMI8658, sizeof(data), data);
+  const bool result = (pbl_i2c_write_block((&s_dev->i2c), sizeof(data), data) == 0);
   qmi_profile_io_end(started, sizeof(data), result);
-  i2c_release(I2C_QMI8658);
-  pbl_mutex_unlock(&s_io_lock);
+  pbl_i2c_release((&s_dev->i2c));
+  pbl_mutex_unlock(&s_dev->state->io_lock);
   return result;
 }
 
@@ -183,7 +163,7 @@ static QMI8658SampleResult prv_read_sample(AccelDriverSample *sample) {
   sample->x = sensor_y;
   sample->y = -sensor_x;
   sample->z = prv_to_mg(&raw[QMI8658_ACCEL_Z_OFFSET]);
-  if (s_rotated) {
+  if (s_dev->state->rotated) {
     sample->x = -sample->x;
     sample->y = -sample->y;
   }
@@ -193,40 +173,44 @@ static QMI8658SampleResult prv_read_sample(AccelDriverSample *sample) {
 
 // Remove gravity with a low-pass baseline before comparing motion on each axis.
 static void prv_detect_shake(const AccelDriverSample *sample) {
-  if (!s_shake_enabled) {
+  if (!s_dev->state->shake_enabled) {
     return;
   }
   const int32_t values[] = {sample->x, sample->y, sample->z};
   const uint64_t now = sample->timestamp_us;
-  if (!s_shake_baseline_valid || now < s_shake_previous_us ||
-      now - s_shake_previous_us > QMI8658_SHAKE_HOLDOFF_US) {
+  if (!s_dev->state->shake_baseline_valid || now < s_dev->state->shake_previous_us ||
+      now - s_dev->state->shake_previous_us > QMI8658_SHAKE_HOLDOFF_US) {
     for (size_t i = 0; i < 3; ++i) {
-      s_shake_baseline[i] = values[i];
+      s_dev->state->shake_baseline[i] = values[i];
     }
-    s_shake_baseline_valid = true;
-    s_shake_holdoff_us = now;
-    s_shake_previous_us = now;
+    s_dev->state->shake_baseline_valid = true;
+    s_dev->state->shake_holdoff_us = now;
+    s_dev->state->shake_previous_us = now;
     return;
   }
-  s_shake_previous_us = now;
+  s_dev->state->shake_previous_us = now;
   const uint32_t threshold =
-      s_shake_sensitivity_high
+      s_dev->state->shake_sensitivity_high
           ? QMI8658_SHAKE_MIN_MG
-          : QMI8658_SHAKE_MAX_MG -
-                s_shake_sensitivity_percent * (QMI8658_SHAKE_MAX_MG - QMI8658_SHAKE_MIN_MG) / 100u;
+          : QMI8658_SHAKE_MAX_MG - s_dev->state->shake_sensitivity_percent *
+                                       (QMI8658_SHAKE_MAX_MG - QMI8658_SHAKE_MIN_MG) / 100u;
   int32_t peak = 0;
   size_t axis = 0;
   for (size_t i = 0; i < 3; ++i) {
-    const int32_t delta = values[i] - s_shake_baseline[i];
+    const int32_t delta = values[i] - s_dev->state->shake_baseline[i];
     if ((delta < 0 ? -delta : delta) > (peak < 0 ? -peak : peak)) {
       peak = delta;
       axis = i;
     }
-    s_shake_baseline[i] += delta / 8;
+    s_dev->state->shake_baseline[i] += delta / 8;
   }
-  if (now >= s_shake_holdoff_us && (uint32_t)(peak < 0 ? -peak : peak) >= threshold) {
-    s_shake_holdoff_us = now + QMI8658_SHAKE_HOLDOFF_US;
-    accel_cb_shake_detected((IMUCoordinateAxis)axis, peak < 0 ? -1 : 1);
+  if (now >= s_dev->state->shake_holdoff_us && (uint32_t)(peak < 0 ? -peak : peak) >= threshold) {
+    s_dev->state->shake_holdoff_us = now + QMI8658_SHAKE_HOLDOFF_US;
+    pbl_accel_report_event(&s_dev->accel, &(const struct pbl_accel_event){
+                                            .type = PBL_ACCEL_EVENT_SHAKE,
+                                            .axis = (IMUCoordinateAxis)axis,
+                                            .direction = peak < 0 ? -1 : 1
+                                          });
   }
 }
 
@@ -234,27 +218,28 @@ static void prv_deliver_sample(void) {
   // Only this callback touches the shake filter and delivers manager callbacks.
   // The worker cannot overwrite the slot until delivery has finished.
   pbl_irq_lock();
-  const bool valid = s_active && s_sample_generation == s_generation;
-  const AccelDriverSample sample = s_pending_sample;
+  const bool valid =
+      s_dev->state->active && s_dev->state->sample_generation == s_dev->state->generation;
+  const AccelDriverSample sample = s_dev->state->pending_sample;
   pbl_irq_unlock();
   if (!valid) {
     prv_finish_poll();
     return;
   }
-  if (sample.timestamp_us < s_startup_us) {
-    s_startup_us = sample.timestamp_us;
-    s_shake_baseline_valid = false;
+  if (sample.timestamp_us < s_dev->state->startup_us) {
+    s_dev->state->startup_us = sample.timestamp_us;
+    s_dev->state->shake_baseline_valid = false;
   }
-  if (sample.timestamp_us - s_startup_us < QMI8658_STARTUP_SETTLE_MS * 1000u) {
+  if (sample.timestamp_us - s_dev->state->startup_us < QMI8658_STARTUP_SETTLE_MS * 1000u) {
     prv_finish_poll();
     return;
   }
   qmi_profile_delivery(1u, prv_time_us(), sample.timestamp_us);
-  s_last_sample = sample;
-  s_last_sample_valid = true;
+  s_dev->state->last_sample = sample;
+  s_dev->state->last_sample_valid = true;
   prv_detect_shake(&sample);
-  if (s_num_samples != 0u) {
-    accel_cb_new_sample(&sample);
+  if (s_dev->state->num_samples != 0u) {
+    pbl_accel_report_sample(&s_dev->accel, &sample);
   }
   prv_finish_poll();
 }
@@ -263,8 +248,8 @@ static void prv_deliver_sample(void) {
 static void prv_acquire_sample(void) {
   qmi_profile_acquire_start();
   pbl_irq_lock();
-  const bool active = s_initialized && s_active;
-  const uint32_t generation = s_generation;
+  const bool active = s_dev->state->initialized && s_dev->state->active;
+  const uint32_t generation = s_dev->state->generation;
   pbl_irq_unlock();
   AccelDriverSample sample;
   if (!active || prv_read_sample(&sample) != QMI8658_SAMPLE_READY) {
@@ -274,13 +259,13 @@ static void prv_acquire_sample(void) {
   }
   qmi_profile_acquire_end(1u);
   pbl_irq_lock();
-  const bool valid = s_active && generation == s_generation;
+  const bool valid = s_dev->state->active && generation == s_dev->state->generation;
   if (valid) {
-    s_pending_sample = sample;
-    s_sample_generation = generation;
+    s_dev->state->pending_sample = sample;
+    s_dev->state->sample_generation = generation;
   }
   pbl_irq_unlock();
-  if (!valid || !accel_offload_work(prv_deliver_sample)) {
+  if (!valid || !prv_queue_work(prv_deliver_sample)) {
     prv_finish_poll();
   }
 }
@@ -288,7 +273,7 @@ static void prv_acquire_sample(void) {
 static void prv_poll_entry(void *context) {
   (void)context;
   while (true) {
-    if (pbl_sem_take(&s_poll_signal, PBL_FOREVER) == 0) {
+    if (pbl_sem_take(&s_dev->state->poll_signal, PBL_FOREVER) == 0) {
       prv_acquire_sample();
     }
   }
@@ -298,19 +283,19 @@ static void prv_timer_callback(void *context) {
   qmi_profile_watchdog();
   (void)context;
   pbl_irq_lock();
-  const bool schedule = s_active && !s_poll_pending;
+  const bool schedule = s_dev->state->active && !s_dev->state->poll_pending;
   if (schedule) {
-    s_poll_pending = true;
+    s_dev->state->poll_pending = true;
   }
   pbl_irq_unlock();
   if (schedule) {
-    pbl_sem_give(&s_poll_signal);
+    pbl_sem_give(&s_dev->state->poll_signal);
   }
 }
 
 static bool prv_update_power(void) {
-  const bool active = s_num_samples != 0u || s_shake_enabled;
-  if (active == s_active) {
+  const bool active = s_dev->state->num_samples != 0u || s_dev->state->shake_enabled;
+  if (active == s_dev->state->active) {
     return true;
   }
   prv_invalidate_poll();
@@ -319,22 +304,32 @@ static bool prv_update_power(void) {
     return false;
   }
   pbl_irq_lock();
-  s_active = active;
-  ++s_generation;
+  s_dev->state->active = active;
+  ++s_dev->state->generation;
   pbl_irq_unlock();
-  s_last_sample_valid = false;
-  s_shake_baseline_valid = false;
+  s_dev->state->last_sample_valid = false;
+  s_dev->state->shake_baseline_valid = false;
   if (active) {
-    s_startup_us = prv_time_us();
-    const uint32_t period_ms = (s_interval_us + 999u) / 1000u;
-    (void)new_timer_start(s_timer, period_ms, prv_timer_callback, NULL, TIMER_START_FLAG_REPEATING);
+    s_dev->state->startup_us = prv_time_us();
+    const uint32_t period_ms = (s_dev->state->interval_us + 999u) / 1000u;
+    (void)new_timer_start(s_dev->state->timer, period_ms, prv_timer_callback, NULL,
+                          TIMER_START_FLAG_REPEATING);
   } else {
-    (void)new_timer_stop(s_timer);
+    (void)new_timer_stop(s_dev->state->timer);
   }
   return true;
 }
 
-void accel_init(void) {
+static int prv_init(const struct pbl_accel *accel) {
+  if (s_dev && &s_dev->accel != accel)
+    return -ENOTSUP;
+  s_dev = container_of(accel, const struct pbl_qmi8658, accel);
+  s_dev->state->initialized = false;
+  s_dev->state->timer = TIMER_INVALID_ID;
+  s_dev->state->interval_us = s_dev->state->requested_interval_us = QMI8658_DEFAULT_INTERVAL_US;
+  s_dev->state->shake_sensitivity_percent = 50;
+  pbl_mutex_init(&s_dev->state->io_lock);
+  pbl_sem_init(&s_dev->state->poll_signal, 0, 1);
 #ifdef CONFIG_T5AI_ACCEL_DISABLED
   // AP-only resets can leave the sensor powered from the previous firmware.
   if (!prv_write(QMI8658_CTRL7, 0u)) {
@@ -342,60 +337,65 @@ void accel_init(void) {
   } else {
     PBL_LOG_DBG("QMI8658 disabled for diagnostic: no worker, polling or sample delivery");
   }
-  return;
+  return 0;
 #endif
   if (!prv_write(QMI8658_RESET, QMI8658_RESET_COMMAND)) {
     PBL_LOG_ERR("QMI8658 reset failed");
-    return;
+    return -EIO;
   }
   pbl_sleep_ms(QMI8658_RESET_SETTLE_MS);
 
   uint8_t id = 0xffu;
   if (!prv_read(QMI8658_WHO_AM_I, &id, 1) || id != QMI8658_ID) {
     PBL_LOG_ERR("QMI8658 not detected (id 0x%02x)", id);
-    return;
+    return -EIO;
   }
   if (!prv_write(QMI8658_CTRL1, QMI8658_CTRL1_INIT) ||
       !prv_write(QMI8658_CTRL2, QMI8658_ACCEL_RANGE_4G | s_rates[0].odr) ||
       !prv_write(QMI8658_CTRL7, 0u)) {
     PBL_LOG_ERR("QMI8658 initialization failed");
-    return;
+    return -EIO;
   }
-  s_timer = new_timer_create();
-  if (s_timer == TIMER_INVALID_ID) {
+  s_dev->state->timer = new_timer_create();
+  if (s_dev->state->timer == TIMER_INVALID_ID) {
     PBL_LOG_ERR("Could not create QMI8658 poll timer");
-    return;
+    return -ENOMEM;
   }
   const struct pbl_thread_attr attr = {
-      .name = "QMI8658",
-      .entry = prv_poll_entry,
-      // Acquire ahead of apps; blocking I2C remains below NewTimers.
-      .prio = PBL_PRIO_MAX - 1,
-      .privileged = true,
-      .stack = s_poll_stack,
-      .stack_size = sizeof(s_poll_stack),
+    .name = "QMI8658",
+    .entry = prv_poll_entry,
+    // Acquire ahead of apps; blocking I2C remains below NewTimers.
+    .prio = PBL_PRIO_MAX - 1,
+    .privileged = true,
+    .stack = s_dev->state->poll_stack,
+    .stack_size = sizeof(s_dev->state->poll_stack),
   };
-  if (pbl_thread_create(&s_poll_thread, &attr) != 0) {
+  if (pbl_thread_create(&s_dev->state->poll_thread, &attr) != 0) {
     PBL_LOG_ERR("Could not create QMI8658 worker");
-    return;
+    new_timer_delete(s_dev->state->timer);
+    return -EIO;
   }
-  s_initialized = true;
+  s_dev->state->initialized = true;
+  return 0;
 }
 
-void accel_set_rotated(bool rotated) {
+static int prv_set_rotated(const struct pbl_accel *accel, bool rotated) {
   pbl_irq_lock();
-  if (s_rotated != rotated) {
-    ++s_generation;
-    s_shake_baseline_valid = false;
-    s_last_sample_valid = false;
+  if (s_dev->state->rotated != rotated) {
+    ++s_dev->state->generation;
+    s_dev->state->shake_baseline_valid = false;
+    s_dev->state->last_sample_valid = false;
   }
-  s_rotated = rotated;
+  s_dev->state->rotated = rotated;
   pbl_irq_unlock();
+  return 0;
 }
 
-uint32_t accel_set_sampling_interval(uint32_t interval_us) {
+static int prv_set_sampling_interval(const struct pbl_accel *accel, uint32_t interval_us,
+                                     uint32_t *actual_us) {
+  int ret = 0;
   const uint32_t requested_interval_us = interval_us;
-  if (s_shake_enabled && interval_us > QMI8658_SHAKE_INTERVAL_US) {
+  if (s_dev->state->shake_enabled && interval_us > QMI8658_SHAKE_INTERVAL_US) {
     interval_us = QMI8658_SHAKE_INTERVAL_US;
   }
   const QMI8658Rate *rate = &s_rates[0];
@@ -405,52 +405,59 @@ uint32_t accel_set_sampling_interval(uint32_t interval_us) {
     }
   }
   prv_invalidate_poll();
-  if (s_initialized && !prv_write(QMI8658_CTRL2, QMI8658_ACCEL_RANGE_4G | rate->odr)) {
+  if (s_dev->state->initialized && !prv_write(QMI8658_CTRL2, QMI8658_ACCEL_RANGE_4G | rate->odr)) {
     PBL_LOG_ERR("Could not set QMI8658 sampling rate");
-    return s_interval_us;
+    return -EIO;
   }
   prv_invalidate_poll();
-  s_requested_interval_us = requested_interval_us;
-  s_interval_us = rate->interval_us;
-  if (s_timer != TIMER_INVALID_ID && s_active) {
-    const uint32_t period_ms = (s_interval_us + 999u) / 1000u;
-    (void)new_timer_start(s_timer, period_ms, prv_timer_callback, NULL, TIMER_START_FLAG_REPEATING);
+  s_dev->state->requested_interval_us = requested_interval_us;
+  s_dev->state->interval_us = rate->interval_us;
+  if (s_dev->state->timer != TIMER_INVALID_ID && s_dev->state->active) {
+    const uint32_t period_ms = (s_dev->state->interval_us + 999u) / 1000u;
+    (void)new_timer_start(s_dev->state->timer, period_ms, prv_timer_callback, NULL,
+                          TIMER_START_FLAG_REPEATING);
   }
-  return s_interval_us;
+  *actual_us = s_dev->state->interval_us;
+  return ret;
 }
 
-uint32_t accel_get_sampling_interval(void) {
-  return s_interval_us;
+static uint32_t prv_get_sampling_interval(const struct pbl_accel *accel) {
+  return s_dev->state->interval_us;
 }
 
-void accel_set_num_samples(uint32_t num_samples) {
-  num_samples = num_samples != 0u;
-  if (!s_initialized || num_samples == s_num_samples) {
-    return;
+static int prv_set_num_samples(const struct pbl_accel *accel, uint32_t num_samples) {
+  if (num_samples > 1)
+    return -EINVAL;
+  if (!s_dev->state->initialized || num_samples == s_dev->state->num_samples) {
+    return s_dev->state->initialized ? 0 : -ENODEV;
   }
-  const uint32_t previous = s_num_samples;
-  s_num_samples = num_samples;
+  int ret = 0;
+  const uint32_t previous = s_dev->state->num_samples;
+  s_dev->state->num_samples = num_samples;
   if (!prv_update_power()) {
-    s_num_samples = previous;
+    ret = -EIO;
+    s_dev->state->num_samples = previous;
   }
+  return ret;
 }
 
-uint32_t accel_get_max_num_samples(void) {
+static uint32_t prv_get_max_num_samples(const struct pbl_accel *accel) {
   return 1u;
 }
 
-int accel_peek(AccelDriverSample *data) {
-  if (!s_initialized || data == NULL) {
-    return E_ERROR;
+static int prv_peek(const struct pbl_accel *accel, AccelDriverSample *data) {
+  if (!data)
+    return -EINVAL;
+  if (!s_dev->state->initialized)
+    return -ENODEV;
+  if (s_dev->state->active && s_dev->state->last_sample_valid) {
+    *data = s_dev->state->last_sample;
+    return 0;
   }
-  if (s_active && s_last_sample_valid) {
-    *data = s_last_sample;
-    return S_SUCCESS;
-  }
-  const bool temporary_enable = !s_active;
+  const bool temporary_enable = !s_dev->state->active;
   if (temporary_enable) {
     if (!prv_write(QMI8658_CTRL7, QMI8658_ACCEL_ENABLE)) {
-      return E_ERROR;
+      return -EIO;
     }
     // The first conversions after power-up are saturated startup transients.
     pbl_sleep_ms(QMI8658_STARTUP_SETTLE_MS);
@@ -460,46 +467,57 @@ int accel_peek(AccelDriverSample *data) {
     (void)prv_write(QMI8658_CTRL7, 0u);
   }
   if (result) {
-    s_last_sample = *data;
-    s_last_sample_valid = true;
+    s_dev->state->last_sample = *data;
+    s_dev->state->last_sample_valid = true;
   }
-  return result ? S_SUCCESS : E_ERROR;
+  return result ? 0 : -EIO;
 }
 
-void accel_enable_shake_detection(bool on) {
-  if (!s_initialized || on == s_shake_enabled) {
-    return;
+static int prv_set_shake_detection(const struct pbl_accel *accel, bool on) {
+  if (!s_dev->state->initialized || on == s_dev->state->shake_enabled) {
+    return s_dev->state->initialized ? 0 : -ENODEV;
   }
-  const uint32_t requested_interval_us = s_requested_interval_us;
-  s_shake_enabled = on;
-  s_shake_baseline_valid = false;
-  const uint32_t interval_us = accel_set_sampling_interval(requested_interval_us);
-  if ((on && interval_us > QMI8658_SHAKE_INTERVAL_US) || !prv_update_power()) {
-    s_shake_enabled = !on;
-    (void)accel_set_sampling_interval(requested_interval_us);
+  const uint32_t requested_interval_us = s_dev->state->requested_interval_us;
+  s_dev->state->shake_enabled = on;
+  s_dev->state->shake_baseline_valid = false;
+  uint32_t interval_us;
+  const int ret = prv_set_sampling_interval(accel, requested_interval_us, &interval_us);
+  if (ret != 0 || (on && interval_us > QMI8658_SHAKE_INTERVAL_US) || !prv_update_power()) {
+    s_dev->state->shake_enabled = !on;
+    (void)prv_set_sampling_interval(accel, requested_interval_us, &interval_us);
+    return -EIO;
   }
+  return 0;
 }
 
-bool accel_get_shake_detection_enabled(void) {
-  return s_shake_enabled;
+static int prv_set_shake_sensitivity_high(const struct pbl_accel *accel, bool sensitivity_high) {
+  s_dev->state->shake_sensitivity_high = sensitivity_high;
+  return 0;
 }
 
-void accel_enable_double_tap_detection(bool on) {
-  (void)on;
+static int prv_set_shake_sensitivity_percent(const struct pbl_accel *accel, uint8_t percent) {
+  s_dev->state->shake_sensitivity_percent = percent > 100u ? 100u : percent;
+  return 0;
 }
 
-bool accel_get_double_tap_detection_enabled(void) {
-  return false;
+static void prv_work_callback(void *data) {
+  void (*work)(void) = data;
+  pbl_accel_lock(&s_dev->accel);
+  work();
+  pbl_accel_unlock(&s_dev->accel);
 }
-
-void accel_set_shake_sensitivity_high(bool sensitivity_high) {
-  s_shake_sensitivity_high = sensitivity_high;
+static bool prv_queue_work(void (*work)(void)) {
+  return new_timer_add_work_callback(prv_work_callback, work);
 }
-
-void accel_set_shake_sensitivity_percent(uint8_t percent) {
-  s_shake_sensitivity_percent = percent > 100u ? 100u : percent;
-}
-
-bool qmi8658_is_initialized(void) {
-  return s_initialized;
-}
+const struct pbl_accel_ops pbl_qmi8658_ops = {
+  .init = prv_init,
+  .set_rotated = prv_set_rotated,
+  .set_sampling_interval = prv_set_sampling_interval,
+  .get_sampling_interval = prv_get_sampling_interval,
+  .set_num_samples = prv_set_num_samples,
+  .get_max_num_samples = prv_get_max_num_samples,
+  .peek = prv_peek,
+  .set_shake_detection = prv_set_shake_detection,
+  .set_shake_sensitivity_high = prv_set_shake_sensitivity_high,
+  .set_shake_sensitivity_percent = prv_set_shake_sensitivity_percent,
+};

@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -38,9 +37,9 @@ def load_config(board, variant):
 class UnhygienixBoardsTest(unittest.TestCase):
     def test_unhygienix_pairing_uses_its_two_present_buttons(self):
         board_source = (ROOT / "fw/board/boards/board_unhygienix.c").read_text()
-        self.assertIn('[BUTTON_ID_UP] = {.name = "Up", .pin = UINT8_MAX}', board_source)
+        self.assertIn('[BUTTON_ID_UP] = {.name = "Up"}', board_source)
         self.assertIn(
-            '[BUTTON_ID_DOWN] = {.name = "Down", .pin = UINT8_MAX}', board_source
+            '[BUTTON_ID_DOWN] = {.name = "Down"}', board_source
         )
 
         pairing_ui = (ROOT / "fw/popups/bluetooth_pairing_ui.c").read_text()
@@ -706,12 +705,12 @@ class UnhygienixBoardsTest(unittest.TestCase):
             board_source,
         )
         self.assertIn("prv_assert_power_latch();", board_source)
-        self.assertIn(".pin = 28u", board_source)
-        self.assertIn("gpio_output_set(&s_amplifier_enable, false)", board_source)
+        self.assertIn("PBL_GPIO(&T5AI_GPIO, 28, PBL_GPIO_ACTIVE_LOW)", board_source)
+        self.assertIn("pbl_gpio_configure(&s_amplifier_enable, PBL_GPIO_OUTPUT_INACTIVE)", board_source)
 
         battery_source = (ROOT / "drivers/battery/t5ai.c").read_text()
         self.assertIn(
-            "gpio_input_init_pull_up_down(&s_charge, GPIO_PuPd_UP)",
+            "pbl_gpio_configure(&s_charge, PBL_GPIO_INPUT)",
             battery_source,
         )
 

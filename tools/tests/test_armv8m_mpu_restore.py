@@ -2,12 +2,12 @@
 """Exercise the production MPU restore assembly and each descriptor-store boundary."""
 import ast
 import os
-from pathlib import Path
 import re
 import resource
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SDK = Path(os.environ.get('PEBBLE_SDK_PATH', '/home/baz/pebbleos-sdk-0.1.8'))
@@ -122,7 +122,7 @@ def production_macro(first, v8=True, source=None):
     pp = '#define STR_(x) #x\n#define STR(x) STR_(x)\n' + block + '\nRESTORE_MPU\n'
     args = [str(CC), '-E', '-P', '-x', 'c', f'-DFIRST_MPU_REGION={first}', '-']
     if v8:
-        args.insert(-1, '-DCONFIG_MPU_TYPE_ARMV8M')
+        args.insert(-1, '-DCONFIG_ARMV8_M_MAINLINE')
     expanded = subprocess.check_output(args, input=pp, text=True)
     return ''.join(ast.literal_eval(x) for x in re.findall(r'"(?:[^"\\]|\\.)*"', expanded))
 
@@ -179,7 +179,7 @@ class MpuRestoreTests(unittest.TestCase):
                 return subprocess.run([str(QEMU), '-M', 'pebble-gabbro', '-display', 'none',
                                        '-serial', 'null', '-monitor', 'none', '-semihosting-config',
                                        'enable=on,target=native', '-kernel', str(tmp/'test.elf')],
-                                      capture_output=True, text=True, timeout=10,
+                                      check=False, capture_output=True, text=True, timeout=10,
                                       preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_CORE, (0, 0)))
             for first in [4, 8]:
                 actual = production_macro(first)

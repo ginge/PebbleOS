@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Exercise T5 button debouncing with KernelBG and NewTimers absent."""
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 STUB = r"""
@@ -14,12 +14,14 @@ STUB = r"""
 #include <assert.h>
 #define NUM_BUTTONS 4
 typedef enum { BUTTON_ID_BACK, BUTTON_ID_UP, BUTTON_ID_SELECT, BUTTON_ID_DOWN } ButtonId;
-typedef struct { uint8_t pin; int pull; } ButtonConfig;
+struct pbl_gpio { const void *port; unsigned pin; };
+struct pbl_irq_spec { unsigned pin,type; };
+#define PBL_IRQ_TYPE_EDGE_BOTH 3
+static inline bool pbl_gpio_is_connected(const struct pbl_gpio *g){return g->port!=NULL;}
+typedef struct { struct pbl_gpio gpio; } ButtonConfig;
 static struct { ButtonConfig buttons[4]; } BOARD_CONFIG_BUTTON = {
- .buttons = {{1,0}, {2,0}, {3,0}, {UINT8_MAX,0}}
+ .buttons = {{{(void *)1,1}}, {{(void *)1,2}}, {{(void *)1,3}}, {{NULL,0}}}
 };
-typedef struct { uint8_t pin; int pull; } ExtiConfig;
-#define ExtiTrigger_RisingFalling 3
 #define PBL_FOREVER -1
 #define PBL_PRIO_MAX 4
 #define PBL_MSEC(x) (x)
@@ -42,8 +44,9 @@ typedef struct { int code; } RebootReason;
 void button_init(void);
 bool button_is_pressed(ButtonId);
 uint32_t button_get_state_bits(void);
-void exti_configure_pin(ExtiConfig,int,void (*)(void));
-void exti_enable(ExtiConfig);
+int pbl_gpio_to_irq(const struct pbl_gpio *,unsigned,struct pbl_irq_spec *);
+int pbl_intc_request(const struct pbl_irq_spec *,void (*)(void *),void *);
+int pbl_intc_enable(const struct pbl_irq_spec *);
 void event_put(PebbleEvent *);
 void boot_bit_set(int);
 void reboot_reason_set(RebootReason *);
@@ -69,10 +72,13 @@ static PebbleEvent output[16];
 void button_init(void) {}
 bool button_is_pressed(ButtonId id) { return (bits >> id) & 1; }
 uint32_t button_get_state_bits(void) { return bits; }
-void exti_configure_pin(ExtiConfig e,int t,void (*cb)(void)) {
- assert(e.pin != UINT8_MAX && t == 3 && cb == prv_button_interrupt_handler); ++configured;
+int pbl_gpio_to_irq(const struct pbl_gpio *g,unsigned type,struct pbl_irq_spec *s) {
+ *s=(struct pbl_irq_spec){g->pin,type};return 0;
 }
-void exti_enable(ExtiConfig e) { (void)e; }
+int pbl_intc_request(const struct pbl_irq_spec *s,void (*cb)(void *),void *data) {
+ assert(s->pin && s->type==3 && cb==prv_button_interrupt_handler);++configured;return 0;
+}
+int pbl_intc_enable(const struct pbl_irq_spec *s) { return 0; }
 void event_put(PebbleEvent *e) { assert(events < 16); output[events++] = *e; }
 void boot_bit_set(int b) { bootbit = b; }
 void reboot_reason_set(RebootReason *r) { resetcode = r->code; }
@@ -81,7 +87,7 @@ void pbl_sem_give(struct pbl_sem *s) { s->count = 1; }
 int pbl_sem_take(struct pbl_sem *s,int t) {
  assert(t == PBL_FOREVER);
  if (!s->count && inject_edge && bits) {
-  now = 60; bits = 0; prv_button_interrupt_handler();
+  now = 60; bits = 0; prv_button_interrupt_handler(nullptr);
  }
  if (!s->count) longjmp(done, 1);
  --s->count; return 0;
@@ -92,7 +98,7 @@ int pbl_thread_create(struct pbl_thread *t,const struct pbl_thread_attr *a) {
 void pbl_thread_sleep(unsigned ms) {
  assert(ms == 2); now += ms;
  // Release while sampling; retain the coalesced wake even at the end of a run.
- if (inject_edge && now == 60) { bits = 0; prv_button_interrupt_handler(); }
+ if (inject_edge && now == 60) { bits = 0; prv_button_interrupt_handler(nullptr); }
 }
 static void clear(void) {
  now = bits = events = bootbit = resetcode = 0;
@@ -104,7 +110,7 @@ int main(void) {
  debounced_button_init(); assert(configured == 3 && s_button_signal.count == 1);
  // A complete press/release works with no background or timer service execution.
  inject_edge = true;
- for (unsigned i=0;i<100;i++) prv_button_interrupt_handler();
+ for (unsigned i=0;i<100;i++) prv_button_interrupt_handler(nullptr);
  assert(s_button_signal.count == 1);
  if (!setjmp(done)) prv_button_entry(NULL);
  assert(now >= 100 && events == 2 && !s_button_signal.count);
@@ -152,7 +158,7 @@ class ButtonsTest(unittest.TestCase):
             harness = directory / "test.c"
             harness.write_text(HARNESS)
             binary = directory / "test"
-            subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+            subprocess.run(["cc", "-std=gnu2x", "-Wall", "-Wextra", "-Wno-unused-parameter", "-Werror",
                             "-I", str(directory), "-I", str(ROOT), str(harness),
                             "-o", str(binary)], check=True)
             subprocess.run([str(binary)], check=True)

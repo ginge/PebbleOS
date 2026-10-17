@@ -1,37 +1,37 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/drivers/rtc.h>
-#include <pbl/drivers/i2c/t5ai_legacy.h>
-#include <pbl/soc/t5ai/retained.h>
-#include <pbl/soc/t5ai/rtc.h>
-
 #include "board/board.h"
 #include "system/rtc_registers.h"
 
 #include <stddef.h>
 #include <string.h>
 
+#include <pbl/drivers/i2c.h>
+#include <pbl/drivers/rtc.h>
+#include <pbl/soc/t5ai/retained.h>
+#include <pbl/soc/t5ai/rtc.h>
+
 // External RTC stores years 00..37 relative to 2000; struct pbl_tm counts from 1900.
-#define PCF85063_TM_YEAR_BASE 100
-#define PCF85063_MAX_YEAR 37
-#define PCF85063_TM_YEAR_MAX (PCF85063_TM_YEAR_BASE + PCF85063_MAX_YEAR)
+#define PCF85063_TM_YEAR_BASE        100
+#define PCF85063_MAX_YEAR            37
+#define PCF85063_TM_YEAR_MAX         (PCF85063_TM_YEAR_BASE + PCF85063_MAX_YEAR)
 #define PCF85063_TIME_REGISTER_COUNT 7u
-#define PCF85063_SECONDS_OFFSET 0u
-#define PCF85063_MINUTES_OFFSET 1u
-#define PCF85063_HOURS_OFFSET 2u
-#define PCF85063_DAYS_OFFSET 3u
-#define PCF85063_WEEKDAYS_OFFSET 4u
-#define PCF85063_MONTHS_OFFSET 5u
-#define PCF85063_YEARS_OFFSET 6u
-#define PCF85063_SECONDS_MASK 0x7fu
-#define PCF85063_MINUTES_MASK 0x7fu
-#define PCF85063_HOURS_MASK 0x3fu
-#define PCF85063_DAYS_MASK 0x3fu
-#define PCF85063_WEEKDAYS_MASK 0x07u
-#define PCF85063_MONTHS_MASK 0x1fu
-#define RTC_BCD_DIGIT_MASK 0x0fu
-#define RTC_BCD_TENS_SHIFT 4u
-#define T5AI_RTC_TIMEZONE_WORDS 5u
+#define PCF85063_SECONDS_OFFSET      0u
+#define PCF85063_MINUTES_OFFSET      1u
+#define PCF85063_HOURS_OFFSET        2u
+#define PCF85063_DAYS_OFFSET         3u
+#define PCF85063_WEEKDAYS_OFFSET     4u
+#define PCF85063_MONTHS_OFFSET       5u
+#define PCF85063_YEARS_OFFSET        6u
+#define PCF85063_SECONDS_MASK        0x7fu
+#define PCF85063_MINUTES_MASK        0x7fu
+#define PCF85063_HOURS_MASK          0x3fu
+#define PCF85063_DAYS_MASK           0x3fu
+#define PCF85063_WEEKDAYS_MASK       0x07u
+#define PCF85063_MONTHS_MASK         0x1fu
+#define RTC_BCD_DIGIT_MASK           0x0fu
+#define RTC_BCD_TENS_SHIFT           4u
+#define T5AI_RTC_TIMEZONE_WORDS      5u
 
 // Match services_normal's activity threshold so an empty/invalid external RTC
 // initializes Activity during boot, before T5AI starts advertising. The phone's
@@ -42,11 +42,11 @@
 _Static_assert(T5AI_AON_RTC_HZ % RTC_TICKS_HZ == 0u,
                "AON RTC must divide exactly into Pebble ticks");
 
-#define PCF85063_REG_CONTROL1 0x00u
-#define PCF85063_REG_SECONDS 0x04u
-#define PCF85063_CONTROL1_STOP (1u << 5)
+#define PCF85063_REG_CONTROL1   0x00u
+#define PCF85063_REG_SECONDS    0x04u
+#define PCF85063_CONTROL1_STOP  (1u << 5)
 #define PCF85063_CONTROL1_12_24 (1u << 1)
-#define PCF85063_SECONDS_OS (1u << 7)
+#define PCF85063_SECONDS_OS     (1u << 7)
 
 static RtcTicks s_alarm_start;
 static bool s_external_rtc_ready;
@@ -87,12 +87,13 @@ static uint8_t prv_encode_bcd(unsigned value) {
 
 static bool prv_external_rtc_read_raw(uint8_t *control,
                                       uint8_t registers[PCF85063_TIME_REGISTER_COUNT]) {
-  i2c_use(I2C_PCF85063);
-  const bool read_control = i2c_read_register(I2C_PCF85063, PCF85063_REG_CONTROL1, control);
+  pbl_i2c_use(I2C_PCF85063);
+  const bool read_control =
+      (pbl_i2c_read_register(I2C_PCF85063, PCF85063_REG_CONTROL1, control) == 0);
   const bool read_time =
-      read_control && i2c_read_register_block(I2C_PCF85063, PCF85063_REG_SECONDS,
-                                              PCF85063_TIME_REGISTER_COUNT, registers);
-  i2c_release(I2C_PCF85063);
+      read_control && (pbl_i2c_read_register_block(I2C_PCF85063, PCF85063_REG_SECONDS,
+                                                   PCF85063_TIME_REGISTER_COUNT, registers) == 0);
+  pbl_i2c_release(I2C_PCF85063);
   return read_time;
 }
 
@@ -122,13 +123,13 @@ static bool prv_external_rtc_decode(uint8_t control,
   }
 
   struct pbl_tm decoded = {
-      .tm_sec = second,
-      .tm_min = minute,
-      .tm_hour = hour,
-      .tm_mday = day,
-      .tm_mon = month - 1,
-      .tm_year = year + PCF85063_TM_YEAR_BASE,
-      .tm_isdst = 0,
+    .tm_sec = second,
+    .tm_min = minute,
+    .tm_hour = hour,
+    .tm_mday = day,
+    .tm_mon = month - 1,
+    .tm_year = year + PCF85063_TM_YEAR_BASE,
+    .tm_isdst = 0,
   };
   const time_t result = pbl_mktime(&decoded);
   if (decoded.tm_sec != second || decoded.tm_min != minute || decoded.tm_hour != hour ||
@@ -155,29 +156,29 @@ static bool prv_external_rtc_write(time_t time) {
   }
 
   const uint8_t registers[PCF85063_TIME_REGISTER_COUNT] = {
-      prv_encode_bcd(encoded.tm_sec),
-      prv_encode_bcd(encoded.tm_min),
-      prv_encode_bcd(encoded.tm_hour),
-      prv_encode_bcd(encoded.tm_mday),
-      (uint8_t)encoded.tm_wday,
-      prv_encode_bcd(encoded.tm_mon + 1),
-      prv_encode_bcd(encoded.tm_year - PCF85063_TM_YEAR_BASE),
+    prv_encode_bcd(encoded.tm_sec),
+    prv_encode_bcd(encoded.tm_min),
+    prv_encode_bcd(encoded.tm_hour),
+    prv_encode_bcd(encoded.tm_mday),
+    (uint8_t)encoded.tm_wday,
+    prv_encode_bcd(encoded.tm_mon + 1),
+    prv_encode_bcd(encoded.tm_year - PCF85063_TM_YEAR_BASE),
   };
 
   uint8_t control;
-  i2c_use(I2C_PCF85063);
-  bool result = i2c_read_register(I2C_PCF85063, PCF85063_REG_CONTROL1, &control);
+  pbl_i2c_use(I2C_PCF85063);
+  bool result = (pbl_i2c_read_register(I2C_PCF85063, PCF85063_REG_CONTROL1, &control) == 0);
   if (result) {
     const uint8_t stopped = (control | PCF85063_CONTROL1_STOP) & ~PCF85063_CONTROL1_12_24;
-    result = i2c_write_register(I2C_PCF85063, PCF85063_REG_CONTROL1, stopped);
-    result = result && i2c_write_register_block(I2C_PCF85063, PCF85063_REG_SECONDS,
-                                                sizeof(registers), registers);
+    result = (pbl_i2c_write_register(I2C_PCF85063, PCF85063_REG_CONTROL1, stopped) == 0);
+    result = result && (pbl_i2c_write_register_block(I2C_PCF85063, PCF85063_REG_SECONDS,
+                                                     sizeof(registers), registers) == 0);
     if (result) {
       const uint8_t running = control & ~(PCF85063_CONTROL1_STOP | PCF85063_CONTROL1_12_24);
-      result = i2c_write_register(I2C_PCF85063, PCF85063_REG_CONTROL1, running);
+      result = (pbl_i2c_write_register(I2C_PCF85063, PCF85063_REG_CONTROL1, running) == 0);
     }
   }
-  i2c_release(I2C_PCF85063);
+  pbl_i2c_release(I2C_PCF85063);
   return result;
 }
 

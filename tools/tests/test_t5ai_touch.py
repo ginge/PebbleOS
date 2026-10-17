@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -134,7 +134,7 @@ static bool prv_poll(void) {
  s_consecutive_read_failures=polls==3 ? 0 : polls;
  return polls==4;
 }
-static bool gpio_input_read(const int *p){(void)p;return true;}
+static int pbl_gpio_get_raw(const int *p){(void)p;return 1;}
 typedef struct {unsigned ticks;} pbl_timeout_t;
 #define PBL_TICKS(t) ((pbl_timeout_t){t})
 static int pbl_sem_take(unsigned semaphore,pbl_timeout_t timeout) {

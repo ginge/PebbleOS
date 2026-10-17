@@ -1,39 +1,42 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-#include <pbl/soc/t5ai/interrupt_profile.h>
-#include <pbl/soc/t5ai/reboot_trace.h>
 #include "board/board.h"
-#include <cmsis_core.h>
-#include <pbl/device.h>
-#include <pbl/mcu/mpu.h>
-#include <pbl/drivers/watchdog.h>
-#include <pbl/drivers/i2c/t5ai_legacy.h>
-#include <pbl/drivers/gpio/t5ai_legacy.h>
-#include <pbl/drivers/mic/t5ai/definitions.h>
-#include <pbl/soc/t5ai/state_trace.h>
-#include <pbl/soc/t5ai/memory.h>
-#include <pbl/soc/t5ai/cp_mailbox.h>
-#include <pbl/soc/t5ai/power.h>
-#include <pbl/logging/logging.h>
 #include "system/passert.h"
+
+#include <pbl/device.h>
+#include <pbl/drivers/gpio/t5ai.h>
+#include <pbl/drivers/i2c/t5ai.h>
+#include <pbl/drivers/imu/qmi8658.h>
+#include <pbl/drivers/mic/t5ai/definitions.h>
+#include <pbl/drivers/watchdog.h>
+#include <pbl/logging/logging.h>
+#include <pbl/mcu/mpu.h>
+#include <pbl/soc/t5ai/cp_mailbox.h>
+#include <pbl/soc/t5ai/interrupt_profile.h>
+#include <pbl/soc/t5ai/memory.h>
+#include <pbl/soc/t5ai/power.h>
+#include <pbl/soc/t5ai/reboot_trace.h>
+#include <pbl/soc/t5ai/state_trace.h>
+
+#include <cmsis_core.h>
 
 PBL_LOG_MODULE_DEFINE(board_unhygienix, LOG_LEVEL_DEBUG);
 
-#define T5AI_GPIO_BASE 0x44000400u
-#define T5AI_GPIO_OUTPUT (1u << 1)
-#define T5AI_GPIO_INPUT_ENABLE (1u << 2)
-#define T5AI_GPIO_OUTPUT_DISABLE (1u << 3)
-#define T5AI_GPIO_PULL_ENABLE (1u << 5)
-#define T5AI_GPIO_SECOND_FUNCTION (1u << 6)
+#define T5AI_GPIO_BASE             0x44000400u
+#define T5AI_GPIO_OUTPUT           (1u << 1)
+#define T5AI_GPIO_INPUT_ENABLE     (1u << 2)
+#define T5AI_GPIO_OUTPUT_DISABLE   (1u << 3)
+#define T5AI_GPIO_PULL_ENABLE      (1u << 5)
+#define T5AI_GPIO_SECOND_FUNCTION  (1u << 6)
 #define T5AI_GPIO_DRIVE_STRENGTH_1 (1u << 8)
 
 static const MpuRegion s_display_psram_region = {
-    .region_num = T5AI_DISPLAY_PSRAM_MPU_REGION,
-    .enabled = true,
-    .executable = false,
-    .base_address = T5AI_DISPLAY_PSRAM_BASE,
-    .size = T5AI_DISPLAY_PSRAM_SIZE,
-    .cache_policy = MpuCachePolicy_WriteBackWriteAllocate,
-    .permissions = MpuPermissions_PrivRW,
+  .region_num = T5AI_DISPLAY_PSRAM_MPU_REGION,
+  .enabled = true,
+  .executable = false,
+  .base_address = T5AI_DISPLAY_PSRAM_BASE,
+  .size = T5AI_DISPLAY_PSRAM_SIZE,
+  .cache_policy = MpuCachePolicy_WriteBackWriteAllocate,
+  .permissions = MpuPermissions_PrivRW,
 };
 
 static void prv_enable_display_psram_cache(void) {
@@ -86,19 +89,16 @@ static void prv_assert_power_latch(void) {
 
 /* The module amplifier enable is active-low. It remains deasserted until a
  * native Pebble audio path owns the codec, clocks, and sample transport. */
-static const OutputConfig s_amplifier_enable = {
-    .pin = 28u,
-    .active_high = false,
-};
+static const struct pbl_gpio s_amplifier_enable = PBL_GPIO(&T5AI_GPIO, 28, PBL_GPIO_ACTIVE_LOW);
 
 #ifdef CONFIG_MIC
 static MicDeviceState s_mic_state;
 static const MicDevice s_mic_device = {
-    .state = &s_mic_state,
-    .base = 0x47800000u,
-    .irq = GDMA_IRQn,
-    .irq_priority = 6u,
-    .analog_gain = 8u,
+  .state = &s_mic_state,
+  .base = 0x47800000u,
+  .irq = GDMA_IRQn,
+  .irq_priority = 6u,
+  .analog_gain = 8u,
 };
 MicDevice *const MIC = &s_mic_device;
 PBL_IRQ_CONNECT(GDMA, 6, t5ai_mic_dma_irq_handler, MIC, 0);
@@ -106,74 +106,48 @@ PBL_IRQ_CONNECT(GDMA, 6, t5ai_mic_dma_irq_handler, MIC, 0);
 
 static UARTDeviceState s_dbg_uart_state;
 static UARTDevice s_dbg_uart_device = {
-    .state = &s_dbg_uart_state,
-    .base = 0x44820000u,
-    .irqn = UART0_IRQn,
-    .irq_priority = 5,
-    .tx_pin = 11,
-    .rx_pin = 10,
-    .clock_hz = 26000000u,
-    .baud_rate = 460800u,
+  .state = &s_dbg_uart_state,
+  .base = 0x44820000u,
+  .irqn = UART0_IRQn,
+  .irq_priority = 5,
+  .tx_pin = 11,
+  .rx_pin = 10,
+  .clock_hz = 26000000u,
+  .baud_rate = 460800u,
 };
 
 UARTDevice *const DBG_UART = &s_dbg_uart_device;
 PBL_IRQ_CONNECT(UART0, 5, uart_irq_handler, DBG_UART, 0);
 
-static I2CBusState s_i2c0_state;
-static const I2CBusHal s_i2c0_hal = {
-    .base = 0x45850000u,
-    .irqn = I2C0_IRQn,
-    // The Waveshare CST92xx board configuration qualifies this shared touch/RTC/IMU bus at
-    // standard mode. Running it at 400 kHz causes intermittent CST address-write timeouts.
-    .frequency = 100000u,
-    .scl_pin = 20u,
-    .sda_pin = 21u,
-};
-static I2CBus s_i2c0_bus = {
-    .state = &s_i2c0_state,
-    .hal = &s_i2c0_hal,
-    .name = "i2c0",
-};
-I2CBus *const I2C0_BUS = &s_i2c0_bus;
+// Shared touch/RTC/IMU bus is qualified at 100 kHz.
+PBL_I2C_T5AI_DEFINE(T5AI_I2C0, 0x45850000u, I2C0_IRQn, 100000u, 20, 21);
 static void prv_i2c_irq_handler(void) {
   const uint32_t irq_start = t5ai_interrupt_profile_irq_enter();
-  i2c_irq_handler(I2C0_BUS);
+  pbl_i2c_t5ai_irq_handler(&T5AI_I2C0);
   t5ai_interrupt_profile_irq_exit(0, irq_start);
 }
 PBL_IRQ_CONNECT(I2C0, 5, prv_i2c_irq_handler, , 0);
-
-static const I2CSlavePort s_i2c_pcf85063 = {
-    .bus = &s_i2c0_bus,
-    .address = 0x51u,
-};
-I2CSlavePort *const I2C_PCF85063 = &s_i2c_pcf85063;
-
-static const I2CSlavePort s_i2c_cst92xx = {
-    .bus = &s_i2c0_bus,
-    .address = 0x5au,
-};
-I2CSlavePort *const I2C_CST92XX = &s_i2c_cst92xx;
-
-static const I2CSlavePort s_i2c_qmi8658 = {
-    .bus = &s_i2c0_bus,
-    .address = 0x6bu,
-};
-I2CSlavePort *const I2C_QMI8658 = &s_i2c_qmi8658;
+PBL_QMI8658_DEFINE(s_qmi8658, &T5AI_I2C0.bus, 0x6b, &T5AI_GPIO, &T5AI_GPIO_INTC, 9);
+const struct pbl_accel *const ACCEL = &s_qmi8658.accel;
+static const struct pbl_i2c_dev s_pcf85063 = PBL_I2C_DEV(&T5AI_I2C0.bus, 0x51);
+static const struct pbl_i2c_dev s_cst92xx = PBL_I2C_DEV(&T5AI_I2C0.bus, 0x5a);
+const struct pbl_i2c_dev *const I2C_PCF85063 = &s_pcf85063;
+const struct pbl_i2c_dev *const I2C_CST92XX = &s_cst92xx;
 
 const BoardConfig BOARD_CONFIG = {.backlight_on_percent = 100};
 const BoardConfigButton BOARD_CONFIG_BUTTON = {
-    .buttons =
-        {
-            [BUTTON_ID_BACK] =
-                {.name = "Back", .pin = 18, .pull = GPIO_PuPd_UP, .active_high = false},
-            [BUTTON_ID_UP] = {.name = "Up", .pin = UINT8_MAX},
-            [BUTTON_ID_SELECT] =
-                {.name = "Select", .pin = 12, .pull = GPIO_PuPd_UP, .active_high = false},
-            [BUTTON_ID_DOWN] = {.name = "Down", .pin = UINT8_MAX},
-        },
+  .buttons = {
+    [BUTTON_ID_BACK] =
+        {.name = "Back", .gpio = PBL_GPIO(&T5AI_GPIO, 18, PBL_GPIO_ACTIVE_LOW | PBL_GPIO_PULL_UP)},
+    [BUTTON_ID_UP] = {.name = "Up"},
+    [BUTTON_ID_SELECT] =
+        {.name = "Select",
+         .gpio = PBL_GPIO(&T5AI_GPIO, 12, PBL_GPIO_ACTIVE_LOW | PBL_GPIO_PULL_UP)},
+    [BUTTON_ID_DOWN] = {.name = "Down"},
+  },
 };
 const BoardConfigPower BOARD_CONFIG_POWER = {.low_power_threshold = 5};
-const BoardConfigActuator BOARD_CONFIG_VIBE = {.ctl = {.pin = UINT8_MAX}};
+const BoardConfigActuator BOARD_CONFIG_VIBE = {};
 void board_early_init(void) {
   // CP supervision starts before the scheduler; service it before storage startup.
   t5ai_reboot_trace_start();
@@ -182,24 +156,14 @@ void board_early_init(void) {
   // P19 holds the module power rail on. Preload HIGH in the same write that
   // enables output so initialization cannot glitch the rail low.
   prv_assert_power_latch();
-  gpio_output_init(&s_amplifier_enable, GPIO_OType_PP);
-  gpio_output_set(&s_amplifier_enable, false);
+  PBL_ASSERTN(pbl_device_init(&T5AI_GPIO.dev) == 0);
+  PBL_ASSERTN(pbl_gpio_configure(&s_amplifier_enable, PBL_GPIO_OUTPUT_INACTIVE) == 0);
   /* The T5AI CP owns reset supervision and monitors the AP heartbeat. The
    * vendor AP adapter deliberately leaves both local watchdogs disabled. */
   watchdog_init();
   t5ai_state_trace_start();
 }
-static int prv_i2c_device_init(const struct pbl_device *dev) {
-  i2c_init(I2C0_BUS);
-  return 0;
-}
-PBL_DEVICE_STATE_DEFINE(t5ai_i2c0_device);
-const struct pbl_device t5ai_i2c0_device =
-    PBL_DEVICE_INIT(t5ai_i2c0_device, "i2c0", prv_i2c_device_init, nullptr, nullptr);
-PBL_DEVICE_REGISTER(t5ai_i2c0_device, &t5ai_i2c0_device);
-
 void board_init(void) {
-
   // Keep CP awake until the AP implements the low-voltage suspend/resume contract.
   const status_t status = t5ai_cp_mailbox_vote_app_sleep(false);
   if (FAILED(status)) {

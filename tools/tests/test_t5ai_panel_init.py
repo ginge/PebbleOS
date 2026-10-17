@@ -23,8 +23,10 @@ class PanelInitTest(unittest.TestCase):
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-typedef struct { unsigned pin; bool active_high; } OutputConfig;
-#define GPIO_OType_PP 1
+struct pbl_gpio { const void *port; unsigned pin,flags; };
+#define PBL_GPIO(port,pin,flags) {port,pin,flags}
+#define PBL_GPIO_OUTPUT_INACTIVE 1
+static const int T5AI_GPIO;
 static unsigned calls, fail_at, reset_step, delays;
 static uint8_t s_brightness;
 static const uint8_t commands[] = {
@@ -32,15 +34,15 @@ static const uint8_t commands[] = {
   0x11, 0x20, 0x13, 0x29
 };
 static const uint8_t values[] = {0x20, 0x10, 0xa0, 0, 0x80, 0x55, 0, 0x20, 0, 0xff};
-static void gpio_output_init(const OutputConfig *config, unsigned type) {
-  assert(config->pin == 29 && config->active_high && type == GPIO_OType_PP);
-  assert(reset_step++ == 0);
+static int pbl_gpio_configure(const struct pbl_gpio *config, unsigned type) {
+  assert(config->pin == 29 && config->flags==0 && type == PBL_GPIO_OUTPUT_INACTIVE);
+  assert(reset_step++ == 0); return 0;
 }
-static void gpio_output_set(const OutputConfig *config, bool value) {
+static int pbl_gpio_set(const struct pbl_gpio *config, bool value) {
   assert(config->pin == 29 && reset_step >= 1 && reset_step <= 3);
   assert(value == (reset_step != 2));
   assert(delays == reset_step - 1);
-  ++reset_step;
+  ++reset_step; return 0;
 }
 static void delay_us(unsigned us) {
   static const unsigned expected[] = {20000, 200000, 120000, 200000};

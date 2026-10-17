@@ -30,8 +30,9 @@ pbl_clar_test(test_accel_t5ai
   SOURCES
     drivers/base/device.c
     drivers/imu/accel.c
-    drivers/imu/qmi8658/qmi8658_t5ai_device.c
+    tests/fakes/fake_rtc.c
   DEFINES
+    CONFIG_DRIVER_IMU_LOG_LEVEL=0
     CONFIG_DEVICE_LOG_LEVEL=0
     PBL_NO_LINKER_SCRIPT
   OVERRIDES dummy_board

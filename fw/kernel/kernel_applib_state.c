@@ -12,7 +12,8 @@
 
 static PBL_MUTEX_DEFINE(s_log_state_mutex);
 static bool s_log_state_mutex_ready;
-static bool s_log_state_task_entered[NumPebbleTask]; // which tasks have entered
+// Native threads without a PebbleTask registration use the Unknown slot.
+static bool s_log_state_task_entered[PebbleTask_Unknown + 1];
 
 // ---------------------------------------------------------------------------------------------
 CompassServiceConfig **kernel_applib_get_compass_config(void) {

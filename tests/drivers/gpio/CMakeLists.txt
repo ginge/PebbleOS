@@ -9,3 +9,16 @@ pbl_clar_test(test_gpio
     PBL_NO_LINKER_SCRIPT
     CONFIG_DEVICE_LOG_LEVEL=0
 )
+
+pbl_clar_test(test_gpio_t5ai
+  SOURCES
+    drivers/base/device.c
+    drivers/gpio/gpio.c
+    drivers/gpio/t5ai.c
+    drivers/gpio/t5ai_intc.c
+    drivers/intc/intc.c
+  DEFINES
+    PBL_NO_LINKER_SCRIPT
+    CONFIG_DEVICE_LOG_LEVEL=0
+  OVERRIDES t5ai_gpio
+)

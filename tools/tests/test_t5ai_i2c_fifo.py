@@ -15,20 +15,20 @@ static uint8_t test_pop(void) {
  --queued; ++pops;
  return (uint8_t)(offset++ ^ 0xa5u);
 }
-static void irq(I2CBus *bus, uint32_t status) {
- prv_regs(bus)->status=status;in_isr=true;i2c_irq_handler(bus);in_isr=false;
+static void irq(const struct pbl_i2c_bus *bus, uint32_t status) {
+ prv_regs(bus)->status=status;in_isr=true;pbl_i2c_t5ai_irq_handler(prv_dev(bus));in_isr=false;
 }
-static void begin(I2CBus *bus,uint8_t *buffer,unsigned size,bool reg) {
+static void begin(const struct pbl_i2c_bus *bus,uint8_t *buffer,unsigned size,bool reg) {
  elapsed=0;queued=pops=offset=0;
- bus->state->transfer=(I2CTransfer){.size=size,.data=buffer,.device_address=0x6b,
-  .register_address=0x30,.direction=I2CTransferDirection_Read,
-  .type=reg?I2CTransferType_SendRegisterAddress:I2CTransferType_NoRegisterAddress};
- i2c_hal_start_transfer(bus);
+ bus->state->transfer=(struct pbl_i2c_transfer){.size=size,.data=buffer,.addr=0x6b,
+  .reg=0x30,.dir=PBL_I2C_READ,
+  .with_reg=reg};
+ pbl_i2c_t5ai_ops.start_transfer(bus);
  assert(prv_regs(bus)->data==(reg?0xd6u:0xd7u));
  if(reg) {
   irq(bus,T5AI_I2C_STATUS_INTERRUPT|T5AI_I2C_STATUS_ACK);
   assert(prv_regs(bus)->data==0x30u);
-  assert(bus->state->transfer.state==I2CTransferState_RepeatStart);
+  assert(prv_dev(bus)->state->phase==T5AI_I2C_RESTART);
   irq(bus,T5AI_I2C_STATUS_INTERRUPT|T5AI_I2C_STATUS_ACK);
   assert(prv_regs(bus)->data==0xd7u && prv_regs(bus)->status==T5AI_I2C_STATUS_START);
  }
@@ -38,33 +38,35 @@ static void begin(I2CBus *bus,uint8_t *buffer,unsigned size,bool reg) {
 static unsigned threshold(uint32_t control) {
  const unsigned n[]={12,8,4,1};return n[(control>>6)&3u];
 }
-static void data_irq(I2CBus *bus) {
+static void data_irq(const struct pbl_i2c_bus *bus) {
  uint32_t control=prv_regs(bus)->status;
  queued=threshold(control);
- assert(queued<=12 && queued<=bus->state->transfer.size-bus->state->transfer.idx);
+ assert(queued<=12 && queued<=bus->state->transfer.size-prv_dev(bus)->state->index);
  irq(bus,control|T5AI_I2C_STATUS_INTERRUPT);
  assert(!queued);
 }
 int main(void) {
  assert(mmap((void *)0x44000000,0x20000,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED,-1,0)!=(void *)-1);
  assert(mmap((void *)T5AI_I2C0_BASE,4096,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED,-1,0)!=(void *)-1);
- I2CBusHal hal={.base=T5AI_I2C0_BASE,.irqn=6,.frequency=100000,.scl_pin=20,.sda_pin=21};
- I2CBusState state={0};I2CBus bus={.hal=&hal,.state=&state};
+ struct pbl_i2c_bus_state state={0}; struct pbl_i2c_t5ai_state hw={0};
+ struct pbl_i2c_t5ai dev={.bus={.state=&state},.state=&hw,.base=T5AI_I2C0_BASE,
+  .irqn=6,.frequency=100000,.scl={.pin=20},.sda={.pin=21}};
+ const struct pbl_i2c_bus *bus=&dev.bus;
  uint8_t buffer[258];
- i2c_hal_init(&bus);i2c_hal_enable(&bus);
+ pbl_i2c_t5ai_ops.init(bus);pbl_i2c_t5ai_ops.enable(bus);
  for(unsigned reg=0;reg<2;++reg)for(unsigned size=1;size<=256;++size) {
   for(unsigned i=0;i<sizeof(buffer);++i)buffer[i]=0x7e;
   unsigned done=completions;
-  begin(&bus,buffer+1,size,reg);
-  irq(&bus,prv_regs(&bus)->status); // No interrupt means no FIFO read.
+  begin(bus,buffer+1,size,reg);
+  irq(bus,prv_regs(bus)->status); // No interrupt means no FIFO read.
   assert(!pops);
   unsigned entries=0;
-  while(state.transfer.idx<size) {
-   data_irq(&bus);++entries;
-   if(state.transfer.idx<size)assert(completions==done);
+  while(hw.index<size) {
+   data_irq(bus);++entries;
+   if(hw.index<size)assert(completions==done);
   }
-  assert(completions==done+1 && state.transfer_event==I2CTransferEvent_TransferComplete);
-  assert(prv_regs(&bus)->status==T5AI_I2C_STATUS_STOP && pops==size);
+  assert(completions==done+1 && state.event==PBL_I2C_EVENT_COMPLETE);
+  assert(prv_regs(bus)->status==T5AI_I2C_STATUS_STOP && pops==size);
   assert(buffer[0]==0x7e && buffer[size+1]==0x7e);
   for(unsigned i=0;i<size;++i)assert(buffer[i+1]==(uint8_t)(i^0xa5u));
 #ifdef CONFIG_T5AI_I2C_RX_FIFO
@@ -82,39 +84,39 @@ int main(void) {
  // Timeout/arbitration after partial data must not consume more bytes.
  const uint32_t errors[]={T5AI_I2C_STATUS_TIMEOUT,T5AI_I2C_STATUS_ARB_LOST};
  for(unsigned e=0;e<2;++e) {
-  begin(&bus,buffer,24,true);data_irq(&bus);
+  begin(bus,buffer,24,true);data_irq(bus);
   unsigned before=pops,done=completions,calls=gpio_calls;
-  irq(&bus,errors[e]|T5AI_I2C_STATUS_INTERRUPT);
-  assert(completions==done+1 && state.transfer_event==I2CTransferEvent_Error);
-  assert(pops==before && gpio_calls==calls && s_recovery_required && !irq_enabled);
-  begin(&bus,buffer,9,true);
-  assert(!s_recovery_required && irq_enabled);
-  while(state.transfer.idx<9)data_irq(&bus);
-  assert(state.transfer_event==I2CTransferEvent_TransferComplete);
+  irq(bus,errors[e]|T5AI_I2C_STATUS_INTERRUPT);
+  assert(completions==done+1 && state.event==PBL_I2C_EVENT_ERROR);
+  assert(pops==before && gpio_calls==calls && hw.recovery_required && !irq_enabled);
+  begin(bus,buffer,9,true);
+  assert(!hw.recovery_required && irq_enabled);
+  while(hw.index<9)data_irq(bus);
+  assert(state.event==PBL_I2C_EVENT_COMPLETE);
  }
  // Read address NACK is not a data-ready interrupt.
- elapsed=0;state.transfer=(I2CTransfer){.size=9,.data=buffer,.device_address=0x6b,
-  .direction=I2CTransferDirection_Read,.type=I2CTransferType_NoRegisterAddress};
- i2c_hal_start_transfer(&bus);unsigned before=pops,done=completions;
- irq(&bus,T5AI_I2C_STATUS_INTERRUPT|T5AI_I2C_STATUS_START);
- assert(completions==done+1 && pops==before && state.transfer_event==I2CTransferEvent_NackReceived);
+ elapsed=0;state.transfer=(struct pbl_i2c_transfer){.size=9,.data=buffer,.addr=0x6b,
+  .dir=PBL_I2C_READ,.with_reg=false};
+ pbl_i2c_t5ai_ops.start_transfer(bus);unsigned before=pops,done=completions;
+ irq(bus,T5AI_I2C_STATUS_INTERRUPT|T5AI_I2C_STATUS_START);
+ assert(completions==done+1 && pops==before && state.event==PBL_I2C_EVENT_ERROR);
  // A malformed level or stale interrupt cannot overrun the destination.
- begin(&bus,buffer,2,false);before=pops;
+ begin(bus,buffer,2,false);before=pops;
 #ifndef CONFIG_T5AI_I2C_RX_FIFO
  queued=1;
 #endif
- irq(&bus,T5AI_I2C_STATUS_INTERRUPT|T5AI_I2C_STATUS_ACK); // mode 0: twelve bytes
+ irq(bus,T5AI_I2C_STATUS_INTERRUPT|T5AI_I2C_STATUS_ACK); // mode 0: twelve bytes
 #ifdef CONFIG_T5AI_I2C_RX_FIFO
- assert(pops==before && state.transfer_event==I2CTransferEvent_Error);
+ assert(pops==before && state.event==PBL_I2C_EVENT_ERROR);
 #else
  (void)before;
 #endif
  // Zero-length requests do not issue START or touch the receive buffer.
- s_recovery_required=false;state.transfer.size=0;elapsed=0;
- prv_regs(&bus)->status=0x200u;before=pops;
- i2c_hal_start_transfer(&bus);
- assert(state.transfer_event==I2CTransferEvent_Error && pops==before);
- assert(prv_regs(&bus)->status==0x200u);
+ hw.recovery_required=false;state.transfer.size=0;elapsed=0;
+ prv_regs(bus)->status=0x200u;before=pops;
+ pbl_i2c_t5ai_ops.start_transfer(bus);
+ assert(state.event==PBL_I2C_EVENT_ERROR && pops==before);
+ assert(prv_regs(bus)->status==0x200u);
  return 0;
 }
 """
@@ -130,10 +132,10 @@ class T5AII2CFifoTest(unittest.TestCase):
                 path = Path(temporary)
                 (path / "api.h").write_text(API)
                 for name in (
-                    "pbl/drivers/i2c/t5ai_legacy_hal.h",
-                    "pbl/drivers/i2c/t5ai_legacy_definitions.h",
+                    "pbl/util/misc.h",
+
                     "pbl/drivers/i2c/t5ai.h",
-                    "pbl/drivers/gpio/t5ai_legacy.h",
+
                     "pbl/soc/t5ai/kernel.h",
                     "pbl/soc/t5ai/delay.h",
                     "system/passert.h",
