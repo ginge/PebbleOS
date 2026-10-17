@@ -82,6 +82,21 @@ records dependency, build, packaging and flash procedures.
    GATT consolidation, persistence reassessment, the remaining audit verdicts
    and merge readiness remain open.
 
+   Progress — 2026-10-17 (unused code and duplicate assets, based on
+   `a53522389` after upstream merge): removed the unused alternate syscall ABI
+   header and restored the stock resource-bank condition. The shared
+   `fw/resource/resource_storage_flash.c` now matches `origin/main` at `b3a2dcb88`
+   exactly. The Unhygienix map references the eight existing Getafix multiwatch
+   PNGs directly; byte-identical local copies were removed. The real resource
+   generator produced identical affected PNG payloads and an identical declared
+   resource ID header before/after; all 607 resource definitions and 31
+   declarations retain their metadata/order apart from the eight source paths.
+   Fifty-five focused resource/pack/font/board tests pass. Evidence:
+   `/home/baz/Documents/ChatGPT/pebble/artifacts/upstream-cleanup-20261017/leftovers/validation.txt`.
+   This is not a full resource-pack/firmware rebuild or hardware qualification.
+   GATT discovery consolidation is the next substantive cleanup; persistence
+   reassessment and the remaining audit dispositions stay open.
+
 2. **Replace display completion polling with interrupt-driven completion where
    supported.** Audit the T5AI CO5300 QSPI/DMA path against other Pebble display
    drivers and the pinned Tuya implementation, then adopt a driver-/SoC-local

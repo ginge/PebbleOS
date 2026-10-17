@@ -93,42 +93,42 @@
     {
       "type": "png",
       "name": "MULTIWATCH_BACKGROUND_20MM_BLACK",
-      "file": "normal/unhygienix/images/multiwatch_bg_20mm_black.png"
+      "file": "normal/getafix/images/multiwatch_bg_20mm_black.png"
     },
     {
       "type": "png",
       "name": "MULTIWATCH_TIMEZONE_20MM_BLACK",
-      "file": "normal/unhygienix/images/multiwatch_tz_20mm_black.png"
+      "file": "normal/getafix/images/multiwatch_tz_20mm_black.png"
     },
     {
       "type": "png",
       "name": "MULTIWATCH_BACKGROUND_20MM_SILVER",
-      "file": "normal/unhygienix/images/multiwatch_bg_20mm_silver.png"
+      "file": "normal/getafix/images/multiwatch_bg_20mm_silver.png"
     },
     {
       "type": "png",
       "name": "MULTIWATCH_TIMEZONE_20MM_SILVER",
-      "file": "normal/unhygienix/images/multiwatch_tz_20mm_silver.png"
+      "file": "normal/getafix/images/multiwatch_tz_20mm_silver.png"
     },
     {
       "type": "png",
       "name": "MULTIWATCH_BACKGROUND_14MM_SILVER",
-      "file": "normal/unhygienix/images/multiwatch_bg_14mm_silver.png"
+      "file": "normal/getafix/images/multiwatch_bg_14mm_silver.png"
     },
     {
       "type": "png",
       "name": "MULTIWATCH_TIMEZONE_14MM_SILVER",
-      "file": "normal/unhygienix/images/multiwatch_tz_14mm_silver.png"
+      "file": "normal/getafix/images/multiwatch_tz_14mm_silver.png"
     },
     {
       "type": "png",
       "name": "MULTIWATCH_BACKGROUND_14MM_ROSE_GOLD",
-      "file": "normal/unhygienix/images/multiwatch_bg_14mm_rosegold.png"
+      "file": "normal/getafix/images/multiwatch_bg_14mm_rosegold.png"
     },
     {
       "type": "png",
       "name": "MULTIWATCH_TIMEZONE_14MM_ROSE_GOLD",
-      "file": "normal/unhygienix/images/multiwatch_tz_14mm_rosegold.png"
+      "file": "normal/getafix/images/multiwatch_tz_14mm_rosegold.png"
     },
     {
       "type": "pdc",

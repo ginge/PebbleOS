@@ -49,9 +49,7 @@ static void resource_storage_system_bank_init(void) {
   // a bank that's valid.
   for (s_active_bank = 0; s_active_bank < ARRAY_LENGTH(s_resource_banks); ++s_active_bank) {
     PBL_LOG_INFO("Checking bank %u for system resources", s_active_bank);
-    const bool valid =
-        resource_storage_generic_check(SYSTEM_APP, 0, &entry, &SYSTEM_RESOURCE_VERSION);
-    if (valid) {
+    if (resource_storage_generic_check(SYSTEM_APP, 0, &entry, &SYSTEM_RESOURCE_VERSION)) {
       PBL_LOG_INFO("Valid system resources found!");
       s_valid_resources_found = true;
       return;
