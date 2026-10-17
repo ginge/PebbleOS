@@ -246,3 +246,13 @@ if(CONFIG_T5AI_PIXEL_FAST_PATH)
   endfunction()
   cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_pixel_fast_call_boundaries)
 endif()
+
+if(CONFIG_T5AI_TASK_CPU_METRICS)
+  pbl_library_sources(task_cpu_metrics.c)
+  pbl_link_options(-Wl,--wrap=system_task_timer_init)
+  function(t5ai_task_cpu_metrics_call_boundaries)
+    set_property(SOURCE ${PBL_BASE}/fw/services/system_task/service.c
+      DIRECTORY ${PBL_BASE}/fw/services/system_task APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+  endfunction()
+  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_task_cpu_metrics_call_boundaries)
+endif()

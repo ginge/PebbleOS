@@ -1063,3 +1063,32 @@ The final installed image is the driver-only profiling build,
 `fec61e56318f9ec60c17ead01da5956d0cc8a6d5`, verified from UART boot output.
 Heavy App/BG tracing is off; detailed display profiling and pixel fast path are
 on. No hardware capture remains running. Phone Bluetooth can be re-enabled.
+
+
+## Task CPU metrics without investigation tracing — 2026-10-14
+
+`CONFIG_T5AI_TASK_CPU_METRICS=y` selects a SoC-local five-second reporter of
+existing scheduler runtime counters. It defaults off and is mutually exclusive
+with App/BG tracing. Disable all other T5AI TRACE/PROFILE options, generic
+PROFILER and `T5AI_QMI8658_SELF_TEST` for CPU-only captures. This leaves normal
+operational logging available. No scheduler hooks or PC sampling are added.
+
+Each TASKCPU header identifies sequence, AON interval/frequency, task count and
+omissions. Rows identify task IDs/names and scheduler milliseconds, including
+zero-runtime tasks. Retain only complete declared task sets with no omissions,
+stable app identity and CPU totals consistent with elapsed time. Exclude boot,
+app switching and phone sync; ISR runtime is included in interrupted task time.
+The 4096-byte reporter thread's own runtime is included and reported separately.
+
+AP-only build `913642c4ab449d3dfe73dadd9b9d50928aa2c7a0` was flashed successfully.
+MU-TH-UR T was operator-confirmed visible and left untouched after phone sync.
+Twenty accepted windows (100.649 seconds) measured 86.42% IDLE / 13.58% busy:
+App 6.02%, KernelMain 2.93%, QMI8658 2.72%, NewTimer 0.96%, TaskCPU 0.52%,
+mailbox 0.41%, HCI IPC 0.014% and KernelBG 0.001%; other live tasks accumulated
+zero scheduler milliseconds. Startup, App Fetch and initial face exit were
+excluded. UART losses exclude some windows; retained duration is not contiguous.
+The runtime clock log reports 240 MHz despite a 120 MHz configuration value;
+clock configuration was unchanged. This is an instrumented AP idle measurement,
+not an exclusive accelerometer pipeline cost or a matched comparison with FdF.
+Evidence and reproduction: `build/traces/task-cpu-idle-20261014/README.md` and
+`analysis.json`. Both bounded captures ended; no live UART monitor remains.

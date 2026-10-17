@@ -1,5 +1,13 @@
 # QMI8658 acquisition on Unhygienix
 
+Status: **complete for now**, closed at the operator’s request on 2026-10-14.
+The implementation iteration is closed. The
+[remaining-work TODO](../../../boards/unhygienix/tuya/REMAINING_TASKS.md) now tracks
+an exploratory follow-up to measure idle versus active CPU cost and investigate
+further reductions, without guaranteeing an improvement. Measured results and remaining limitations below
+are retained; this status does not claim a controller-FIFO CPU improvement or
+full sensor-FIFO/low-power qualification.
+
 The default T5AI driver uses GPIO9 (QMI INT2) to wake a bounded acquisition
 worker. Software shake and one-sample requests retain per-sample interrupts;
 requests allowing batching use the sensor FIFO. The existing worker priority,

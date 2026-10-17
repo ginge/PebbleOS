@@ -13,6 +13,15 @@ with Getafix. Getafix DVT and DVT2 remain independent Round 2 hardware targets.
 Unhygienix is excluded from release matrices. Recovery firmware, OTA, PBZ
 bundles, bulk erase and unsupported raw-flash operations remain disabled.
 
+## Top priority cleanup for main and upstream — 2026-10-14
+
+Complete the [upstream divergence cleanup TODO](../../../boards/unhygienix/tuya/REMAINING_TASKS.md#next-priorities--2026-10-14)
+before proposing the port for merge to `main`. It references the complete
+2026-10-14 source audit and file inventory, separates general fixes for upstream,
+and defines the required regression and hardware validation. Each retained
+stock deviation or CMake-selected replacement needs an explicit justification;
+merge readiness remains unqualified until the checklist is resolved.
+
 ## Current controller baseline and paused bypass — 2026-10-11
 
 Flash bypass development is paused. Active work returns to `tuya` with the

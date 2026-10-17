@@ -7,6 +7,15 @@ config BOARD_UNHYGIENIX
       Unhygienix (The village fishmonger).
       Waveshare T5-E1 Touch AMOLED 1.75 using the PebbleOS kernel.
 
+config T5AI_TASK_CPU_METRICS
+    bool "Report task CPU counters every five seconds"
+    depends on BOARD_UNHYGIENIX && !T5AI_BG_TRACE && !T5AI_APP_TRACE
+    default n
+    help
+      Snapshot existing scheduler runtime counters without scheduler hooks or
+      PC sampling. Report all tasks, including zero runtime, outside IRQ locks.
+      Runtime includes interrupts charged to the interrupted task.
+
 config T5AI_STATE_TRACE
     bool "Record T5AI app and background task state across reset"
     depends on BOARD_UNHYGIENIX

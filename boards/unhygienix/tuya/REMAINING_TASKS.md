@@ -4,9 +4,48 @@ The [operator handoff](../../../docs/boards/unhygienix/index.md) records current
 support and implementation gaps. The [tooling guide](../../../docs/boards/unhygienix/tooling.md)
 records dependency, build, packaging and flash procedures.
 
-## Next priorities — 2026-10-11
+## Next priorities — 2026-10-14
 
-1. **Replace display completion polling with interrupt-driven completion where
+1. **Top priority: upstream divergence cleanup and readiness to merge to main.**
+   Use the [2026-10-14 source audit](/home/baz/Documents/ChatGPT/pebble/audits/2026-10-14-pebbleos/audit.md)
+   and its [complete file inventory](/home/baz/Documents/ChatGPT/pebble/audits/2026-10-14-pebbleos/file-inventory.md)
+   as the cleanup checklist before proposing the port for merge to `main` or
+   sending its general fixes upstream. These are local audit artifacts; preserve
+   or attach them with the merge review so reviewers can access the evidence.
+   The audit compares `tuya` at `fbdf1220a` plus the recorded working-tree changes
+   with fork point `a2120e2ae` and fetched upstream `main` at `fc89e16b2`.
+   It accounts for 381 changed or untracked files; refresh the comparison as
+   code and upstream advance. This TODO does not establish merge readiness.
+
+   - Restore stock QEMU board metadata and remove unused revision-override
+     plumbing; fix allowed diagnostic combinations with duplicate linker wrappers.
+   - Repair regression tests that still assume the retired FreeRTOS port and
+     archive or repair the obsolete standalone Tuya reference build path.
+   - Consolidate duplicated stock logic, especially GATT discovery. Reassess
+     the PRF Bluetooth persistence selection and separate development-only
+     product behavior from hardware requirements. Follow each inventory verdict;
+     retain documented exceptions until their behavior is safely preserved.
+   - Remove unused alternate syscall ABI code and unjustified shared edits;
+     share redundant assets where supported. Track removal of the temporary
+     SDK compatibility cache under its existing TODO below.
+   - Prepare general correctness fixes as separate upstream tasks/patches:
+     PULSE framing, bounds and transport lifetime; logging progress; accelerometer
+     enqueue-result propagation; watchdog runnable-waiter accounting; KernelBG
+     recovery; serial teardown; and MPU correctness. Reconcile the watchdog
+     grace-period fix already present upstream and the upstream MPU relocation
+     rather than carrying obsolete copies or submitting duplicate fixes.
+   - Close or explicitly resolve every audit finding, record justification for
+     each retained divergence, and rerun relevant tests and stock-board/QEMU
+     checks. Qualify the resulting watch firmware with install/launch,
+     reconnect cycles, cold-boot bond restoration and connected-idle soak before
+     marking the cleanup ready for merge review. Preserve first-failure evidence.
+
+   Prefer existing stock interfaces and narrow board-/SoC-/driver-local adapters.
+   CMake-selected copies still require justification; avoid new logical forks
+   merely to keep common source text unchanged. Preserve CP/flash ownership,
+   PSRAM placement, display startup constraints and unsupported update gates.
+
+2. **Replace display completion polling with interrupt-driven completion where
    supported.** Audit the T5AI CO5300 QSPI/DMA path against other Pebble display
    drivers and the pinned Tuya implementation, then adopt a driver-/SoC-local
    completion interrupt and blocking wait if the hardware supports it. Current
@@ -22,21 +61,43 @@ records dependency, build, packaging and flash procedures.
    corruption or lost completions. Keep this distinct from the SDK compatibility
    cache TODO below: eliminating transfer waits may not fix software render cost
    or KernelBG starvation.
-2. **Heavily optimise accelerometer CPU and task resource use.** Profile the
-   QMI8658 acquisition, I2C, timer/offload and shake-filter costs, then investigate
-   interrupt-driven data-ready/FIFO batching and sensor motion/wake support,
-   subject to verified board wiring and QMI8658 capabilities. Reduce wakeups,
-   per-sample transactions, queue handoffs and dedicated task/stack overhead
-   where practical. The current pipeline uses a static priority-3 worker with a
-   1536-byte stack, a timer/semaphore acquisition trigger and NewTimers delivery;
-   it polls one sample rather than using the interrupt-driven FIFO batches used
-   by other sensors. Shake detection keeps polling active without subscribers
-   at approximately 31.25 Hz (32 ms) or faster. Configuration and uncached peeks
-   remain synchronous. Preserve requested rates, timestamps, axis/rotation
-   mapping, manager locking, shake sensitivity/settling/holdoff, stale-sample
-   rejection and bounded queue handling. Validate subscriptions, peeks, rate and
-   power transitions, shake-to-wake and sustained input under busy watchfaces;
-   compare CPU time, wakeup rates, stack/RAM use and delivery latency.
+3. **Investigate further accelerometer CPU-cost reduction — exploratory (2026-10-14).**
+   Measure how much CPU the accelerometer pipeline costs while the watch is idle
+   and while an accelerometer-using watchface is active, then determine whether
+   a worthwhile further reduction is practical. A reduction is not guaranteed;
+   reporting the measured cost and an unsuccessful optimisation is a valid result.
+   Establish matched baselines with the same firmware, clock, tracing and sensor
+   settings; distinguish idle with shake/wrist-to-wake enabled, a live subscriber,
+   and true sensor standby. Record actual sample rate and shake/batching state.
+   Use worker CPU ms/s and ms/sample as the primary metrics, and account for
+   I2C ISR and shared service/shake processing separately without double-counting.
+   Preserve input latency, sample delivery, shake/wake and touch behavior. Keep
+   changes driver-/SoC-local and preserve stock shared code and task priorities.
+   Historical active FdF captures measured 9.21–9.74% worker CPU with legacy
+   polling and 2.17–2.42% with interrupt-driven direct acquisition. The later
+   controller-FIFO comparison measured 2.16–2.29% in byte controls, 2.42% with
+   twelve-byte bursts and 2.57% with four-byte bursts. These are instrumented
+   active measurements, not idle baselines or exclusive whole-pipeline CPU.
+   A qualified matched idle baseline was not found in the reviewed historical
+   tracing; obtain it before claiming an idle/active saving.
+
+   The previous acquisition implementation iteration remains complete for now,
+   closed at the operator’s request on 2026-10-14. Implemented driver-local interrupt-driven
+   acquisition, bounded sensor FIFO batching and combined register reads, with
+   the previous periodic implementation behind a legacy compile-time flag.
+   The I2C controller receive FIFO defaults on with a twelve-byte maximum;
+   the four-byte cap and acquisition profiling default off. Shared Pebble code,
+   task priorities and the 100 kHz bus are preserved.
+   Focused tests and matched FdF Time watch captures are recorded in the
+   [acquisition results](../../../docs/boards/unhygienix/qmi8658_acquisition.md).
+   Accelerometer-thread CPU is the primary metric: controller FIFO reduced IRQ
+   entries by about 69%, but measured worker CPU was 2.42% versus 2.29%/2.16%
+   in byte-mode controls, so no CPU reduction is claimed for that experiment.
+   Animation, shake/wrist-to-wake and touch were operator-confirmed on the last
+   restored normal image. The later default change has not been flashed.
+   Sensor FIFO throughput/timestamp limitations, DMA support not established,
+   unqualified low-power transitions and the earlier unresolved freeze/reboot
+   remain documented limitations; completion of the previous iteration does not qualify them.
 
 Previous notes: [QMI8658 polling isolation and accelerometer-free comparison](../../../docs/boards/unhygienix/tooling.md),
 [shake/display wake behaviour](../../../docs/boards/unhygienix/index.md), and
