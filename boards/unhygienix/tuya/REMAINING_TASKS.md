@@ -45,6 +45,43 @@ records dependency, build, packaging and flash procedures.
    merely to keep common source text unchanged. Preserve CP/flash ownership,
    PSRAM placement, display startup constraints and unsupported update gates.
 
+   Progress — 2026-10-17 (first cleanup batch, based on `75cdedff7`):
+   restored `tools/boards.py` exactly to local `main`, including QEMU metadata
+   loading, and removed unused revision-specific runner/defconfig overrides.
+   Added board-local Kconfig exclusions for conflicting mutex and timer
+   wrappers, including App tracing's implicit BG tracing selection. Reminder
+   profiling and watchdog recovery tracing are also mutually exclusive in
+   Kconfig; their existing CMake rejection remains as a defensive check.
+   Nine focused board/parser/configuration tests pass. The broad tool suite
+   ran 269 entries: 10 failures, 12 errors and one skip, with leak detection
+   disabled for the sandbox. Remaining failures include retired FreeRTOS and
+   old CMake/source-path expectations, obsolete reference staging, and an
+   unresolved `pebble.loghashing` import. Full output is preserved at
+   `/home/baz/Documents/ChatGPT/pebble/artifacts/upstream-cleanup-20261017/tool-tests.log`.
+   Regression-suite repair, reference-build disposition and the other audit
+   findings remain open. No firmware build, QEMU boot, flash or physical
+   qualification was performed for this batch; merge readiness is not established.
+
+   Progress — 2026-10-17 (regression and reference-staging batch):
+   the broad tool suite is now green: 274 entries, one ARM SDK/QEMU fault-entry
+   test skipped because its tools were unavailable. This supersedes the test
+   failures recorded above. Retired FreeRTOS/startup assumptions and oversized
+   source-snippet checks were replaced with current native integration checks;
+   heartbeat and mailbox behavioral harnesses were retained and updated.
+   Added executable fault-priority, PSRAM corruption/bounds and panel reset/
+   command-order/write-failure coverage. The trace import resolves with the
+   repository package roots on `PYTHONPATH`, without production changes.
+   Archived the unused reference mutex adapter under `tuya/history/`, removed
+   its self-test/build glue, and repaired repeatable reference staging using
+   only the required button/touch event type headers. The reference runtime
+   harness compiles and passes against the staged sources and headers alone.
+   Full logs and the exact validation command are in
+   `/home/baz/Documents/ChatGPT/pebble/artifacts/upstream-cleanup-20261017/validation-after-repair.txt`.
+   Leak detection remains disabled for the sandbox. Full firmware/vendor SDK
+   builds, stock QEMU boot and hardware qualification have not been performed.
+   GATT consolidation, persistence reassessment, the remaining audit verdicts
+   and merge readiness remain open.
+
 2. **Replace display completion polling with interrupt-driven completion where
    supported.** Audit the T5AI CO5300 QSPI/DMA path against other Pebble display
    drivers and the pinned Tuya implementation, then adopt a driver-/SoC-local

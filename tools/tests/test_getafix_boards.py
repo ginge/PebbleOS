@@ -49,10 +49,8 @@ class GetafixBoardsTest(unittest.TestCase):
                 board = parse_board(str(ROOT), target)
                 self.assertEqual(board.revision, revision)
                 self.assertEqual(board.normalized, f"getafix_{revision}")
-                self.assertFalse(board.isolated_defconfig)
                 expected_runners = ["sftool"]
                 self.assertEqual(board.runners, expected_runners)
-                self.assertFalse(board.allow_no_runner)
 
     def test_original_dvt_keeps_its_haptics(self):
         config = load_config("dvt", "normal")

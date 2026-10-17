@@ -69,6 +69,8 @@ class TuyaHardwareTest(unittest.TestCase):
     def test_runtime_ports(self):
         with tempfile.TemporaryDirectory() as directory:
             binary = Path(directory) / "runtime_test"
+            staged = Path(directory) / "app"
+            builder.stage_app(SOURCE, staged)
             sources = [
                 "hardware_core.c",
                 "rtc_port.c",
@@ -83,10 +85,10 @@ class TuyaHardwareTest(unittest.TestCase):
                     "-Wextra",
                     "-Werror",
                     "-I",
-                    str(SOURCE / "src"),
+                    str(staged / "src"),
                     "-I",
-                    str(ROOT / "include"),
-                    *[str(SOURCE / "src" / source) for source in sources],
+                    str(staged / "pebble_include"),
+                    *[str(staged / "src" / source) for source in sources],
                     str(SOURCE / "tests/test_runtime.c"),
                     "-o",
                     str(binary),
@@ -129,17 +131,26 @@ class TuyaHardwareTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "app"
             builder.stage_app(SOURCE, output)
+            (output / "src/os_adapter.c").write_text("retired adapter")
+            (output / "pebble_include/pbl/os").mkdir(parents=True)
             builder.stage_app(SOURCE, output)
+            self.assertFalse((output / "src/os_adapter.c").exists())
+            self.assertFalse((output / "pebble_include/pbl/os").exists())
             self.assertEqual(
                 (output / "src/hardware.c").read_bytes(),
                 (SOURCE / "src/hardware.c").read_bytes(),
             )
             self.assertFalse((output / "tests").exists())
             self.assertEqual(
-                (output / "pebble_include/pbl/os/mutex.h").read_bytes(),
-                (ROOT / "include/pbl/os/mutex.h").read_bytes(),
+                (output / "pebble_include/pbl/drivers/button_id.h").read_bytes(),
+                (ROOT / "include/pbl/drivers/button_id.h").read_bytes(),
             )
-            self.assertTrue((output / "CMakeLists.txt").is_file())
+            build = (output / "CMakeLists.txt").read_text()
+            self.assertNotIn("os_adapter.c", build)
+            self.assertNotIn("tuya_os_selftest", (output / "src/main.c").read_text())
+            self.assertFalse((output / "history").exists())
+            for source in (output / "src").glob("*.[ch]"):
+                self.assertNotIn("pbl/os/", source.read_text())
 
 
 if __name__ == "__main__":

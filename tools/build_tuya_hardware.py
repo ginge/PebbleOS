@@ -56,13 +56,14 @@ def stage_app(source, output):
     marker.write_text("unhygienix hardware bring-up\n")
     for name in ("CMakeLists.txt", "app_default.config", "sdk.lock.json"):
         shutil.copy2(source / name, output / name)
-    shutil.copytree(source / "src", output / "src", dirs_exist_ok=True)
-    for subdir in ("os", "util"):
-        shutil.copytree(
-            ROOT / "include/pbl" / subdir,
-            output / "pebble_include/pbl" / subdir,
-            dirs_exist_ok=True,
-        )
+    # Recreate only marker-owned staging trees, including retired adapter files.
+    for name in ("src", "pebble_include"):
+        target = output / name
+        if target.is_symlink():
+            target.unlink()
+        elif target.exists():
+            shutil.rmtree(target)
+    shutil.copytree(source / "src", output / "src")
     for name in ("drivers/button_id.h", "services/touch/touch_event.h"):
         target = output / "pebble_include/pbl" / name
         target.parent.mkdir(parents=True, exist_ok=True)

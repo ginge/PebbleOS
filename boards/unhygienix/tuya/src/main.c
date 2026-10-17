@@ -4,8 +4,6 @@
 #include "tal_api.h"
 #include "tkl_output.h"
 
-void tuya_os_selftest(void);
-
 static void prv_button(void *context, ButtonId id, bool pressed) {
   (void)context;
   PR_DEBUG("button %u %s", id, pressed ? "down" : "up");
@@ -42,7 +40,6 @@ static void prv_run(void *arg) {
   (void)arg;
   tal_log_init(TAL_LOG_LEVEL_INFO, 4096, (TAL_LOG_OUTPUT_CB)tkl_log_output);
   PR_NOTICE("Unhygienix hardware bring-up; PebbleOS kernel is NOT running");
-  tuya_os_selftest();
   OPERATE_RET rt = tuya_hardware_init();
   if (rt != OPRT_OK) {
     PR_ERR("hardware init failed: %d; reboot required", rt);

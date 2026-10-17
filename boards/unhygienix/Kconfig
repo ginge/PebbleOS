@@ -9,7 +9,7 @@ config BOARD_UNHYGIENIX
 
 config T5AI_TASK_CPU_METRICS
     bool "Report task CPU counters every five seconds"
-    depends on BOARD_UNHYGIENIX && !T5AI_BG_TRACE && !T5AI_APP_TRACE
+    depends on BOARD_UNHYGIENIX && !T5AI_BG_TRACE && !T5AI_APP_TRACE && !T5AI_BG_PICK_TRACE
     default n
     help
       Snapshot existing scheduler runtime counters without scheduler hooks or
@@ -29,7 +29,7 @@ config T5AI_STATE_TRACE
 
 config T5AI_REMINDER_PROFILE
     bool "Measure pin/reminder rewrite phases and flash calls"
-    depends on BOARD_UNHYGIENIX
+    depends on BOARD_UNHYGIENIX && !T5AI_BG_TRACE
     default n
     help
       Temporary timing diagnostics for pindb and reminderdb. No stack/register tracing.
@@ -115,7 +115,7 @@ config T5AI_BG_PICK_TRACE
 config T5AI_WDT_RECOVERY_TRACE
     bool "Log priorities and flash activity at KernelBG watchdog expiry"
     select T5AI_FLASH_PROFILE
-    depends on BOARD_UNHYGIENIX && !T5AI_WDT_CAUSE_TRACE
+    depends on BOARD_UNHYGIENIX && !T5AI_WDT_CAUSE_TRACE && !T5AI_BG_TRACE && !T5AI_REMINDER_PROFILE
     default n
     help
       Snapshot App and KernelBG base/effective priorities, held mutex count,

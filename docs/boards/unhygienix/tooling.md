@@ -76,7 +76,11 @@ build environment. The builder stages both SDKs under `build/unhygienix_hw/sdk`
 and invokes the vendor generator there, keeping submodule source pristine.
 Vendor toolchain downloads remain governed by the pinned T5AI scripts. This
 reference target is optional; it does not build the native PebbleOS kernel or
-flash hardware. The retired vendor MPU/kernel bridge experiment is available
+flash hardware. It uses the vendor TAL interfaces and stages only Pebble's button
+and touch event type headers. The unused Pebble/FreeRTOS mutex adapter and its
+self-test were retired to `boards/unhygienix/tuya/history/os_adapter.c`; they are
+historical source, excluded from staging and compilation, and depend on removed
+headers. Do not restore that abstraction in common Pebble code. The retired vendor MPU/kernel bridge experiment is available
 in Git history; the native PebbleOS kernel does not use those patches.
 
 ## Validation

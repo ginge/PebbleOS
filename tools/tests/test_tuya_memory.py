@@ -1,5 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 import re
+import shutil
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -32,14 +35,46 @@ class TuyaMemoryLayoutTest(unittest.TestCase):
         self.assertIn("KEEP(*(.bss.pool_acl_buf))", sections)
         self.assertIn("AP-only NimBLE pool backing arrays", sections)
 
-    def test_framebuffer_psram_handoff_is_validated_before_use(self):
-        compositor = (ROOT / "fw/services/compositor/compositor.c").read_text()
-        validation = compositor.index("prv_validate_t5ai_framebuffer_ram()")
-        initialization = compositor.index("framebuffer_init(&s_framebuffer")
-        self.assertLess(validation, initialization)
-        self.assertIn("PBL_ASSERTN(prv_validate_t5ai_framebuffer_ram())", compositor)
-        self.assertIn("seed ^ (uint32_t)i", compositor)
-        self.assertIn("~(seed ^ (uint32_t)i)", compositor)
+    def test_framebuffer_psram_validation_detects_corruption_within_bounds(self):
+        compiler = shutil.which("cc")
+        if not compiler:
+            self.skipTest("Host C compiler unavailable")
+        board = (ROOT / "fw/board/boards/board_unhygienix.c").read_text()
+        start = board.index("static bool prv_validate_framebuffer_ram(void)")
+        end = board.index("static void prv_assert_power_latch", start)
+        harness = r"""
+#include <assert.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+static struct { uint32_t before, words[256], after; } memory;
+#define __t5ai_framebuffer_start__ (memory.words)
+#define __t5ai_framebuffer_end__ (memory.words + 256)
+static unsigned barrier, corrupt_at;
+static void dsb(void) {
+  if (++barrier == corrupt_at) memory.words[137] ^= 1u;
+}
+#define __DSB() dsb()
+""" + board[start:end] + r"""
+int main(void) {
+  for (corrupt_at = 0; corrupt_at <= 2; ++corrupt_at) {
+    memory.before = 0x12345678u; memory.after = 0x87654321u; barrier = 0;
+    assert(prv_validate_framebuffer_ram() == (corrupt_at == 0));
+    assert(memory.before == 0x12345678u && memory.after == 0x87654321u);
+    if (!corrupt_at) {
+      for (unsigned i = 0; i < 256; ++i)
+        assert(memory.words[i] == ~(0x3ca5c3a5u ^ i));
+    }
+  }
+}
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "psram.c"
+            binary = Path(directory) / "psram"
+            source.write_text(harness)
+            subprocess.run([compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
+                            str(source), "-o", str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
 
 
 if __name__ == "__main__":

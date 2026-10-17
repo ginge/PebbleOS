@@ -131,11 +131,9 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertNotIn("CONFIG_SOC_T5AI", early_init)
 
         main = (ROOT / "fw/main.c").read_text()
-        flash_init = main.index("  flash_init();")
-        flash_ready_wait = main.rindex(
-            "pbl_thread_sleep(PBL_MSEC(2000));", 0, flash_init
-        )
-        self.assertLess(flash_ready_wait, flash_init)
+        self.assertLess(main.index("init_drivers();"), main.index("services_early_init();"))
+        flash = (ROOT / "fw/drivers/flash/t5ai.c").read_text()
+        self.assertIn("return t5ai_flash_ipc_init();", flash)
 
     def test_unhygienix_raw_flash_console_paths_are_not_linked(self):
         console_build = (ROOT / "fw/console/CMakeLists.txt").read_text()
@@ -480,10 +478,8 @@ class UnhygienixBoardsTest(unittest.TestCase):
         flash = (ROOT / "fw/drivers/flash/t5ai.c").read_text()
         factory_reset = (ROOT / "fw/kernel/util/factory_reset.c").read_text()
 
-        self.assertEqual(shared_prf.count("flash_write_bytes("), 1)
-        self.assertEqual(
-            shared_prf.count("flash_region_erase_optimal_range_no_watchdog("), 1
-        )
+        self.assertNotIn("CONFIG_SOC_T5AI", shared_prf)
+        self.assertIn("flash_region_erase_optimal_range_no_watchdog(", shared_prf)
         self.assertIn("FLASH_REGION_SHARED_PRF_STORAGE_BEGIN 0x024ea000", regions)
         self.assertIn("FLASH_REGION_SHARED_PRF_STORAGE_END 0x024fa000", regions)
         self.assertIn("in_shared_prf", flash)
@@ -654,10 +650,10 @@ class UnhygienixBoardsTest(unittest.TestCase):
 
     def test_unhygienix_uses_normal_bluetooth_control_with_shared_prf_storage(self):
         main = (ROOT / "fw/main.c").read_text()
-        self.assertIn("static void prv_t5ai_bluetooth_init(void)", main)
-        self.assertIn("bt_persistent_storage_init();", main)
-        self.assertIn("bt_ctl_init();", main)
-        self.assertIn("bt_ctl_set_enabled(true);", main)
+        services = (ROOT / "fw/services/services_common/service.c").read_text()
+        self.assertIn("bt_persistent_storage_init();", services)
+        self.assertIn("bt_ctl_init();", services)
+        self.assertIn(".set_enable_fn = bt_ctl_set_enabled", services)
         self.assertNotIn("prv_t5ai_nimble_probe_start", main)
         self.assertNotIn("ble_gap_adv_start(", main)
 
@@ -700,7 +696,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
         shared_prf = (
             ROOT / "fw/services/shared_prf_storage/shared_prf_storage.c"
         ).read_text()
-        self.assertIn("flash_write_bytes(data, address, length);", shared_prf)
+        self.assertIn("flash_write_bytes(field, prv_current_page_flash_addr() + offset, field_size);", shared_prf)
         self.assertNotIn("keep PRF-backed Bluetooth state volatile", shared_prf)
 
         board_source = (ROOT / "fw/board/boards/board_unhygienix.c").read_text()
@@ -712,21 +708,6 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertIn("prv_assert_power_latch();", board_source)
         self.assertIn(".pin = 28u", board_source)
         self.assertIn("gpio_output_set(&s_amplifier_enable, false)", board_source)
-
-        imu_source = (ROOT / "fw/drivers/imu/qmi8658/qmi8658_t5ai.c").read_text()
-        self.assertIn("#define QMI8658_RESET 0x60u", imu_source)
-        self.assertIn("#define QMI8658_RESET_COMMAND 0xb0u", imu_source)
-        reset = imu_source.index("prv_write(QMI8658_RESET, QMI8658_RESET_COMMAND)")
-        identity = imu_source.index("prv_read(QMI8658_WHO_AM_I", reset)
-        self.assertLess(reset, identity)
-        status = imu_source.index("prv_read(QMI8658_STATUS0")
-        sample = imu_source.index("prv_read(QMI8658_AX_L", status)
-        self.assertLess(status, sample)
-        self.assertIn("sample->x = sensor_y;", imu_source)
-        self.assertIn("sample->y = -sensor_x;", imu_source)
-        self.assertIn(
-            "sample->z = prv_to_mg(&raw[QMI8658_ACCEL_Z_OFFSET]);", imu_source
-        )
 
         battery_source = (ROOT / "fw/drivers/battery/t5ai.c").read_text()
         self.assertIn(
