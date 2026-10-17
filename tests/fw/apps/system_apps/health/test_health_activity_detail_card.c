@@ -1,13 +1,13 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "apps/system/health/activity_detail_card.h"
-#include "apps/system/health/detail_card.h"
-#include "apps/system/health/data.h"
-#include "apps/system/health/data_private.h"
-#include "apps/system/health/progress.h"
-
 #include "test_health_app_includes.h"
+
+#include <apps/system/health/activity_detail_card.h>
+#include <apps/system/health/data.h>
+#include <apps/system/health/data_private.h>
+#include <apps/system/health/detail_card.h>
+#include <apps/system/health/progress.h>
 
 // Setup and Teardown
 ////////////////////////////////////
@@ -64,6 +64,16 @@ void test_health_activity_detail_card__render_current_calories_and_distance(void
   HealthData health_data = {
     .current_calories = 123,
     .current_distance_meters = 4000,
+  };
+
+  prv_create_card_and_render(&health_data);
+  cl_check(gbitmap_pbi_eq(&s_ctx.dest_bitmap, TEST_PBI_FILE));
+}
+
+void test_health_activity_detail_card__render_large_calories_and_distance(void) {
+  HealthData health_data = {
+    .current_calories = 2345,
+    .current_distance_meters = 23400,
   };
 
   prv_create_card_and_render(&health_data);

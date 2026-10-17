@@ -1,15 +1,15 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/get_bytes/get_bytes_storage_file.h"
-#include "pbl/services/get_bytes/get_bytes_private.h"
-
 #include <pbl/drivers/flash.h>
-#include "flash_region/flash_region.h"
-#include "kernel/core_dump.h"
-#include "kernel/pbl_malloc.h"
 #include <pbl/logging/logging.h>
-#include "system/status_codes.h"
+#include <pbl/services/get_bytes/get_bytes_private.h>
+#include <pbl/services/get_bytes/get_bytes_storage_file.h>
+
+#include <flash_region/flash_region.h>
+#include <kernel/core_dump.h>
+#include <kernel/pbl_malloc.h>
+#include <system/status_codes.h>
 
 PBL_LOG_MODULE_DECLARE(service_get_bytes, CONFIG_SERVICE_GET_BYTES_LOG_LEVEL);
 
@@ -78,7 +78,7 @@ GetBytesInfoErrorCode gb_storage_coredump_get_size(GetBytesStorage *storage, uin
 
   // Get the base address in flash
   uint32_t flash_base = prv_coredump_flash_base(data->only_get_new_coredump);
-  PBL_LOG_DBG("GET_BYTES: checking image %p", (void *)flash_base);
+  PBL_LOG_DBG("GET_BYTES: checking image 0x%" PRIx32, flash_base);
   if (flash_base != CORE_DUMP_FLASH_INVALID_ADDR) {
     flash_read_bytes((uint8_t *)&image_hdr, flash_base + sizeof(CoreDumpFlashRegionHeader),
                      sizeof(image_hdr));

@@ -1,18 +1,19 @@
 /* SPDX-FileCopyrightText: 2025 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/app.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/dialogs/confirmation_dialog.h"
-#include "applib/ui/text_layer.h"
-#include "applib/ui/window.h"
-#include "apps/prf/mfg_test_result.h"
-#include "kernel/pbl_malloc.h"
-#include "board/board.h"
-#include <pbl/drivers/pmic/npm1300.h>
-#include "process_management/pebble_process_md.h"
-#include "process_state/app_state/app_state.h"
 #include <pbl/drivers/audio.h>
+#include <pbl/drivers/pmic/npm1300.h>
+
+#include <applib/app.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/dialogs/confirmation_dialog.h>
+#include <applib/ui/text_layer.h>
+#include <applib/ui/window.h>
+#include <apps/prf/mfg_test_result.h>
+#include <board/board.h>
+#include <kernel/pbl_malloc.h>
+#include <process_management/pebble_process_md.h>
+#include <process_state/app_state/app_state.h>
 
 typedef struct {
   Window window;
@@ -92,14 +93,14 @@ static void prv_handle_init(void) {
 
 static void s_main(void) {
   // HACK(OBELIX): we need proper regulator API (with consumer current, etc.)
-  (void)NPM1300_OPS.dischg_limit_ma_set(NPM1300_DISCHG_LIMIT_MA_MAX);
+  (void)pbl_npm1300_charger_set_dischg_limit_ma(NPM1300_CHARGER, NPM1300_DISCHG_LIMIT_MA_MAX);
   prv_handle_init();
   prv_play_audio();
-  app_timer_register(5000, prv_timer_callback, NULL);
+  app_timer_register(5000, prv_timer_callback, nullptr);
   app_event_loop();
   audio_stop(AUDIO);
   // HACK(OBELIX): we need proper regulator API (with consumer current, etc.)
-  (void)NPM1300_OPS.dischg_limit_ma_set(NPM1300_CONFIG.dischg_limit_ma);
+  (void)pbl_npm1300_charger_set_dischg_limit_ma(NPM1300_CHARGER, NPM1300_CONFIG.dischg_limit_ma);
 }
 
 const PebbleProcessMd *mfg_speaker_obelix_app_get_info(void) {

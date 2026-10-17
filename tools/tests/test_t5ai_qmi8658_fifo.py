@@ -21,11 +21,6 @@ void exti_disable(ExtiConfig);
 void exti_enable(ExtiConfig);
 void exti_configure_pin(ExtiConfig, int, void (*)(void));
 bool i2c_read_register_block(int, uint8_t, unsigned, uint8_t *);
-typedef struct {
- const uint8_t *data; uint16_t num_samples; uint8_t stride;
- struct { uint8_t offset; int8_t sign; } axis[3];
- int32_t scale_num, scale_den; uint64_t first_timestamp_us; uint32_t sampling_interval_us;
-} AccelRawBatch;
 void accel_cb_new_samples(const AccelRawBatch *);
 uint64_t rtc_get_ticks(void);
 """
@@ -47,7 +42,7 @@ static unsigned shakes;
 static bool fail_disable;
 static uint64_t delivered_last;
 static void (*queued)(void);
-#include "fw/drivers/imu/qmi8658/qmi8658_t5ai.c"
+#include "drivers/imu/qmi8658/qmi8658_t5ai.c"
 void pbl_irq_lock(void) { ++irq_depth; }
 void pbl_irq_unlock(void) { assert(irq_depth); --irq_depth; }
 int pbl_mutex_lock(struct pbl_mutex *m, int t) {
@@ -120,7 +115,7 @@ bool i2c_read_register_block(int b, uint8_t reg, unsigned n, uint8_t *p) {
 }
 void rtc_get_time_ms(time_t *s, uint16_t *ms) { *s=now_ms/1000; *ms=now_ms%1000; }
 uint64_t rtc_get_ticks(void) { return now_ms; }
-void psleep(unsigned ms) { now_ms+=ms; }
+void pbl_sleep_ms(unsigned ms) { now_ms+=ms; }
 TimerID new_timer_create(void) { return 1; }
 bool new_timer_start(TimerID t, uint32_t ms, void (*cb)(void *), void *d, int f) {
  (void)t; (void)d; (void)f; assert(cb==prv_timer_callback); timer_ms=ms; return true;
@@ -273,7 +268,7 @@ class QMI8658FifoTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             d = Path(temp)
             (d / "stub.h").write_text(STUB + EXTRA)
-            for name in HEADERS + ["pbl/drivers/exti.h", "pbl/drivers/gpio.h"]:
+            for name in HEADERS + ["pbl/drivers/exti.h", "pbl/drivers/gpio/t5ai_legacy.h"]:
                 p = d / name
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text('#include "stub.h"\n')

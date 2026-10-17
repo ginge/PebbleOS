@@ -1,25 +1,20 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/bluetooth/comm.h>
-
-#include "comm/bt_lock.h"
-
-#include "console/pulse_protocol_impl.h"
-
-#include "kernel/event_loop.h"
-#include "kernel/events.h"
-#include "kernel/pbl_malloc.h"
-
-#include "pbl/services/comm_session/session_transport.h"
-
-#include "system/passert.h"
-#include <pbl/logging/logging.h>
-
-#include "pbl/kernel/compiler.h"
-#include "pbl/util/math.h"
-
 #include <string.h>
+
+#include <pbl/bluetooth/comm.h>
+#include <pbl/kernel/compiler.h>
+#include <pbl/logging/logging.h>
+#include <pbl/services/comm_session/session_transport.h>
+#include <pbl/util/math.h>
+
+#include <comm/bt_lock.h>
+#include <console/pulse_protocol_impl.h>
+#include <kernel/event_loop.h>
+#include <kernel/events.h>
+#include <kernel/pbl_malloc.h>
+#include <system/passert.h>
 
 #define PULSE_PP_OPCODE_DATA  (1)
 #define PULSE_PP_OPCODE_OPEN  (2)
@@ -123,7 +118,7 @@ extern void comm_session_set_capabilities(CommSession *session,
                                           CommSessionCapability capability_flags);
 
 bool pulse_transport_is_connected(void) {
-  return (s_transport.session != NULL);
+  return (s_transport.session != nullptr);
 }
 
 // -----------------------------------------------------------------------------------------
@@ -158,7 +153,7 @@ void pulse_transport_set_connected(bool is_connected) {
     comm_session_set_capabilities(s_transport.session, capabilities);
   } else {
     comm_session_close(s_transport.session, CommSessionCloseReason_UnderlyingDisconnection);
-    s_transport.session = NULL;
+    s_transport.session = nullptr;
     s_transport.session_generation++;
   }
 
@@ -237,12 +232,12 @@ void pulse_pp_transport_handle_received_data(void *data, size_t length) {
       prv_pulse_pp_handle_data(&packet->data[0], length - sizeof(PulsePPPacket));
       break;
     case PULSE_PP_OPCODE_OPEN:
-      prv_pulse_pp_send(PULSE_PP_OPCODE_OPEN, NULL, 0);
+      prv_pulse_pp_send(PULSE_PP_OPCODE_OPEN, nullptr, 0);
       prv_pulse_pp_transport_set_connected(true);
       break;
     case PULSE_PP_OPCODE_CLOSE:
       prv_pulse_pp_transport_set_connected(false);
-      prv_pulse_pp_send(PULSE_PP_OPCODE_CLOSE, NULL, 0);
+      prv_pulse_pp_send(PULSE_PP_OPCODE_CLOSE, nullptr, 0);
       break;
     default:
       prv_pulse_pp_send(PULSE_PP_OPCODE_UNKNOWN, &packet->opcode, sizeof(packet->opcode));

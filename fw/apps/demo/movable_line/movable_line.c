@@ -3,20 +3,20 @@
 
 #include "movable_line.h"
 
-#include "applib/app.h"
-#include "applib/graphics/graphics.h"
-#include "applib/graphics/gtypes.h"
-#include "applib/graphics/text.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/text_layer.h"
-#include "applib/ui/window.h"
-#include "kernel/pbl_malloc.h"
-#include "process_state/app_state/app_state.h"
+#include <inttypes.h>
+#include <stdio.h>
+
 #include <pbl/logging/logging.h>
 
-#include <inttypes.h>
-#include <stdbool.h>
-#include <stdio.h>
+#include <applib/app.h>
+#include <applib/graphics/graphics.h>
+#include <applib/graphics/gtypes.h>
+#include <applib/graphics/text.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/text_layer.h>
+#include <applib/ui/window.h>
+#include <kernel/pbl_malloc.h>
+#include <process_state/app_state/app_state.h>
 
 static Window *s_window;
 
@@ -150,7 +150,7 @@ static void draw_ui_element(GContext *ctx, GRect bounds, const char *text, bool 
   } else {
     graphics_context_set_text_color(ctx, GColorWhite);
   }
-  graphics_draw_text(ctx, text, font, bounds, GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+  graphics_draw_text(ctx, text, font, bounds, GTextOverflowModeFill, GTextAlignmentCenter, nullptr);
 }
 
 static void canvas_update_proc(Layer *layer, GContext *ctx) {

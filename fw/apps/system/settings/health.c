@@ -1,18 +1,20 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "health.h"
+
 #include "menu.h"
 #include "option_menu.h"
 #include "window.h"
 
-#include "applib/ui/option_menu_window.h"
-#include "kernel/pbl_malloc.h"
-#include "process_state/app_state/app_state.h"
-#include "pbl/services/i18n/i18n.h"
-#include "pbl/services/activity/activity.h"
-#include "shell/prefs.h"
-#include "system/passert.h"
-#include "pbl/util/size.h"
+#include <pbl/services/activity/activity.h>
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/util/size.h>
+
+#include <applib/ui/option_menu_window.h>
+#include <kernel/pbl_malloc.h>
+#include <process_state/app_state/app_state.h>
+#include <shell/prefs.h>
+#include <system/passert.h>
 
 typedef struct SettingsHealthData {
   SettingsCallbacks callbacks;
@@ -138,8 +140,8 @@ static void prv_draw_row_cb(SettingsCallbacks *context, GContext *ctx, const Lay
                             uint16_t row, bool selected) {
   SettingsHealthData *data = (SettingsHealthData *)context;
 
-  const char *title = NULL;
-  const char *subtitle = NULL;
+  const char *title = nullptr;
+  const char *subtitle = nullptr;
 
   switch (row) {
     case SettingsHealthTrackingEnabled: {
@@ -198,7 +200,7 @@ static void prv_draw_row_cb(SettingsCallbacks *context, GContext *ctx, const Lay
     default:
       WTF;
   }
-  menu_cell_basic_draw(ctx, cell_layer, i18n_get(title, data), i18n_get(subtitle, data), NULL);
+  menu_cell_basic_draw(ctx, cell_layer, i18n_get(title, data), i18n_get(subtitle, data), nullptr);
 }
 
 static void prv_select_click_cb(SettingsCallbacks *context, uint16_t row) {

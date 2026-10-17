@@ -4,7 +4,6 @@
 #pragma once
 
 #include <stdint.h>
-#include <stdbool.h>
 
 typedef enum BootBitValue {
   BOOT_BIT_INITIALIZED = 0x1 << 0,

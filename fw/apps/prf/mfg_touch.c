@@ -1,23 +1,24 @@
 /* SPDX-FileCopyrightText: 2025 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/app.h"
-#include "applib/graphics/graphics.h"
-#include "applib/graphics/text.h"
-#include "applib/tick_timer_service.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/text_layer.h"
-#include "applib/ui/window.h"
-#include "apps/prf/mfg_test_result.h"
-#include "kernel/pbl_malloc.h"
-#include "process_management/pebble_process_md.h"
-#include "process_state/app_state/app_state.h"
-#include <pbl/logging/logging.h>
-#include "applib/touch_service.h"
-#include "pbl/services/light.h"
-#include "pbl/util/math.h"
-
 #include <stdio.h>
+
+#include <pbl/logging/logging.h>
+#include <pbl/services/light.h>
+#include <pbl/util/math.h>
+
+#include <applib/app.h>
+#include <applib/graphics/graphics.h>
+#include <applib/graphics/text.h>
+#include <applib/tick_timer_service.h>
+#include <applib/touch_service.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/text_layer.h>
+#include <applib/ui/window.h>
+#include <apps/prf/mfg_test_result.h>
+#include <kernel/pbl_malloc.h>
+#include <process_management/pebble_process_md.h>
+#include <process_state/app_state/app_state.h>
 
 #define TOUCH_SUPPORT_DEBUG 0
 
@@ -79,7 +80,7 @@ static void prv_complete_test(AppData *data, bool passed) {
   layer_mark_dirty(&data->window.layer);
 }
 
-static void prv_handle_second_tick(struct tm *tick_time, TimeUnits units_changed) {
+static void prv_handle_second_tick(struct pbl_tm *tick_time, TimeUnits units_changed) {
   AppData *data = app_state_get_user_data();
 
   if (data->test_complete) {
@@ -370,7 +371,7 @@ static void prv_handle_init(void) {
   text_layer_set_background_color(status, GColorWhite);
   layer_add_child(&window->layer, &status->layer);
 
-  touch_service_subscribe(prv_touch_event_handler, NULL);
+  touch_service_subscribe(prv_touch_event_handler, nullptr);
 
   tick_timer_service_subscribe(SECOND_UNIT, prv_handle_second_tick);
 }

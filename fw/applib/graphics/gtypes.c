@@ -4,12 +4,14 @@
 #include "gtypes.h"
 
 #include "gcontext.h"
-#include "process_management/process_manager.h"
-#include "process_state/app_state/app_state.h"
-#include "system/passert.h"
-#include "pbl/util/math.h"
 
 #include <stddef.h>
+
+#include <pbl/util/math.h>
+
+#include <process_management/process_manager.h>
+#include <process_state/app_state/app_state.h>
+#include <system/passert.h>
 
 bool gpoint_equal(const GPoint *const point_a, const GPoint *const point_b) {
   return (point_a->x == point_b->x && point_a->y == point_b->y);
@@ -370,7 +372,7 @@ GColor8 gcolor_invert(GColor8 color) {
 
 BitmapInfo gbitmap_get_info(const GBitmap *bitmap) {
   if (!bitmap) {
-    return (BitmapInfo){0};
+    return (BitmapInfo){};
   }
 
   // In 2.x, GBitmap was exposed and info_flags was only used for keeping track of heap allocation.

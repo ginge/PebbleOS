@@ -3,25 +3,25 @@
 
 #include "timeline_pins_demo.h"
 
-#include "applib/app.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/option_menu_window.h"
-#include "apps/system_app_ids.h"
-#include "apps/system/timeline/timeline.h"
-#include "process_management/app_manager.h"
-#include "pbl/services/i18n/i18n.h"
-#include "pbl/services/activity/activity_insights.h"
-#include "pbl/services/blob_db/pin_db.h"
-#include "pbl/services/notifications/notification_storage.h"
-#include "pbl/services/timeline/calendar_layout.h"
-#include "pbl/services/timeline/event.h"
-#include "pbl/services/timeline/health_layout.h"
-#include "pbl/services/timeline/weather_layout.h"
-#include "pbl/util/size.h"
+#include <pbl/services/activity/activity_insights.h>
+#include <pbl/services/blob_db/pin_db.h>
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/services/notifications/notification_storage.h>
+#include <pbl/services/time.h>
+#include <pbl/services/timeline/calendar_layout.h>
+#include <pbl/services/timeline/event.h>
+#include <pbl/services/timeline/health_layout.h>
+#include <pbl/services/timeline/weather_layout.h>
+#include <pbl/util/size.h>
+#include <pbl/util/units.h>
 
+#include <applib/app.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/option_menu_window.h>
+#include <apps/system/timeline/timeline.h>
+#include <apps/system_app_ids.h>
+#include <process_management/app_manager.h>
 #include <sys/cdefs.h>
-#include "pbl/services/time.h"
-#include "pbl/util/units.h"
 
 #define StringListLiteral(str)                       \
   {                                                  \
@@ -72,7 +72,7 @@ static void prv_add_notification(int32_t delta_time_s) {
   attribute_list_add_cstring(&list, AttributeIdBody, ARRAY_RAND(bodies));
   attribute_list_add_uint32(&list, AttributeIdLastUpdated, now);
   TimelineItem *item = timeline_item_create_with_attributes(
-      now + delta_time_s, 0, TimelineItemTypeNotification, LayoutIdNotification, &list, NULL);
+      now + delta_time_s, 0, TimelineItemTypeNotification, LayoutIdNotification, &list, nullptr);
   notification_storage_store(item);
   timeline_item_destroy(item);
   attribute_list_destroy_list(&list);
@@ -103,7 +103,7 @@ static void prv_add_weather_pin_with_params(int32_t delta_time_s, bool has_times
     attribute_list_add_cstring(&list, AttributeIdShortSubtitle, "Cloudy with rain and snow");
   }
   TimelineItem *item = timeline_item_create_with_attributes(
-      now + delta_time_s, 0, TimelineItemTypePin, LayoutIdWeather, &list, NULL);
+      now + delta_time_s, 0, TimelineItemTypePin, LayoutIdWeather, &list, nullptr);
 
   pin_db_insert_item_without_event(item);
   timeline_item_destroy(item);
@@ -138,7 +138,7 @@ static void prv_add_sports_pin(int32_t delta_time_s, GColor secondary_color, boo
                              "03:15 | 22-29\nLeonard Free Throw 2 of 2 (8PTS)");
   attribute_list_add_uint32(&list, AttributeIdLastUpdated, now);
   TimelineItem *item = timeline_item_create_with_attributes(
-      now + delta_time_s, 0, TimelineItemTypePin, LayoutIdSports, &list, NULL);
+      now + delta_time_s, 0, TimelineItemTypePin, LayoutIdSports, &list, nullptr);
 
   pin_db_insert_item_without_event(item);
   timeline_item_destroy(item);
@@ -175,7 +175,7 @@ static void prv_add_calendar_pin(int32_t delta_time_s, int32_t duration_m, bool 
                              "Will email before if we need to cancel");
   attribute_list_add_uint32(&list, AttributeIdLastUpdated, now);
   TimelineItem *item = timeline_item_create_with_attributes(target, duration_m, TimelineItemTypePin,
-                                                            LayoutIdCalendar, &list, NULL);
+                                                            LayoutIdCalendar, &list, nullptr);
 
   pin_db_insert_item_without_event(item);
   timeline_item_destroy(item);
@@ -202,7 +202,7 @@ static void prv_add_generic_pin(int32_t delta_time_s, bool has_subtitle) {
   attribute_list_add_cstring(&list, AttributeIdBody, "Body message");
   attribute_list_add_uint32(&list, AttributeIdLastUpdated, now);
   TimelineItem *item = timeline_item_create_with_attributes(
-      now + delta_time_s, 0, TimelineItemTypePin, LayoutIdGeneric, &list, NULL);
+      now + delta_time_s, 0, TimelineItemTypePin, LayoutIdGeneric, &list, nullptr);
 
   pin_db_insert_item_without_event(item);
   timeline_item_destroy(item);
@@ -239,7 +239,7 @@ static void prv_add_activity_session_pin(int32_t delta_time_s, int32_t duration_
   attribute_list_add_uint32_list(&list, AttributeIdMetricIcons, icons);
 
   TimelineItem *item = timeline_item_create_with_attributes(
-      now + delta_time_s, duration_m, TimelineItemTypePin, LayoutIdHealth, &list, NULL);
+      now + delta_time_s, duration_m, TimelineItemTypePin, LayoutIdHealth, &list, nullptr);
 
   pin_db_insert_item_without_event(item);
   timeline_item_destroy(item);
@@ -297,7 +297,7 @@ void timeline_pins_demo_add_pins(TimelinePinsDemoSet pin_set) {
       prv_add_weather_pin(2 * 24 * 60 * 60);
       prv_add_weather_pin(3 * 24 * 60 * 60);
     }
-    // fallthrough
+      [[fallthrough]];
     case TimelinePinsDemo_OneDayAway:
       prv_add_weather_pin(-2 * 24 * 60 * 60);
       prv_add_weather_pin(2 * 24 * 60 * 60);

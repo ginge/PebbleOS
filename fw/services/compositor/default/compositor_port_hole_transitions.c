@@ -1,15 +1,14 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/compositor/default/compositor_port_hole_transitions.h"
-
-#include "applib/graphics/framebuffer.h"
-#include "applib/graphics/graphics_private.h"
-#include "pbl/util/trig.h"
-#include "pbl/services/compositor/compositor_transitions.h"
-
-#include "resource/resource_ids.auto.h"
 #include <pbl/logging/logging.h>
+#include <pbl/services/compositor/compositor_transitions.h>
+#include <pbl/services/compositor/default/compositor_port_hole_transitions.h>
+#include <pbl/util/trig.h>
+
+#include <applib/graphics/framebuffer.h>
+#include <applib/graphics/graphics_private.h>
+#include <resource/resource_ids.auto.h>
 
 typedef struct {
   CompositorTransitionDirection direction;
@@ -84,7 +83,7 @@ static void prv_port_hole_transition_animation_update(GContext *ctx, Animation *
 const CompositorTransition *compositor_port_hole_transition_app_get(
     CompositorTransitionDirection direction) {
   if (compositor_transition_app_to_app_should_be_skipped()) {
-    return NULL;
+    return nullptr;
   }
 
   s_data.direction = direction;

@@ -16,26 +16,18 @@ from harness.errors import HarnessError, Unsupported
 pytest_plugins = ("harness.fixtures",)
 
 TOPDIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
-DEVICE_TYPES = ("qemu", "hardware")
+DEVICE_TYPES = ("qemu", "native", "hardware")
 
 # Where a test applies; every one of them given must match the device.
 SCOPE_MARKERS = {
     "boards": "boards(*names): only on these boards (e.g. obelix, qemu_emery)",
     "platforms": "platforms(*names): only on these platforms (emery, flint, gabbro)",
-    "device_types": "device_types(*types): only on these device types (qemu, hardware)",
+    "device_types": "device_types(*types): only on these device types (qemu, native, hardware)",
     "requires_config": "requires_config(*symbols): only when these Kconfig symbols are set",
     "variants": "variants(*names): only on these firmware variants (normal, prf); "
     "unmarked tests are for normal",
-}
-
-# What a test covers; select with -m.
-CATEGORY_MARKERS = {
-    "smoke": "quick checks that the firmware boots and answers",
-    "ui": "drives the UI and compares screenshots",
-    "notifications": "notification delivery and presentation",
-    "voice": "dictation through the voice and audio endpoints",
-    "power": "measures current consumption (needs a PPK2)",
-    "slow": "takes more than a minute",
+    "integration_boards": "integration_boards(*names): with --integration, only on "
+    "these boards (board or board@revision); with none, never",
 }
 
 
@@ -81,9 +73,14 @@ def pytest_addoption(parser):
         "list them with --collect-only without a build",
     )
     group.addoption(
+        "--integration",
+        action="store_true",
+        help="Run as CI does: integration_boards limits tests to those boards",
+    )
+    group.addoption(
         "--device-type",
         choices=DEVICE_TYPES,
-        help="qemu or hardware (default: qemu for emulated boards)",
+        help="qemu, native or hardware (default: from the board)",
     )
     group.addoption(
         "--device-serial",
@@ -145,13 +142,13 @@ def pytest_addoption(parser):
         "%(default)s; 'localtime' for the host's)",
     )
     group.addoption(
-        "--qemu-bt-hci",
-        metavar="CHARDEV",
-        help="H4 controller for builds with CONFIG_BT_HCI_UART: 'virtual' for "
-        "Bumble's software controllers, which also give the phone one (the "
-        "default), 'lab' for the lab's first dongle (the phone taking its "
-        "second), or the serial port of an hci_uart dongle or any QEMU -serial "
-        "spec",
+        "--bt-hci",
+        metavar="CONTROLLER",
+        help="H4 controller for emulator and native builds with "
+        "CONFIG_BT_HCI_UART: 'virtual' for Bumble's software controllers, "
+        "which also give the phone one (the default), 'lab' for the lab's "
+        "first dongle (the phone taking its second), or the serial port of an "
+        "hci_uart dongle (for QEMU, any -serial spec)",
     )
     group.addoption(
         "--ble-controller",
@@ -191,7 +188,7 @@ def pytest_configure(config):
     for name in ("transitions", "pebble.pulse2"):
         logging.getLogger(name).setLevel(logging.WARNING)
 
-    for name, help in {**SCOPE_MARKERS, **CATEGORY_MARKERS}.items():
+    for name, help in SCOPE_MARKERS.items():
         config.addinivalue_line("markers", f"{name}: {help}")
 
     build_dir = config.getoption("build_dir") or os.path.join(TOPDIR, "build")
@@ -203,7 +200,10 @@ def pytest_configure(config):
 
     device_type = config.getoption("device_type")
     if device_type is None and build is not None:
-        device_type = "qemu" if build.emulated else "hardware"
+        if build.native:
+            device_type = "native"
+        else:
+            device_type = "qemu" if build.emulated else "hardware"
     config.pbl_device_type = device_type
 
     board = config.getoption("board") or (build.board if build else None)
@@ -214,6 +214,9 @@ def pytest_configure(config):
         config.pbl_setup = _resolve_setup(config, build, board, device_type)
     except HarnessError as e:
         raise pytest.UsageError(str(e)) from None
+
+    if device_type == "hardware" and getattr(config.option, "numprocesses", None):
+        raise pytest.UsageError("-n runs a device per worker: not on hardware")
 
     # Always leave a JUnit report with the rest of the results.
     if not config.option.xmlpath and not config.option.collectonly:
@@ -231,7 +234,7 @@ def _resolve_setup(config, build, board, device_type):
             "serial_baud": config.getoption("device_serial_baud"),
             "ppk2": config.getoption("ppk2"),
             "voltage_mv": config.getoption("ppk2_voltage"),
-            "qemu_bt_hci": config.getoption("qemu_bt_hci"),
+            "bt_hci": config.getoption("bt_hci"),
             "ble_controller": config.getoption("ble_controller"),
             "watch": config.getoption("lab_watch"),
             "phone": config.getoption("phone"),
@@ -262,6 +265,15 @@ def _applies(item, config):
         variants = _marker_args(item, "variants") or {"normal"}
         if build.variant not in variants:
             return f"variant {build.variant} not in {sorted(variants)}"
+    if config.getoption("integration") and item.get_closest_marker(
+        "integration_boards"
+    ):
+        boards = _marker_args(item, "integration_boards")
+        target = (
+            build.board_target if build is not None and board == build.board else None
+        )
+        if board not in boards and target not in boards:
+            return f"integration run, board {target or board} not in {sorted(boards)}"
     symbols = _marker_args(item, "requires_config")
     if symbols and build is not None and board == build.board:
         missing = sorted(s for s in symbols if not build.config.get(s))

@@ -3,11 +3,12 @@
 
 #pragma once
 
-#include "health_service.h"
 #include "event_service_client.h"
-#include "pbl/services/activity/activity.h"
-#include "pbl/util/time.h"
-#include "pbl/util/units.h"
+#include "health_service.h"
+
+#include <pbl/services/activity/activity.h>
+#include <pbl/util/time.h>
+#include <pbl/util/units.h>
 
 typedef struct {
   HealthValue totals[ACTIVITY_HISTORY_DAYS];
@@ -95,7 +96,7 @@ typedef struct {
 } HealthServiceTimeRange;
 
 // since we expect clients to allocate this struct on the stack we make sure its size is limited
-_Static_assert(sizeof(HealthServiceTimeRange) <= 160, "Helper struct too large for stack");
+static_assert(sizeof(HealthServiceTimeRange) <= 160, "Helper struct too large for stack");
 
 // Return the daily history of the given metric
 bool health_service_private_get_metric_history(HealthMetric metric, uint32_t history_len,

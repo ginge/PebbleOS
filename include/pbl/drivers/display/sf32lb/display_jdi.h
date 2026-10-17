@@ -5,10 +5,11 @@
 
 #include <stdint.h>
 
-#include "board/board.h"
+#include <pbl/drivers/gpio.h>
 
-#include "bf0_hal.h"
-#include "bf0_hal_lcdc.h"
+#include <bf0_hal.h>
+#include <bf0_hal_lcdc.h>
+#include <board/board.h>
 
 /**
  * @defgroup drivers_display_sf32lb SF32LB JDI display
@@ -79,9 +80,9 @@ typedef const struct DisplayJDIDevice {
     Pinmux xfrp;
   } pinmux;
   /** Panel VDDP supply enable. */
-  OutputConfig vddp;
+  struct pbl_gpio vddp;
   /** Panel VLCD supply enable. */
-  OutputConfig vlcd;
+  struct pbl_gpio vlcd;
   /** Splash image; not used by the driver. */
   DisplayJDISplash splash;
 } DisplayJDIDevice;

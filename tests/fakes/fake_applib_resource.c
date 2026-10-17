@@ -1,8 +1,9 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/applib_resource_private.h"
 #include "fake_resource_syscalls.h"
+
+#include <applib/applib_resource_private.h>
 
 bool applib_resource_track_mmapped(const void *bytes) {
   return false;
@@ -30,7 +31,7 @@ void *applib_resource_mmap_or_load(ResAppNum app_num, uint32_t resource_id, size
   if (!result ||
       sys_resource_load_range(app_num, resource_id, offset, result, num_bytes) != num_bytes) {
     free(result);
-    return NULL;
+    return nullptr;
   }
   return result;
 }

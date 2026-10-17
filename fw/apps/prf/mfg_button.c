@@ -1,25 +1,25 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/app.h"
-#include "applib/tick_timer_service.h"
-#include "board/display.h"
-#include "pbl/util/trig.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/window.h"
-#include "applib/ui/window_private.h"
-#include "applib/ui/path_layer.h"
-#include "applib/ui/text_layer.h"
-#include "kernel/pbl_malloc.h"
-#include "apps/prf/mfg_test_result.h"
-#include "process_state/app_state/app_state.h"
-#include "process_management/pebble_process_md.h"
-#include "pbl/util/bitops.h"
-#include "pbl/util/size.h"
-
-#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+
+#include <pbl/util/bitops.h>
+#include <pbl/util/size.h>
+#include <pbl/util/trig.h>
+
+#include <applib/app.h>
+#include <applib/tick_timer_service.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/path_layer.h>
+#include <applib/ui/text_layer.h>
+#include <applib/ui/window.h>
+#include <applib/ui/window_private.h>
+#include <apps/prf/mfg_test_result.h>
+#include <board/display.h>
+#include <kernel/pbl_malloc.h>
+#include <process_management/pebble_process_md.h>
+#include <process_state/app_state/app_state.h>
 
 // How long after test pass / fail to wait before popping the window
 #define WINDOW_POP_TIME_S (1)
@@ -40,7 +40,7 @@ typedef struct {
   bool test_complete;
 } AppData;
 
-static void prv_handle_second_tick(struct tm *tick_time, TimeUnits units_changed) {
+static void prv_handle_second_tick(struct pbl_tm *tick_time, TimeUnits units_changed) {
   AppData *data = app_state_get_user_data();
 
   if (data->test_complete) {

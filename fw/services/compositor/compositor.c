@@ -1,29 +1,29 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/compositor/compositor.h"
-#include "pbl/services/compositor/compositor_display.h"
-
-#include "applib/graphics/bitblt.h"
-#include "applib/graphics/framebuffer.h"
-#include "applib/graphics/gcontext.h"
-#include "applib/graphics/gtypes.h"
-#include "applib/ui/animation.h"
-#include "applib/ui/animation_private.h"
-#include "kernel/event_loop.h"
-#include "kernel/kernel_applib_state.h"
-#include "kernel/ui/kernel_ui.h"
-#include "kernel/ui/modals/modal_manager.h"
-#include "popups/timeline/peek.h"
-#include "process_management/app_manager.h"
-#include "process_management/process_manager.h"
-#include "process_state/app_state/app_state.h"
-#include "shell/prefs.h"
 #include <pbl/logging/logging.h>
-#include "system/passert.h"
-#include "system/profiler.h"
-#include "pbl/util/math.h"
-#include "pbl/util/testing.h"
+#include <pbl/services/compositor/compositor.h>
+#include <pbl/services/compositor/compositor_display.h>
+#include <pbl/util/math.h>
+#include <pbl/util/testing.h>
+
+#include <applib/graphics/bitblt.h>
+#include <applib/graphics/framebuffer.h>
+#include <applib/graphics/gcontext.h>
+#include <applib/graphics/gtypes.h>
+#include <applib/ui/animation.h>
+#include <applib/ui/animation_private.h>
+#include <kernel/event_loop.h>
+#include <kernel/kernel_applib_state.h>
+#include <kernel/ui/kernel_ui.h>
+#include <kernel/ui/modals/modal_manager.h>
+#include <popups/timeline/peek.h>
+#include <process_management/app_manager.h>
+#include <process_management/process_manager.h>
+#include <process_state/app_state/app_state.h>
+#include <shell/prefs.h>
+#include <system/passert.h>
+#include <system/profiler.h>
 
 PBL_LOG_MODULE_DEFINE(service_compositor, CONFIG_SERVICE_COMPOSITOR_LOG_LEVEL);
 
@@ -106,11 +106,11 @@ void compositor_init(void) {
 
   s_deferred_render = (DeferredRender){.animation.pending = false, .app.pending = false};
 
-  s_animation_state = (CompositorTransitionState){0};
+  s_animation_state = (CompositorTransitionState){};
 
   s_framebuffer_frozen = false;
-  s_frozen_callback = NULL;
-  s_frozen_callback_data = NULL;
+  s_frozen_callback = nullptr;
+  s_frozen_callback_data = nullptr;
 }
 
 // Helper functions to make implementing transitions easier
@@ -184,7 +184,7 @@ static void prv_notify_frozen(void) {
     return;
   }
   CompositorFrozenCallback callback = s_frozen_callback;
-  s_frozen_callback = NULL;
+  s_frozen_callback = nullptr;
   callback(s_frozen_callback_data);
 }
 
@@ -379,7 +379,7 @@ static void prv_animation_teardown(Animation *animation) {
   if (s_animation_state.impl->teardown) {
     s_animation_state.impl->teardown(animation);
   }
-  s_animation_state = (CompositorTransitionState){0};
+  s_animation_state = (CompositorTransitionState){};
 
   s_deferred_render.animation.pending = false;
   if (!prv_should_render()) {
@@ -391,11 +391,12 @@ static void prv_animation_teardown(Animation *animation) {
 }
 
 void compositor_transition(const CompositorTransition *compositor_animation) {
-  if (s_animation_state.animation != NULL) {
-    PBL_LOG_DBG("Animation <%u> in progress, cancelling", (int)s_animation_state.animation);
+  if (s_animation_state.animation != nullptr) {
+    PBL_LOG_DBG("Animation <%u> in progress, cancelling",
+                (unsigned)(uintptr_t)s_animation_state.animation);
 
     animation_destroy(s_animation_state.animation);
-    s_animation_state = (CompositorTransitionState){0};
+    s_animation_state = (CompositorTransitionState){};
 
     s_deferred_render.animation.pending = false;
     s_deferred_render.transition_complete.pending = false;
@@ -504,7 +505,7 @@ void compositor_freeze(CompositorFrozenCallback callback, void *data) {
   s_frozen_callback = callback;
   s_frozen_callback_data = data;
 
-  launcher_task_add_callback(prv_compositor_freeze_cb, NULL);
+  launcher_task_add_callback(prv_compositor_freeze_cb, nullptr);
 }
 
 static void prv_compositor_unfreeze_cb(void *ignored) {
@@ -515,7 +516,7 @@ static void prv_compositor_unfreeze_cb(void *ignored) {
 void compositor_unfreeze(void) {
   s_framebuffer_frozen = false;
 
-  launcher_task_add_callback(prv_compositor_unfreeze_cb, NULL);
+  launcher_task_add_callback(prv_compositor_unfreeze_cb, nullptr);
 }
 
 static bool prv_app_framebuffer_matches_display(void) {

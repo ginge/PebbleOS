@@ -43,3 +43,13 @@
 [submodule "third_party/hal_tuya/TuyaOpen"]
 	path = third_party/hal_tuya/TuyaOpen
 	url = https://github.com/tuya/TuyaOpen.git
+
+[submodule "third_party/uzlib/uzlib"]
+	path = third_party/uzlib/uzlib
+	url = https://github.com/coredevices/uzlib.git
+[submodule "third_party/upng/upng"]
+	path = third_party/upng/upng
+	url = https://github.com/coredevices/upng.git
+[submodule "third_party/fff/fff"]
+	path = third_party/fff/fff
+	url = https://github.com/meekrosoft/fff

@@ -3,13 +3,13 @@
 
 #pragma once
 
-#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
-#include "kernel/events.h"
-#include "pbl/services/imaging_endpoint_types.h"
-#include "pbl/util/uuid.h"
+#include <pbl/services/imaging_endpoint_types.h>
+#include <pbl/util/uuid.h>
+
+#include <kernel/events.h>
 
 struct GBitmap;
 typedef struct CommSession CommSession;

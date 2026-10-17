@@ -1,14 +1,16 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "resource_storage_impl.h"
 #include "resource_storage_file.h"
 
-#include "kernel/util/sleep.h"
-#include "pbl/services/filesystem/pfs.h"
-#include <pbl/logging/logging.h>
+#include "resource_storage_impl.h"
 
 #include <stdint.h>
+
+#include <pbl/kernel/delay.h>
+#include <pbl/logging/logging.h>
+#include <pbl/services/filesystem/pfs.h>
+#include <pbl/util/math.h>
 
 extern const FileResourceData g_file_resource_stores[];
 extern const uint32_t g_num_file_resource_stores;
@@ -93,7 +95,7 @@ static uint32_t resource_storage_file_read(ResourceStoreEntry *entry, uint32_t o
 
 static const uint8_t *resource_storage_file_readonly_bytes_unsupported(ResourceStoreEntry *entry,
                                                                        bool has_privileged_access) {
-  return NULL;
+  return nullptr;
 }
 
 static bool resource_storage_file_find_resource(ResourceStoreEntry *entry, ResAppNum app_num,
@@ -120,7 +122,7 @@ static ResourceCallbackHandle resource_storage_file_watch(ResourceStoreEntry *en
                                                           void *data) {
   const FileResourceData *file = entry->store_data;
   if (!file) {
-    return NULL;
+    return nullptr;
   }
   PFSCallbackHandle cb_handle = pfs_watch_file(file->name, callback, FILE_CHANGED_EVENT_ALL, data);
   return cb_handle;
@@ -144,11 +146,16 @@ static void resource_storage_file_init(void) {
 
     const uint32_t file_length = prv_file_common_get_length_and_close(fd);
 
+    // Files written for older firmware may carry fewer entries
+    const uint32_t first_resource_id = g_file_resource_stores[i].first_resource_id;
+    const uint32_t num_entries = resource_storage_get_num_entries(SYSTEM_APP, first_resource_id);
+    const uint32_t last_resource_id =
+        MIN(g_file_resource_stores[i].last_resource_id, first_resource_id + num_entries - 1);
+
     // Now check each entry in the file
-    for (uint32_t resource_id = g_file_resource_stores[i].first_resource_id;
-         resource_id <= g_file_resource_stores[i].last_resource_id; resource_id++) {
+    for (uint32_t resource_id = first_resource_id; resource_id <= last_resource_id; resource_id++) {
       // TODO PBL-21402
-      if (!resource_storage_check(SYSTEM_APP, resource_id, NULL)) {
+      if (!resource_storage_check(SYSTEM_APP, resource_id, nullptr)) {
         PBL_LOG_ERR("System resource file %" PRIu32 " corrupt!!!", resource_id);
       }
 
@@ -157,7 +164,7 @@ static void resource_storage_file_init(void) {
         // If this file is over 200KB, it's going to take a while to CRC. Let's sleep a bit
         // between entries so we don't starve out our background task. See PBL-24560 for a real
         // long term fix.
-        psleep(5);
+        pbl_sleep_ms(5);
       }
     }
   }
@@ -188,7 +195,7 @@ const ResourceStoreImplementation g_file_impl = {
 // ResourceStoreTypeAppFile implementation
 
 static int prv_app_file_open(ResourceStoreEntry *entry, uint8_t op_flags) {
-  ResAppNum app_num = (ResAppNum)entry->store_data;
+  ResAppNum app_num = (ResAppNum)(uintptr_t)entry->store_data;
   if (app_num == SYSTEM_APP) {
     return -1;
   }
@@ -214,7 +221,7 @@ static bool resource_storage_app_file_find_resource(ResourceStoreEntry *entry, R
 }
 
 static void resource_storage_app_file_clear(ResourceStoreEntry *entry) {
-  ResAppNum app_num = (ResAppNum)entry->store_data;
+  ResAppNum app_num = (ResAppNum)(uintptr_t)entry->store_data;
   if (app_num == SYSTEM_APP) {
     return;
   }

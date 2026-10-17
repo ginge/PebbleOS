@@ -4,7 +4,7 @@
 # The active board's manufacturing sources.
 if(CONFIG_BOARD_UNHYGIENIX)
   set(mfg_board unhygienix)
-elseif(CONFIG_QEMU)
+elseif(CONFIG_QEMU OR CONFIG_SOC_POSIX)
   set(mfg_board qemu)
 elseif(CONFIG_BOARD_ASTERIX)
   set(mfg_board asterix)

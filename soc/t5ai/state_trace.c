@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include <pbl/kernel/time.h>
 #include <pbl/soc/t5ai/state_trace.h>
 
 #include <pbl/kernel/irq.h>

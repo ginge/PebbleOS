@@ -1,31 +1,31 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/timeline/sports_layout.h"
-#include "pbl/services/timeline/timeline_layout.h"
-
-#include "applib/graphics/gtypes.h"
-#include "applib/preferred_content_size.h"
-#include "applib/ui/ui.h"
 #include <pbl/drivers/rtc.h>
-#include "font_resource_keys.auto.h"
-#include "kernel/pbl_malloc.h"
-#include "process_state/app_state/app_state.h"
-#include "pbl/services/clock.h"
-#include "pbl/services/i18n/i18n.h"
-#include "pbl/util/size.h"
-#include "pbl/util/string.h"
-#include "pbl/services/time.h"
-#include "pbl/util/units.h"
+#include <pbl/services/clock.h>
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/services/time.h>
+#include <pbl/services/timeline/sports_layout.h>
+#include <pbl/services/timeline/timeline_layout.h>
+#include <pbl/util/size.h>
+#include <pbl/util/string.h>
+#include <pbl/util/units.h>
 
-_Static_assert(AttributeIdRankAway + 1 == AttributeIdRankHome,
-               "Sports layout requires that all Home attributes are directly after Away");
-_Static_assert(AttributeIdNameAway + 1 == AttributeIdNameHome,
-               "Sports layout requires that all Home attributes are directly after Away");
-_Static_assert(AttributeIdRecordAway + 1 == AttributeIdRecordHome,
-               "Sports layout requires that all Home attributes are directly after Away");
-_Static_assert(AttributeIdScoreAway + 1 == AttributeIdScoreHome,
-               "Sports layout requires that all Home attributes are directly after Away");
+#include <applib/graphics/gtypes.h>
+#include <applib/preferred_content_size.h>
+#include <applib/ui/ui.h>
+#include <font_resource_keys.auto.h>
+#include <kernel/pbl_malloc.h>
+#include <process_state/app_state/app_state.h>
+
+static_assert(AttributeIdRankAway + 1 == AttributeIdRankHome,
+              "Sports layout requires that all Home attributes are directly after Away");
+static_assert(AttributeIdNameAway + 1 == AttributeIdNameHome,
+              "Sports layout requires that all Home attributes are directly after Away");
+static_assert(AttributeIdRecordAway + 1 == AttributeIdRecordHome,
+              "Sports layout requires that all Home attributes are directly after Away");
+static_assert(AttributeIdScoreAway + 1 == AttributeIdScoreHome,
+              "Sports layout requires that all Home attributes are directly after Away");
 
 //////////////////////////////////////////
 //  Card Mode
@@ -61,6 +61,12 @@ static void prv_get_until_time(const LayoutLayer *layout, char *buffer, int buff
     const char *starts = i18n_get("STARTS ", layout); // Freed by `timeline_layout_deinit`
     starts_len = strlen(starts);
     strncpy(buffer, starts, buffer_size);
+#if PBL_ROUND
+    // Round's large header fits "STARTS" and the time until on separate lines
+    if ((starts_len > 0) && (starts_len < (size_t)buffer_size) && (buffer[starts_len - 1] == ' ')) {
+      buffer[starts_len - 1] = '\n';
+    }
+#endif
   }
   clock_get_until_time_capitalized(buffer + starts_len, buffer_size - starts_len, timestamp,
                                    max_relative_hrs);
@@ -82,9 +88,10 @@ static GTextNode *prv_subtitle_constructor(const LayoutLayer *layout_ref,
     .buffer_size = TIME_STRING_REQUIRED_LENGTH,
     .text.style = CARD_TOP_CONTENT_SIZE,
     .text.style_font = TextStyleFont_Header,
-    .text.fixed_lines = 1,
+    .text.fixed_lines = PBL_IF_ROUND_ELSE(2, 1),
     .text.alignment = LayoutTextAlignment_Center,
-    .text.extent.margin.h = SPORTS_SIZE_SWITCH(-1, 10),
+    .text.extent.offset.y = PBL_IF_ROUND_ELSE(-10, 0),
+    .text.extent.margin.h = SPORTS_SIZE_SWITCH(-1, PBL_IF_RECT_ELSE(10, -6)),
   };
   static const LayoutNodeTextAttributeConfig s_term_config = {
     .attr_id = AttributeIdSubtitle,
@@ -135,13 +142,13 @@ static GTextNode *prv_broadcaster_header_constructor(const LayoutLayer *layout_r
   const char *broadcaster =
       attribute_get_string(layout_ref->attributes, AttributeIdBroadcaster, "");
   if (IS_EMPTY_STRING(broadcaster)) {
-    return NULL;
+    return nullptr;
   }
   static const LayoutNodeTextBufferConfig s_broadcaster_header_config = {
     .text.extent.node.type = LayoutNodeType_TextBuffer,
     .str = i18n_noop("Broadcaster"),
     .use_i18n = true,
-    .text.style = LayoutContentSizeDefault,
+    .text.style = LayoutContentSize_Auto,
     .text.style_font = TextStyleFont_ParagraphHeader,
     .text.line_spacing_delta = CARD_LINE_DELTA,
     .text.extent.margin.h = SPORTS_SIZE_SWITCH(0, 4),
@@ -173,7 +180,7 @@ static GTextNode *prv_card_view_constructor(TimelineLayout *timeline_layout) {
   };
   static const LayoutNodeTextAttributeConfig s_body_config = {
     .attr_id = AttributeIdBody,
-    .text.style = LayoutContentSizeDefault,
+    .text.style = LayoutContentSize_Auto,
     .text.style_font = TextStyleFont_Body,
     .text.line_spacing_delta = CARD_LINE_DELTA,
     .text.extent.margin.h = SPORTS_SIZE_SWITCH(14, 22), // body margin height
@@ -184,7 +191,7 @@ static GTextNode *prv_card_view_constructor(TimelineLayout *timeline_layout) {
   };
   static const LayoutNodeTextAttributeConfig s_broadcaster_config = {
     .attr_id = AttributeIdBroadcaster,
-    .text.style = LayoutContentSizeDefault,
+    .text.style = LayoutContentSize_Auto,
     .text.style_font = TextStyleFont_Body,
     .text.line_spacing_delta = CARD_LINE_DELTA,
     .text.extent.margin.h = SPORTS_SIZE_SWITCH(8, 17), // broadcaster margin height
@@ -215,7 +222,8 @@ static GTextNode *prv_create_team_node(const LayoutLayer *layout_ref, int team_o
   AttributeList *attributes = layout->timeline_layout.layout_layer.attributes;
 
   const bool is_pregame = (layout->state == GameStatePreGame);
-  const bool has_record = (attribute_find(attributes, AttributeIdRecordAway + team_offset) != NULL);
+  const bool has_record =
+      (attribute_find(attributes, AttributeIdRecordAway + team_offset) != nullptr);
 
   const AttributeId large_attr = !is_pregame ? AttributeIdScoreAway : AttributeIdNameAway;
   const AttributeId small_attr = !is_pregame  ? AttributeIdNameAway

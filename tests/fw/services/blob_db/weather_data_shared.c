@@ -3,18 +3,18 @@
 
 #include "weather_data_shared.h"
 
-#include "clar_asserts.h"
+#include <string.h>
 
 #include <pbl/drivers/rtc.h>
-#include "kernel/pbl_malloc.h"
-#include "pbl/util/size.h"
+#include <pbl/services/blob_db/watch_app_prefs_db.h>
+#include <pbl/services/blob_db/weather_db.h>
+#include <pbl/services/time.h>
+#include <pbl/services/weather/weather_service_private.h>
+#include <pbl/util/size.h>
+#include <pbl/util/units.h>
 
-#include <string.h>
-#include "pbl/services/blob_db/watch_app_prefs_db.h"
-#include "pbl/services/blob_db/weather_db.h"
-#include "pbl/services/weather/weather_service_private.h"
-#include "pbl/services/time.h"
-#include "pbl/util/units.h"
+#include <clar_asserts.h>
+#include <kernel/pbl_malloc.h>
 
 #define WEATHER_PREFS_DATA_SIZE        \
   (sizeof(SerializedWeatherAppPrefs) + \
@@ -173,7 +173,7 @@ void weather_shared_data_cleanup(void) {
   for (int i = 0; i < WEATHER_DATA_SHARED_WEATHER_DB_NUM_DB_ENTRIES; i++) {
     if (s_entries[i]) {
       task_free(s_entries[i]);
-      s_entries[i] = NULL;
+      s_entries[i] = nullptr;
     }
   }
 

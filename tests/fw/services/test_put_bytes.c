@@ -1,44 +1,29 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/put_bytes/put_bytes.h"
-
-#include "pbl/services/comm_session/session_receive_router.h"
-#include "pbl/kernel/types.h"
-#include "system/bootbits.h"
-#include "system/firmware_storage.h"
-#include <pbl/logging/logging.h>
-#include "pbl/kernel/compiler.h"
-#include "pbl/util/byteorder.h"
-
-#include <pbl/bluetooth/conn_event_stats.h>
-
-#include "pbl/kernel/sem.h"
-
-#include "clar.h"
-
 #include <limits.h>
 
-#include "fake_events.h"
-#include "fake_pbl_malloc.h"
-#include "fake_new_timer.h"
-#include "fake_put_bytes_storage_mem.h"
-#include "fake_sem.h"
-#include "fake_rtc.h"
-#include "fake_session.h"
-#include "fake_spi_flash.h"
-#include "fake_system_task.h"
+#include <pbl/bluetooth/conn_event_stats.h>
+#include <pbl/kernel/compiler.h>
+#include <pbl/kernel/sem.h>
+#include <pbl/kernel/types.h>
+#include <pbl/logging/logging.h>
+#include <pbl/services/comm_session/session_receive_router.h>
+#include <pbl/services/put_bytes/put_bytes.h>
+#include <pbl/util/byteorder.h>
 
-#include "stubs_bt_lock.h"
-#include "stubs_irq.h"
-#include "stubs_hexdump.h"
-#include "stubs_logging.h"
-#include "stubs_mutex.h"
-#include "stubs_passert.h"
-#include "stubs_pfs.h"
-#include "stubs_serial.h"
-#include "stubs_task_wdt.h"
-#include "stubs_tick.h"
+#include <clar.h>
+#include <fake_events.h>
+#include <fake_new_timer.h>
+#include <fake_pbl_malloc.h>
+#include <fake_put_bytes_storage_mem.h>
+#include <fake_rtc.h>
+#include <fake_sem.h>
+#include <fake_session.h>
+#include <fake_spi_flash.h>
+#include <fake_system_task.h>
+#include <system/bootbits.h>
+#include <system/firmware_storage.h>
 
 extern struct pbl_sem *put_bytes_get_semaphore(void);
 extern TimerID put_bytes_get_timer_id(void);
@@ -49,10 +34,10 @@ extern const ReceiverImplementation g_put_bytes_receiver_impl;
 
 static const PebbleProtocolEndpoint s_put_bytes_endpoint = (const PebbleProtocolEndpoint){
   .endpoint_id = 0xBEEF,
-  .handler = NULL,
+  .handler = nullptr,
   .access_mask = PebbleProtocolAccessPrivate,
   .receiver_imp = &g_put_bytes_receiver_impl,
-  .receiver_opt = NULL,
+  .receiver_opt = nullptr,
 };
 
 // Fakes
@@ -68,7 +53,7 @@ bool firmware_update_is_in_progress(void) {
   return s_firmware_update_is_in_progress;
 }
 
-void psleep(int millis) {
+void pbl_sleep_ms(uint32_t ms) {
 }
 
 void app_storage_get_file_name(char *name, size_t buf_length, AppInstallId app_id,
@@ -332,14 +317,14 @@ void test_put_bytes__initialize(void) {
   fake_event_reset_count();
 
   Transport *transport =
-      fake_transport_create(TransportDestinationSystem, NULL, prv_system_msg_sent_callback);
+      fake_transport_create(TransportDestinationSystem, nullptr, prv_system_msg_sent_callback);
   s_session = fake_transport_set_connected(transport, true /* connected */);
   cl_assert_equal_p(comm_session_get_system_session(), s_session);
 
   prv_process_and_reset_test_counters();
   s_last_response_cookie = 0;
   s_boot_bits_orred = 0;
-  s_do_before_write = NULL;
+  s_do_before_write = nullptr;
 
   // Common for most tests:
   s_firmware_update_is_in_progress = true;
@@ -379,7 +364,7 @@ void test_put_bytes__lock_contention_upon_prepare_message(void) {
 
   // Release it:
   pbl_sem_give(put_bytes_get_semaphore());
-  fake_sem_set_yield_callback(put_bytes_get_semaphore(), NULL);
+  fake_sem_set_yield_callback(put_bytes_get_semaphore(), nullptr);
 
   assert_nack_count(1);
 }
@@ -400,7 +385,7 @@ void test_put_bytes__lock_contention_upon_write_message(void) {
 
   // Release it:
   pbl_sem_give(put_bytes_get_semaphore());
-  fake_sem_set_yield_callback(put_bytes_get_semaphore(), NULL);
+  fake_sem_set_yield_callback(put_bytes_get_semaphore(), nullptr);
 
   assert_nack_count(1);
 }
@@ -767,19 +752,34 @@ void test_put_bytes__commit_message_crc_mismatch(void) {
   assert_nack_count(1);
 }
 
-void test_put_bytes__commit_message_fw_description_is_written(void) {
+static bool s_written_after_commit;
+
+static void prv_flag_write(void) {
+  s_written_after_commit = true;
+}
+
+void test_put_bytes__commit_message_fw_description(void) {
   prv_receive_init_and_put_fw_object();
+  s_written_after_commit = false;
+  fake_pb_storage_register_cb_before_write(prv_flag_write);
   prv_receive_commit(s_last_response_cookie, EXPECTED_CRC);
   fake_comm_session_process_send_next();
   fake_system_task_callbacks_invoke_pending();
+  fake_pb_storage_register_cb_before_write(nullptr);
 
-  // Assert the FW description got written at the beginning of the storage:
+#ifdef CONFIG_PBLBOOT
+  cl_assert(!s_written_after_commit);
+  const uint8_t chunk[] = {0xaa, 0xbb, 0xcc, 0xdd};
+  fake_pb_storage_mem_assert_contents_written(chunk, sizeof(chunk));
+#else
+  cl_assert(s_written_after_commit);
   const FirmwareDescription fw_descr = {
     .description_length = sizeof(FirmwareDescription),
     .firmware_length = VALID_OBJECT_SIZE,
     .checksum = EXPECTED_CRC,
   };
   fake_pb_storage_mem_assert_fw_description_written(&fw_descr);
+#endif
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

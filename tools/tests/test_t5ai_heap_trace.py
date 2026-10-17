@@ -41,7 +41,7 @@ void *__real_heap_realloc(Heap *h, void *p, unsigned long n, uintptr_t pc) {
   assert(p == &kernel); return __real_heap_malloc(h,n,pc);
 }
 void __real_heap_free(Heap *h, void *p, uintptr_t pc) { assert(h && p && pc); }
-PBL_NORETURN void __real_croak_oom(size_t n, int pc, Heap *h) {
+[[noreturn]] void __real_croak_oom(size_t n, int pc, Heap *h) {
   assert(n == 128 && pc == 99 && h == &kernel); ++croaks; longjmp(died,1);
 }
 int main(void) {
@@ -78,12 +78,12 @@ class HeapTraceTest(unittest.TestCase):
     def test_bounded_history_heap_selection_oom_and_rate_limit(self):
         with tempfile.TemporaryDirectory() as temp:
             d = Path(temp)
-            (d / "stub.h").write_text(STUB + "\ntypedef struct { unsigned current_size; } Heap;\n#define PBL_NORETURN __attribute__((noreturn))\nHeap *kernel_heap_get(void);\nvoid heap_calc_totals(Heap *, unsigned *, unsigned *, unsigned *);\nuint64_t t5ai_rtc_get_raw_ticks(void);\n#define T5AI_AON_RTC_HZ 32000u\n")
+            (d / "stub.h").write_text(STUB + "\ntypedef struct { unsigned current_size; } Heap;\n\nHeap *kernel_heap_get(void);\nvoid heap_calc_totals(Heap *, unsigned *, unsigned *, unsigned *);\nuint64_t t5ai_rtc_get_raw_ticks(void);\n#define T5AI_AON_RTC_HZ 32000u\n")
             for name in ("pbl/soc/t5ai/heap_trace.h", "pbl/soc/t5ai/rtc.h", "pbl/util/heap.h", "pbl/kernel/irq.h", "pbl/kernel/thread.h", "pbl/logging/logging.h", "kernel/kernel_heap.h", "system/passert.h"):
                 p = d / name
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text('#include "stub.h"\n')
             (d / "test.c").write_text(HARNESS)
             exe = d / "test"
-            subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-I", str(d), "-I", str(ROOT), str(d / "test.c"), "-o", str(exe)], check=True)
+            subprocess.run(["cc", "-std=gnu2x", "-Wall", "-Wextra", "-Werror", "-I", str(d), "-I", str(ROOT), str(d / "test.c"), "-o", str(exe)], check=True)
             subprocess.run([str(exe)], check=True)

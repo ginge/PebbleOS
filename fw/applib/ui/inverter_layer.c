@@ -3,11 +3,13 @@
 
 #include "inverter_layer.h"
 
-#include "applib/graphics/graphics.h"
-#include "applib/applib_malloc.auto.h"
-#include "system/passert.h"
-#include "pbl/util/math.h"
+#include <pbl/util/math.h>
 
+#include <applib/applib_malloc.auto.h>
+#include <applib/graphics/graphics.h>
+#include <system/passert.h>
+
+#if CONFIG_SCREEN_COLOR_DEPTH_BITS != 1
 inline static void prv_inverter_layer_update_proc_color(GContext *ctx) {
   // ctx->draw_state.drawing_box is the correct rect when this function gets
   // called through layer_render_tree(),
@@ -27,7 +29,7 @@ inline static void prv_inverter_layer_update_proc_color(GContext *ctx) {
 
   graphics_context_mark_dirty_rect(ctx, ctx->draw_state.drawing_box);
 }
-
+#else
 inline static void prv_inverter_layer_update_proc_bw(GContext *ctx) {
   // For 1Bit, just revert to the 2.x code.
   GBitmap sub_bitmap;
@@ -47,6 +49,7 @@ inline static void prv_inverter_layer_update_proc_bw(GContext *ctx) {
   graphics_context_set_compositing_mode(ctx, GCompOpAssignInverted);
   graphics_draw_bitmap_in_rect(ctx, &sub_bitmap, &rect);
 }
+#endif
 
 void inverter_layer_update_proc(InverterLayer *inverter, GContext *ctx) {
 #if CONFIG_SCREEN_COLOR_DEPTH_BITS == 1
@@ -58,7 +61,7 @@ void inverter_layer_update_proc(InverterLayer *inverter, GContext *ctx) {
 }
 
 void inverter_layer_init(InverterLayer *inverter, const GRect *frame) {
-  if (inverter == NULL) {
+  if (inverter == nullptr) {
     return;
   }
   *inverter = (InverterLayer){};
@@ -78,14 +81,14 @@ InverterLayer *inverter_layer_create(GRect frame) {
 }
 
 void inverter_layer_deinit(InverterLayer *inverter_layer) {
-  if (inverter_layer == NULL) {
+  if (inverter_layer == nullptr) {
     return;
   }
   layer_deinit(&inverter_layer->layer);
 }
 
 void inverter_layer_destroy(InverterLayer *inverter_layer) {
-  if (inverter_layer == NULL) {
+  if (inverter_layer == nullptr) {
     return;
   }
   inverter_layer_deinit(inverter_layer);
@@ -93,8 +96,8 @@ void inverter_layer_destroy(InverterLayer *inverter_layer) {
 }
 
 Layer *inverter_layer_get_layer(InverterLayer *inverter_layer) {
-  if (inverter_layer == NULL) {
-    return NULL;
+  if (inverter_layer == nullptr) {
+    return nullptr;
   }
   return &inverter_layer->layer;
 }

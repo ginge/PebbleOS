@@ -5,12 +5,10 @@
 
 #include "api.h"
 
-#include "pbl/services/timeline/attribute.h"
-#include "pbl/services/timeline/item.h"
+#include <pbl/services/timeline/attribute.h>
+#include <pbl/services/timeline/item.h>
 
-#include "system/status_codes.h"
-
-#include <stdbool.h>
+#include <system/status_codes.h>
 
 /**
  * @defgroup services_blob_db_ios_notif_pref_db iOS notification preferences

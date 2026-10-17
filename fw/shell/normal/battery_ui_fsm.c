@@ -5,19 +5,20 @@
 
 #include <stdint.h>
 
-#include "applib/ui/vibes.h"
-#include "apps/system_app_ids.h"
-#include "kernel/low_power.h"
-#include "kernel/ui/modals/modal_manager.h"
-#include "kernel/util/standby.h"
-#include "process_management/app_manager.h"
-#include "pbl/services/battery/battery_curve.h"
-#include "pbl/services/vibe_pattern.h"
-#include "pbl/services/notifications/do_not_disturb.h"
-#include "pbl/services/vibes/vibe_intensity.h"
-#include "shell/normal/watchface.h"
-#include "pbl/util/ratio.h"
-#include "pbl/util/size.h"
+#include <pbl/services/battery/battery_curve.h>
+#include <pbl/services/notifications/do_not_disturb.h>
+#include <pbl/services/vibe_pattern.h>
+#include <pbl/services/vibes/vibe_intensity.h>
+#include <pbl/util/ratio.h>
+#include <pbl/util/size.h>
+
+#include <applib/ui/vibes.h>
+#include <apps/system_app_ids.h>
+#include <kernel/low_power.h>
+#include <kernel/ui/modals/modal_manager.h>
+#include <kernel/util/standby.h>
+#include <process_management/app_manager.h>
+#include <shell/normal/watchface.h>
 
 // The Battery UI state machine keeps track of when to notify the user of a
 // change in battery charge state, and when to automatically dismiss the status
@@ -164,7 +165,7 @@ static void prv_enter_low_power(void *ignored) {
 static void prv_exit_low_power(void) {
 #ifndef CONFIG_RECOVERY_FW
   modal_manager_set_min_priority(ModalPriorityMin);
-  watchface_launch_default(NULL);
+  watchface_launch_default(nullptr);
   vibe_intensity_set(vibe_intensity_get());
 #else
   app_manager_close_current_app(true);
@@ -189,10 +190,11 @@ static void prv_exit_critical(void) {
 }
 
 static void prv_display_plugged(void *data) {
+  const PreciseBatteryChargeState *charge_state = data;
   if (!do_not_disturb_is_active()) {
     vibes_short_pulse();
   }
-  battery_ui_display_plugged();
+  battery_ui_display_plugged(charge_state->pct);
 }
 
 static void prv_dismiss_plugged(void) {
@@ -264,6 +266,8 @@ void battery_ui_handle_state_change_event(PreciseBatteryChargeState charge_state
   BatteryUIStateID next_state = prv_get_state(&charge_state);
   if (prv_is_valid_transition(next_state)) {
     prv_transition(next_state, &charge_state);
+  } else if (next_state == BatteryCharging && s_state == BatteryCharging) {
+    battery_ui_update_charge_level(charge_state.pct);
   }
 }
 
@@ -271,7 +275,7 @@ void battery_ui_handle_shut_down(void) {
   if (s_state != BatteryCharging) {
     enter_standby(RebootReasonCode_ShutdownMenuItem);
   } else {
-    prv_transition(BatteryShutdownCharging, NULL);
+    prv_transition(BatteryShutdownCharging, nullptr);
   }
 }
 

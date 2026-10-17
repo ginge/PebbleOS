@@ -3,12 +3,13 @@
 
 #include "scroll.h"
 
-#include "applib/app.h"
-#include "applib/ui/ui.h"
-#include "kernel/pbl_malloc.h"
-#include "process_management/app_manager.h"
-#include "process_state/app_state/app_state.h"
 #include <pbl/logging/logging.h>
+
+#include <applib/app.h>
+#include <applib/ui/ui.h>
+#include <kernel/pbl_malloc.h>
+#include <process_management/app_manager.h>
+#include <process_state/app_state/app_state.h>
 
 typedef struct {
   Window window;
@@ -37,7 +38,7 @@ static void click_config_provider(ScrollAppData *data) {
 
   // Configure how the SELECT button should behave:
   window_single_click_subscribe(BUTTON_ID_SELECT, (ClickHandler)select_click_handler);
-  window_long_click_subscribe(BUTTON_ID_SELECT, 0, (ClickHandler)select_click_handler, NULL);
+  window_long_click_subscribe(BUTTON_ID_SELECT, 0, (ClickHandler)select_click_handler, nullptr);
 }
 
 static void prv_window_load(Window *window) {

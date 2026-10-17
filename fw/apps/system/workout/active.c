@@ -2,29 +2,31 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "active.h"
+
 #include "dialog.h"
 #include "summary.h"
 #include "workout.h"
 
-#include "applib/app.h"
-#include "applib/ui/action_menu_window.h"
-#include "applib/ui/ui.h"
-#include "applib/ui/window_manager.h"
-#include "apps/system/timeline/text_node.h"
-#include "kernel/pbl_malloc.h"
-#include "resource/resource_ids.auto.h"
-#include "pbl/services/clock.h"
-#include "pbl/services/i18n/i18n.h"
-#include "pbl/services/activity/activity_private.h"
-#include "pbl/services/activity/health_util.h"
-#include "pbl/services/activity/hr_util.h"
-#include "pbl/services/activity/workout_service.h"
-#include <pbl/logging/logging.h>
-#include "pbl/util/size.h"
-
 #include <stdio.h>
-#include "pbl/util/testing.h"
-#include "pbl/util/units.h"
+
+#include <pbl/logging/logging.h>
+#include <pbl/services/activity/activity_private.h>
+#include <pbl/services/activity/health_util.h>
+#include <pbl/services/activity/hr_util.h>
+#include <pbl/services/activity/workout_service.h>
+#include <pbl/services/clock.h>
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/util/size.h>
+#include <pbl/util/testing.h>
+#include <pbl/util/units.h>
+
+#include <applib/app.h>
+#include <applib/ui/action_menu_window.h>
+#include <applib/ui/ui.h>
+#include <applib/ui/window_manager.h>
+#include <apps/system/timeline/text_node.h>
+#include <kernel/pbl_malloc.h>
+#include <resource/resource_ids.auto.h>
 
 #define TEXT_COLOR       (GColorBlack)
 #define TEXT_ALIGNMENT   (PBL_IF_RECT_ELSE(GTextAlignmentLeft, GTextAlignmentRight))
@@ -370,7 +372,7 @@ static void prv_set_action_bar_icons(WorkoutActiveWindow *active_window) {
   bool can_stop = false;
   if (active_window->workout_controller) {
     is_paused = active_window->workout_controller->is_paused();
-    can_stop = active_window->workout_controller->stop != NULL;
+    can_stop = active_window->workout_controller->stop != nullptr;
   }
 
   if (is_paused) {
@@ -413,7 +415,7 @@ static void prv_hr_measuring_timer_callback(void *data) {
     active_window->hr_measuring_timer =
         app_timer_register(timeout_ms, prv_hr_measuring_timer_callback, active_window);
   } else {
-    active_window->hr_measuring_timer = NULL;
+    active_window->hr_measuring_timer = nullptr;
   }
 }
 
@@ -496,7 +498,7 @@ static void prv_render_metric_label(GContext *ctx, GRect *box, WorkoutMetricType
   graphics_draw_text(ctx,
                      i18n_get(prv_get_label_for_metric(metric_type, active_window), i18n_owner),
                      fonts_get_system_font(FONT_KEY_GOTHIC_18_BOLD), label_box, overflow_mode,
-                     TEXT_ALIGNMENT, NULL);
+                     TEXT_ALIGNMENT, nullptr);
 }
 
 static void prv_render_hr_zones(GContext *ctx, GRect *box, WorkoutActiveWindow *active_window) {
@@ -579,7 +581,7 @@ static void prv_render_metric(GContext *ctx, WorkoutMetricType metric_type, Laye
 
   GTextNode *text_node =
       prv_create_text_node(active_window, metric_type, prefer_larger_font, layer);
-  graphics_text_node_draw(text_node, ctx, &rect, NULL, NULL);
+  graphics_text_node_draw(text_node, ctx, &rect, nullptr, nullptr);
   graphics_text_node_destroy(text_node);
 }
 
@@ -704,7 +706,7 @@ static void prv_handle_stop_button(WorkoutActiveWindow *active_window) {
   bool can_stop = false;
   if (active_window->workout_controller) {
     is_paused = active_window->workout_controller->is_paused();
-    can_stop = active_window->workout_controller->stop != NULL;
+    can_stop = active_window->workout_controller->stop != nullptr;
   }
 
   if (!is_paused || !can_stop) {
@@ -733,7 +735,7 @@ static void prv_select_click_handler(ClickRecognizerRef recognizer, void *contex
 }
 
 static void prv_set_pause_button(WorkoutActiveWindow *active_window) {
-  bool can_stop = active_window->workout_controller->stop != NULL;
+  bool can_stop = active_window->workout_controller->stop != nullptr;
   if (can_stop || active_window->num_scrollable_metrics > 1) {
     active_window->pause_button = BUTTON_ID_UP;
   } else {
@@ -904,7 +906,7 @@ WorkoutActiveWindow *workout_active_create_single_layout(WorkoutMetricType metri
                                                          WorkoutController *workout_controller) {
   if (metric == WorkoutMetricType_None) {
     PBL_LOG_ERR("Invalid argument");
-    return NULL;
+    return nullptr;
   }
 
   WorkoutActiveWindow *active_window = app_zalloc_check(sizeof(WorkoutActiveWindow));
@@ -924,7 +926,7 @@ WorkoutActiveWindow *workout_active_create_double_layout(WorkoutMetricType top_m
                                                          WorkoutController *workout_controller) {
   if (top_metric == WorkoutMetricType_None || num_scrollable_metrics == 0 || !scrollable_metrics) {
     PBL_LOG_ERR("Invalid argument(s)");
-    return NULL;
+    return nullptr;
   }
 
   WorkoutActiveWindow *active_window = app_zalloc_check(sizeof(WorkoutActiveWindow));
@@ -947,7 +949,7 @@ WorkoutActiveWindow *workout_active_create_triple_layout(WorkoutMetricType top_m
   if (top_metric == WorkoutMetricType_None || middle_metric == WorkoutMetricType_None ||
       (num_scrollable_metrics != 0 && !scrollable_metrics)) {
     PBL_LOG_ERR("Invalid argument(s)");
-    return NULL;
+    return nullptr;
   }
 
   WorkoutActiveWindow *active_window = app_zalloc_check(sizeof(WorkoutActiveWindow));
@@ -1018,7 +1020,7 @@ WorkoutActiveWindow *workout_active_create_for_activity_type(
       }
     }
     default:
-      return NULL;
+      return nullptr;
   }
 }
 

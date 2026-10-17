@@ -1,12 +1,13 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "comm/bt_lock.h"
-#include "pbl/services/comm_session/session_analytics.h"
-#include "pbl/services/comm_session/session_internal.h"
-#include "pbl/services/comm_session/session_send_queue.h"
-#include "system/passert.h"
-#include "pbl/util/math.h"
+#include <pbl/services/comm_session/session_analytics.h>
+#include <pbl/services/comm_session/session_internal.h>
+#include <pbl/services/comm_session/session_send_queue.h>
+#include <pbl/util/math.h>
+
+#include <comm/bt_lock.h>
+#include <system/passert.h>
 
 // -------------------------------------------------------------------------------------------------
 
@@ -22,7 +23,7 @@ void comm_session_send_queue_cleanup(CommSession *session) {
     job->impl->free(job);
     job = next;
   }
-  session->send_queue_head = NULL;
+  session->send_queue_head = nullptr;
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -34,7 +35,7 @@ void comm_session_send_queue_add_job(CommSession *session, SessionSendQueueJob *
     SessionSendQueueJob *job = *job_ptr_ptr;
     if (!comm_session_is_valid(session)) {
       job->impl->free(job);
-      *job_ptr_ptr = NULL;
+      *job_ptr_ptr = nullptr;
       goto unlock;
     }
     ListNode *head = (ListNode *)session->send_queue_head;
@@ -104,7 +105,7 @@ void comm_session_send_queue_consume(CommSession *session, size_t remaining_leng
     SessionSendQueueJob *next = (SessionSendQueueJob *)job->node.next;
     if (job_length == consume_length) {
       // job's done
-      list_remove((ListNode *)job, (ListNode **)&session->send_queue_head, NULL);
+      list_remove((ListNode *)job, (ListNode **)&session->send_queue_head, nullptr);
       job->impl->free(job);
     }
     remaining_length -= consume_length;

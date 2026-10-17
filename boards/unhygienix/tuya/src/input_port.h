@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #pragma once
+#include <assert.h>
 #include "hardware_core.h"
 #include "pbl/drivers/button_id.h"
 #include "pbl/services/touch/touch_event.h"

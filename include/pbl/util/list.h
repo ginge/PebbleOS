@@ -3,10 +3,11 @@
 
 #pragma once
 
-#include <stdbool.h>
-#include <stdint.h>
 #include "order.h"
-#include "pbl/kernel/compiler.h"
+
+#include <stdint.h>
+
+#include <pbl/kernel/compiler.h>
 
 /**
  * @defgroup util_list Linked list
@@ -66,7 +67,7 @@ typedef bool (*ListFilterCallback)(ListNode *found_node, void *data);
 typedef bool (*ListForEachCallback)(ListNode *node, void *context);
 
 /** @brief Initializer of an unlinked node. */
-#define LIST_NODE_NULL {.next = NULL, .prev = NULL}
+#define LIST_NODE_NULL {.next = nullptr, .prev = nullptr}
 
 /**
  * @brief Initialize a node as unlinked.

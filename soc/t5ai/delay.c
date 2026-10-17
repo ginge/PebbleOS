@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "kernel/util/delay.h"
+#include <pbl/soc/t5ai/delay.h>
 #include <pbl/kernel/compiler.h>
 #include <cmsis_core.h>
 

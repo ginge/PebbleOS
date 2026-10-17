@@ -1,16 +1,13 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/activity/activity_calculators.h"
-
-#include "pbl/services/activity/activity.h"
-#include "pbl/services/activity/activity_private.h"
-#include "pbl/util/units.h"
-
-#include <pbl/util/math.h>
-
 #include <stdint.h>
-#include <stdbool.h>
+
+#include <pbl/services/activity/activity.h>
+#include <pbl/services/activity/activity_calculators.h>
+#include <pbl/services/activity/activity_private.h>
+#include <pbl/util/math.h>
+#include <pbl/util/units.h>
 
 // ------------------------------------------------------------------------------------------------
 // Compute distance (in millimeters) covered by the taking the given number of steps in the given

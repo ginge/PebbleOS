@@ -1,18 +1,17 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/bluetooth/ble_hrm.h"
-
-#include "applib/graphics/gcolor_definitions.h"
-#include "applib/ui/dialogs/actionable_dialog.h"
-#include "applib/ui/dialogs/dialog.h"
-#include "applib/ui/dialogs/simple_dialog.h"
-#include "kernel/ui/modals/modal_manager.h"
-#include "applib/ui/vibes.h"
-#include "resource/resource_ids.auto.h"
-#include "pbl/services/i18n/i18n.h"
-
+#include <pbl/services/bluetooth/ble_hrm.h>
+#include <pbl/services/i18n/i18n.h>
 #include <pbl/util/size.h>
+
+#include <applib/graphics/gcolor_definitions.h>
+#include <applib/ui/dialogs/actionable_dialog.h>
+#include <applib/ui/dialogs/dialog.h>
+#include <applib/ui/dialogs/simple_dialog.h>
+#include <applib/ui/vibes.h>
+#include <kernel/ui/modals/modal_manager.h>
+#include <resource/resource_ids.auto.h>
 
 #define BLE_HRM_CONFIRMATION_TIMEOUT_MS (2000)
 
@@ -55,7 +54,7 @@ void ble_hrm_push_sharing_request_window(BLEHRMSharingRequest *sharing_request) 
   Dialog *dialog = actionable_dialog_get_dialog(a_dialog);
   dialog->callback_context = sharing_request;
 
-  actionable_dialog_set_action_bar_type(a_dialog, DialogActionBarConfirmDecline, NULL);
+  actionable_dialog_set_action_bar_type(a_dialog, DialogActionBarConfirmDecline, nullptr);
   actionable_dialog_set_click_config_provider(a_dialog, prv_shutdown_click_provider);
 
   dialog_set_text_color(dialog, GColorWhite);

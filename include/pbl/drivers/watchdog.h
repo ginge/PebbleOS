@@ -3,7 +3,6 @@
 
 #pragma once
 
-#include <stdbool.h>
 #include <pbl/drivers/mcu_reboot_reason.h>
 
 /**
@@ -69,10 +68,10 @@ static inline bool watchdog_check_reset_flag(void) {
   return false;
 }
 static inline McuRebootReason watchdog_clear_reset_flag(void) {
-  return (McuRebootReason){0};
+  return (McuRebootReason){};
 }
 static inline McuRebootReason watchdog_get_reset_flag(void) {
-  return (McuRebootReason){0};
+  return (McuRebootReason){};
 }
 /** @endcond */
 

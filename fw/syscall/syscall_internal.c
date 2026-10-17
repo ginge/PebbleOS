@@ -3,22 +3,27 @@
 
 #include "syscall_internal.h"
 
-#include "applib/app_logging.h"
-#include "kernel/memory_layout.h"
-#include "kernel/pebble_tasks.h"
-#include "pbl/mcu/privilege.h"
-#include "process_management/app_manager.h"
-#include "process_management/pebble_process_md.h"
-#include "process_management/process_loader.h"
-#include "process_management/process_manager.h"
-#include "syscall/syscall.h"
-#include <pbl/logging/logging.h>
-#include "system/passert.h"
-#include "pbl/util/size.h"
-
-#include <stdint.h>
+#include <errno.h>
 #include <stddef.h>
-#include "pbl/kernel/compiler.h"
+#include <stdint.h>
+#include <string.h>
+
+#include <pbl/kernel/compiler.h>
+#include <pbl/logging/logging.h>
+#include <pbl/mcu/privilege.h>
+#include <pbl/util/size.h>
+
+#include <applib/app_logging.h>
+#include <kernel/memory_layout.h>
+#include <kernel/pebble_tasks.h>
+#include <logging/logging_private.h>
+#include <process_management/app_manager.h>
+#include <process_management/pebble_process_md.h>
+#include <process_management/process_loader.h>
+#include <process_management/process_manager.h>
+#include <syscall/syscall.h>
+#include <syscall/syscall_define.h>
+#include <system/passert.h>
 
 // Run App/Worker syscalls on a dedicated privileged stack instead of the
 // caller's small unprivileged one, so a task that exhausts its stack faults
@@ -61,17 +66,17 @@ typedef struct McuUnprivilegedCallContext {
   uint32_t thread_id;
 } McuUnprivilegedCallContext;
 
-_Static_assert(sizeof(((McuUnprivilegedCallContext *)0)->saved_r4_r11) == 32,
-               "mcu_call_unprivileged asm assumes push {r4-r11} saves 32 bytes");
-_Static_assert(sizeof(uintptr_t) == sizeof(uint32_t),
-               "mcu_call_unprivileged asm assumes 32-bit pointers");
+static_assert(sizeof(((McuUnprivilegedCallContext *)0)->saved_r4_r11) == 32,
+              "mcu_call_unprivileged asm assumes push {r4-r11} saves 32 bytes");
+static_assert(sizeof(uintptr_t) == sizeof(uint32_t),
+              "mcu_call_unprivileged asm assumes 32-bit pointers");
 
 static McuUnprivilegedCallContext s_unprivileged_call_ctx[NumPebbleTask];
 
 static McuUnprivilegedCallContext *prv_unprivileged_call_ctx_for_current_task(void) {
   const PebbleTask task = pebble_task_get_current();
   if (task >= NumPebbleTask) {
-    return NULL;
+    return nullptr;
   }
   return &s_unprivileged_call_ctx[task];
 }
@@ -81,16 +86,16 @@ static PBL_USED void mcu_call_unprivileged_enter(void (*fn)(void *), void *ctx, 
   (void)ctx;
 
   PBL_ASSERTN(mcu_state_is_thread_privileged());
-  PBL_ASSERTN(fn != NULL);
+  PBL_ASSERTN(fn != nullptr);
 
   McuUnprivilegedCallContext *state = prv_unprivileged_call_ctx_for_current_task();
-  PBL_ASSERTN(state != NULL);
+  PBL_ASSERTN(state != nullptr);
 
   const uint32_t thread_id = pbl_thread_id(pbl_thread_current());
   if (state->active && state->thread_id != thread_id) {
     // Slots are indexed by PebbleTask. If a task died mid-callback and a new
     // thread reused the PebbleTask, discard the old call state first.
-    *state = (McuUnprivilegedCallContext){0};
+    *state = (McuUnprivilegedCallContext){};
   }
 
   PBL_ASSERTN(!state->active);
@@ -120,8 +125,9 @@ static uintptr_t prv_mcu_call_unprivileged_reentry_return_pc(void) {
 
 static McuUnprivilegedCallContext *prv_active_unprivileged_call_ctx_for_current_task(void) {
   McuUnprivilegedCallContext *state = prv_unprivileged_call_ctx_for_current_task();
-  if (state == NULL || !state->active || state->thread_id != pbl_thread_id(pbl_thread_current())) {
-    return NULL;
+  if (state == nullptr || !state->active ||
+      state->thread_id != pbl_thread_id(pbl_thread_current())) {
+    return nullptr;
   }
   return state;
 }
@@ -131,7 +137,7 @@ bool mcu_call_unprivileged_reentry_is_allowed(uint32_t caller_pc) {
     return false;
   }
 
-  return prv_active_unprivileged_call_ctx_for_current_task() != NULL;
+  return prv_active_unprivileged_call_ctx_for_current_task() != nullptr;
 }
 
 bool mcu_call_unprivileged_reentry_setup(uintptr_t orig_sp, uintptr_t *lr_ptr) {
@@ -148,7 +154,7 @@ bool mcu_call_unprivileged_reentry_setup(uintptr_t orig_sp, uintptr_t *lr_ptr) {
   }
 
   McuUnprivilegedCallContext *state = prv_active_unprivileged_call_ctx_for_current_task();
-  if (state == NULL) {
+  if (state == nullptr) {
     return false;
   }
 
@@ -235,7 +241,7 @@ PBL_EXTERNALLY_VISIBLE PBL_NAKED PBL_USED void mcu_call_unprivileged_resume(void
         [regs_off] "i"(offsetof(McuUnprivilegedCallContext, saved_r4_r11)));
 }
 
-PBL_NORETURN void syscall_failed(void) {
+[[noreturn]] void syscall_failed(void) {
   register uint32_t lr __asm("lr");
   uint32_t saved_lr = lr;
 
@@ -250,13 +256,13 @@ PBL_NORETURN void syscall_failed(void) {
   }
 }
 
+static bool prv_is_userspace_buffer(const void *buf, size_t num_bytes) {
+  return process_manager_is_range_in_region(pebble_task_get_current(), buf, num_bytes,
+                                            (void *)prv_get_syscall_sp());
+}
+
 void syscall_assert_userspace_buffer(const void *buf, size_t num_bytes) {
-  PebbleTask task = pebble_task_get_current();
-
-  void *user_stack_end = (void *)prv_get_syscall_sp();
-
-  if (process_manager_is_address_in_region(task, buf, user_stack_end) &&
-      process_manager_is_address_in_region(task, (uint8_t *)buf + num_bytes - 1, user_stack_end)) {
+  if (prv_is_userspace_buffer(buf, num_bytes)) {
     return;
   }
 
@@ -266,12 +272,68 @@ void syscall_assert_userspace_buffer(const void *buf, size_t num_bytes) {
   syscall_failed();
 }
 
+int syscall_copy_from_user(void *dst, const void *src, size_t num_bytes) {
+  if (!prv_is_userspace_buffer(src, num_bytes)) {
+    return -EFAULT;
+  }
+
+  memcpy(dst, src, num_bytes);
+  return 0;
+}
+
+int syscall_copy_to_user(void *dst, const void *src, size_t num_bytes) {
+  if (!prv_is_userspace_buffer(dst, num_bytes)) {
+    return -EFAULT;
+  }
+
+  memcpy(dst, src, num_bytes);
+  return 0;
+}
+
+void syscall_assert_userspace_log_message(const LogBinaryMessage *log_message) {
+  syscall_assert_userspace_buffer(log_message, sizeof(*log_message));
+
+  const size_t message_length = log_message->message_length;
+  syscall_assert_userspace_buffer(log_message, sizeof(*log_message) + message_length);
+
+  if (strnlen(log_message->filename, sizeof(log_message->filename)) ==
+      sizeof(log_message->filename)) {
+    syscall_failed();
+  }
+
+  if (strnlen(log_message->message, message_length) == message_length) {
+    syscall_assert_userspace_buffer(log_message, sizeof(*log_message) + message_length + 1);
+    if (log_message->message[message_length] != '\0') {
+      syscall_failed();
+    }
+  }
+}
+
+int syscall_user_strnlen(const char *str, size_t max) {
+  size_t window = process_manager_region_bytes_from(pebble_task_get_current(), str,
+                                                    (void *)prv_get_syscall_sp());
+  if (max < window) {
+    window = max + 1;
+  }
+  const size_t len = strnlen(str, window);
+  if (len == window) {
+    return -EFAULT;
+  }
+  return (int)len;
+}
+
+void syscall_copy_out(struct syscall_copy_out *out) {
+  if (out->dst != nullptr && syscall_copy_to_user(out->dst, out->src, out->num_bytes) < 0) {
+    syscall_failed();
+  }
+}
+
 #if SYSCALL_PRIVILEGED_STACK
 // Dedicated privileged stacks for App/Worker syscalls. Plain .bss statics land
 // in the privileged-only .kernel_bss output (RAM): unreadable by app
 // code, zeroed at boot. (Not section(".kernel_bss") -- that would orphan them.)
 #define SYSCALL_STACK_WORDS 512u // 2 KiB each; size against measured high-water.
-#ifdef CONFIG_MPU_TYPE_ARMV8M
+#ifdef CONFIG_ARMV8_M_MAINLINE
 #define SYSCALL_STACK_GUARD_WORDS 0u
 #else
 #define SYSCALL_STACK_GUARD_WORDS 8u // smallest ARMv7-M MPU region, naturally aligned
@@ -320,33 +382,39 @@ const MpuRegion *syscall_get_stack_guard_region(PebbleTask task) {
 #else
   (void)task;
 #endif
-  return NULL;
+  return nullptr;
 }
 
 // Kernel hook: top of the current task's dedicated syscall stack (base in
 // *base_out), or NULL to keep it on the caller's stack. App + Worker only;
 // moddable apps use mcu_call_unprivileged() and stay on their own stack.
-uint32_t *pbl_kernel_syscall_stack(uintptr_t *base_out) {
+uint32_t *pbl_kernel_syscall_stack(uintptr_t *base_out, uintptr_t *caller_start_out,
+                                   uintptr_t *caller_end_out) {
   uint32_t *stack;
+  const MpuRegion *caller_region;
   switch (pebble_task_get_current()) {
     case PebbleTask_App:
 #ifdef CONFIG_MODDABLE_XS
     {
       const PebbleProcessMd *md = app_manager_get_current_app_md();
-      if (md != NULL && md->is_moddable_app) {
-        return NULL;
+      if (md != nullptr && md->is_moddable_app) {
+        return nullptr;
       }
     }
 #endif
       stack = s_app_syscall_stack.words;
+      caller_region = memory_layout_get_app_region();
       break;
     case PebbleTask_Worker:
       stack = s_worker_syscall_stack.words;
+      caller_region = memory_layout_get_worker_region();
       break;
     default:
-      return NULL;
+      return nullptr;
   }
   *base_out = (uintptr_t)&stack[0];
+  *caller_start_out = caller_region->base_address;
+  *caller_end_out = caller_region->base_address + caller_region->size;
   return (uint32_t *)&stack[SYSCALL_STACK_WORDS];
 }
 
@@ -401,7 +469,7 @@ PBL_EXTERNALLY_VISIBLE void PBL_NAKED PBL_USED prv_drop_privilege(void) {
       " pop {r0, r1} \n"                    // r0,r1 = syscall return value
       " cbz r2, 1f \n"                      // skip stack switch if not relocated
       " msr psp, r2 \n" // back to the app stack (higher addr; safe vs low limit)
-#ifdef CONFIG_MPU_TYPE_ARMV8M
+#ifdef CONFIG_ARMV8_M_MAINLINE
       " msr psplim, r3 \n" // restore the app stack limit
 #endif
       " isb \n"
@@ -416,7 +484,7 @@ PBL_EXTERNALLY_VISIBLE void PBL_NAKED PBL_USED prv_drop_privilege(void) {
 #else
 const MpuRegion *syscall_get_stack_guard_region(PebbleTask task) {
   (void)task;
-  return NULL;
+  return nullptr;
 }
 uint16_t syscall_app_stack_free_bytes(void) {
   return 0xFFFF;

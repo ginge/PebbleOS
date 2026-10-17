@@ -3,20 +3,18 @@
 
 #include "events.h"
 
-#include <pbl/logging/logging.h>
-#include "system/passert.h"
-
-#include "kernel/pbl_malloc.h"
-
-#include "pbl/services/app_outbox_service.h"
-#include "syscall/syscall.h"
-
-#include "pbl/kernel/msgq.h"
-#include "pbl/kernel/poll.h"
-
 #include <stdint.h>
-#include <stdbool.h>
-#include "pbl/kernel/compiler.h"
+#include <string.h>
+
+#include <pbl/kernel/compiler.h>
+#include <pbl/kernel/msgq.h>
+#include <pbl/kernel/poll.h>
+#include <pbl/logging/logging.h>
+#include <pbl/services/app_outbox_service.h>
+
+#include <kernel/pbl_malloc.h>
+#include <syscall/syscall.h>
+#include <system/passert.h>
 
 #define MAX_KERNEL_EVENTS           32
 #define MAX_FROM_APP_EVENTS         10
@@ -103,8 +101,10 @@ void events_init(void) {
   // restriction.
   // PBL_LOG_DBG("PebbleEvent size is %u", sizeof(PebbleEvent));
   // FIXME:
-  _Static_assert(sizeof(PebbleEvent) <= 12,
-                 "You made the PebbleEvent bigger! It should be no more than 12");
+#ifndef CONFIG_ARCH_POSIX
+  static_assert(sizeof(PebbleEvent) <= 12,
+                "You made the PebbleEvent bigger! It should be no more than 12");
+#endif
 
   pbl_poll_group_add(&s_system_event_queue_set, &s_kernel_event_queue);
   pbl_poll_group_add(&s_system_event_queue_set, &s_from_app_event_queue);
@@ -123,14 +123,14 @@ struct pbl_msgq *event_get_to_kernel_queue(PebbleTask task) {
     return &s_kernel_event_queue;
   } else {
     WTF;
-    return NULL;
+    return nullptr;
   }
 }
 
 //! Decode a bit more information out about an event and pack it into a uint32_t
 static uint32_t prv_get_fancy_type_from_event(const PebbleEvent *event) {
   if (event->type == PEBBLE_CALLBACK_EVENT) {
-    return (uint32_t)event->callback.callback;
+    return (uint32_t)(uintptr_t)event->callback.callback;
   }
   return event->type;
 }
@@ -209,10 +209,10 @@ static void prv_event_put(struct pbl_msgq *queue, const char *queue_type, uintpt
 }
 
 void event_deinit(PebbleEvent *event) {
-  void **buffer = event_get_buffer(event);
-  if (buffer && *buffer) {
-    kernel_free(*buffer);
-    *buffer = NULL;
+  void *buffer = event_get_buffer(event);
+  if (buffer) {
+    kernel_free(buffer);
+    event_clear_buffer(event);
   }
 }
 
@@ -301,61 +301,77 @@ bool event_take_timeout(PebbleEvent *event, pbl_timeout_t timeout) {
   return true;
 }
 
-void **event_get_buffer(PebbleEvent *event) {
+static void *prv_buffer_slot(PebbleEvent *event) {
   switch (event->type) {
     case PEBBLE_SYS_NOTIFICATION_EVENT:
       if (event->sys_notification.type == NotificationActionResult) {
-        return (void **)&event->sys_notification.action_result;
+        return &event->sys_notification.action_result;
       } else if ((event->sys_notification.type == NotificationAdded) ||
                  (event->sys_notification.type == NotificationRemoved) ||
                  (event->sys_notification.type == NotificationActedUpon)) {
-        return (void **)&event->sys_notification.notification_id;
+        return &event->sys_notification.notification_id;
       }
       break;
 
     case PEBBLE_BLOBDB_EVENT:
-      return (void **)&event->blob_db.key;
+      return &event->blob_db.key;
 
     case PBL_BT_PEBBLE_PAIRING_EVENT:
       if (event->bluetooth.pair.type == PebbleBluetoothPairEventTypePairingUserConfirmation) {
-        return (void **)&event->bluetooth.pair.confirmation_info;
+        return &event->bluetooth.pair.confirmation_info;
       }
       break;
 
     case PEBBLE_APP_LAUNCH_EVENT:
-      return (void **)&event->launch_app.data;
+      return &event->launch_app.data;
 
     case PEBBLE_VOICE_SERVICE_EVENT:
-      return (void **)&event->voice_service.data;
+      return &event->voice_service.data;
 
     case PEBBLE_REMINDER_EVENT:
-      return (void **)&event->reminder.reminder_id;
+      return &event->reminder.reminder_id;
 
     case PEBBLE_BLE_GATT_CLIENT_EVENT:
       if (event->bluetooth.le.gatt_client.subtype == PebbleBLEGATTClientEventTypeServiceChange) {
-        return (void **)(&event->bluetooth.le.gatt_client_service.info);
+        return &event->bluetooth.le.gatt_client_service.info;
       }
       break;
 #ifdef CONFIG_MFG
     case PEBBLE_HRM_EVENT:
       if (event->hrm.event_type == HRMEvent_CTR) {
-        return (void **)(&event->hrm.ctr);
+        return &event->hrm.ctr;
       } else if (event->hrm.event_type == HRMEvent_Leakage) {
-        return (void **)(&event->hrm.leakage);
+        return &event->hrm.leakage;
       }
       break;
 #endif
     case PEBBLE_APP_GLANCE_EVENT:
-      return (void **)&event->app_glance.app_uuid;
+      return &event->app_glance.app_uuid;
 
     case PEBBLE_TIMELINE_PEEK_EVENT:
-      return (void **)&event->timeline_peek.item_id;
+      return &event->timeline_peek.item_id;
 
     default:
       break; // Nothing to do!
   }
 
-  return NULL;
+  return nullptr;
+}
+
+void *event_get_buffer(PebbleEvent *event) {
+  void *slot = prv_buffer_slot(event);
+  void *buffer = nullptr;
+  if (slot) {
+    memcpy(&buffer, slot, sizeof(buffer));
+  }
+  return buffer;
+}
+
+void event_clear_buffer(PebbleEvent *event) {
+  void *slot = prv_buffer_slot(event);
+  if (slot) {
+    memset(slot, 0, sizeof(void *));
+  }
 }
 
 void event_cleanup(PebbleEvent *event) {
@@ -381,6 +397,10 @@ void event_reset_from_process_queue(PebbleTask task) {
 
 struct pbl_msgq *event_kernel_to_kernel_event_queue(void) {
   return &s_from_kernel_event_queue;
+}
+
+uint32_t event_kernel_to_kernel_num_free(void) {
+  return pbl_msgq_num_free(&s_from_kernel_event_queue);
 }
 
 void event_queue_cleanup_and_reset(struct pbl_msgq *queue) {

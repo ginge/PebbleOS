@@ -3,9 +3,7 @@
 
 #pragma once
 
-#include <stdbool.h>
-
-#include "pbl/services/notifications/notification_types.h"
+#include <pbl/services/notifications/notification_types.h>
 
 /**
  * @defgroup services_notifications_alerts Alerts

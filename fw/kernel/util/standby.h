@@ -3,10 +3,11 @@
 
 #pragma once
 
-#include "system/reboot_reason.h"
-#include "pbl/kernel/compiler.h"
+#include <pbl/kernel/compiler.h>
+
+#include <system/reboot_reason.h>
 
 #if !UNITTEST
-PBL_NORETURN
+[[noreturn]]
 #endif
 void enter_standby(RebootReasonCode reason);

@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include "pbl/kernel/types.h"
-#include "pbl/kernel/compiler.h"
+#include <pbl/kernel/compiler.h>
+#include <pbl/kernel/types.h>
 
 /**
  * @defgroup kernel_mutex Mutexes
@@ -47,7 +47,7 @@ struct pbl_mutex {
 };
 
 /** @brief Static initializer for an unlocked mutex. */
-#define PBL_MUTEX_INITIALIZER {.owner = NULL, .count = 0, .lock_lr = 0}
+#define PBL_MUTEX_INITIALIZER {.owner = nullptr, .count = 0, .lock_lr = 0}
 
 /**
  * @brief Define an unlocked mutex, usable without pbl_mutex_init().

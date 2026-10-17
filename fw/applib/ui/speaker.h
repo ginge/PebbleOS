@@ -3,13 +3,12 @@
 
 #pragma once
 
-#include "pbl/services/speaker/note_sequence.h"
-#include "pbl/services/speaker/speaker_finish_reason.h"
-#include "pbl/services/speaker/speaker_pcm_format.h"
-#include "pbl/services/speaker/track.h"
-
-#include <stdbool.h>
 #include <stdint.h>
+
+#include <pbl/services/speaker/note_sequence.h>
+#include <pbl/services/speaker/speaker_finish_reason.h>
+#include <pbl/services/speaker/speaker_pcm_format.h>
+#include <pbl/services/speaker/track.h>
 
 //! @file speaker.h
 //! @addtogroup UI
@@ -74,6 +73,7 @@ bool speaker_stream_open(SpeakerPcmFormat format, uint8_t volume);
 uint32_t speaker_stream_write(const void *data, uint32_t num_bytes);
 
 //! Close the PCM stream. Buffered data will be played before stopping.
+//! Completion is asynchronous; use speaker_stop() to cancel immediately.
 void speaker_stream_close(void);
 
 //! Stop any active speaker playback immediately.

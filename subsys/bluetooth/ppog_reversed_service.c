@@ -3,18 +3,19 @@
 
 #include "ppog_reversed_service.h"
 
-#include <pbl/bluetooth/ppog_reversed.h>
+#include "nimble_type_conversions.h"
+
 #include <pbl/bluetooth/pebble_bt.h>
+#include <pbl/bluetooth/ppog_reversed.h>
+#include <pbl/logging/logging.h>
+
 #include <host/ble_gap.h>
 #include <host/ble_gatt.h>
 #include <host/ble_hs.h>
 #include <host/ble_uuid.h>
 #include <kernel/pbl_malloc.h>
 #include <os/os_mbuf.h>
-#include <pbl/logging/logging.h>
 #include <system/passert.h>
-
-#include "nimble_type_conversions.h"
 
 PBL_LOG_MODULE_DECLARE(bt, CONFIG_BT_LOG_LEVEL);
 
@@ -127,7 +128,7 @@ void ppog_reversed_service_init(void) {
   PBL_ASSERTN(rc == 0);
   // Called on every pbl_bt_start, but the listener list is only cleared on
   // nimble_port_init, so tolerate EALREADY.
-  rc = ble_gap_event_listener_register(&s_gap_event_listener, prv_handle_gap_event, NULL);
+  rc = ble_gap_event_listener_register(&s_gap_event_listener, prv_handle_gap_event, nullptr);
   PBL_ASSERTN(rc == 0 || rc == BLE_HS_EALREADY);
 }
 

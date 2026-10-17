@@ -7,16 +7,16 @@
 #pragma once
 
 #include <pbl/drivers/display/display.h> // FIXME: Need display dimensions
-#include "resource/resource.h"
-#include "pbl/kernel/compiler.h"
-#include "pbl/util/math.h"
-#include "pbl/util/math_fixed.h"
+#include <pbl/kernel/compiler.h>
+#include <pbl/util/math.h>
+#include <pbl/util/math_fixed.h>
+
+#include <resource/resource.h>
 
 #if !(defined(SDK) || defined(UNITTEST))
 #endif
 
 #include <stdint.h>
-#include <stdbool.h>
 
 //! @addtogroup Graphics
 //! @{
@@ -177,7 +177,7 @@ GColor8Component gcolor_component_multiply(GColor8Component a, GColor8Component 
 //! On platforms with round screen, the first expression will be chosen, the second otherwise.
 #define PBL_IF_ROUND_ELSE(if_true, if_false) (if_true)
 
-#elif !defined(UNITTEST)
+#elifndef UNITTEST
 #warning "Unknown screen shape"
 #endif
 
@@ -214,7 +214,7 @@ GColor8Component gcolor_component_multiply(GColor8Component a, GColor8Component 
 //! On color platforms, the first expression will be chosen, the second otherwise.
 #define COLOR_FALLBACK(color, bw)            (color)
 
-#elif !defined(UNITTEST)
+#elifndef UNITTEST
 #warning "Unknown color depth"
 #endif
 
@@ -788,7 +788,7 @@ typedef struct BitmapInfo {
   uint8_t version : 4;
 } BitmapInfo;
 
-typedef struct PBL_PACKED GBitmap {
+typedef struct GBitmap {
   //! Pointer to the address where the image data lives
   void *addr;
   //! @note The number of bytes per row may have restrictions depending on the format:
@@ -1282,7 +1282,7 @@ typedef struct GDrawMask GDrawMask;
 //! @internal
 //! Data structure that contains all kinds of drawing parameters, like the clipping box,
 //! the drawing box, stroke, fill and text colors and bitmap compositing mode.
-typedef struct PBL_PACKED {
+typedef struct {
   //! The box relative to bitmap's bounds, that graphics functions MUST use to clip what they draw
   GRect clip_box;
   //! The box relative to bitmap's bounds, that graphics functions MUST use as their coordinate

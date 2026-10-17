@@ -1,34 +1,21 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "clar.h"
+#include <pbl/services/blob_db/contacts_db.h>
+#include <pbl/services/contacts/attributes_address.h>
+#include <pbl/services/contacts/contacts.h>
+#include <pbl/services/filesystem/pfs.h>
+#include <pbl/util/size.h>
 
-#include "pbl/services/filesystem/pfs.h"
-#include "pbl/services/contacts/attributes_address.h"
-#include "pbl/services/contacts/contacts.h"
-#include "pbl/services/blob_db/contacts_db.h"
-
-#include "pbl/util/size.h"
+#include <clar.h>
 
 // Fakes
 ////////////////////////////////////////////////////////////////
-#include "fake_spi_flash.h"
-#include "fake_rtc.h"
+#include <fake_rtc.h>
+#include <fake_spi_flash.h>
 
 // Stubs
 ////////////////////////////////////////////////////////////////
-#include "stubs_analytics.h"
-#include "stubs_fonts.h"
-#include "stubs_hexdump.h"
-#include "stubs_layout_layer.h"
-#include "stubs_passert.h"
-#include "stubs_logging.h"
-#include "stubs_mutex.h"
-#include "stubs_pbl_malloc.h"
-#include "stubs_pebble_tasks.h"
-#include "stubs_rand_ptr.h"
-#include "stubs_sleep.h"
-#include "stubs_task_wdt.h"
 
 #define CONTACT_1_UUID \
   0x60, 0xcd, 0x45, 0x67, 0x2b, 0xcf, 0x45, 0xb3, 0x8d, 0x4c, 0x75, 0x34, 0xda, 0x6f, 0x16, 0xe3
@@ -118,6 +105,15 @@ static Attribute attributes[] = {
   {.id = AttributeIdTitle, .cstring = "John Doe"},
 };
 
+static void prv_assert_attributes_equal(const AttributeList *list, const Attribute *expected,
+                                        size_t num_expected) {
+  cl_assert_equal_i(list->num_attributes, num_expected);
+  for (size_t i = 0; i < num_expected; i++) {
+    cl_assert_equal_i(list->attributes[i].id, expected[i].id);
+    cl_assert_equal_s(list->attributes[i].cstring, expected[i].cstring);
+  }
+}
+
 void test_contacts__get_contact_by_uuid(void) {
   const Uuid uuid = (Uuid){CONTACT_1_UUID};
 
@@ -133,8 +129,15 @@ void test_contacts__get_contact_by_uuid(void) {
   cl_assert(contact);
   cl_assert_equal_m(&contact->id, &uuid, UUID_SIZE);
   cl_assert_equal_i(contact->flags, 0);
-  cl_assert_equal_i(contact->attr_list.num_attributes, 1);
-  cl_assert_equal_i(contact->addr_list.num_addresses, 1);
+  prv_assert_attributes_equal(&contact->attr_list, attributes, ARRAY_LENGTH(attributes));
+  cl_assert_equal_i(contact->addr_list.num_addresses, ARRAY_LENGTH(addresses));
+  for (size_t i = 0; i < ARRAY_LENGTH(addresses); i++) {
+    const Address *address = &contact->addr_list.addresses[i];
+    cl_assert_equal_m(&address->id, &addresses[i].id, UUID_SIZE);
+    cl_assert_equal_i(address->type, addresses[i].type);
+    prv_assert_attributes_equal(&address->attr_list, addresses[i].attr_list.attributes,
+                                addresses[i].attr_list.num_attributes);
+  }
 
   contacts_free_contact(contact);
 }

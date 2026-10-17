@@ -3,11 +3,10 @@
 
 #pragma once
 
-#include "pbl/services/timeline/item.h"
-#include "pbl/util/list.h"
-
-#include <stdbool.h>
 #include <stdint.h>
+
+#include <pbl/services/timeline/item.h>
+#include <pbl/util/list.h>
 
 typedef struct NotificationHistoryEntry {
   Uuid id;
@@ -39,10 +38,6 @@ typedef struct NotificationHistory {
   time_t grouping_cutoff;
   uint32_t next_sequence;
 } NotificationHistory;
-
-static inline bool notifications_history_is_hidden(const CommonTimelineItemHeader *header) {
-  return header->status & (TimelineItemStatusActioned | TimelineItemStatusDismissed);
-}
 
 void notifications_history_init(NotificationHistory *history, bool group_by_sender,
                                 time_t grouping_cutoff);

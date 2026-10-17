@@ -1,13 +1,13 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/util/uuid.h"
-#include "pbl/util/rand32.h"
-
 #include <inttypes.h>
-#include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+
+#include <pbl/util/rand32.h>
+#include <pbl/util/uuid.h>
 
 static const Uuid system_uuid = UUID_SYSTEM;
 static const Uuid invalid_uuid = UUID_INVALID_INIT;
@@ -28,7 +28,7 @@ void uuid_generate(Uuid *uuid_out) {
 }
 
 bool uuid_equal(const Uuid *uu1, const Uuid *uu2) {
-  if (uu1 == NULL || uu2 == NULL) {
+  if (uu1 == nullptr || uu2 == nullptr) {
     return false;
   }
   return memcmp(uu1, uu2, sizeof(Uuid)) == 0;

@@ -10,14 +10,14 @@ ROOT = Path(__file__).resolve().parents[2]
 HEADERS = [
     "board/board.h",
     "pbl/drivers/accel.h",
-    "pbl/drivers/i2c.h",
+    "pbl/drivers/i2c/t5ai_legacy.h",
     "pbl/drivers/rtc.h",
     "pbl/kernel/kernel.h",
     "pbl/kernel/irq.h",
     "pbl/kernel/mutex.h",
     "pbl/kernel/sem.h",
     "pbl/kernel/thread.h",
-    "kernel/util/sleep.h",
+    "pbl/kernel/delay.h",
     "pbl/services/new_timer/new_timer.h",
     "system/status_codes.h",
     "pbl/logging/logging.h",
@@ -29,6 +29,11 @@ STUB = r"""
 #include <stddef.h>
 #include <time.h>
 typedef struct { int16_t x, y, z; uint64_t timestamp_us; } AccelDriverSample;
+typedef struct {
+ const uint8_t *data; uint16_t num_samples; uint8_t stride;
+ struct { uint8_t offset; int8_t sign; } axis[3];
+ int32_t scale_num, scale_den; uint64_t first_timestamp_us; uint32_t sampling_interval_us;
+} AccelRawBatch;
 typedef int IMUCoordinateAxis;
 typedef int TimerID;
 #define TIMER_INVALID_ID -1
@@ -64,7 +69,7 @@ void i2c_release(int);
 bool i2c_write_block(int, size_t, const uint8_t *);
 bool i2c_read_block(int, size_t, uint8_t *);
 void rtc_get_time_ms(time_t *, uint16_t *);
-void psleep(unsigned);
+void pbl_sleep_ms(unsigned);
 TimerID new_timer_create(void);
 bool new_timer_start(TimerID, uint32_t, void (*)(void *), void *, int);
 bool new_timer_stop(TimerID);
@@ -82,7 +87,7 @@ static unsigned timers_created, timers_started;
 static bool ready = true, fail_read, full, tick_in_read, invalidate_in_read;
 static void (*queued)(void);
 static unsigned now_ms = 200;
-#include "fw/drivers/imu/qmi8658/qmi8658_t5ai_legacy.c"
+#include "drivers/imu/qmi8658/qmi8658_t5ai_legacy.c"
 void pbl_irq_lock(void) { ++irq_depth; }
 void pbl_irq_unlock(void) { assert(irq_depth); --irq_depth; }
 int pbl_mutex_lock(struct pbl_mutex *m, int t) {
@@ -110,7 +115,7 @@ bool i2c_read_block(int b, size_t n, uint8_t *p) {
  return !fail_read;
 }
 void rtc_get_time_ms(time_t *s, uint16_t *ms) { *s = now_ms / 1000; *ms = now_ms % 1000; }
-void psleep(unsigned ms) { now_ms += ms; }
+void pbl_sleep_ms(unsigned ms) { now_ms += ms; }
 TimerID new_timer_create(void) { ++timers_created; return 1; }
 bool new_timer_start(TimerID t, uint32_t ms, void (*cb)(void *), void *d, int f) {
  (void)t; (void)ms; (void)cb; (void)d; (void)f; ++timers_started; return true;

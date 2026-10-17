@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class T5AITouchTest(unittest.TestCase):
     def test_backpressure_and_release(self):
-        source = (ROOT / "fw/drivers/touch/cst92xx/cst92xx_t5ai.c").read_text()
+        source = (ROOT / "drivers/touch/cst92xx/cst92xx_t5ai.c").read_text()
         body = source[
             source.index("static bool prv_delivery_ready") : source.index(
                 "static void prv_interrupt_handler"
@@ -106,7 +106,7 @@ int main(void){
             subprocess.run([str(path / "test")], check=True)
 
     def test_retry_after_reset_without_interrupt(self):
-        source = (ROOT / "fw/drivers/touch/cst92xx/cst92xx_t5ai.c").read_text()
+        source = (ROOT / "drivers/touch/cst92xx/cst92xx_t5ai.c").read_text()
         task = source[
             source.index("static void prv_touch_task") : source.index(
                 "void touch_sensor_init"

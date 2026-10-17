@@ -6,7 +6,6 @@
 #include "item.h"
 
 #include <stdint.h>
-#include <stdbool.h>
 
 /**
  * @defgroup services_timeline_attributes_actions Attributes and actions

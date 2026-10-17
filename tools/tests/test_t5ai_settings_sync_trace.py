@@ -89,8 +89,8 @@ int main(void) {
 
 class SettingsSyncTraceTest(unittest.TestCase):
     def test_mailbox_write_filter_matches_flash_protocol(self):
-        flash = (ROOT / "fw/drivers/flash/t5ai_flash_ipc.c").read_text()
-        mailbox = (ROOT / "fw/drivers/t5ai/mb_ipc.c").read_text()
+        flash = (ROOT / "drivers/flash/t5ai_flash_ipc.c").read_text()
+        mailbox = (ROOT / "drivers/t5ai/mb_ipc.c").read_text()
         command = int(re.search(r"FLASH_WRITE = (\d+)", flash).group(1))
         filter_command = int(re.search(
             r"const bool trace_write =.*?MB_IPC_USER_COMMAND_SHIFT\) == (\d+)u;",
@@ -100,7 +100,7 @@ class SettingsSyncTraceTest(unittest.TestCase):
     def test_stages_wraparound_failure_and_histogram(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            headers = ["pbl/kernel/irq.h", "pbl/kernel/sched.h", "pbl/kernel/thread.h",
+            headers = ["pbl/kernel/irq.h", "pbl/kernel/time.h", "pbl/kernel/sched.h", "pbl/kernel/thread.h",
                        "pbl/logging/logging.h", "pbl/services/settings/settings_file.h"]
             for header in headers:
                 p = root / header

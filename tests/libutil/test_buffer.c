@@ -1,14 +1,12 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/util/buffer.h"
-
-#include "clar.h"
-
-#include "stubs_passert.h"
-
 #include <stdlib.h>
 #include <string.h>
+
+#include <pbl/util/buffer.h>
+
+#include <clar.h>
 
 static struct pbl_buffer *prv_create(size_t capacity) {
   struct pbl_buffer *b = malloc(sizeof(*b) + capacity);

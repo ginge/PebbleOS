@@ -2,16 +2,16 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <stdint.h>
-#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/time.h>
 
-#include "applib/ui/animation.h"
-#include "applib/ui/animation_private.h"
-#include "applib/ui/property_animation.h"
-#include "applib/ui/property_animation_private.h"
-#include "pbl/kernel/compiler.h"
+#include <pbl/kernel/compiler.h>
+
+#include <applib/ui/animation.h>
+#include <applib/ui/animation_private.h>
+#include <applib/ui/property_animation.h>
+#include <applib/ui/property_animation_private.h>
+#include <sys/time.h>
 
 Animation *PBL_WEAK animation_create(void) {
   Animation *animation = malloc(sizeof(AnimationPrivate));
@@ -142,7 +142,7 @@ bool PBL_WEAK animation_set_handlers(Animation *animation, AnimationHandlers cal
 
 void *PBL_WEAK animation_get_context(Animation *animation) {
   if (!animation) {
-    return false;
+    return nullptr;
   }
   return ((AnimationPrivate *)animation)->context;
 }
@@ -203,7 +203,7 @@ bool PBL_WEAK animation_set_auto_destroy(Animation *animation, bool auto_destroy
 PropertyAnimation *PBL_WEAK property_animation_create_layer_frame(struct Layer *layer,
                                                                   GRect *from_frame,
                                                                   GRect *to_frame) {
-  return property_animation_create(NULL, layer, from_frame, to_frame);
+  return property_animation_create(nullptr, layer, from_frame, to_frame);
 }
 
 PropertyAnimation *PBL_WEAK
@@ -264,7 +264,7 @@ Animation *PBL_WEAK property_animation_get_animation(PropertyAnimation *property
 }
 
 InterpolateInt64Function PBL_WEAK animation_private_current_interpolate_override(void) {
-  return NULL;
+  return nullptr;
 }
 
 void PBL_WEAK property_animation_update_int16(PropertyAnimation *property_animation,

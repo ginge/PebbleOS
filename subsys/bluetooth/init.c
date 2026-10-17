@@ -2,26 +2,27 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "gh3x2x_tuning_service.h"
+#include "nimble_store.h"
 
 #include <pbl/bluetooth/id_addr.h>
 #include <pbl/bluetooth/init.h>
+#include <pbl/kernel/sem.h>
+#include <pbl/kernel/thread.h>
+#include <pbl/kernel/types.h>
+#include <pbl/logging/logging.h>
+#include <pbl/task_wdt/task_wdt.h>
+
 #include <comm/bt_lock.h>
 #include <host/ble_hs.h>
 #include <host/ble_hs_stop.h>
 #include <host/util/util.h>
 #include <kernel/pebble_tasks.h>
 #include <nimble/nimble_port.h>
-#include "pbl/kernel/types.h"
-#include "pbl/kernel/sem.h"
-#include "pbl/kernel/thread.h"
-#include <services/dis/ble_svc_dis.h>
 #include <services/bas/ble_svc_bas.h>
+#include <services/dis/ble_svc_dis.h>
 #include <services/gap/ble_svc_gap.h>
 #include <services/gatt/ble_svc_gatt.h>
-#include <pbl/logging/logging.h>
 #include <system/passert.h>
-
-#include "nimble_store.h"
 
 PBL_LOG_MODULE_DEFINE(bt, CONFIG_BT_LOG_LEVEL);
 
@@ -99,7 +100,15 @@ static void prv_host_task_main(void *unused) {
   ble_hs_cfg.sync_cb = prv_sync_cb;
   ble_hs_cfg.reset_cb = prv_reset_cb;
 
-  nimble_port_run();
+  PBL_ASSERTN(pbl_task_wdt_add(nullptr, CONFIG_TASK_WDT_TIMEOUT_MS, nullptr, nullptr) >= 0);
+
+  struct ble_npl_eventq *evq = nimble_port_get_dflt_eventq();
+  while (1) {
+    pbl_task_wdt_set_waiting(true);
+    struct ble_npl_event *ev = ble_npl_eventq_get(evq, BLE_NPL_TIME_FOREVER);
+    pbl_task_wdt_set_waiting(false);
+    ble_npl_event_run(ev);
+  }
 }
 
 static void prv_ble_hs_stop_cb(int status, void *arg) {
@@ -199,7 +208,7 @@ bool pbl_bt_start(struct pbl_bt_config *config) {
 err:
   s_driver_state = DriverStateStopping;
   (void)(pbl_sem_take(&s_host_stopped, PBL_NO_WAIT) == 0);
-  rc = ble_hs_stop(&s_listener, prv_ble_hs_stop_cb, NULL);
+  rc = ble_hs_stop(&s_listener, prv_ble_hs_stop_cb, nullptr);
   if (rc == BLE_HS_EALREADY) {
     s_driver_state = DriverStateStopped;
     return false;
@@ -222,7 +231,7 @@ void pbl_bt_stop(void) {
 
   s_driver_state = DriverStateStopping;
   (void)(pbl_sem_take(&s_host_stopped, PBL_NO_WAIT) == 0);
-  ble_hs_stop(&s_listener, prv_ble_hs_stop_cb, NULL);
+  ble_hs_stop(&s_listener, prv_ble_hs_stop_cb, nullptr);
   f_rc = (pbl_sem_take(&s_host_stopped, PBL_MSEC(s_bt_stack_start_stop_timeout_ms)) == 0);
   PBL_ASSERT(f_rc, "NimBLE host stop timed out");
   s_driver_state = DriverStateStopped;

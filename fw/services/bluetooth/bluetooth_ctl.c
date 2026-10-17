@@ -1,29 +1,30 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/bluetooth/bluetooth_ctl.h"
-
-#include <pbl/bluetooth/init.h>
 #include <string.h>
 
-#include "comm/ble/gap_le.h"
-#include "comm/ble/gatt_client_subscriptions.h"
-#ifdef CONFIG_QEMU
-#include "comm/qemu_transport.h"
+#include <pbl/bluetooth/init.h>
+#include <pbl/services/bluetooth/bluetooth_ctl.h>
+
+#include <comm/ble/gap_le.h>
+#include <comm/ble/gatt_client_subscriptions.h>
+#ifdef CONFIG_QEMU_SERIAL
+#include <comm/qemu/transport.h>
 #endif
-#include "kernel/events.h"
-#include "kernel/pbl_malloc.h"
-#include "pbl/kernel/mutex.h"
-#include "pbl/services/analytics/analytics.h"
-#include "pbl/services/bluetooth/ble_bas.h"
-#include "pbl/services/bluetooth/bluetooth_persistent_storage.h"
-#include "pbl/services/bluetooth/dis.h"
-#include "pbl/services/bluetooth/local_addr.h"
-#include "pbl/services/bluetooth/local_id.h"
-#include "pbl/services/bluetooth/pairability.h"
-#include "pbl/services/system_task.h"
-#include "pbl/services/bluetooth/ble_hrm.h"
+#include <pbl/kernel/mutex.h>
 #include <pbl/logging/logging.h>
+#include <pbl/services/analytics/analytics.h>
+#include <pbl/services/bluetooth/ble_bas.h>
+#include <pbl/services/bluetooth/ble_hrm.h>
+#include <pbl/services/bluetooth/bluetooth_persistent_storage.h>
+#include <pbl/services/bluetooth/dis.h>
+#include <pbl/services/bluetooth/local_addr.h>
+#include <pbl/services/bluetooth/local_id.h>
+#include <pbl/services/bluetooth/pairability.h>
+#include <pbl/services/system_task.h>
+
+#include <kernel/events.h>
+#include <kernel/pbl_malloc.h>
 
 PBL_LOG_MODULE_DEFINE(service_bluetooth, CONFIG_SERVICE_BLUETOOTH_LOG_LEVEL);
 
@@ -94,7 +95,7 @@ static void prv_comm_start(void) {
 #endif
     ble_bas_init();
     bt_pairability_init();
-#ifdef CONFIG_QEMU
+#ifdef CONFIG_QEMU_SERIAL
     qemu_transport_start();
 #endif
   } else {
@@ -112,7 +113,7 @@ static void prv_comm_stop(void) {
   ble_hrm_deinit();
 #endif
   gap_le_deinit();
-#ifdef CONFIG_QEMU
+#ifdef CONFIG_QEMU_SERIAL
   qemu_transport_stop();
 #endif
 
@@ -177,7 +178,7 @@ void bt_ctl_set_enabled(bool enabled) {
   pbl_mutex_lock(&s_comm_state_change_mutex, PBL_FOREVER);
   s_comm_enabled = enabled;
   pbl_mutex_unlock(&s_comm_state_change_mutex);
-  prv_comm_state_change(NULL);
+  prv_comm_state_change(nullptr);
 }
 
 void bt_ctl_set_override_mode(BtCtlModeOverride override) {
@@ -188,7 +189,7 @@ void bt_ctl_set_override_mode(BtCtlModeOverride override) {
   pbl_mutex_lock(&s_comm_state_change_mutex, PBL_FOREVER);
   s_comm_override = override;
   pbl_mutex_unlock(&s_comm_state_change_mutex);
-  prv_comm_state_change(NULL);
+  prv_comm_state_change(nullptr);
 }
 
 static void prv_track_quick_airplane_mode_toggles(bool is_airplane_mode_currently_on) {
@@ -219,7 +220,7 @@ void bt_ctl_set_airplane_mode_async(bool enabled) {
   }
   pbl_mutex_unlock(&s_comm_state_change_mutex);
   if (should_schedule_eval) {
-    system_task_add_callback(prv_comm_state_change, NULL);
+    system_task_add_callback(prv_comm_state_change, nullptr);
   }
 }
 
@@ -251,16 +252,16 @@ static void prv_bt_ctl_reset_bluetooth_callback(void *context) {
 
 void bt_ctl_reset_bluetooth(void) {
   if (bt_ctl_is_bluetooth_active()) {
-    system_task_add_callback(prv_bt_ctl_reset_bluetooth_callback, NULL);
+    system_task_add_callback(prv_bt_ctl_reset_bluetooth_callback, nullptr);
   } else {
     PBL_LOG_DBG("Bluetooth is disabled, reset aborted");
   }
 }
 
 #ifdef CONFIG_SHELL
-#include <pbl/shell/shell.h>
-
 #include <errno.h>
+
+#include <pbl/shell/shell.h>
 
 static int prv_cmd_airplane(const struct pbl_shell *sh, size_t argc, char **argv) {
   BtCtlModeOverride override;
@@ -279,5 +280,5 @@ static int prv_cmd_airplane(const struct pbl_shell *sh, size_t argc, char **argv
   return 0;
 }
 
-PBL_SHELL_SUBCMD_ADD(sub_bt, airplane, NULL, "Airplane mode <on|off>", prv_cmd_airplane, 2, 0);
+PBL_SHELL_SUBCMD_ADD(sub_bt, airplane, nullptr, "Airplane mode <on|off>", prv_cmd_airplane, 2, 0);
 #endif

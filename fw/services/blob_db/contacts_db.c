@@ -1,17 +1,17 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/blob_db/contacts_db.h"
+#include <pbl/kernel/mutex.h>
+#include <pbl/services/blob_db/contacts_db.h>
+#include <pbl/services/contacts/contacts.h>
+#include <pbl/services/filesystem/pfs.h>
+#include <pbl/services/settings/settings_file.h>
+#include <pbl/util/units.h>
+#include <pbl/util/uuid.h>
 
-#include "kernel/pbl_malloc.h"
-#include "pbl/services/filesystem/pfs.h"
-#include "pbl/services/settings/settings_file.h"
-#include "pbl/services/contacts/contacts.h"
-#include "pbl/kernel/mutex.h"
-#include "system/passert.h"
-#include "system/status_codes.h"
-#include "pbl/util/units.h"
-#include "pbl/util/uuid.h"
+#include <kernel/pbl_malloc.h>
+#include <system/passert.h>
+#include <system/status_codes.h>
 
 #define SETTINGS_FILE_NAME "contactsdb"
 #define SETTINGS_FILE_SIZE (PBL_KIB(30))
@@ -45,7 +45,7 @@ static void prv_close_file_and_unlock_mutex(void) {
 //////////////////////////////
 
 int contacts_db_get_serialized_contact(const Uuid *uuid, SerializedContact **contact_out) {
-  *contact_out = NULL;
+  *contact_out = nullptr;
 
   status_t rv = prv_lock_mutex_and_open_file();
   if (rv != S_SUCCESS) {
@@ -122,7 +122,7 @@ int contacts_db_get_len(const uint8_t *key, int key_len) {
 }
 
 status_t contacts_db_read(const uint8_t *key, int key_len, uint8_t *val_out, int val_out_len) {
-  if (key_len != UUID_SIZE || val_out == NULL) {
+  if (key_len != UUID_SIZE || val_out == nullptr) {
     return E_INVALID_ARGUMENT;
   }
 

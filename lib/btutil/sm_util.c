@@ -1,24 +1,19 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/btutil/sm_util.h"
-#include "pbl/btutil/bt_device.h"
-
-#include <pbl/bluetooth/sm_types.h>
-
-#include <stdbool.h>
 #include <string.h>
 
+#include <pbl/bluetooth/sm_types.h>
+#include <pbl/btutil/bt_device.h>
+#include <pbl/btutil/sm_util.h>
+
 // -------------------------------------------------------------------------------------------------
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Waddress-of-packed-member"
 bool sm_is_pairing_info_equal_identity(const struct pbl_bt_sm_pairing_info *a,
                                        const struct pbl_bt_sm_pairing_info *b) {
   return (a->is_remote_identity_info_valid && b->is_remote_identity_info_valid &&
-          bt_device_equal(&a->identity.opaque, &b->identity.opaque) &&
+          bt_device_internal_equal(&a->identity, &b->identity) &&
           memcmp(&a->irk, &b->irk, sizeof(struct pbl_bt_sm_key)) == 0);
 }
-#pragma GCC diagnostic pop
 
 // -------------------------------------------------------------------------------------------------
 bool sm_is_pairing_info_empty(const struct pbl_bt_sm_pairing_info *p) {

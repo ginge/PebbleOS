@@ -1,16 +1,17 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/app.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/number_window.h"
-#include "process_management/pebble_process_md.h"
-#include "process_state/app_state/app_state.h"
-#include "resource/resource_ids.auto.h"
-#include "pbl/services/vibes/vibe_score.h"
-#include "pbl/util/size.h"
-
 #include <stdint.h>
+
+#include <pbl/services/vibes/vibe_score.h>
+#include <pbl/util/size.h>
+
+#include <applib/app.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/number_window.h>
+#include <process_management/pebble_process_md.h>
+#include <process_state/app_state/app_state.h>
+#include <resource/resource_ids.auto.h>
 
 static uint32_t s_vibe_score_resources[] = {
   RESOURCE_ID_VIBE_SCORE_NUDGE_NUDGE,
@@ -41,8 +42,8 @@ static void prv_unload_scores(void) {
 static void handle_init(void) {
   prv_load_scores();
 
-  NumberWindow *vibe_num_window =
-      number_window_create("Vibe Patterns", (NumberWindowCallbacks){.selected = prv_do_vibe}, NULL);
+  NumberWindow *vibe_num_window = number_window_create(
+      "Vibe Patterns", (NumberWindowCallbacks){.selected = prv_do_vibe}, nullptr);
   app_state_set_user_data(vibe_num_window);
 
   number_window_set_value(vibe_num_window, 0);

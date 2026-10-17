@@ -3,11 +3,10 @@
 
 #pragma once
 
-#include "voice_window.h"
 #include "dictation_session.h"
-#include "applib/event_service_client.h"
+#include "voice_window.h"
 
-#include <stdbool.h>
+#include <applib/event_service_client.h>
 
 struct DictationSession {
   VoiceWindow *voice_window;

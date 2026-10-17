@@ -1,18 +1,13 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/graphics/gtypes.h"
-
-#include "clar.h"
-#include "pebble_asserts.h"
-
 #include <stdio.h>
 
+#include <applib/graphics/gtypes.h>
+#include <clar.h>
+#include <pebble_asserts.h>
+
 // stubs
-#include "stubs_process_manager.h"
-#include "stubs_passert.h"
-#include "stubs_app_state.h"
-#include "stubs_heap.h"
 
 /////////////////////////////
 
@@ -133,7 +128,7 @@ void test_gtypes__grect_crop_asserts_for_large_insets(void) {
 void test_gtypes__pbl_if_rect_else(void) {
 #if defined(CONFIG_BOARD_ASTERIX) || defined(CONFIG_BOARD_OBELIX)
   cl_assert_equal_i(1, PBL_IF_RECT_ELSE(1, 2));
-#elif defined(CONFIG_PLATFORM_GABBRO)
+#elifdef CONFIG_PLATFORM_GABBRO
   cl_assert_equal_i(2, PBL_IF_RECT_ELSE(1, 2));
 #else
 #error "unknown platform"
@@ -143,7 +138,7 @@ void test_gtypes__pbl_if_rect_else(void) {
 void test_gtypes__pbl_if_round_else(void) {
 #if defined(CONFIG_BOARD_ASTERIX) || defined(CONFIG_BOARD_OBELIX)
   cl_assert_equal_i(2, PBL_IF_ROUND_ELSE(1, 2));
-#elif defined(CONFIG_PLATFORM_GABBRO)
+#elifdef CONFIG_PLATFORM_GABBRO
   cl_assert_equal_i(1, PBL_IF_ROUND_ELSE(1, 2));
 #else
 #error "unknown platform"

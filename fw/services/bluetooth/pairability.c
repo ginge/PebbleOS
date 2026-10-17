@@ -1,19 +1,18 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/logging/logging.h>
-#include "system/passert.h"
-
-#include "comm/ble/gap_le_slave_discovery.h"
-#include "kernel/pebble_tasks.h"
-#include "pbl/services/bluetooth/bluetooth_ctl.h"
-#include "pbl/services/bluetooth/bluetooth_persistent_storage.h"
-#include "pbl/services/bluetooth/local_addr.h"
-#include "pbl/services/bluetooth/pairability.h"
-#include "pbl/services/regular_timer.h"
-#include "pbl/services/system_task.h"
-
 #include <pbl/bluetooth/pairability.h>
+#include <pbl/logging/logging.h>
+#include <pbl/services/bluetooth/bluetooth_ctl.h>
+#include <pbl/services/bluetooth/bluetooth_persistent_storage.h>
+#include <pbl/services/bluetooth/local_addr.h>
+#include <pbl/services/bluetooth/pairability.h>
+#include <pbl/services/regular_timer.h>
+#include <pbl/services/system_task.h>
+
+#include <comm/ble/gap_le_slave_discovery.h>
+#include <kernel/pebble_tasks.h>
+#include <system/passert.h>
 
 PBL_LOG_MODULE_DECLARE(service_bluetooth, CONFIG_SERVICE_BLUETOOTH_LOG_LEVEL);
 
@@ -54,7 +53,7 @@ static void prv_schedule_evaluation(void) {
   // https://pebbletechnology.atlassian.net/browse/PBL-22884
   // Because this pretty much only happens in response to user input, don't bother limiting this,
   // and always evaluate, even though the state might not have changed:
-  system_task_add_callback(evaluate_pairing_refcount, NULL);
+  system_task_add_callback(evaluate_pairing_refcount, nullptr);
 }
 
 void bt_pairability_use(void) {

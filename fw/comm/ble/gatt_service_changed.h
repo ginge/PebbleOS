@@ -4,7 +4,6 @@
 #pragma once
 
 #include <stdint.h>
-#include <stdbool.h>
 
 //! @file
 //! This module contains the "Generic Attribute Profile Service" code, both the server and

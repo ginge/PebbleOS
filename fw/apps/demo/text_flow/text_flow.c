@@ -3,14 +3,15 @@
 
 #include "text_flow.h"
 
-#include "applib/app.h"
-#include "applib/fonts/fonts.h"
-#include "applib/ui/ui.h"
-#include "kernel/pbl_malloc.h"
-#include "process_management/app_manager.h"
-#include "process_management/sdk_shims.h"
-#include "process_state/app_state/app_state.h"
 #include <pbl/logging/logging.h>
+
+#include <applib/app.h>
+#include <applib/fonts/fonts.h>
+#include <applib/ui/ui.h>
+#include <kernel/pbl_malloc.h>
+#include <process_management/app_manager.h>
+#include <process_management/sdk_shims.h>
+#include <process_state/app_state/app_state.h>
 
 typedef struct AppState {
   Window window;

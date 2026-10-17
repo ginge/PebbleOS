@@ -1,26 +1,25 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/system_task.h"
-
-#include <pbl/logging/logging.h>
-
-#include <pbl/task_wdt/task_wdt.h>
-#include "kernel/pebble_tasks.h"
-#include "process_management/app_manager.h"
-#include "pbl/services/new_timer/new_timer.h"
-#include "kernel/util/task_init.h"
-#include "pbl/mcu/fpu.h"
-#include "pbl/kernel/types.h"
-#include "system/passert.h"
-
-#include "pbl/kernel/msgq.h"
-#include "pbl/kernel/poll.h"
-#include "pbl/kernel/thread.h"
-#include "pbl/kernel/compiler.h"
-#include "pbl/kernel/irq.h"
-
 #include <string.h>
+
+#include <pbl/kernel/compiler.h>
+#include <pbl/kernel/irq.h>
+#include <pbl/kernel/msgq.h>
+#include <pbl/kernel/poll.h>
+#include <pbl/kernel/thread.h>
+#include <pbl/kernel/types.h>
+#include <pbl/logging/logging.h>
+#include <pbl/mcu/fpu.h>
+#include <pbl/services/new_timer/new_timer.h>
+#include <pbl/services/system_task.h>
+#include <pbl/task_wdt/task_wdt.h>
+
+#include <kernel/memory_layout.h>
+#include <kernel/pebble_tasks.h>
+#include <kernel/util/task_init.h>
+#include <process_management/app_manager.h>
+#include <system/passert.h>
 
 PBL_LOG_MODULE_DEFINE(service_system_task, CONFIG_SERVICE_SYSTEM_TASK_LOG_LEVEL);
 
@@ -94,7 +93,7 @@ static void prv_app_throttle_start(void) {
   s_throttled_app_id = app->id;
   s_throttle_feed_count = __atomic_load_n(&s_watchdog_feed_count, __ATOMIC_RELAXED);
   pbl_thread_prio_set(app, PBL_PRIO_IDLE);
-  new_timer_start(s_throttle_timer, APP_THROTTLE_TIME_MS, prv_app_throttle_end, NULL, 0);
+  new_timer_start(s_throttle_timer, APP_THROTTLE_TIME_MS, prv_app_throttle_end, nullptr, 0);
 }
 
 //! The system task is starved when it is ready to run but does not get the
@@ -102,14 +101,14 @@ static void prv_app_throttle_start(void) {
 //! the app hogs the CPU. Parking the app briefly resolves both.
 static void *prv_wdt_expired(int channel_id, void *user_data) {
   if (s_throttle_timer != TIMER_INVALID_ID &&
-      (system_task_is_ready_to_run() || s_current_cb != NULL)) {
+      (system_task_is_ready_to_run() || s_current_cb != nullptr)) {
     prv_app_throttle_start();
   }
   return s_current_cb;
 }
 
 static void system_task_main(void *paramater) {
-  s_wdt_channel = pbl_task_wdt_add(NULL, CONFIG_TASK_WDT_TIMEOUT_MS, prv_wdt_expired, NULL);
+  s_wdt_channel = pbl_task_wdt_add(nullptr, CONFIG_TASK_WDT_TIMEOUT_MS, prv_wdt_expired, nullptr);
   PBL_ASSERTN(s_wdt_channel >= 0);
   task_init();
 
@@ -129,7 +128,7 @@ static void system_task_main(void *paramater) {
       s_current_cb = event.cb;
       event.cb(event.data);
       mcu_fpu_cleanup();
-      s_current_cb = NULL;
+      s_current_cb = nullptr;
       if (event.raised_priority) {
         system_task_enable_raised_priority(false);
       }
@@ -155,8 +154,8 @@ void system_task_init(void) {
     .entry = system_task_main,
     .prio = SYSTEM_TASK_PRIORITY,
     .privileged = true,
-    .stack = (void *)((uintptr_t)__kernel_bg_stack_start__ + (uintptr_t)__stack_guard_size__),
-    .stack_size = (uintptr_t)__kernel_bg_stack_size__ - (uintptr_t)__stack_guard_size__,
+    .stack = (void *)((uintptr_t)__kernel_bg_stack_start__ + MEMORY_LAYOUT_STACK_GUARD_SIZE),
+    .stack_size = MEMORY_LAYOUT_KERNEL_BG_STACK_SIZE - MEMORY_LAYOUT_STACK_GUARD_SIZE,
   };
 
   pebble_task_create(PebbleTask_KernelBackground, &attr);
@@ -179,8 +178,8 @@ static void handle_system_task_send_failure(SystemTaskEventCallback cb, uintptr_
     .code = RebootReasonCode_EventQueueFull,
     .event_queue = {
       .push_lr = (uint32_t)caller_lr,
-      .current_event = (uint32_t)s_current_cb,
-      .dropped_event = (uint32_t)cb
+      .current_event = (uint32_t)(uintptr_t)s_current_cb,
+      .dropped_event = (uint32_t)(uintptr_t)cb
     }
   };
   reboot_reason_set(&reason);

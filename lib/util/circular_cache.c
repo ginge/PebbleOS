@@ -1,11 +1,10 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/util/circular_cache.h"
-
-#include "pbl/util/assert.h"
-
 #include <string.h>
+
+#include <pbl/util/assert.h>
+#include <pbl/util/circular_cache.h>
 
 void circular_cache_init(CircularCache *c, uint8_t *buffer, size_t item_size, int total_items,
                          Comparator compare_cb) {
@@ -32,7 +31,7 @@ static uint8_t *prv_get_item_at_index(CircularCache *c, int index) {
 }
 
 bool circular_cache_contains(CircularCache *c, void *theirs) {
-  return (circular_cache_get(c, theirs) != NULL);
+  return (circular_cache_get(c, theirs) != nullptr);
 }
 
 void *circular_cache_get(CircularCache *c, void *theirs) {
@@ -42,7 +41,7 @@ void *circular_cache_get(CircularCache *c, void *theirs) {
       return ours;
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 void circular_cache_push(CircularCache *c, void *new_item) {
@@ -60,7 +59,7 @@ void circular_cache_push(CircularCache *c, void *new_item) {
 
 void circular_cache_fill(CircularCache *c, uint8_t *item) {
   // If you need item_destructor and fill, add an index pointing to the oldest item for destruction
-  UTIL_ASSERT(c->item_destructor == NULL);
+  UTIL_ASSERT(c->item_destructor == nullptr);
   for (int i = 0; i < c->total_items; ++i) {
     memcpy(c->cache + i * c->item_size, item, c->item_size);
   }

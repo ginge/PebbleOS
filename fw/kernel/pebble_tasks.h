@@ -3,12 +3,12 @@
 
 #pragma once
 
-#include "kernel/memory_layout.h"
-
 #include <stdint.h>
 
-#include "pbl/kernel/msgq.h"
-#include "pbl/kernel/thread.h"
+#include <pbl/kernel/msgq.h>
+#include <pbl/kernel/thread.h>
+
+#include <kernel/memory_layout.h>
 
 //! This is an enumeration of different tasks we've had in our system. Please don't rearrange
 //! these numbers! For example, the value of PebbleTask_Timers is hardcoded into our syscall
@@ -34,9 +34,9 @@ typedef enum PebbleTask {
 
 typedef uint16_t PebbleTaskBitset;
 
-_Static_assert((1 << (8 * sizeof(PebbleTaskBitset))) >= (1 << NumPebbleTask),
-               "The type of PebbleTaskBitset is not wide enough to "
-               "track all tasks in the PebbleTask enum");
+static_assert((1 << (8 * sizeof(PebbleTaskBitset))) >= (1 << NumPebbleTask),
+              "The type of PebbleTaskBitset is not wide enough to "
+              "track all tasks in the PebbleTask enum");
 
 void pebble_task_register(PebbleTask task, struct pbl_thread *thread);
 void pebble_task_unregister(PebbleTask task);

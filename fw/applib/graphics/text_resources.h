@@ -3,12 +3,13 @@
 
 #pragma once
 
-#include "applib/fonts/fonts_private.h"
-#include "applib/fonts/codepoint.h"
-#include "pbl/util/keyed_circular_cache.h"
-
 #include <stdint.h>
-#include "pbl/kernel/compiler.h"
+
+#include <pbl/kernel/compiler.h>
+#include <pbl/util/keyed_circular_cache.h>
+
+#include <applib/fonts/codepoint.h>
+#include <applib/fonts/fonts_private.h>
 
 typedef struct PBL_PACKED {
   uint8_t width_px;
@@ -87,11 +88,8 @@ typedef struct {
   //! Whether the bitmap data in this structure is valid.
   bool is_bitmap_loaded;
 
-  union {
-    //! Glyph data without a bitmap
-    GlyphHeaderData header_data;
-    GlyphData glyph_data;
-  };
+  //! GlyphData header; its bitmap follows it only in FontCache.glyph_buffer
+  GlyphHeaderData header;
 } LineCacheData;
 
 #define LINE_CACHE_SIZE 30

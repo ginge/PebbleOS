@@ -112,8 +112,8 @@ void t5ai_heap_trace_dump(void) {
   s_last_dump = now;
   prv_dump(false);
 }
-PBL_NORETURN void __real_croak_oom(size_t, int, Heap *);
-PBL_NORETURN void __wrap_croak_oom(size_t bytes, int client, Heap *heap) {
+[[noreturn]] void __real_croak_oom(size_t, int, Heap *);
+[[noreturn]] void __wrap_croak_oom(size_t bytes, int client, Heap *heap) {
   if (heap == kernel_heap_get())
     prv_dump(true);
   __real_croak_oom(bytes, client, heap);

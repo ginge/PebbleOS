@@ -1,28 +1,26 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/graphics/graphics.h"
-#include "applib/graphics/graphics_private.h"
-#include "applib/graphics/graphics_private_raw.h"
-#include "applib/graphics/framebuffer.h"
-
-#include "applib/ui/window_private.h"
-#include "applib/ui/layer.h"
-
-#include "clar.h"
 #include "util.h"
 
 #include <stdio.h>
 
+#include <applib/graphics/framebuffer.h>
+#include <applib/graphics/graphics.h>
+#include <applib/graphics/graphics_private.h>
+#include <applib/graphics/graphics_private_raw.h>
+#include <applib/ui/layer.h>
+#include <applib/ui/window_private.h>
+#include <clar.h>
+
 // Helper Functions
 ////////////////////////////////////
-#include "test_graphics.h"
 #include "8bit/test_framebuffer.h"
+#include "test_graphics.h"
 
 // Stubs
 ////////////////////////////////////
 #include "graphics_common_stubs.h"
-#include "stubs_applib_resource.h"
 
 // State
 ////////////////////////////////////
@@ -41,7 +39,7 @@ static unsigned int s_raw_drawing_function_counters[NumGDrawRawFunctionTypes];
 // Setup and Teardown
 ////////////////////////////////////
 
-static FrameBuffer *fb = NULL;
+static FrameBuffer *fb = nullptr;
 
 // Setup
 void test_graphics_draw_implementation__initialize(void) {

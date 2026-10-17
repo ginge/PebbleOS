@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include <pbl/kernel/time.h>
 #include <pbl/drivers/flash.h>
 #include <pbl/drivers/flash/flash_impl.h>
 #include <pbl/kernel/mutex.h>

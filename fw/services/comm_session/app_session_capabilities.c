@@ -1,13 +1,14 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "process_management/app_install_types.h"
-#include "process_management/app_manager.h"
-#include "pbl/services/comm_session/app_session_capabilities.h"
-#include "pbl/services/settings/settings_file.h"
-#include "pbl/kernel/mutex.h"
-#include "system/passert.h"
-#include "pbl/util/units.h"
+#include <pbl/kernel/mutex.h>
+#include <pbl/services/comm_session/app_session_capabilities.h>
+#include <pbl/services/settings/settings_file.h>
+#include <pbl/util/units.h>
+
+#include <process_management/app_install_types.h>
+#include <process_management/app_manager.h>
+#include <system/passert.h>
 
 #define APP_SESSION_CAPABILITIES_CACHE_FILENAME "app_comm"
 
@@ -90,7 +91,7 @@ void comm_session_app_session_capabilities_evict(const Uuid *app_uuid) {
 void comm_session_app_session_capabilities_init(void) {
   SettingsFile settings_file;
   if (PASSED(prv_open_locked(&settings_file))) {
-    settings_file_rewrite(&settings_file, prv_rewrite_cb, NULL);
+    settings_file_rewrite(&settings_file, prv_rewrite_cb, nullptr);
     prv_close_and_unlock(&settings_file);
   }
 }

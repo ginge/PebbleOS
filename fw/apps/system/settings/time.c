@@ -1,28 +1,29 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include "time.h"
+
 #include "menu.h"
 #include "option_menu.h"
-#include "time.h"
 #include "window.h"
-
-#include "applib/app.h"
-#include "applib/ui/action_menu_window_private.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/date_selection_window.h"
-#include "applib/ui/option_menu_window.h"
-#include "applib/ui/time_selection_window.h"
-#include "applib/ui/ui.h"
-#include "kernel/pbl_malloc.h"
-#include "pbl/util/string.h"
-
-#include "pbl/services/clock.h"
-#include "pbl/services/i18n/i18n.h"
-#include "pbl/services/timezone_database.h"
-#include "shell/prefs.h"
 
 #include <stdio.h>
 #include <time.h>
+
+#include <pbl/services/clock.h>
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/services/timezone_database.h>
+#include <pbl/util/string.h>
+
+#include <applib/app.h>
+#include <applib/ui/action_menu_window_private.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/date_selection_window.h>
+#include <applib/ui/option_menu_window.h>
+#include <applib/ui/time_selection_window.h>
+#include <applib/ui/ui.h>
+#include <kernel/pbl_malloc.h>
+#include <shell/prefs.h>
 
 // 9 (TZ) continents: Africa, America, Antarctica, Asia, Atlantic, Australia,
 // Europe, Indian, Pacific
@@ -238,13 +239,13 @@ static void prv_cycle_clock_timezone_source(void) {
 static void prv_time_picker_complete(TimeSelectionWindowData *picker, void *context) {
   // Build a new UTC timestamp: keep today's local date, update hours/minutes.
   // Seconds are reset to zero when manually setting the time.
-  struct tm now;
+  struct pbl_tm now;
   clock_get_time_tm(&now);
   now.tm_hour = picker->time_data.hour;
   now.tm_min = picker->time_data.minute;
   now.tm_sec = 0;
-  // mktime interprets struct tm as local time and returns a UTC epoch
-  time_t new_utc = mktime(&now);
+  // mktime interprets struct pbl_tm as local time and returns a UTC epoch
+  time_t new_utc = pbl_mktime(&now);
   clock_set_time(new_utc);
 
   const bool animated = true;
@@ -278,13 +279,13 @@ static void prv_time_picker_push(SettingsTimeData *data) {
 
 static void prv_date_picker_complete(DateSelectionWindowData *picker, void *context) {
   // Build a new UTC timestamp: keep today's local time-of-day (hour/min/sec), update year/month/day
-  struct tm now;
+  struct pbl_tm now;
   clock_get_time_tm(&now);
   now.tm_year = picker->date.year;
   now.tm_mon = picker->date.month;
   now.tm_mday = picker->date.day;
   // mktime normalises any out-of-range fields and converts local → UTC
-  time_t new_utc = mktime(&now);
+  time_t new_utc = pbl_mktime(&now);
   clock_set_time(new_utc);
 
   const bool animated = true;
@@ -347,8 +348,8 @@ static void prv_draw_row_cb(SettingsCallbacks *context, GContext *ctx, const Lay
                             uint16_t row, bool selected) {
   SettingsTimeData *data = (SettingsTimeData *)context;
 
-  const char *title = NULL;
-  const char *subtitle = NULL;
+  const char *title = nullptr;
+  const char *subtitle = nullptr;
   char current_timezone_region[TIMEZONE_NAME_LENGTH];
   char tz_source_buf[TIMEZONE_NAME_LENGTH + 32];
   char time_buf[TIME_STRING_TIME_LENGTH];
@@ -362,7 +363,7 @@ static void prv_draw_row_cb(SettingsCallbacks *context, GContext *ctx, const Lay
     }
     case TimeRow_SetTime: {
       title = i18n_noop("Set Time");
-      struct tm local_now;
+      struct pbl_tm local_now;
       clock_get_time_tm(&local_now);
       clock_format_time(time_buf, sizeof(time_buf), local_now.tm_hour, local_now.tm_min, true);
       subtitle = time_buf;
@@ -370,9 +371,9 @@ static void prv_draw_row_cb(SettingsCallbacks *context, GContext *ctx, const Lay
     }
     case TimeRow_SetDate: {
       title = i18n_noop("Set Date");
-      struct tm local_now;
+      struct pbl_tm local_now;
       clock_get_time_tm(&local_now);
-      strftime(date_buf, sizeof(date_buf), "%Y-%m-%d", &local_now);
+      pbl_strftime_r(date_buf, sizeof(date_buf), "%Y-%m-%d", &local_now);
       subtitle = date_buf;
       break;
     }
@@ -406,7 +407,7 @@ static void prv_draw_row_cb(SettingsCallbacks *context, GContext *ctx, const Lay
       break;
   }
 
-  menu_cell_basic_draw(ctx, cell_layer, i18n_get(title, data), i18n_get(subtitle, data), NULL);
+  menu_cell_basic_draw(ctx, cell_layer, i18n_get(title, data), i18n_get(subtitle, data), nullptr);
 }
 
 static uint16_t prv_num_rows_cb(SettingsCallbacks *context) {

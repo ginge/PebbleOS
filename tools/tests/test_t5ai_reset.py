@@ -216,7 +216,7 @@ class T5AIResetTest(unittest.TestCase):
                 self.compile_run(RESET_HARNESS, HEADERS, (
                     "-DCONFIG_WATCHDOG=1", "-DCONFIG_SOC_T5AI=1", "-DCONFIG_T5AI_REBOOT_TRACE=1",
                     f"-DCONFIG_WATCHDOG_TIMEOUT_MS={period}",
-                    f'-DWATCHDOG_SOURCE="{ROOT / "fw/drivers/watchdog/t5ai.c"}"',
+                    f'-DWATCHDOG_SOURCE="{ROOT / "drivers/watchdog/t5ai.c"}"',
                     f'-DREBOOT_SOURCE="{ROOT / "soc/t5ai/reboot_reason.c"}"',
                 ))
 
@@ -224,12 +224,12 @@ class T5AIResetTest(unittest.TestCase):
         self.compile_run(RESET_HARNESS, HEADERS, (
             "-DCONFIG_WATCHDOG=1", "-DCONFIG_SOC_T5AI=1",
             "-DCONFIG_WATCHDOG_TIMEOUT_MS=30000",
-            f'-DWATCHDOG_SOURCE="{ROOT / "fw/drivers/watchdog/t5ai.c"}"',
+            f'-DWATCHDOG_SOURCE="{ROOT / "drivers/watchdog/t5ai.c"}"',
             f'-DREBOOT_SOURCE="{ROOT / "soc/t5ai/reboot_reason.c"}"',
         ))
 
     def test_heartbeat_late_execution_and_tick_wrap(self):
-        source = (ROOT / "fw/drivers/t5ai/cp_mailbox.c").read_text()
+        source = (ROOT / "drivers/t5ai/cp_mailbox.c").read_text()
         start = source.index("static void prv_heartbeat_task(void *context) {")
         end = source.index("\nstatic status_t prv_pm_request", start)
         self.compile_run(HEARTBEAT_HARNESS.replace("FUNCTION", source[start:end]))

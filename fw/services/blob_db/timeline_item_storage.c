@@ -1,13 +1,13 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/blob_db/timeline_item_storage.h"
-
 #include <pbl/drivers/rtc.h>
-#include "kernel/pbl_malloc.h"
-#include "pbl/services/settings/settings_raw_iter.h"
 #include <pbl/logging/logging.h>
-#include "pbl/util/units.h"
+#include <pbl/services/blob_db/timeline_item_storage.h>
+#include <pbl/services/settings/settings_raw_iter.h>
+#include <pbl/util/units.h>
+
+#include <kernel/pbl_malloc.h>
 
 PBL_LOG_MODULE_DECLARE(service_blob_db, CONFIG_SERVICE_BLOB_DB_LOG_LEVEL);
 
@@ -157,7 +157,7 @@ status_t timeline_item_storage_next_item(TimelineItemStorage *storage, Uuid *id_
                                          TimelineItemStorageFilterCallback filter_cb) {
   RtcTicks lock_ticks = prv_storage_lock(storage, __func__);
 
-  NextInfo next_info = {0};
+  NextInfo next_info = {};
   next_info.current = rtc_get_time();
   next_info.max_age = storage->max_item_age;
   next_info.filter_cb = filter_cb;
@@ -418,7 +418,7 @@ static bool prv_flush_filter_cb(void *key, size_t key_len, void *val, size_t val
 
 status_t timeline_item_storage_flush(TimelineItemStorage *storage) {
   RtcTicks lock_ticks = prv_storage_lock(storage, __func__);
-  status_t rv = settings_file_rewrite_filtered(&storage->file, prv_flush_filter_cb, NULL);
+  status_t rv = settings_file_rewrite_filtered(&storage->file, prv_flush_filter_cb, nullptr);
   prv_storage_unlock(storage, lock_ticks, __func__);
   return rv;
 }

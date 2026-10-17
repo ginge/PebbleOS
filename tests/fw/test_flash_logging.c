@@ -1,31 +1,21 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "clar.h"
-
-#include "flash_region/flash_region.h"
-#include "debug/flash_logging.h"
-#include "pbl/util/math.h"
-#include "pbl/util/size.h"
-#include "pbl/util/string.h"
-
-#include "fake_spi_flash.h"
-#include "fake_system_task.h"
-
-#include "stubs_logging.h"
-#include "stubs_passert.h"
-#include "stubs_pbl_malloc.h"
-#include "stubs_print.h"
-#include "stubs_serial.h"
-#include "stubs_sleep.h"
-#include "stubs_task_wdt.h"
-
-#include <pbl/logging/logging.h>
-#include "system/passert.h"
-
-#include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+
+#include <pbl/logging/logging.h>
+#include <pbl/util/math.h>
+#include <pbl/util/size.h>
+#include <pbl/util/string.h>
+
+#include <clar.h>
+#include <debug/flash_logging.h>
+#include <fake_spi_flash.h>
+#include <fake_system_task.h>
+#include <flash_region/flash_region.h>
+#include <kernel/pbl_malloc.h>
+#include <system/passert.h>
 
 void test_flash_logging__initialize(void) {
   fake_spi_flash_init(0, BOARD_NOR_FLASH_SIZE);
@@ -80,9 +70,9 @@ int pbl_log_get_bin_format(char *buffer, int buffer_len, const uint8_t log_level
 }
 
 static char *get_expected_msg(void) {
-  cl_assert(s_msg.msg_arr != NULL);
+  cl_assert(s_msg.msg_arr != nullptr);
   cl_assert(s_msg.curr_msg_idx < s_msg.num_items);
-  char *expected_msg = NULL;
+  char *expected_msg = nullptr;
   if (s_msg.num_processed != 0) {
     expected_msg = s_msg.msg_arr[s_msg.curr_msg_idx - 1];
   }
@@ -405,7 +395,7 @@ void test_flash_logging__multi_writes_per_log(void) {
     }
 
     // try to write something past the end to ensure it doesn't take
-    uint8_t buf[128] = {0};
+    uint8_t buf[128] = {};
     rv = flash_logging_write(&buf[0], addr, sizeof(buf));
     cl_assert(!rv);
   }

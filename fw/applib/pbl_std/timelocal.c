@@ -25,19 +25,22 @@
  * SUCH DAMAGE.
  */
 
-#include <stddef.h>
-
 #include "timelocal.h"
 
-#include "pbl/services/i18n/i18n.h"
+#include <stddef.h>
+
+#include <pbl/services/i18n/i18n.h>
 
 #define LCTIME_SIZE (sizeof(struct lc_time_T) / sizeof(char *))
 
 static const struct lc_time_T _C_time_locale = {
   .mon =
-      {i18n_noop("Jan"), i18n_noop("Feb"), i18n_noop("Mar"), i18n_noop("Apr"), i18n_noop("May"),
-       i18n_noop("Jun"), i18n_noop("Jul"), i18n_noop("Aug"), i18n_noop("Sep"), i18n_noop("Oct"),
-       i18n_noop("Nov"), i18n_noop("Dec")},
+      {i18n_ctx_noop("MonthAbbr", "Jan"), i18n_ctx_noop("MonthAbbr", "Feb"),
+       i18n_ctx_noop("MonthAbbr", "Mar"), i18n_ctx_noop("MonthAbbr", "Apr"),
+       i18n_ctx_noop("MonthAbbr", "May"), i18n_ctx_noop("MonthAbbr", "Jun"),
+       i18n_ctx_noop("MonthAbbr", "Jul"), i18n_ctx_noop("MonthAbbr", "Aug"),
+       i18n_ctx_noop("MonthAbbr", "Sep"), i18n_ctx_noop("MonthAbbr", "Oct"),
+       i18n_ctx_noop("MonthAbbr", "Nov"), i18n_ctx_noop("MonthAbbr", "Dec")},
   .month =
       {i18n_noop("January"), i18n_noop("February"), i18n_noop("March"), i18n_noop("April"),
        i18n_noop("May"), i18n_noop("June"), i18n_noop("July"), i18n_noop("August"),

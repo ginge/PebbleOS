@@ -2,17 +2,19 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "resource.h"
+
 #include "resource_storage.h"
 #include "resource_storage_builtin.h"
 #include "resource_storage_flash.h"
 
-#include "process_management/app_manager.h"
 #include <pbl/drivers/flash.h>
-#include "kernel/pbl_malloc.h"
-#include "pbl/kernel/mutex.h"
-#include "pbl/services/process_management/app_storage.h"
+#include <pbl/kernel/mutex.h>
 #include <pbl/logging/logging.h>
-#include "system/passert.h"
+#include <pbl/services/process_management/app_storage.h>
+
+#include <kernel/pbl_malloc.h>
+#include <process_management/app_manager.h>
+#include <system/passert.h>
 
 // TODO: this may be replaced once apps become more dynamic
 
@@ -24,7 +26,7 @@ typedef struct {
 
 struct pbl_mutex s_resource_mutex;
 
-static CachedResource *s_resource_list = NULL;
+static CachedResource *s_resource_list = nullptr;
 
 // Last-resolved app resource; invalidated in resource_init_app().
 typedef struct {
@@ -38,14 +40,14 @@ static AppResourceCache s_app_resource_cache;
 
 static bool prv_resource_filter(ListNode *found_node, void *data) {
   CachedResource *resource = (CachedResource *)found_node;
-  uint32_t resource_id = (uint32_t)data;
+  uintptr_t resource_id = (uintptr_t)data;
 
   return (resource->id == resource_id);
 }
 
 static void prv_get_resource(ResAppNum app_num, uint32_t id, ResourceStoreEntry *entry) {
   if (id < 1) {
-    *entry = (ResourceStoreEntry){0};
+    *entry = (ResourceStoreEntry){};
     return;
   }
 
@@ -115,7 +117,7 @@ uint32_t resource_get_and_cache(ResAppNum app_num, uint32_t resource_id) {
   // check if we already have something in cache for this resource
   CachedResource *cached_resource = (CachedResource *)list_find(
       (ListNode *)s_resource_list, prv_resource_filter, (void *)(uintptr_t)resource_id);
-  if (cached_resource == NULL) {
+  if (cached_resource == nullptr) {
     cached_resource = kernel_malloc_check(sizeof(CachedResource));
     *cached_resource = (CachedResource){};
     cached_resource->id = resource_id;
@@ -144,12 +146,13 @@ size_t resource_load_byte_range_system(ResAppNum app_num, uint32_t resource_id, 
     return 0;
   }
 
-  if (offset + num_bytes > resource.length) {
-    if (offset >= resource.length) {
-      // Can't recover from trying to read from beyond the resource. Read nothing.
-      pbl_mutex_unlock(&s_resource_mutex);
-      return 0;
-    }
+  if (offset >= resource.length) {
+    // Can't recover from trying to read from beyond the resource. Read nothing.
+    pbl_mutex_unlock(&s_resource_mutex);
+    return 0;
+  }
+
+  if (num_bytes > resource.length - offset) {
     // We want to stop the FW from doing this, so we added an assert
     // but in the name of backwards compatibility, we let the app misbehave
     num_bytes = resource.length - offset;
@@ -178,7 +181,7 @@ const uint8_t *resource_get_readonly_bytes(ResAppNum app_num, uint32_t resource_
                                            size_t *num_bytes_out, bool has_privileged_access) {
   // we don't support memory-mapping for resources that don't belong to the system
   if (app_num != SYSTEM_APP) {
-    return NULL;
+    return nullptr;
   }
 
   pbl_mutex_lock(&s_resource_mutex, PBL_FOREVER);
@@ -192,6 +195,10 @@ const uint8_t *resource_get_readonly_bytes(ResAppNum app_num, uint32_t resource_
 
   if (num_bytes_out) {
     *num_bytes_out = resource.length;
+  }
+
+  if (resource.impl == nullptr) {
+    return nullptr;
   }
 
   return resource.impl->readonly_bytes(&resource, has_privileged_access);
@@ -210,7 +217,7 @@ ResourceVersion resource_get_system_version(void) {
 
 bool resource_is_valid(ResAppNum app_num, uint32_t resource_id) {
   pbl_mutex_lock(&s_resource_mutex, PBL_FOREVER);
-  bool rv = resource_storage_check(app_num, resource_id, NULL /* No expected version */);
+  bool rv = resource_storage_check(app_num, resource_id, nullptr /* No expected version */);
   if (rv) {
     ResourceStoreEntry entry;
     prv_get_resource(app_num, resource_id, &entry);

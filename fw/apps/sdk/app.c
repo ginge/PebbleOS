@@ -3,22 +3,23 @@
 
 #include "app.h"
 
-#include "applib/app.h"
-#include "applib/graphics/perimeter.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/text_layer.h"
-#include "applib/ui/window_private.h"
-#include "apps/system_app_ids.h"
-#include "apps/system/launcher/launcher.h"
-#include "apps/system/timeline/timeline.h"
-#include "kernel/pbl_malloc.h"
-#include "process_management/app_install_manager.h"
-#include "process_management/app_manager.h"
-#include "process_state/app_state/app_state.h"
-#include "pbl/services/clock.h"
-#include "shell/sdk/shell_sdk.h"
-#include "shell/sdk/watchface.h"
 #include <pbl/logging/logging.h>
+#include <pbl/services/clock.h>
+
+#include <applib/app.h>
+#include <applib/graphics/perimeter.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/text_layer.h>
+#include <applib/ui/window_private.h>
+#include <apps/system/launcher/launcher.h>
+#include <apps/system/timeline/timeline.h>
+#include <apps/system_app_ids.h>
+#include <kernel/pbl_malloc.h>
+#include <process_management/app_install_manager.h>
+#include <process_management/app_manager.h>
+#include <process_state/app_state/app_state.h>
+#include <shell/sdk/shell_sdk.h>
+#include <shell/sdk/watchface.h>
 
 typedef struct SdkAppData {
   Window window;
@@ -63,7 +64,7 @@ static void prv_update_ui(SdkAppData *data) {
   prv_update_info(data);
 }
 
-static void prv_handle_tick_timer(struct tm *tick_time, TimeUnits units_changed) {
+static void prv_handle_tick_timer(struct pbl_tm *tick_time, TimeUnits units_changed) {
   prv_update_ui(app_state_get_user_data());
 }
 

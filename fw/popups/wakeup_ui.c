@@ -3,15 +3,16 @@
 
 #include "wakeup_ui.h"
 
-#include "applib/fonts/fonts.h"
-#include "applib/ui/dialogs/expandable_dialog.h"
-#include "kernel/event_loop.h"
-#include "kernel/pbl_malloc.h"
-#include "kernel/ui/kernel_ui.h"
-#include "kernel/ui/modals/modal_manager.h"
-#include "process_management/app_install_manager.h"
-#include "resource/resource_ids.auto.h"
-#include "pbl/services/i18n/i18n.h"
+#include <pbl/services/i18n/i18n.h>
+
+#include <applib/fonts/fonts.h>
+#include <applib/ui/dialogs/expandable_dialog.h>
+#include <kernel/event_loop.h>
+#include <kernel/pbl_malloc.h>
+#include <kernel/ui/kernel_ui.h>
+#include <kernel/ui/modals/modal_manager.h>
+#include <process_management/app_install_manager.h>
+#include <resource/resource_ids.auto.h>
 
 typedef void (*EachCb)(AppInstallEntry *entry, void *data);
 
@@ -70,7 +71,7 @@ static void prv_show_dialog(void *context) {
   kernel_free(data->app_ids);
   kernel_free(data);
 
-  ExpandableDialog *ex_dialog = expandable_dialog_create(NULL);
+  ExpandableDialog *ex_dialog = expandable_dialog_create(nullptr);
   Dialog *dialog = expandable_dialog_get_dialog(ex_dialog);
   dialog_set_text_buffer(dialog, missed_message, true);
   dialog_set_icon(dialog, RESOURCE_ID_GENERIC_WARNING_TINY);

@@ -3,21 +3,22 @@
 
 #pragma once
 
-#include "applib/data_logging.h"
-#include <pbl/drivers/rtc.h>
-#include "flash_region/flash_region.h"
-#include "kernel/pebble_tasks.h"
-#include "pbl/kernel/mutex.h"
-#include "pbl/services/comm_session/protocol.h"
-#include "system/hexdump.h"
-#include "pbl/kernel/compiler.h"
-#include "pbl/util/shared_cbuf.h"
-#include "pbl/util/units.h"
-#include "pbl/util/uuid.h"
-
 #include <stdint.h>
 #include <stdlib.h>
 #include <time.h>
+
+#include <pbl/drivers/rtc.h>
+#include <pbl/kernel/compiler.h>
+#include <pbl/kernel/mutex.h>
+#include <pbl/services/comm_session/protocol.h>
+#include <pbl/util/shared_cbuf.h>
+#include <pbl/util/units.h>
+#include <pbl/util/uuid.h>
+
+#include <applib/data_logging.h>
+#include <flash_region/flash_region.h>
+#include <kernel/pebble_tasks.h>
+#include <system/hexdump.h>
 
 /**
  * @defgroup services_data_logging_dls_private Data logging internals
@@ -241,7 +242,7 @@ typedef struct PBL_PACKED {
 } DataLoggingSendDataMessage;
 
 /** @brief Largest item size, and largest dls_log() write, for buffered sessions. */
-static const uint32_t DLS_SESSION_MAX_BUFFERED_ITEM_SIZE = 300;
+#define DLS_SESSION_MAX_BUFFERED_ITEM_SIZE 300U
 
 /**
  * @brief Size of a buffered session's buffer.

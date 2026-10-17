@@ -4,7 +4,6 @@
 #pragma once
 
 #include <stdint.h>
-#include <stdbool.h>
 
 //! @file voice/dictation_session.h
 //! Defines the interface to the dictation session API

@@ -3,10 +3,9 @@
 
 #pragma once
 
-#include <stdbool.h>
 #include <stddef.h>
 
-#include "process_management/app_install_types.h"
+#include <process_management/app_install_types.h>
 
 /**
  * @defgroup services_filesystem_app_file App files

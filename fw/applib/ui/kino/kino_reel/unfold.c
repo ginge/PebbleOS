@@ -1,14 +1,16 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "transform.h"
-#include "scale_segmented.h"
 #include "unfold.h"
 
-#include "applib/applib_malloc.auto.h"
-#include "pbl/util/trig.h"
-#include "applib/graphics/gdraw_command_private.h"
-#include "syscall/syscall.h"
+#include "scale_segmented.h"
+#include "transform.h"
+
+#include <pbl/util/trig.h>
+
+#include <applib/applib_malloc.auto.h>
+#include <applib/graphics/gdraw_command_private.h>
+#include <syscall/syscall.h>
 
 static AnimationProgress prv_ease_in_out_first_quarter(AnimationProgress progress) {
   return animation_timing_curve(animation_timing_clip(4 * progress), AnimationCurveEaseInOut);
@@ -41,7 +43,7 @@ KinoReel *kino_reel_unfold_create(KinoReel *from_reel, bool take_ownership, GRec
 
   AngleLookupContext *ctx = applib_malloc(sizeof(AngleLookupContext));
   if (!ctx) {
-    return NULL;
+    return nullptr;
   }
   *ctx = (AngleLookupContext){
     .angle = angle,

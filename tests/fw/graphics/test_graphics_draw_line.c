@@ -1,16 +1,15 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/graphics/graphics.h"
-#include "applib/graphics/framebuffer.h"
-
-#include "applib/ui/window_private.h"
-#include "applib/ui/layer.h"
-
-#include "clar.h"
 #include "util.h"
 
 #include <stdio.h>
+
+#include <applib/graphics/framebuffer.h>
+#include <applib/graphics/graphics.h>
+#include <applib/ui/layer.h>
+#include <applib/ui/window_private.h>
+#include <clar.h>
 
 // Helper Functions
 ////////////////////////////////////
@@ -25,9 +24,8 @@
 // Stubs
 ////////////////////////////////////
 #include "graphics_common_stubs.h"
-#include "stubs_applib_resource.h"
 
-static FrameBuffer *fb = NULL;
+static FrameBuffer *fb = nullptr;
 
 // Setup
 void test_graphics_draw_line__initialize(void) {

@@ -1,31 +1,19 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "resource/resource_ids.auto.h"
-#include "resource/resource_storage.h"
-#include "resource/resource_storage_impl.h"
-
 #include <limits.h>
 
-#include "clar.h"
-#include "fixtures/load_test_resources.h"
+#include <clar.h>
+#include <fixtures/load_test_resources.h>
+#include <resource/resource_ids.auto.h>
+#include <resource/resource_storage.h>
+#include <resource/resource_storage_impl.h>
 
 // Fakes
-#include "fake_app_manager.h"
-#include "fake_bootbits.h"
+#include <fake_app_manager.h>
+#include <fake_bootbits.h>
 
 // Stubs
-#include "stubs_analytics.h"
-#include "stubs_logging.h"
-#include "stubs_mutex.h"
-#include "stubs_passert.h"
-#include "stubs_pbl_malloc.h"
-#include "stubs_pebble_tasks.h"
-#include "stubs_print.h"
-#include "stubs_serial.h"
-#include "stubs_sleep.h"
-#include "stubs_task_wdt.h"
-#include "stubs_memory_layout.h"
 
 static const uint8_t pug[] = {
   0x08, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x3e, 0x00,
@@ -616,7 +604,7 @@ void test_resource__watch(void) {
   load_resource_fixture_on_pfs(RESOURCES_FIXTURE_PATH, PUG_FIXTURE_NAME, "pug");
 
   ResourceCallbackHandle cb_handle =
-      resource_watch(SYSTEM_APP, RESOURCE_ID_PUG, prv_res_changed_callback, NULL);
+      resource_watch(SYSTEM_APP, RESOURCE_ID_PUG, prv_res_changed_callback, nullptr);
   cl_assert(cb_handle);
 
   // Callback should get invoked if resource was written to
@@ -645,10 +633,10 @@ void test_resource__overflow_data_section_length(void) {
 
   ResourceStoreImplementation impl = {
     .type = ResourceStoreTypeAppFile,
-    .get_crc = NULL,
-    .write = NULL,
+    .get_crc = nullptr,
+    .write = nullptr,
     .read = &prv_mock_resource_storage_app_read,
-    .clear = NULL
+    .clear = nullptr
   };
 
   ResourceStoreEntry entry = {

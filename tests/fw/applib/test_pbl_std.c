@@ -1,29 +1,15 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/pbl_std/pbl_std.h"
-#include "applib/pbl_std/locale.h"
-
-#include "clar.h"
+#include <applib/pbl_std/locale.h>
+#include <applib/pbl_std/pbl_std.h>
+#include <clar.h>
 
 // Stubs
 //////////////////////////////////////////////////////////
-#include "stubs_heap.h"
-#include "stubs_hexdump.h"
-#include "stubs_logging.h"
-#include "stubs_mutex.h"
-#include "stubs_passert.h"
-#include "stubs_pbl_malloc.h"
-#include "stubs_pebble_tasks.h"
-#include "stubs_print.h"
-#include "stubs_serial.h"
-#include "stubs_sleep.h"
-#include "stubs_syscall_internal.h"
-#include "stubs_system_reset.h"
-#include "stubs_task_wdt.h"
-#include "stubs_app_state.h"
-#include "stubs_worker_state.h"
-#include "pbl/services/time.h"
+#include <string.h>
+
+#include <pbl/services/time.h>
 
 // Overrides
 //////////////////////////////////////////////////////////
@@ -34,7 +20,7 @@ time_t sys_time_utc_to_local(time_t t) {
   return t;
 }
 
-size_t localized_strftime(char *s, size_t maxsize, const char *format, const struct tm *tim_p,
+size_t localized_strftime(char *s, size_t maxsize, const char *format, const struct pbl_tm *tim_p,
                           char *locale) {
   return 0;
 }
@@ -53,15 +39,15 @@ int32_t time_get_dstoffset(void) {
 
 void sys_copy_timezone_abbr(char *timezone_abbr, time_t time) {
   const char *sys_tz = get_timezone_abbr();
-  strncpy(timezone_abbr, sys_tz, TZ_LEN);
+  strncpy(timezone_abbr, sys_tz, PBL_TZ_LEN);
 }
 
-struct tm *sys_gmtime_r(const time_t *timep, struct tm *result) {
-  return gmtime_r(timep, result);
+struct pbl_tm *sys_gmtime_r(const time_t *timep, struct pbl_tm *result) {
+  return pbl_gmtime_r(timep, result);
 }
 
-struct tm *sys_localtime_r(const time_t *timep, struct tm *result) {
-  return localtime_r(timep, result);
+struct pbl_tm *sys_localtime_r(const time_t *timep, struct pbl_tm *result) {
+  return pbl_gmtime_r(timep, result);
 }
 
 // Tests

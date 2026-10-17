@@ -1,24 +1,26 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+// clang-format off
 #include "system_resource.h"
 
-#include "applib/fonts/fonts.h"
-#include "applib/graphics/text_resources.h"
-#include "kernel/event_loop.h"
-#include "kernel/memory_layout.h"
-#include "kernel/panic.h"
-#include "kernel/util/fw_reset.h"
-#include "resource/resource.h"
-#include "resource/resource_storage.h"
-#include "syscall/syscall_internal.h"
 #include <pbl/logging/logging.h>
-#include "system/passert.h"
-#include "pbl/util/size.h"
+#include <pbl/util/size.h>
 
-#include "resource/resource_ids.auto.h"
-#include "resource/resource_version.auto.h"
-#include "font_resource_table.auto.h"
+#include <applib/fonts/fonts.h>
+#include <applib/graphics/text_resources.h>
+#include <kernel/event_loop.h>
+#include <kernel/memory_layout.h>
+#include <kernel/panic.h>
+#include <kernel/util/fw_reset.h>
+#include <resource/resource.h>
+#include <resource/resource_ids.auto.h>
+#include <resource/resource_storage.h>
+#include <resource/resource_version.auto.h>
+#include <font_resource_table.auto.h>
+#include <syscall/syscall_define.h>
+#include <system/passert.h>
+// clang-format on
 
 void system_resource_init(void) {
   if (!resource_init_app(SYSTEM_APP, &SYSTEM_RESOURCE_VERSION)) {
@@ -45,7 +47,7 @@ bool system_resource_is_valid(void) {
 FontInfo s_system_fonts_info_table[NUM_SYSTEM_FONTS + 1] KERNEL_READONLY_DATA;
 
 static GFont prv_load_system_font(const char *font_key) {
-  if (font_key == NULL) {
+  if (font_key == nullptr) {
     PBL_LOG_DBG("GETTING FALLBACK FONT");
     // load fallback font
     if (!s_system_fonts_info_table[NUM_SYSTEM_FONTS].loaded) {
@@ -65,7 +67,7 @@ static GFont prv_load_system_font(const char *font_key) {
         if (!text_resources_init_font(SYSTEM_APP, resource, extension,
                                       &s_system_fonts_info_table[i])) {
           // Can't initialize the font for some reason
-          return NULL;
+          return nullptr;
         }
         resource_get_and_cache(SYSTEM_APP, resource);
         resource_get_and_cache(SYSTEM_APP, extension);
@@ -75,7 +77,7 @@ static GFont prv_load_system_font(const char *font_key) {
   }
 
   // Didn't find the given font, invalid key.
-  return NULL;
+  return nullptr;
 }
 
 GFont system_resource_get_font(const char *font_key) {
@@ -83,8 +85,8 @@ GFont system_resource_get_font(const char *font_key) {
   return result;
 }
 
-DEFINE_SYSCALL(GFont, sys_font_get_system_font, const char *font_key) {
-  if (font_key && PRIVILEGE_WAS_ELEVATED) {
+PBL_SYSCALL(GFont, sys_font_get_system_font, (VAL, const char *, font_key)) {
+  if (font_key && from_user) {
     if (!memory_layout_is_cstring_in_region(memory_layout_get_app_region(), font_key, 100) &&
         !memory_layout_is_cstring_in_region(memory_layout_get_microflash_region(), font_key, 100)) {
       PBL_LOG_ERR("Pointer %p not in app or microflash region", font_key);
@@ -95,11 +97,18 @@ DEFINE_SYSCALL(GFont, sys_font_get_system_font, const char *font_key) {
   return system_resource_get_font(font_key);
 }
 
-DEFINE_SYSCALL(void, sys_font_reload_font, FontInfo *fontinfo) {
-  if (PRIVILEGE_WAS_ELEVATED) {
-    if (!memory_layout_is_pointer_in_region(memory_layout_get_readonly_bss_region(), fontinfo)) {
-      syscall_failed();
+static bool prv_is_system_font_info(const FontInfo *fontinfo) {
+  for (size_t i = 0; i < ARRAY_LENGTH(s_system_fonts_info_table); ++i) {
+    if (fontinfo == &s_system_fonts_info_table[i]) {
+      return true;
     }
+  }
+  return false;
+}
+
+PBL_SYSCALL(void, sys_font_reload_font, (VAL, FontInfo *, fontinfo)) {
+  if (from_user && !prv_is_system_font_info(fontinfo)) {
+    syscall_failed();
   }
 
   text_resources_init_font(fontinfo->base.app_num, fontinfo->base.resource_id,

@@ -6,21 +6,22 @@
 #include <inttypes.h>
 #include <string.h>
 
-#include "applib/app.h"
-#include "applib/fonts/fonts.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/progress_window.h"
-#include "applib/ui/ui.h"
 #include <pbl/drivers/battery.h>
-#include "kernel/pbl_malloc.h"
-#include "process_management/app_install_manager.h"
-#include "process_management/worker_manager.h"
-#include "process_state/app_state/app_state.h"
-#include "pbl/services/i18n/i18n.h"
-#include "pbl/services/app_fetch_endpoint.h"
-#include "shell/normal/watchface.h"
-#include "pbl/services/compositor/compositor_transitions.h"
 #include <pbl/logging/logging.h>
+#include <pbl/services/app_fetch_endpoint.h>
+#include <pbl/services/compositor/compositor_transitions.h>
+#include <pbl/services/i18n/i18n.h>
+
+#include <applib/app.h>
+#include <applib/fonts/fonts.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/progress_window.h>
+#include <applib/ui/ui.h>
+#include <kernel/pbl_malloc.h>
+#include <process_management/app_install_manager.h>
+#include <process_management/worker_manager.h>
+#include <process_state/app_state/app_state.h>
+#include <shell/normal/watchface.h>
 
 #define FAIL_PAUSE_MS         1000
 #define SCROLL_OUT_MS         250
@@ -76,7 +77,7 @@ static void prv_app_fetch_launch_app(AppFetchUIData *data) {
   };
   ext->common.transition = compositor_dot_transition_app_fetch_get();
   if ((data->next_app_args.common.reason == APP_LAUNCH_WAKEUP) &&
-      (data->next_app_args.common.args != NULL)) {
+      (data->next_app_args.common.args != nullptr)) {
     ext->common.args = &data->next_app_args.wakeup_info;
   }
 

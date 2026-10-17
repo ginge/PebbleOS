@@ -1,14 +1,15 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "apps/prf/mfg_test_result.h"
-
 #include <string.h>
+
+#include <apps/prf/mfg_test_result.h>
 
 #ifdef CONFIG_MFG
 #include <pbl/drivers/flash.h>
-#include "flash_region/flash_region.h"
-#include "pbl/kernel/compiler.h"
+#include <pbl/kernel/compiler.h>
+
+#include <flash_region/flash_region.h>
 #endif
 
 #define NUM_MODES 2
@@ -118,7 +119,7 @@ void mfg_test_result_report(MfgTestId test, bool passed, uint32_t value) {
 
 const MfgTestResult *mfg_test_result_get(MfgTestId test) {
   if (test >= MfgTestIdCount) {
-    return NULL;
+    return nullptr;
   }
 
 #ifdef CONFIG_MFG

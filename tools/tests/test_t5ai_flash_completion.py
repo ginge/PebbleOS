@@ -52,7 +52,7 @@ HARNESS = r"""
 #include "stub.h"
 #include <assert.h>
 #include <string.h>
-#include "fw/drivers/flash/t5ai.c"
+#include "drivers/flash/t5ai.c"
 static unsigned erases;
 static bool fail;
 status_t t5ai_flash_ipc_init(void) { return S_SUCCESS; }

@@ -1,26 +1,27 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/timeline/actions_endpoint.h"
-#include "pbl/services/timeline/attributes_actions.h"
-
-#include "comm/ble/kernel_le_client/ancs/ancs_types.h"
-#include "kernel/pbl_malloc.h"
-#include "pbl/services/system_task.h"
-#include "pbl/services/notifications/notification_storage.h"
-#include "pbl/services/notifications/notifications.h"
-#include "pbl/services/timeline/timeline_actions.h"
-#include "system/hexdump.h"
+#include <pbl/kernel/compiler.h>
 #include <pbl/logging/logging.h>
-#include "system/passert.h"
-#include "pbl/kernel/compiler.h"
-#include "pbl/util/testing.h"
+#include <pbl/services/notifications/notification_storage.h>
+#include <pbl/services/notifications/notifications.h>
+#include <pbl/services/system_task.h>
+#include <pbl/services/timeline/actions_endpoint.h>
+#include <pbl/services/timeline/attributes_actions.h>
+#include <pbl/services/timeline/timeline_actions.h>
+#include <pbl/util/testing.h>
+
+#include <comm/ble/kernel_le_client/ancs/ancs_types.h>
+#include <kernel/pbl_malloc.h>
+#include <system/hexdump.h>
+#include <system/passert.h>
 
 PBL_LOG_MODULE_DECLARE(service_timeline, CONFIG_SERVICE_TIMELINE_LOG_LEVEL);
 
 typedef enum {
   CommandInvokeAction = 0x02,
   CommandInvokeActionANCSNotif = 0x03,
+  CommandDisplayedItem = 0x04,
   CommandPhoneResponse = 0x11,
   CommandPhoneActionResponse = 0x12,
 } Command;
@@ -69,6 +70,11 @@ typedef struct {
   InvokeActionMsg msg;
 } InvokeActionMsgCbData;
 
+typedef struct PBL_PACKED {
+  Command command : 8;
+  Uuid item_id;
+} DisplayedItemMsg;
+
 PBL_T_STATIC const int TIMELINE_ACTION_ENDPOINT = 0x2cb0;
 
 static void prv_action_system_task_callback(void *data) {
@@ -104,7 +110,7 @@ static PebbleSysNotificationActionResult *prv_action_result_create_from_serial_d
   bool r = attributes_actions_parse_serial_data(num_attributes, num_actions, data, size,
                                                 &string_alloc_size, attributes_per_action);
   if (!r) {
-    return NULL;
+    return nullptr;
   }
 
   const size_t alloc_size = attributes_actions_get_required_buffer_size(
@@ -114,7 +120,7 @@ static PebbleSysNotificationActionResult *prv_action_result_create_from_serial_d
       kernel_zalloc(sizeof(PebbleSysNotificationActionResult) + alloc_size);
   if (!action_result) {
     PBL_LOG_WRN("Failed to allocate memory for action result");
-    return NULL;
+    return nullptr;
   }
 
   uint8_t *buffer = (uint8_t *)action_result + sizeof(PebbleSysNotificationActionResult);
@@ -135,13 +141,14 @@ static PebbleSysNotificationActionResult *prv_action_result_create_from_serial_d
 
 cleanup:
   kernel_free(action_result);
-  return NULL;
+  return nullptr;
 }
 
 void timeline_action_endpoint_invoke_action(const Uuid *id, TimelineItemActionType type,
                                             uint8_t action_id, const AttributeList *attributes,
                                             bool do_async) {
-  size_t attr_data_size = (attributes != NULL) ? attribute_list_get_serialized_size(attributes) : 0;
+  size_t attr_data_size =
+      (attributes != nullptr) ? attribute_list_get_serialized_size(attributes) : 0;
   InvokeActionMsgCbData *invoke_action_data =
       kernel_zalloc_check(sizeof(InvokeActionMsgCbData) + attr_data_size);
 
@@ -153,7 +160,7 @@ void timeline_action_endpoint_invoke_action(const Uuid *id, TimelineItemActionTy
   }
   invoke_action_data->msg.action_id = action_id;
   invoke_action_data->msg.item_id = *id;
-  if (attributes != NULL) {
+  if (attributes != nullptr) {
     invoke_action_data->msg.num_attributes = attributes->num_attributes;
     size_t added_data_size = attribute_list_serialize(
         attributes, invoke_action_data->msg.data, invoke_action_data->msg.data + attr_data_size);
@@ -178,6 +185,19 @@ void timeline_action_endpoint_invoke_action(const Uuid *id, TimelineItemActionTy
   }
 }
 
+void timeline_action_endpoint_send_displayed_item(const Uuid *id) {
+  CommSession *session = comm_session_get_system_session();
+  if (!comm_session_has_capability(session, CommSessionNotificationWindowStateSupport)) {
+    return;
+  }
+  const DisplayedItemMsg msg = {
+    .command = CommandDisplayedItem,
+    .item_id = id ? *id : UUID_INVALID,
+  };
+  comm_session_send_data(session, TIMELINE_ACTION_ENDPOINT, (const uint8_t *)&msg, sizeof(msg),
+                         COMM_SESSION_DEFAULT_TIMEOUT);
+}
+
 void timeline_action_endpoint_protocol_msg_callback(CommSession *session, const uint8_t *data,
                                                     size_t length) {
   if (length < sizeof(ResponseHeader)) {
@@ -198,7 +218,7 @@ void timeline_action_endpoint_protocol_msg_callback(CommSession *session, const 
 
   PBL_LOG_DBG("Action Endpoint Response: 0x%02X", header->response);
 
-  PebbleSysNotificationActionResult *action_result = NULL;
+  PebbleSysNotificationActionResult *action_result = nullptr;
 
   PBL_HEXDUMP(LOG_LEVEL_DEBUG, data, length);
 

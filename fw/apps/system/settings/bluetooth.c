@@ -2,41 +2,42 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "bluetooth.h"
+
 #include "menu.h"
 #include "remote.h"
 #include "window.h"
 
-#include "applib/app.h"
-#include "applib/app_focus_service.h"
-#include "applib/event_service_client.h"
-#include "applib/fonts/fonts.h"
-#include "applib/graphics/graphics.h"
-#include "applib/graphics/gtypes.h"
-#include "applib/ui/ui.h"
-#include "comm/bt_lock.h"
-#include "comm/ble/gap_le_connection.h"
-#include "comm/ble/gap_le_device_name.h"
-#include "kernel/pbl_malloc.h"
-#include "kernel/ui/kernel_ui.h"
-#include "kernel/ui/system_icons.h"
-#include "resource/resource_ids.auto.h"
-#include "shell/normal/app_idle_timeout.h"
-#include "pbl/services/bluetooth/bluetooth_persistent_storage.h"
-#include "pbl/services/bluetooth/local_id.h"
-#include "pbl/services/bluetooth/pairability.h"
-#include "pbl/services/i18n/i18n.h"
-#include "pbl/services/bluetooth/ble_hrm.h"
-#include "shell/system_theme.h"
-#include <pbl/logging/logging.h>
-#include "system/passert.h"
-#include "pbl/util/string.h"
-
-#include <pbl/bluetooth/types.h>
-#include <pbl/bluetooth/sm_types.h>
-#include <pbl/btutil/bt_device.h>
-
 #include <stdio.h>
 #include <string.h>
+
+#include <pbl/bluetooth/sm_types.h>
+#include <pbl/bluetooth/types.h>
+#include <pbl/btutil/bt_device.h>
+#include <pbl/logging/logging.h>
+#include <pbl/services/bluetooth/ble_hrm.h>
+#include <pbl/services/bluetooth/bluetooth_persistent_storage.h>
+#include <pbl/services/bluetooth/local_id.h>
+#include <pbl/services/bluetooth/pairability.h>
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/util/string.h>
+
+#include <applib/app.h>
+#include <applib/app_focus_service.h>
+#include <applib/event_service_client.h>
+#include <applib/fonts/fonts.h>
+#include <applib/graphics/graphics.h>
+#include <applib/graphics/gtypes.h>
+#include <applib/ui/ui.h>
+#include <comm/ble/gap_le_connection.h>
+#include <comm/ble/gap_le_device_name.h>
+#include <comm/bt_lock.h>
+#include <kernel/pbl_malloc.h>
+#include <kernel/ui/kernel_ui.h>
+#include <kernel/ui/system_icons.h>
+#include <resource/resource_ids.auto.h>
+#include <shell/normal/app_idle_timeout.h>
+#include <shell/system_theme.h>
+#include <system/passert.h>
 
 #define HEADER_BUFFER_SIZE 22
 
@@ -99,7 +100,7 @@ static void settings_bluetooth_toggle_airplane_mode(SettingsBluetoothData *data)
 }
 
 bool is_remote_connected(StoredRemote *remote) {
-  return (remote->ble.connection != NULL);
+  return (remote->ble.connection != nullptr);
 }
 
 static int remote_comparator(StoredRemote *remote, StoredRemote *other) {
@@ -151,7 +152,7 @@ static void prv_add_ble_remotes(SettingsBluetoothData *data) {
     struct pbl_bt_sm_key irk;
     struct pbl_bt_device_internal device;
 
-    if (bt_persistent_storage_get_ble_pairing_by_id(remote->ble.bonding, &irk, &device, NULL)) {
+    if (bt_persistent_storage_get_ble_pairing_by_id(remote->ble.bonding, &irk, &device, nullptr)) {
       bt_lock();
       GAPLEConnection *connection = gap_le_connection_find_by_irk(&irk);
       if (!connection) {
@@ -214,15 +215,15 @@ static void prv_settings_bluetooth_event_handler(PebbleEvent *event, void *conte
         // the encryption set up is going on. For non-bonded devices it will work fine though.
         gap_le_device_name_request(&event->bluetooth.connection.device);
       }
-      // fall-through!
+      [[fallthrough]];
     case PBL_BT_PEBBLE_PAIRING_EVENT:
 #ifdef CONFIG_SERVICE_BLE_HRM
     case PEBBLE_BLE_HRM_SHARING_STATE_UPDATED_EVENT:
 #endif
     case PEBBLE_BLE_DEVICE_NAME_UPDATED_EVENT: {
-      bool had_remotes = (settings_data->remote_list_head != NULL);
+      bool had_remotes = (settings_data->remote_list_head != nullptr);
       settings_bluetooth_update_remotes_private(settings_data);
-      bool has_remotes = (settings_data->remote_list_head != NULL);
+      bool has_remotes = (settings_data->remote_list_head != nullptr);
 
       // Handle single phone pairing policy: enable/disable advertising based on pairing state
       if (had_remotes && !has_remotes) {
@@ -276,7 +277,7 @@ static void prv_draw_stored_remote_item_rect(GContext *ctx, const Layer *cell_la
                                              const char *is_sharing_heart_rate_string) {
   const GFont font =
       ((le_string || is_sharing_heart_rate_string) ? fonts_get_system_font(FONT_KEY_GOTHIC_18)
-                                                   : NULL);
+                                                   : nullptr);
 
   if (le_string) {
     GRect box = cell_layer->bounds;
@@ -284,7 +285,8 @@ static void prv_draw_stored_remote_item_rect(GContext *ctx, const Layer *cell_la
     box.origin.y += 20;
     box.size.h = 24;
 
-    graphics_draw_text(ctx, le_string, font, box, GTextOverflowModeFill, GTextAlignmentRight, NULL);
+    graphics_draw_text(ctx, le_string, font, box, GTextOverflowModeFill, GTextAlignmentRight,
+                       nullptr);
   }
 
   if (is_sharing_heart_rate_string) {
@@ -294,13 +296,13 @@ static void prv_draw_stored_remote_item_rect(GContext *ctx, const Layer *cell_la
     box.size.h = 24;
 
     graphics_draw_text(ctx, is_sharing_heart_rate_string, font, box, GTextOverflowModeFill,
-                       GTextAlignmentLeft, NULL);
+                       GTextAlignmentLeft, nullptr);
 
     // Gross hack to avoid centering the title / subtitle labels in the entire cell:
     ((Layer *)cell_layer)->bounds.size.h -= SHARING_HEART_RATE_EXTRA_HEIGHT_PX;
   }
 
-  menu_cell_basic_draw(ctx, cell_layer, remote_name, connected_string, NULL);
+  menu_cell_basic_draw(ctx, cell_layer, remote_name, connected_string, nullptr);
 
   if (is_sharing_heart_rate_string) {
     // Restore original height:
@@ -323,9 +325,9 @@ static void prv_draw_stored_remote_item_round(GContext *ctx, const Layer *cell_l
                                               const char *le_string,
                                               const char *is_sharing_heart_rate_string) {
 #ifdef CONFIG_SERVICE_BLE_HRM
-  _Static_assert(false, "FIXME: Implement round drawing code to show heart rate sharing status!");
+  static_assert(false, "FIXME: Implement round drawing code to show heart rate sharing status!");
 #endif // CONFIG_SERVICE_BLE_HRM
-  menu_cell_basic_draw(ctx, cell_layer, remote_name, connected_string, NULL);
+  menu_cell_basic_draw(ctx, cell_layer, remote_name, connected_string, nullptr);
 }
 #endif // PBL_ROUND
 
@@ -337,10 +339,10 @@ static void draw_stored_remote_item(GContext *ctx, const Layer *cell_layer, uint
   StoredRemote *remote = (StoredRemote *)list_get_at(data->remote_list_head, device_index);
   bool connected = is_remote_connected(remote);
 
-  const char *le_string = NULL;
+  const char *le_string = nullptr;
 
   const char *connected_string =
-      connected ? i18n_get("Connected", data) : PBL_IF_RECT_ELSE("", NULL);
+      connected ? i18n_get("Connected", data) : PBL_IF_RECT_ELSE("", nullptr);
 
   // Add ellipsis if the name might have been cut off by the mobile
   const char ellipsis[] = UTF8_ELLIPSIS_STRING;
@@ -356,7 +358,7 @@ static void draw_stored_remote_item(GContext *ctx, const Layer *cell_layer, uint
   const char *is_sharing_heart_rate =
       (settings_bluetooth_is_sharing_heart_rate_for_stored_remote(remote)
            ? i18n_get("Sharing Heart Rate ❤", data)
-           : NULL);
+           : nullptr);
 
   PBL_IF_RECT_ELSE(prv_draw_stored_remote_item_rect, prv_draw_stored_remote_item_round)(
       ctx, cell_layer, remote_name, connected_string, le_string, is_sharing_heart_rate);
@@ -397,7 +399,7 @@ static GRect prv_get_hint_box(void) {
 static int16_t prv_get_hint_height_for_font(SettingsBluetoothData *data, GFont font) {
   const GSize size = graphics_text_layout_get_max_used_size(
       graphics_context_get_current_context(), prv_get_hint(data), font, prv_get_hint_box(),
-      GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+      GTextOverflowModeWordWrap, GTextAlignmentCenter, nullptr);
   return size.h + HINT_VERTICAL_MARGIN_PX * 2;
 }
 
@@ -428,7 +430,7 @@ static void prv_draw_hint(GContext *ctx, SettingsBluetoothData *data, const GRec
   box.size.h = hint_height;
   graphics_context_set_text_color(ctx, GColorBlack);
   graphics_draw_text(ctx, prv_get_hint(data), font, box, GTextOverflowModeWordWrap,
-                     GTextAlignmentCenter, NULL);
+                     GTextAlignmentCenter, nullptr);
 }
 #endif
 
@@ -453,15 +455,15 @@ static void prv_draw_row_cb(SettingsCallbacks *context, GContext *ctx, const Lay
                             uint16_t row, bool selected) {
   SettingsBluetoothData *data = (SettingsBluetoothData *)context;
 #if PBL_RECT
-  GFont hint_font = NULL;
+  GFont hint_font = nullptr;
   const int16_t hint_height = prv_get_hint_height(data, row, &hint_font);
   ((Layer *)cell_layer)->bounds.size.h -= hint_height;
 #endif
   if (row == 0) {
     char device_name_buffer[PBL_BT_DEVICE_NAME_BUFFER_SIZE];
-    const char *subtitle = NULL;
+    const char *subtitle = nullptr;
     const char *title = i18n_get("Connection", data);
-    GBitmap *icon = NULL;
+    GBitmap *icon = nullptr;
     if (data->toggle_state == ToggleStateIdle) {
       if (bt_ctl_is_airplane_mode_on()) {
         subtitle = i18n_get("Airplane Mode", data);

@@ -3,14 +3,13 @@
 
 #if defined(CONFIG_SHELL) && !defined(CONFIG_RECOVERY_FW) && !defined(CONFIG_RELEASE)
 
-#include <pbl/logging/logging.h>
-#include <pbl/shell/shell.h>
-#include <pbl/task_wdt/task_wdt.h>
-
-#include "pbl/services/filesystem/pfs.h"
-
 #include <errno.h>
 #include <stdio.h>
+
+#include <pbl/logging/logging.h>
+#include <pbl/services/filesystem/pfs.h>
+#include <pbl/shell/shell.h>
+#include <pbl/task_wdt/task_wdt.h>
 
 // Create a lot of files and delete only a few of them, to fragment the filesystem
 static int prv_cmd_litter(const struct pbl_shell *sh, size_t argc, char **argv) {
@@ -46,7 +45,7 @@ static int prv_cmd_litter(const struct pbl_shell *sh, size_t argc, char **argv) 
   return 0;
 }
 
-PBL_SHELL_SUBCMD_ADD(sub_pfs, litter, NULL, "Fragment the filesystem <files> <size>",
+PBL_SHELL_SUBCMD_ADD(sub_pfs, litter, nullptr, "Fragment the filesystem <files> <size>",
                      prv_cmd_litter, 3, 0);
 
 #endif

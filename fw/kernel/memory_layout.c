@@ -3,13 +3,14 @@
 
 #include "memory_layout.h"
 
-#include "logging/logging_private.h"
-#include "pbl/util/math.h"
-#include "pbl/util/size.h"
-#include "pbl/util/string.h"
-
 #include <inttypes.h>
 #include <string.h>
+
+#include <pbl/util/math.h>
+#include <pbl/util/size.h>
+#include <pbl/util/string.h>
+
+#include <logging/logging_private.h>
 
 #ifdef CONFIG_SHELL
 #include <pbl/shell/shell.h>
@@ -65,9 +66,7 @@ void memory_layout_dump_mpu_regions_to_dbgserial(void) {
   }
 }
 
-#ifdef UNITTEST
-static const uint32_t __privileged_functions_start__ = 0;
-static const uint32_t __privileged_functions_size__ = 0;
+#if defined(UNITTEST) || defined(CONFIG_ARCH_POSIX)
 static const uint32_t __unpriv_ro_bss_start__ = 0;
 static const uint32_t __unpriv_ro_bss_size__ = 0;
 static const uint32_t __isr_stack_start__ = 0;
@@ -84,8 +83,6 @@ static const uint32_t __FLASH_size__ = 0;
 static const uint32_t __kernel_main_stack_start__ = 0;
 static const uint32_t __kernel_bg_stack_start__ = 0;
 #else
-extern const uint32_t __privileged_functions_start__[];
-extern const uint32_t __privileged_functions_size__[];
 extern const uint32_t __unpriv_ro_bss_start__[];
 extern const uint32_t __unpriv_ro_bss_size__[];
 extern const uint32_t __isr_stack_start__[];
@@ -261,8 +258,12 @@ bool memory_layout_is_pointer_in_region(const MpuRegion *region, const void *ptr
 }
 
 bool memory_layout_is_buffer_in_region(const MpuRegion *region, const void *buf, size_t length) {
+  uintptr_t buf_end;
+  if (ckd_add(&buf_end, (uintptr_t)buf, length)) {
+    return false;
+  }
   return memory_layout_is_pointer_in_region(region, buf) &&
-         memory_layout_is_pointer_in_region(region, (char *)buf + length - 1);
+         memory_layout_is_pointer_in_region(region, (void *)(buf_end - 1));
 }
 
 bool memory_layout_is_cstring_in_region(const MpuRegion *region, const char *str,
@@ -273,16 +274,10 @@ bool memory_layout_is_cstring_in_region(const MpuRegion *region, const char *str
     return false;
   }
 
-  const char *str_max_end = MIN((const char *)region_end, str + max_length);
+  size_t avail = region_end - (uintptr_t)str;
+  size_t scan_len = (max_length < avail) ? max_length + 1 : avail;
 
-  size_t str_len = strnlen(str, str_max_end - str);
-
-  if (str[str_len] != 0) {
-    // No null between here and the end of the memory region.
-    return false;
-  }
-
-  return true;
+  return strnlen(str, scan_len) < scan_len;
 }
 
 #ifdef CONFIG_SHELL
@@ -302,5 +297,5 @@ static int prv_cmd_mpu(const struct pbl_shell *sh, size_t argc, char **argv) {
   return 0;
 }
 
-PBL_SHELL_SUBCMD_ADD(sub_sys, mpu, NULL, "Dump the MPU regions", prv_cmd_mpu, 0, 0);
+PBL_SHELL_SUBCMD_ADD(sub_sys, mpu, nullptr, "Dump the MPU regions", prv_cmd_mpu, 0, 0);
 #endif

@@ -1,84 +1,78 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/graphics/gtypes.h"
-
-#include "clar.h"
-
 #include <stdio.h>
 
+#include <applib/graphics/gtypes.h>
+#include <clar.h>
+
 // stubs
-#include "stubs_applib_resource.h"
-#include "stubs_app_state.h"
-#include "stubs_graphics_context.h"
-#include "stubs_heap.h"
-#include "stubs_logging.h"
-#include "stubs_passert.h"
-#include "stubs_process_manager.h"
 
 /////////////////////////////
 
 void test_gbitmap_formats__create_blank(void) {
-  const GSize s10 = GSize(10, 10);
-  const GSize s_full = GSize(DISP_COLS, DISP_ROWS);
-  GBitmap *bmp = NULL;
+  GBitmap *bmp = nullptr;
 
   cl_assert((void *)&bmp->palette == (void *)&bmp->data_row_infos); // union with .palette
 
 #ifdef CONFIG_PLATFORM_GABBRO
+  const GSize s10 = GSize(10, 10);
+  const GSize s_full = GSize(DISP_COLS, DISP_ROWS);
+
   bmp = gbitmap_create_blank(s10, GBitmapFormat1Bit);
-  cl_assert(NULL != bmp);
-  cl_assert(NULL == bmp->data_row_infos);
+  cl_assert(nullptr != bmp);
+  cl_assert(nullptr == bmp->data_row_infos);
 
   bmp = gbitmap_create_blank(s10, GBitmapFormat8Bit);
-  cl_assert(NULL != bmp);
-  cl_assert(NULL == bmp->data_row_infos);
+  cl_assert(nullptr != bmp);
+  cl_assert(nullptr == bmp->data_row_infos);
 
   bmp = gbitmap_create_blank(s10, GBitmapFormat1BitPalette);
-  cl_assert(NULL != bmp);
+  cl_assert(nullptr != bmp);
   cl_assert(g_gbitmap_data_row_infos != bmp->data_row_infos); // union with .palette
 
   bmp = gbitmap_create_blank(s10, GBitmapFormat2BitPalette);
-  cl_assert(NULL != bmp);
+  cl_assert(nullptr != bmp);
   cl_assert(g_gbitmap_data_row_infos != bmp->data_row_infos); // union with .palette
 
   bmp = gbitmap_create_blank(s10, GBitmapFormat4BitPalette);
-  cl_assert(NULL != bmp);
+  cl_assert(nullptr != bmp);
   cl_assert(g_gbitmap_data_row_infos != bmp->data_row_infos); // union with .palette
 
   bmp = gbitmap_create_blank(s10, GBitmapFormat8BitCircular);
-  cl_assert(NULL == bmp);
+  cl_assert(nullptr == bmp);
 
   bmp = gbitmap_create_blank(s_full, GBitmapFormat8BitCircular);
-  cl_assert(NULL != bmp);
+  cl_assert(nullptr != bmp);
   cl_assert(g_gbitmap_data_row_infos == bmp->data_row_infos);
 #endif
 }
 
 void test_gbitmap_formats__create_blank_with_palette(void) {
+#ifdef CONFIG_PLATFORM_GABBRO
   const GSize s10 = GSize(10, 10);
   const GSize s_full = GSize(DISP_COLS, DISP_ROWS);
   GBitmap *bmp;
   GColor8 *p = (GColor8 *)&p; // some value to test against
 
-#ifdef CONFIG_PLATFORM_GABBRO
-  cl_assert(NULL == gbitmap_create_blank_with_palette(s10, GBitmapFormat1Bit, p, true));
-  cl_assert(NULL == gbitmap_create_blank_with_palette(s10, GBitmapFormat8Bit, p, true));
+  cl_assert(nullptr == gbitmap_create_blank_with_palette(s10, GBitmapFormat1Bit, p, true));
+  cl_assert(nullptr == gbitmap_create_blank_with_palette(s10, GBitmapFormat8Bit, p, true));
 
   bmp = gbitmap_create_blank_with_palette(s10, GBitmapFormat1BitPalette, p, true);
-  cl_assert(NULL != bmp);
+  cl_assert(nullptr != bmp);
   cl_assert(p == gbitmap_get_palette(bmp));
 
   bmp = gbitmap_create_blank_with_palette(s10, GBitmapFormat2BitPalette, p, true);
-  cl_assert(NULL != bmp);
+  cl_assert(nullptr != bmp);
   cl_assert(p == gbitmap_get_palette(bmp));
 
   bmp = gbitmap_create_blank_with_palette(s10, GBitmapFormat4BitPalette, p, true);
-  cl_assert(NULL != bmp);
+  cl_assert(nullptr != bmp);
   cl_assert(p == gbitmap_get_palette(bmp));
 
-  cl_assert(NULL == gbitmap_create_blank_with_palette(s10, GBitmapFormat8BitCircular, p, true));
-  cl_assert(NULL == gbitmap_create_blank_with_palette(s_full, GBitmapFormat8BitCircular, p, true));
+  cl_assert(nullptr == gbitmap_create_blank_with_palette(s10, GBitmapFormat8BitCircular, p, true));
+  cl_assert(nullptr ==
+            gbitmap_create_blank_with_palette(s_full, GBitmapFormat8BitCircular, p, true));
 #endif
 }
 

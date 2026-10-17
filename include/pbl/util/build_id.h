@@ -4,9 +4,8 @@
 #pragma once
 
 #include <stdint.h>
-#include <stdbool.h>
 
-#include "pbl/kernel/compiler.h"
+#include <pbl/kernel/compiler.h>
 
 /**
  * @defgroup util_build_id Build ID

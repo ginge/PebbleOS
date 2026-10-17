@@ -2,19 +2,21 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "activity_summary_card.h"
-#include "activity_summary_card_segments.h"
+
 #include "activity_detail_card.h"
+#include "activity_summary_card_segments.h"
 #include "progress.h"
 #include "ui.h"
 
-#include "applib/pbl_std/pbl_std.h"
-#include "applib/ui/kino/kino_reel.h"
-#include "board/display.h"
-#include "resource/resource_ids.auto.h"
-#include "pbl/services/clock.h"
-#include "pbl/services/i18n/i18n.h"
-#include "pbl/util/size.h"
-#include "pbl/util/units.h"
+#include <pbl/services/clock.h>
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/util/size.h>
+#include <pbl/util/units.h>
+
+#include <applib/pbl_std/pbl_std.h>
+#include <applib/ui/kino/kino_reel.h>
+#include <board/display.h>
+#include <resource/resource_ids.auto.h>
 
 // Compile-time display offset calculations
 #define HEALTH_X_OFFSET ((DISP_COLS - LEGACY_2X_DISP_COLS) / 2)
@@ -112,7 +114,7 @@ static void prv_render_current_steps(GContext *ctx, Layer *base_layer) {
       PBL_IF_RECT_ELSE(PBL_IF_BW_ELSE(85, 83), 88) + HEALTH_Y_OFFSET + HEALTH_Y_OFFSET / 6;
   graphics_context_set_text_color(ctx, CURRENT_TEXT_COLOR);
   graphics_draw_text(ctx, buffer, font, GRect(0, y, base_layer->bounds.size.w, 40),
-                     GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+                     GTextOverflowModeFill, GTextAlignmentCenter, nullptr);
 }
 
 static void prv_render_typical_steps(GContext *ctx, Layer *base_layer) {

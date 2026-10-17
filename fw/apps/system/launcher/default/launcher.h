@@ -3,13 +3,10 @@
 
 #pragma once
 
-#include "../launcher.h"
-
 #include "menu_layer.h"
 
-#include "applib/graphics/gtypes.h"
-
-#include <stdbool.h>
+#include <applib/graphics/gtypes.h>
+#include <apps/system/launcher/launcher.h>
 
 typedef struct LauncherMenuArgs {
   bool reset_scroll;

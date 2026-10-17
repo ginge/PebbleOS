@@ -3,11 +3,11 @@
 
 #include "fake_bt_advert.h"
 
-#include <pbl/bluetooth/advert.h>
-
 #include <string.h>
 
-#include "clar_asserts.h"
+#include <pbl/bluetooth/advert.h>
+
+#include <clar_asserts.h>
 
 // Simulated state of the BT controller, as driven through the pbl_bt_advert
 // contract by gap_le_advert.c.

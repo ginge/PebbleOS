@@ -1,17 +1,18 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "board/board.h"
-#include <pbl/drivers/backlight.h>
-#include "process_management/pebble_process_md.h"
-#include "pbl/services/activity/activity.h"
-#include "pbl/services/timeline/peek.h"
-#include "resource/resource_ids.auto.h"
-#include "shell/prefs.h"
-#include "pbl/util/uuid.h"
-
 #include <stdlib.h>
-#include "pbl/util/units.h"
+
+#include <pbl/drivers/backlight.h>
+#include <pbl/services/activity/activity.h>
+#include <pbl/services/timeline/peek.h>
+#include <pbl/util/units.h>
+#include <pbl/util/uuid.h>
+
+#include <board/board.h>
+#include <process_management/pebble_process_md.h>
+#include <resource/resource_ids.auto.h>
+#include <shell/prefs.h>
 
 void app_idle_timeout_start(uint32_t timeout_ms) {
 }
@@ -88,7 +89,7 @@ bool touch_navigation_menu_is_enabled(void) {
 void touch_set_navigation_menu_enabled(bool enable) {
 }
 
-#include "process_management/app_install_types.h"
+#include <process_management/app_install_types.h>
 void worker_preferences_set_default_worker(AppInstallId id) {
 }
 
@@ -101,7 +102,7 @@ const PebbleProcessMd *alarms_app_get_info(void) {
   static const PebbleProcessMdSystem s_alarms_app_info = {
     .common =
         {
-          .main_func = NULL,
+          .main_func = nullptr,
           // UUID: 67a32d95-ef69-46d4-a0b9-854cc62f97f9
           .uuid =
               {0x67, 0xa3, 0x2d, 0x95, 0xef, 0x69, 0x46, 0xd4, 0xa0, 0xb9, 0x85, 0x4c, 0xc6, 0x2f,

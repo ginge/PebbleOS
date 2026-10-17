@@ -8,6 +8,9 @@ config KERNEL_TICK_HZ
 config KERNEL_MAX_THREADS
     default 20
 
+config NUM_IRQ_PRIO_BITS
+    default 3
+
 config NUM_IRQS
     default 64
 

@@ -3,8 +3,7 @@
 
 #pragma once
 
-#include "kernel/events.h"
-#include <stdbool.h>
+#include <kernel/events.h>
 
 /**
  * @defgroup services_debounced_connection_service Debounced connection service

@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class PanelInitTest(unittest.TestCase):
     @unittest.skipUnless(shutil.which("cc"), "host C compiler required")
     def test_panel_order_reset_timing_and_write_failure(self):
-        display = (ROOT / "fw/drivers/display/t5ai/display_co5300.c").read_text()
+        display = (ROOT / "drivers/display/t5ai/display_co5300.c").read_text()
         start = display.index("static bool prv_panel_init(void)")
         end = display.index("\nvoid display_init(void)", start)
         defines = "\n".join(line for line in display.splitlines()

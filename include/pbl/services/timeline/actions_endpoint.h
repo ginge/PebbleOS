@@ -6,8 +6,8 @@
 #include "attribute.h"
 #include "item.h"
 
-#include "pbl/services/comm_session/session.h"
-#include "pbl/util/uuid.h"
+#include <pbl/services/comm_session/session.h>
+#include <pbl/util/uuid.h>
 
 /**
  * @defgroup services_timeline_actions_endpoint Timeline action endpoint
@@ -32,6 +32,15 @@
 void timeline_action_endpoint_invoke_action(const Uuid *id, TimelineItemActionType type,
                                             uint8_t action_id, const AttributeList *attributes,
                                             bool do_async);
+
+/**
+ * @brief Tell the phone which notification the watch is displaying.
+ *
+ * Only sent to phones with @ref CommSessionNotificationWindowStateSupport.
+ *
+ * @param id Id of the displayed notification, or NULL when none is displayed.
+ */
+void timeline_action_endpoint_send_displayed_item(const Uuid *id);
 
 /**
  * @brief Handle a message from the phone on the timeline action endpoint.

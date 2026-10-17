@@ -1,21 +1,26 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "apps/system/timeline/pin_window.h"
-#include "pbl/services/timeline/sports_layout.h"
-#include "pbl/services/timeline/weather_layout.h"
-
-#include "clar.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include <pbl/services/alarms/alarm.h>
+#include <pbl/services/timeline/sports_layout.h>
+#include <pbl/services/timeline/weather_layout.h>
+#include <pbl/util/size.h>
+
+#include <applib/ui/window_private.h>
+#include <apps/system/timeline/pin_window.h>
+#include <clar.h>
+#include <system/passert.h>
+
 // Fakes
 /////////////////////
 
-#include "fake_content_indicator.h"
-#include "fixtures/load_test_resources.h"
+#include <fake_content_indicator.h>
+#include <fixtures/load_test_resources.h>
+#include <fixtures/screen_grid.h>
 
 bool property_animation_init(PropertyAnimation *animation,
                              const PropertyAnimationImplementation *implementation, void *subject,
@@ -63,54 +68,23 @@ void clock_get_until_time_capitalized(char *buffer, int buf_size, time_t timesta
   }
 }
 
+const char *alarm_get_string_for_kind(AlarmKind kind, bool all_caps) {
+  return all_caps ? "WEEKDAYS" : "Weekdays";
+}
+
 // Stubs
 /////////////////////
-
-#include "stubs_action_menu.h"
-#include "stubs_alerts_preferences.h"
-#include "stubs_analytics.h"
-#include "stubs_animation_timing.h"
-#include "stubs_app_install_manager.h"
-#include "stubs_app_timer.h"
-#include "stubs_app_window_stack.h"
-#include "stubs_bootbits.h"
-#include "stubs_click.h"
-#include "stubs_event_service_client.h"
-#include "stubs_layer.h"
-#include "stubs_logging.h"
-#include "stubs_memory_layout.h"
-#include "stubs_modal_manager.h"
-#include "stubs_mutex.h"
-#include "stubs_passert.h"
-#include "stubs_pbl_malloc.h"
-#include "stubs_pebble_process_info.h"
-#include "stubs_pebble_tasks.h"
-#include "stubs_process_manager.h"
-#include "stubs_property_animation.h"
-#include "stubs_serial.h"
-#include "stubs_shell_prefs.h"
-#include "stubs_sleep.h"
-#include "stubs_syscalls.h"
-#include "stubs_task_wdt.h"
-#include "stubs_timeline.h"
-#include "stubs_timeline_actions.h"
-#include "stubs_timeline_item.h"
-#include "stubs_timeline_layer.h"
-#include "stubs_timeline_peek.h"
-#include "stubs_vibes.h"
-#include "stubs_window_manager.h"
-#include "stubs_window_stack.h"
 
 // Helper Functions
 /////////////////////
 
-#include "fw/graphics/util.h"
+#include <fw/graphics/util.h>
 
 // Setup and Teardown
 ////////////////////////////////////
 
 static GContext s_ctx;
-static FrameBuffer *fb = NULL;
+static FrameBuffer *fb = nullptr;
 
 GContext *graphics_context_get_current_context(void) {
   return &s_ctx;
@@ -148,13 +122,15 @@ void test_timeline_layouts__cleanup(void) {
 
 void prv_handle_down_click(ClickRecognizerRef recognizer, void *context);
 
-static void prv_render_layout(LayoutId layout_id, const AttributeList *attr_list,
-                              size_t num_down_clicks) {
+static void prv_render_layout(LayoutId layout_id, time_t timestamp, uint16_t duration_m,
+                              const AttributeList *attr_list, size_t num_down_clicks) {
   PBL_ASSERTN(attr_list);
 
   TimelineItem item = (TimelineItem){
     .header =
         (CommonTimelineItemHeader){
+          .timestamp = timestamp,
+          .duration = duration_m,
           .layout = layout_id,
           .type = TimelineItemTypePin,
         },
@@ -168,7 +144,7 @@ static void prv_render_layout(LayoutId layout_id, const AttributeList *attr_list
   window_set_on_screen(window, true, true);
 
   for (int i = 0; i < num_down_clicks; i++) {
-    prv_handle_down_click(NULL, &pin_window.item_detail_layer);
+    prv_handle_down_click(nullptr, &pin_window.item_detail_layer);
 
     // Aint nobody got time for animations; advance the scrolling property animation to completion
     int16_t to = 0;
@@ -189,6 +165,8 @@ typedef struct TimelineLayoutTestConfig {
   TimelineResourceId icon_timeline_res_id;
   WeatherTimeType weather_time_type;
   uint8_t weather_pin_kind;
+  time_t timestamp;
+  uint16_t duration_m;
 } TimelineLayoutTestConfig;
 
 static void prv_construct_and_render_layout(const TimelineLayoutTestConfig *config,
@@ -197,7 +175,7 @@ static void prv_construct_and_render_layout(const TimelineLayoutTestConfig *conf
     return;
   }
 
-  AttributeList attr_list = (AttributeList){0};
+  AttributeList attr_list = (AttributeList){};
   if (config->title) {
     attribute_list_add_cstring(&attr_list, AttributeIdTitle, config->title);
   }
@@ -220,9 +198,35 @@ static void prv_construct_and_render_layout(const TimelineLayoutTestConfig *conf
   // Just need to put something here so our mocked clock_get_since_time() gets called
   attribute_list_add_uint32(&attr_list, AttributeIdLastUpdated, 1337);
 
-  prv_render_layout(config->layout_id, &attr_list, num_down_clicks);
+  prv_render_layout(config->layout_id, config->timestamp, config->duration_m, &attr_list,
+                    num_down_clicks);
 
   attribute_list_destroy_list(&attr_list);
+}
+
+// Content size grids
+//////////////////////
+
+typedef void (*RenderPageCallback)(const void *context, size_t num_down_clicks);
+
+//! Checks the first pages in one image: a row per page, a column per content size from Small
+static void prv_check_pages_for_each_size(RenderPageCallback render, const void *context,
+                                          size_t num_pages, const char *pbi_file) {
+  ScreenGrid grid;
+  screen_grid_init(&grid, num_pages);
+  for (PreferredContentSize size = grid.first_size; size <= grid.last_size; size++) {
+    system_theme_set_content_size(size);
+    for (size_t page = 0; page < num_pages; page++) {
+      render(context, page);
+      screen_grid_add(&grid, &s_ctx, size, page);
+    }
+  }
+
+  screen_grid_check(&grid, pbi_file);
+}
+
+static void prv_render_config_page(const void *context, size_t num_down_clicks) {
+  prv_construct_and_render_layout(context, num_down_clicks);
 }
 
 // Tests
@@ -260,30 +264,53 @@ static const TimelineLayoutTestConfig s_generic_config = {
   .icon_timeline_res_id = TIMELINE_RESOURCE_DINNER_RESERVATION,
 };
 
-//! Checks the peek and the first page of details at the given content size
-static void prv_check_layout_for_size(PreferredContentSize size,
-                                      const TimelineLayoutTestConfig *config, const char *peek_file,
-                                      const char *details_file) {
-  system_theme_set_content_size(size);
-  prv_construct_and_render_layout(config, 0);
-  cl_check(gbitmap_pbi_eq(&s_ctx.dest_bitmap, peek_file));
-  prv_construct_and_render_layout(config, 1);
-  cl_check(gbitmap_pbi_eq(&s_ctx.dest_bitmap, details_file));
+void test_timeline_layouts__content_sizes_generic(void) {
+  prv_check_pages_for_each_size(prv_render_config_page, &s_generic_config, 2, TEST_PBI_FILE);
 }
 
-void test_timeline_layouts__generic_small(void) {
-  prv_check_layout_for_size(PreferredContentSizeSmall, &s_generic_config, TEST_PBI_FILE_X(peek),
-                            TEST_PBI_FILE_X(details1));
+static const TimelineLayoutTestConfig s_calendar_config = {
+  .layout_id = LayoutIdCalendar,
+  .title = "Design Review Meeting",
+  .location_name = "Batavia, Palo Alto",
+  .body = "Bring the latest mockups",
+  .icon_timeline_res_id = TIMELINE_RESOURCE_TIMELINE_CALENDAR,
+};
+
+void test_timeline_layouts__content_sizes_calendar(void) {
+  prv_check_pages_for_each_size(prv_render_config_page, &s_calendar_config, 2, TEST_PBI_FILE);
 }
 
-void test_timeline_layouts__generic_medium(void) {
-  prv_check_layout_for_size(PreferredContentSizeMedium, &s_generic_config, TEST_PBI_FILE_X(peek),
-                            TEST_PBI_FILE_X(details1));
+static const TimelineLayoutTestConfig s_calendar_multi_day_config = {
+  .layout_id = LayoutIdCalendar,
+  .title = "Design Offsite",
+  .location_name = "Batavia, Palo Alto",
+  .body = "Bring the latest mockups",
+  .icon_timeline_res_id = TIMELINE_RESOURCE_TIMELINE_CALENDAR,
+  // 10:00 AM January 1 to 10:00 AM January 4, so the details show start and end dates
+  .timestamp = 10 * PBL_SEC_PER_HOUR,
+  .duration_m = 3 * PBL_MIN_PER_DAY,
+};
+
+//! Renders the peek and the third page, which shows both dates even when they wrap
+static void prv_render_multi_day_page(const void *context, size_t page) {
+  prv_construct_and_render_layout(context, page ? 2 : 0);
 }
 
-void test_timeline_layouts__generic_extra_large(void) {
-  prv_check_layout_for_size(PreferredContentSizeExtraLarge, &s_generic_config,
-                            TEST_PBI_FILE_X(peek), TEST_PBI_FILE_X(details1));
+void test_timeline_layouts__content_sizes_calendar_multi_day(void) {
+  prv_check_pages_for_each_size(prv_render_multi_day_page, &s_calendar_multi_day_config, 2,
+                                TEST_PBI_FILE);
+}
+
+static const TimelineLayoutTestConfig s_alarm_config = {
+  .layout_id = LayoutIdAlarm,
+  .title = "Alarm",
+  .subtitle = "Weekdays",
+  .icon_timeline_res_id = TIMELINE_RESOURCE_ALARM_CLOCK,
+};
+
+void test_timeline_layouts__content_sizes_alarm(void) {
+  // The alarm card fits on one page
+  prv_check_pages_for_each_size(prv_render_config_page, &s_alarm_config, 1, TEST_PBI_FILE);
 }
 
 void test_timeline_layouts__weather(void) {
@@ -320,19 +347,30 @@ static const TimelineLayoutTestConfig s_weather_config = {
   .weather_time_type = WeatherTimeType_Pin,
 };
 
-void test_timeline_layouts__weather_small(void) {
-  prv_check_layout_for_size(PreferredContentSizeSmall, &s_weather_config, TEST_PBI_FILE_X(peek),
-                            TEST_PBI_FILE_X(details1));
+void test_timeline_layouts__content_sizes_weather(void) {
+  prv_check_pages_for_each_size(prv_render_config_page, &s_weather_config, 2, TEST_PBI_FILE);
 }
 
-void test_timeline_layouts__weather_medium(void) {
-  prv_check_layout_for_size(PreferredContentSizeMedium, &s_weather_config, TEST_PBI_FILE_X(peek),
-                            TEST_PBI_FILE_X(details1));
-}
-
-void test_timeline_layouts__weather_extra_large(void) {
-  prv_check_layout_for_size(PreferredContentSizeExtraLarge, &s_weather_config,
-                            TEST_PBI_FILE_X(peek), TEST_PBI_FILE_X(details1));
+void test_timeline_layouts__weather_city_clears_page_arrow(void) {
+  static const char *const locations[] = {"Las Vegas", "Llanfairpwllgwyngyll, Wales"};
+  const size_t arrow_height = TIMELINE_CARD_ARROW_HEIGHT + 1;
+  const size_t row_size = s_ctx.dest_bitmap.row_size_bytes;
+  const size_t offset = (DISP_ROWS - arrow_height) * row_size;
+  uint8_t *expected = malloc(arrow_height * row_size);
+  TimelineLayoutTestConfig config = s_weather_config;
+  for (PreferredContentSize size = PreferredContentSizeDefault - 1;
+       size <= PreferredContentSizeDefault + 1; size++) {
+    system_theme_set_content_size(size);
+    config.location_name = "";
+    prv_construct_and_render_layout(&config, 0);
+    memcpy(expected, s_ctx.dest_bitmap.addr + offset, arrow_height * row_size);
+    for (size_t i = 0; i < ARRAY_LENGTH(locations); i++) {
+      config.location_name = locations[i];
+      prv_construct_and_render_layout(&config, 0);
+      cl_assert(memcmp(expected, s_ctx.dest_bitmap.addr + offset, arrow_height * row_size) == 0);
+    }
+  }
+  free(expected);
 }
 
 static void prv_check_renders_like(const TimelineLayoutTestConfig *config,
@@ -371,7 +409,7 @@ void test_timeline_layouts__weather_pin_kind(void) {
 }
 
 static void prv_construct_and_render_sports_layout(GameState state, size_t num_down_clicks) {
-  AttributeList attr_list = (AttributeList){0};
+  AttributeList attr_list = (AttributeList){};
   attribute_list_add_cstring(&attr_list, AttributeIdTitle, "Warriors at Bulls");
   attribute_list_add_uint8(&attr_list, AttributeIdSportsGameState, state);
   attribute_list_add_cstring(&attr_list, AttributeIdNameAway, "GSW");
@@ -389,7 +427,7 @@ static void prv_construct_and_render_sports_layout(GameState state, size_t num_d
   attribute_list_add_cstring(&attr_list, AttributeIdBroadcaster, "ESPN");
   attribute_list_add_uint32(&attr_list, AttributeIdLastUpdated, 1337);
 
-  prv_render_layout(LayoutIdSports, &attr_list, num_down_clicks);
+  prv_render_layout(LayoutIdSports, 0, 0, &attr_list, num_down_clicks);
 
   attribute_list_destroy_list(&attr_list);
 }
@@ -410,42 +448,16 @@ void test_timeline_layouts__sports_ingame(void) {
   cl_check(gbitmap_pbi_eq(&s_ctx.dest_bitmap, TEST_PBI_FILE_X(details1)));
 }
 
-//! Checks a sports pin's peek and first page of details at the given content size
-static void prv_check_sports_layout_for_size(PreferredContentSize size, GameState state,
-                                             const char *peek_file, const char *details_file) {
-  system_theme_set_content_size(size);
-  prv_construct_and_render_sports_layout(state, 0);
-  cl_check(gbitmap_pbi_eq(&s_ctx.dest_bitmap, peek_file));
-  prv_construct_and_render_sports_layout(state, 1);
-  cl_check(gbitmap_pbi_eq(&s_ctx.dest_bitmap, details_file));
+static void prv_render_sports_page(const void *context, size_t num_down_clicks) {
+  prv_construct_and_render_sports_layout(*(const GameState *)context, num_down_clicks);
 }
 
-void test_timeline_layouts__sports_pregame_small(void) {
-  prv_check_sports_layout_for_size(PreferredContentSizeSmall, GameStatePreGame,
-                                   TEST_PBI_FILE_X(peek), TEST_PBI_FILE_X(details1));
+void test_timeline_layouts__content_sizes_sports_pregame(void) {
+  const GameState state = GameStatePreGame;
+  prv_check_pages_for_each_size(prv_render_sports_page, &state, 2, TEST_PBI_FILE);
 }
 
-void test_timeline_layouts__sports_pregame_medium(void) {
-  prv_check_sports_layout_for_size(PreferredContentSizeMedium, GameStatePreGame,
-                                   TEST_PBI_FILE_X(peek), TEST_PBI_FILE_X(details1));
-}
-
-void test_timeline_layouts__sports_pregame_extra_large(void) {
-  prv_check_sports_layout_for_size(PreferredContentSizeExtraLarge, GameStatePreGame,
-                                   TEST_PBI_FILE_X(peek), TEST_PBI_FILE_X(details1));
-}
-
-void test_timeline_layouts__sports_ingame_small(void) {
-  prv_check_sports_layout_for_size(PreferredContentSizeSmall, GameStateInGame,
-                                   TEST_PBI_FILE_X(peek), TEST_PBI_FILE_X(details1));
-}
-
-void test_timeline_layouts__sports_ingame_medium(void) {
-  prv_check_sports_layout_for_size(PreferredContentSizeMedium, GameStateInGame,
-                                   TEST_PBI_FILE_X(peek), TEST_PBI_FILE_X(details1));
-}
-
-void test_timeline_layouts__sports_ingame_extra_large(void) {
-  prv_check_sports_layout_for_size(PreferredContentSizeExtraLarge, GameStateInGame,
-                                   TEST_PBI_FILE_X(peek), TEST_PBI_FILE_X(details1));
+void test_timeline_layouts__content_sizes_sports_ingame(void) {
+  const GameState state = GameStateInGame;
+  prv_check_pages_for_each_size(prv_render_sports_page, &state, 2, TEST_PBI_FILE);
 }

@@ -3,18 +3,17 @@
 
 #pragma once
 
-#include "applib/graphics/gtypes.h"
-#include "applib/graphics/framebuffer.h"
+#include "../test_graphics.h"
+#include "../util.h"
 
-#include <unistd.h>
 #include <stdio.h>
 #include <string.h>
 
-#include <sys/types.h>
+#include <applib/graphics/framebuffer.h>
+#include <applib/graphics/gtypes.h>
 #include <sys/stat.h>
-
-#include "../test_graphics.h"
-#include "../util.h"
+#include <sys/types.h>
+#include <unistd.h>
 
 typedef struct stat STAT_T;
 
@@ -24,8 +23,9 @@ typedef struct stat STAT_T;
 
 #define IMAGE_DWORDS_PER_LINE 6
 
-static void print_framebuffer_as_literal(const char *unit_name, const FrameBuffer *framebuffer,
-                                         int col, int row, int cols, int rows) {
+static inline void print_framebuffer_as_literal(const char *unit_name,
+                                                const FrameBuffer *framebuffer, int col, int row,
+                                                int cols, int rows) {
   printf("\n-- %s image --\n", unit_name);
   printf("  uint8_t image[] = {\n");
   for (int y = row; y < row + rows && y < FrameBuffer_MaxY; ++y) {
@@ -37,14 +37,14 @@ static void print_framebuffer_as_literal(const char *unit_name, const FrameBuffe
   printf("\n  };\n");
 }
 
-static void fread_pbi_header(FILE *file, GBitmap *bitmap) {
+static inline void fread_pbi_header(FILE *file, GBitmap *bitmap) {
   fread(&bitmap->row_size_bytes, sizeof(bitmap->row_size_bytes), 1, file);
   fread(&bitmap->info_flags, sizeof(bitmap->info_flags), 1, file);
   fread(&bitmap->bounds, sizeof(bitmap->bounds), 1, file);
   bitmap->info.format = GBitmapFormat1Bit;
 }
 
-static uint32_t *fread_pbi(FILE *file, GBitmap *bitmap) {
+static inline uint32_t *fread_pbi(FILE *file, GBitmap *bitmap) {
   fread_pbi_header(file, bitmap);
   size_t image_size = bitmap->row_size_bytes / 4 * bitmap->bounds.size.h;
   uint32_t *buffer = bitmap->addr = (uint32_t *)malloc(image_size * 4);
@@ -52,30 +52,30 @@ static uint32_t *fread_pbi(FILE *file, GBitmap *bitmap) {
     fread(buffer, 4, image_size, file);
     return buffer;
   }
-  return NULL;
+  return nullptr;
 }
 
-static uint32_t *read_pbi(const char *filename, GBitmap *bitmap) {
+static inline uint32_t *read_pbi(const char *filename, GBitmap *bitmap) {
   char res_path[strlen(CLAR_FIXTURE_PATH) + 1 + strlen(GRAPHICS_FIXTURE_PATH) + 1 +
                 strlen(filename) + 1];
   sprintf(res_path, "%s/%s/%s", CLAR_FIXTURE_PATH, GRAPHICS_FIXTURE_PATH, filename);
   FILE *file = fopen(res_path, "r");
   if (!file) {
     printf("\ncould not open %s for reading\n", res_path);
-    return NULL;
+    return nullptr;
   }
   uint32_t *buffer = fread_pbi(file, bitmap);
   fclose(file);
   return buffer;
 }
 
-static void free_pbi(GBitmap *bitmap) {
+static inline void free_pbi(GBitmap *bitmap) {
   if (bitmap->addr) {
     free(bitmap->addr);
   }
 }
 
-static void fwrite_screenshot_from_framebuffer(FILE *file, const FrameBuffer *framebuffer) {
+static inline void fwrite_screenshot_from_framebuffer(FILE *file, const FrameBuffer *framebuffer) {
   uint16_t row_size_bytes = FRAMEBUFFER_BYTES_PER_ROW;
   uint16_t info_flags = 1 << 1;
   GRect bounds = GRect(0, 0, FrameBuffer_MaxX, FrameBuffer_MaxY);
@@ -85,8 +85,8 @@ static void fwrite_screenshot_from_framebuffer(FILE *file, const FrameBuffer *fr
   fwrite(framebuffer->buffer, sizeof(framebuffer->buffer[0]), FRAMEBUFFER_SIZE_BYTES, file);
 }
 
-static bool write_screenshot_from_framebuffer(const char *filename,
-                                              const FrameBuffer *framebuffer) {
+static inline bool write_screenshot_from_framebuffer(const char *filename,
+                                                     const FrameBuffer *framebuffer) {
   FILE *file = fopen(filename, "w");
   if (!file) {
     printf("\ncould not open %s for writing a screenshot\n", filename);
@@ -97,8 +97,8 @@ static bool write_screenshot_from_framebuffer(const char *filename,
   return true;
 }
 
-static bool framebuffer_eq_image_raw(const FrameBuffer *framebuffer, uint8_t *image, int col,
-                                     int row, int cols, int rows) {
+static inline bool framebuffer_eq_image_raw(const FrameBuffer *framebuffer, uint8_t *image, int col,
+                                            int row, int cols, int rows) {
   const uint8_t *fb = framebuffer->buffer;
   for (int y = row; y < row + rows && y < FrameBuffer_MaxY; ++y) {
     for (int x = col; x < col + cols && x < FrameBuffer_MaxX; ++x) {
@@ -114,21 +114,21 @@ static bool framebuffer_eq_image_raw(const FrameBuffer *framebuffer, uint8_t *im
   return true;
 }
 
-static bool framebuffer_eq_image(const char *unit_name, const FrameBuffer *framebuffer,
-                                 uint8_t *image, int col, int row, int cols, int rows) {
+static inline bool framebuffer_eq_image(const char *unit_name, const FrameBuffer *framebuffer,
+                                        uint8_t *image, int col, int row, int cols, int rows) {
 #ifndef TEST_GRAPHICS_SILENT
   print_framebuffer_as_literal(unit_name, framebuffer, col, row, cols, rows);
 #endif
   return framebuffer_eq_image_raw(framebuffer, image, col, row, cols, rows);
 }
 
-static bool framebuffer_eq(const char *unit_name, const FrameBuffer *framebuffer,
-                           FrameBuffer *other) {
+static inline bool framebuffer_eq(const char *unit_name, const FrameBuffer *framebuffer,
+                                  FrameBuffer *other) {
   return framebuffer_eq_image(unit_name, framebuffer, other->buffer, 0, 0,
                               FRAMEBUFFER_BYTES_PER_ROW, FrameBuffer_MaxY);
 }
 
-static void convert_to_8bit_image(const uint32_t *in, GBitmap *bmp, uint8_t *out) {
+static inline void convert_to_8bit_image(const uint32_t *in, GBitmap *bmp, uint8_t *out) {
   for (int y = 0; y < bmp->bounds.size.h; ++y) {
     for (int x = 0; x < bmp->bounds.size.w; ++x) {
       int in_idx = y * (bmp->row_size_bytes / 4) + (x / 32);
@@ -141,7 +141,8 @@ static void convert_to_8bit_image(const uint32_t *in, GBitmap *bmp, uint8_t *out
   }
 }
 
-static bool framebuffer_eq_screenshot_raw(const FrameBuffer *framebuffer, const char *filename) {
+static inline bool framebuffer_eq_screenshot_raw(const FrameBuffer *framebuffer,
+                                                 const char *filename) {
   GBitmap bitmap;
   FILE *file = fopen(filename, "r");
   if (!file) {
@@ -171,7 +172,7 @@ static bool framebuffer_eq_screenshot_raw(const FrameBuffer *framebuffer, const 
   return true;
 }
 
-static bool framebuffer_eq_screenshot(const FrameBuffer *framebuffer, const char *filename) {
+static inline bool framebuffer_eq_screenshot(const FrameBuffer *framebuffer, const char *filename) {
   char ref_path[strlen(CLAR_FIXTURE_PATH) + 1 + strlen(GRAPHICS_FIXTURE_PATH) + 1 +
                 strlen(filename) + 1];
   sprintf(ref_path, "%s/%s/%s", CLAR_FIXTURE_PATH, GRAPHICS_FIXTURE_PATH, filename);
@@ -191,7 +192,8 @@ static bool framebuffer_eq_screenshot(const FrameBuffer *framebuffer, const char
   return true;
 }
 
-static bool framebuffer_is_empty(const char *unit_name, FrameBuffer *framebuffer, GColor color) {
+static inline bool framebuffer_is_empty(const char *unit_name, FrameBuffer *framebuffer,
+                                        GColor color) {
   for (int j = 0; j < FrameBuffer_MaxY; j++) {
     for (int i = 0; i < FRAMEBUFFER_BYTES_PER_ROW; i++) {
       int fb_index = j * FRAMEBUFFER_BYTES_PER_ROW + i;

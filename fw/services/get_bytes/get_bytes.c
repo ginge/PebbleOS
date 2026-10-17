@@ -1,27 +1,25 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/get_bytes/get_bytes_private.h"
-
-#include "comm/bluetooth_analytics.h"
-#include <pbl/drivers/flash.h>
-#include <pbl/drivers/rtc.h>
-#include "kernel/events.h"
-#include "kernel/pbl_malloc.h"
-#include "pbl/services/comm_session/session_send_buffer.h"
-#include "pbl/services/get_bytes/get_bytes_storage.h"
-#include "pbl/services/system_task.h"
-#include <pbl/logging/logging.h>
-#include "pbl/util/math.h"
-#include "pbl/util/byteorder.h"
+#include <inttypes.h>
+#include <stdint.h>
 
 #include <pbl/bluetooth/conn_event_stats.h>
-#include "pbl/kernel/types.h"
+#include <pbl/drivers/flash.h>
+#include <pbl/drivers/rtc.h>
+#include <pbl/kernel/types.h>
+#include <pbl/logging/logging.h>
+#include <pbl/services/comm_session/session_send_buffer.h>
+#include <pbl/services/get_bytes/get_bytes_private.h>
+#include <pbl/services/get_bytes/get_bytes_storage.h>
+#include <pbl/services/system_task.h>
+#include <pbl/util/byteorder.h>
+#include <pbl/util/math.h>
+#include <pbl/util/units.h>
 
-#include <inttypes.h>
-#include <stdbool.h>
-#include <stdint.h>
-#include "pbl/util/units.h"
+#include <comm/bluetooth_analytics.h>
+#include <kernel/events.h>
+#include <kernel/pbl_malloc.h>
 
 PBL_LOG_MODULE_DEFINE(service_get_bytes, CONFIG_SERVICE_GET_BYTES_LOG_LEVEL);
 
@@ -102,7 +100,7 @@ static void prv_protocol_send_next_chunk(void *raw_state) {
       goto cleanup;
     }
     state->num_bytes = size;
-    PBL_LOG_DBG("GET_BYTES: total bytes: %ld", state->num_bytes);
+    PBL_LOG_DBG("GET_BYTES: total bytes: %" PRIu32, state->num_bytes);
   }
 
   // -------------------------------------------------------------------------------------------
@@ -196,12 +194,12 @@ cleanup:
 //! was successful.
 bool prv_setup_state_for_command(GetBytesCmd cmd, GetBytesState *state, const uint8_t *data,
                                  uint32_t len) {
-  GetBytesStorageInfo info = {0};
+  GetBytesStorageInfo info = {};
 
   switch (cmd) {
     case GET_BYTES_CMD_GET_NEW_COREDUMP:
       info.only_get_new_coredump = true;
-      /* FALLTHROUGH */
+      [[fallthrough]];
     case GET_BYTES_CMD_GET_COREDUMP:
       state->object_type = GetBytesObjectCoredump;
       return gb_storage_setup(&state->storage, state->object_type, &info);

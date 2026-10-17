@@ -1,9 +1,21 @@
 # Boards
 
-{doc}`Unhygienix <unhygienix/index>` ("The village fishmonger") is the independent
-Waveshare T5-E1 / Tuya T5AI hardware target. Select `unhygienix`. Getafix DVT/DVT2 remain Round 2 hardware targets. See {doc}`unhygienix/tooling` for its build and flash procedure.
+| Board | Revisions | Device | Platform |
+| --- | --- | --- | --- |
+| [`asterix`](asterix/index.md) | | Pebble 2 Duo | Flint |
+| [`obelix`](obelix/index.md) | `bb2`, `dvt`, `pvt` | Pebble Time 2 | Emery |
+| [`getafix`](getafix/index.md) | `dvt`, `dvt2` | Pebble Round 2 | Gabbro |
+| [`unhygienix`](unhygienix/index.md) | | Waveshare T5-E1 / Tuya T5AI | Gabbro |
+| `qemu_flint` | | Emulated Pebble 2 Duo | Flint |
+| `qemu_emery` | | Emulated Pebble Time 2 | Emery |
+| `qemu_gabbro` | | Emulated Pebble Round 2 | Gabbro |
+| `native_emery` | | Host program | Emery |
 
 ```{toctree}
-:glob:
-*/index
+:hidden:
+
+asterix/index.md
+obelix/index.md
+getafix/index.md
+unhygienix/index.md
 ```

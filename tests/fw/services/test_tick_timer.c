@@ -1,22 +1,16 @@
 /* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "clar.h"
-
-#include "pbl/services/tick_timer.h"
-
-#include "applib/tick_timer_service.h"
-#include "kernel/events.h"
-#include "syscall/syscall.h"
-
-#include "fake_pebble_tasks.h"
-#include "fake_regular_timer.h"
-
-#include "stubs_logging.h"
-#include "stubs_mutex.h"
-#include "stubs_passert.h"
-
 #include <stdlib.h>
+
+#include <pbl/services/tick_timer.h>
+
+#include <applib/tick_timer_service.h>
+#include <clar.h>
+#include <fake_pebble_tasks.h>
+#include <fake_regular_timer.h>
+#include <kernel/events.h>
+#include <syscall/syscall.h>
 
 // The App task's queue to KernelMain.
 static PebbleEvent s_queue[8];
@@ -59,11 +53,11 @@ static void prv_run_next_request(void) {
 }
 
 static bool prv_ticking_seconds(void) {
-  return list_get_next(&s_seconds_callbacks) != NULL;
+  return list_get_next(&s_seconds_callbacks) != nullptr;
 }
 
 static bool prv_ticking_minutes(void) {
-  return list_get_next(&s_minutes_callbacks) != NULL;
+  return list_get_next(&s_minutes_callbacks) != nullptr;
 }
 
 void test_tick_timer__initialize(void) {

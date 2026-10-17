@@ -1,35 +1,27 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/drivers/rtc.h"
-#include "clar.h"
-
-#include "pbl/kernel/compiler.h"
-#include "pbl/util/pstring.h"
-
-#include "pbl/services/blob_db/weather_db.h"
-#include "pbl/services/filesystem/pfs.h"
-#include "pbl/services/weather/weather_types.h"
 #include "weather_data_shared.h"
+
+#include <pbl/drivers/rtc.h>
+#include <pbl/kernel/compiler.h>
+#include <pbl/services/blob_db/weather_db.h>
+#include <pbl/services/filesystem/pfs.h>
+#include <pbl/services/weather/weather_types.h>
+#include <pbl/util/pstring.h>
+
+#include <clar.h>
 
 // Fixture
 ////////////////////////////////////////////////////////////////
 
 // Fakes
 ////////////////////////////////////////////////////////////////
-#include "fake_pbl_malloc.h"
-#include "fake_spi_flash.h"
+#include <fake_pbl_malloc.h>
+#include <fake_spi_flash.h>
 
 // Stubs
 ////////////////////////////////////////////////////////////////
-#include "stubs_analytics.h"
-#include "stubs_hexdump.h"
-#include "stubs_logging.h"
-#include "stubs_mutex.h"
-#include "stubs_passert.h"
-#include "stubs_task_wdt.h"
-#include "stubs_pebble_tasks.h"
-#include "stubs_sleep.h"
 
 bool weather_service_supported_by_phone(void) {
   return true;
@@ -56,7 +48,7 @@ static void prv_db_iterator_cb(WeatherDBKey *key, WeatherDBEntry *entry, void *u
 }
 
 void test_weather_db__get_entries(void) {
-  cl_assert_equal_i(S_SUCCESS, weather_db_for_each(prv_db_iterator_cb, NULL));
+  cl_assert_equal_i(S_SUCCESS, weather_db_for_each(prv_db_iterator_cb, nullptr));
 }
 
 void test_weather_db__check_records_in_db(void) {

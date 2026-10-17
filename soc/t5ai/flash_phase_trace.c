@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: Apache-2.0 */
+#include <pbl/kernel/time.h>
 #include <inttypes.h>
 #include <string.h>
 #include <pbl/kernel/irq.h>

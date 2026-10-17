@@ -1,37 +1,24 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "clar.h"
-
 #include <stdio.h>
 #include <string.h>
 
-#include "applib/persist.h"
-#include "flash_region/flash_region.h"
-#include "process_management/app_install_manager.h"
-#include "process_management/pebble_process_md.h"
-#include "pbl/services/filesystem/pfs.h"
-#include "pbl/services/persist.h"
+#include <pbl/kernel/compiler.h>
 #include <pbl/logging/logging.h>
-#include "pbl/kernel/compiler.h"
+#include <pbl/services/filesystem/pfs.h>
+#include <pbl/services/persist.h>
+
+#include <applib/persist.h>
+#include <clar.h>
+#include <flash_region/flash_region.h>
+#include <process_management/app_install_manager.h>
+#include <process_management/pebble_process_md.h>
 
 // Stubs
 ////////////////////////////////////
-#include "fake_rtc.h"
-#include "fake_spi_flash.h"
-#include "stubs_analytics.h"
-#include "stubs_hexdump.h"
-#include "stubs_logging.h"
-#include "stubs_mutex.h"
-#include "stubs_passert.h"
-#include "stubs_pbl_malloc.h"
-#include "stubs_pebble_tasks.h"
-#include "stubs_print.h"
-#include "stubs_rand_ptr.h"
-#include "stubs_serial.h"
-#include "stubs_sleep.h"
-#include "stubs_system_reset.h"
-#include "stubs_task_wdt.h"
+#include <fake_rtc.h>
+#include <fake_spi_flash.h>
 
 static PebbleProcessMd __pbl_app_info;
 
@@ -44,19 +31,9 @@ const PebbleProcessMd *sys_process_manager_get_current_process_md(void) {
 #define TEST_UUID_A \
   {0x2F, 0xF7, 0xFA, 0x04, 0x60, 0x11, 0x4A, 0x98, 0x8A, 0x3B, 0xA8, 0x26, 0xA4, 0xB8, 0x99, 0xF8}
 
-static const int system_uuid_id = 0;
-static const Uuid system_uuid = UUID_SYSTEM;
-
-static const int test_uuid_a_id = 1;
 static const Uuid test_uuid_a = TEST_UUID_A;
-
-static const int test_uuid_b_id = 2;
 static const Uuid test_uuid_b = {0xC3, 0x0D, 0xBA, 0xF1, 0x5F, 0x6F, 0x4F, 0x22,
                                  0xBA, 0xAA, 0x8C, 0x2A, 0x96, 0x8C, 0xFC, 0x28};
-
-static const int test_uuid_c_id = 3;
-static const Uuid test_uuid_c = {0x1D, 0x6C, 0x7F, 0x01, 0xD9, 0x48, 0x42, 0xA6,
-                                 0xAA, 0x4E, 0xB2, 0x08, 0x42, 0x10, 0xEB, 0xBC};
 
 static PebbleProcessMd __pbl_app_info = {
   .uuid = TEST_UUID_A,
@@ -94,8 +71,8 @@ const char lipsum[] =
     "nisi orci viverra felis, vitae luctus massa dolor sit amet dolor. Cras "
     "mattis velit vitae pretium pulvinar. Pellentesque auctor, turpis at cras "
     "amet.";
-_Static_assert(sizeof(lipsum) > PERSIST_STRING_MAX_LENGTH,
-               "lipsum string is not long enough for persist tests");
+static_assert(sizeof(lipsum) > PERSIST_STRING_MAX_LENGTH,
+              "lipsum string is not long enough for persist tests");
 
 void test_persist__initialize(void) {
   fake_spi_flash_init(0, 0x1000000);

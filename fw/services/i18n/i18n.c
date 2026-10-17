@@ -29,17 +29,18 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "pbl/services/i18n/i18n.h"
-#include "pbl/services/i18n/mo.h"
-#include "kernel/event_loop.h"
-#include "kernel/events.h"
-#include "kernel/pbl_malloc.h"
-#include "resource/resource.h"
-#include "shell/normal/language_ui.h"
-#include "shell/prefs.h"
 #include <pbl/logging/logging.h>
-#include "system/passert.h"
-#include "pbl/util/list.h"
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/services/i18n/mo.h>
+#include <pbl/util/list.h>
+
+#include <kernel/event_loop.h>
+#include <kernel/events.h>
+#include <kernel/pbl_malloc.h>
+#include <resource/resource.h>
+#include <shell/normal/language_ui.h>
+#include <shell/prefs.h>
+#include <system/passert.h>
 
 PBL_LOG_MODULE_DEFINE(service_i18n, CONFIG_SERVICE_I18N_LOG_LEVEL);
 
@@ -108,7 +109,7 @@ static void prv_lookup(const char *msgid, struct DomainBinding *db, size_t *rlen
   MoHandle *mohandle = &db->mohandle;
   *rlen = 0;
 
-  if (mohandle->mo.hdr.mo_hsize <= 2 || mohandle->mo.mo_htable == NULL) {
+  if (mohandle->mo.hdr.mo_hsize <= 2 || mohandle->mo.mo_htable == nullptr) {
     return;
   }
 
@@ -173,14 +174,14 @@ static void prv_lookup(const char *msgid, struct DomainBinding *db, size_t *rlen
 static bool prv_get_property(const char *header, const char *name, char *buffer, size_t size) {
   // Isolate the language name
   char *str = strstr(header, name);
-  if (str == NULL) { // strstr failed
+  if (str == nullptr) { // strstr failed
     return false;
   }
   str += strlen(name);
 
   char *end = strchr(str, '\n');
   unsigned int length = end - str;
-  if (end == NULL || length > size) { // strchr failed
+  if (end == nullptr || length > size) { // strchr failed
     return false;
   }
 
@@ -215,7 +216,7 @@ static bool prv_get_metadata(struct DomainBinding *db) {
   }
 
   // Isolate the version value
-  char version_str[10] = {0};
+  char version_str[10] = {};
   if (!prv_get_property(header, "Project-Id-Version: ", version_str, 10)) {
     PBL_LOG_WRN("Could not parse a version from language pack");
     goto cleanup;
@@ -239,7 +240,7 @@ static int prv_unmapit(struct DomainBinding *db) {
   MoHandle *mohandle = &db->mohandle;
 
   kernel_free(mohandle->mo.mo_htable);
-  mohandle->mo.mo_htable = NULL;
+  mohandle->mo.mo_htable = nullptr;
   mohandle->mo = (Mo){};
   strcpy(db->iso_locale, "en_US");
   strcpy(db->lang_name, "English");
@@ -324,7 +325,7 @@ void prv_list_flush(void) {
     kernel_free(cur);
     cur = next;
   }
-  s_system_domain.strings_list = NULL;
+  s_system_domain.strings_list = nullptr;
 }
 
 static bool prv_list_string_filter_callback(ListNode *found_node, void *data) {
@@ -388,7 +389,7 @@ static const char *prv_list_add_string(const char *original_string, const char *
 }
 
 static void prv_list_remove_string(I18nString *i18n_string) {
-  list_remove(&i18n_string->node, (ListNode **)&s_system_domain.strings_list, NULL);
+  list_remove(&i18n_string->node, (ListNode **)&s_system_domain.strings_list, nullptr);
   kernel_free(i18n_string);
 }
 
@@ -401,7 +402,7 @@ static const char *prv_message_from_msgid(const char *msgid) {
   // However, if we have a context, this string needs to not show the context.
   // So we just find EOT and if it's present return the next character.
   const char *message = strchr(msgid, '\4');
-  if (message == NULL) {
+  if (message == nullptr) {
     // No context, the whole string is the message.
     return msgid;
   }
@@ -417,7 +418,7 @@ static const char *prv_message_from_msgid(const char *msgid) {
 // pointers will still be valid after i18n_free() is called on one of them.
 const char *i18n_get(const char *msgid, const void *owner) {
   PBL_ASSERTN(owner);
-  if (msgid == NULL || msgid[0] == 0) {
+  if (msgid == nullptr || msgid[0] == 0) {
     goto fail;
   }
 
@@ -461,7 +462,7 @@ void i18n_get_with_buffer(const char *msgid, char *buffer, size_t length) {
     // Nothing fits, and buffer[length - 1] below would wrap to an OOB write.
     return;
   }
-  if (msgid == NULL || msgid[0] == 0) {
+  if (msgid == nullptr || msgid[0] == 0) {
     goto fail;
   }
 
@@ -488,7 +489,7 @@ fail:
 }
 
 size_t i18n_get_length(const char *msgid) {
-  if (msgid == NULL || msgid[0] == 0) {
+  if (msgid == nullptr || msgid[0] == 0) {
     return 0;
   }
 
@@ -498,7 +499,7 @@ size_t i18n_get_length(const char *msgid) {
   }
 
   size_t len = 0;
-  prv_lookup(msgid, db, &len, NULL, 0);
+  prv_lookup(msgid, db, &len, nullptr, 0);
   if (len) { // String was found
     return len;
   }

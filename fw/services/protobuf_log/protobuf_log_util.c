@@ -1,12 +1,11 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/protobuf_log/protobuf_log.h"
-#include "pbl/services/protobuf_log/protobuf_log_util.h"
-
-#include "pb_encode.h"
-
+#include <pbl/services/protobuf_log/protobuf_log.h>
+#include <pbl/services/protobuf_log/protobuf_log_util.h>
 #include <pbl/util/uuid.h>
+
+#include <pb_encode.h>
 
 bool protobuf_log_util_encode_uuid(pb_ostream_t *stream, const pb_field_t *field,
                                    void *const *arg) {
@@ -53,7 +52,7 @@ bool protobuf_log_util_encode_packed_varints(pb_ostream_t *stream, const pb_fiel
 
   // if just being called to size it up, the stream callback will be NULL
   if (!stream->callback) {
-    return pb_write(stream, NULL, packed_array_size);
+    return pb_write(stream, nullptr, packed_array_size);
   }
 
   // Write out each of the values

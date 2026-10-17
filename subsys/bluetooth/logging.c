@@ -2,7 +2,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <stdint.h>
-#include <stdbool.h>
 
 void hc_endpoint_logging_set_level(uint8_t level) {
 }

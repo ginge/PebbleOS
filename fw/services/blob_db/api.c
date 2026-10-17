@@ -1,29 +1,26 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/blob_db/api.h"
-
-#include <stddef.h>
-#include <stdbool.h>
-
-#include "pbl/services/blob_db/app_db.h"
-#include "pbl/services/blob_db/app_glance_db.h"
-#include "pbl/services/blob_db/contacts_db.h"
-#include "pbl/services/blob_db/health_db.h"
-#include "pbl/services/blob_db/ios_notif_pref_db.h"
-#include "pbl/services/blob_db/notif_db.h"
-#include "pbl/services/blob_db/pin_db.h"
-#include "pbl/services/blob_db/prefs_db.h"
-#include "pbl/services/blob_db/reminder_db.h"
-#include "pbl/services/blob_db/settings_blob_db.h"
-#include "pbl/services/blob_db/watch_app_prefs_db.h"
-#include "pbl/services/blob_db/weather_db.h"
-
-#include "kernel/events.h"
-#include "kernel/pbl_malloc.h"
-#include <pbl/logging/logging.h>
-
 #include <inttypes.h>
+#include <stddef.h>
+
+#include <pbl/logging/logging.h>
+#include <pbl/services/blob_db/api.h>
+#include <pbl/services/blob_db/app_db.h>
+#include <pbl/services/blob_db/app_glance_db.h>
+#include <pbl/services/blob_db/contacts_db.h>
+#include <pbl/services/blob_db/health_db.h>
+#include <pbl/services/blob_db/ios_notif_pref_db.h>
+#include <pbl/services/blob_db/notif_db.h>
+#include <pbl/services/blob_db/pin_db.h>
+#include <pbl/services/blob_db/prefs_db.h>
+#include <pbl/services/blob_db/reminder_db.h>
+#include <pbl/services/blob_db/settings_blob_db.h>
+#include <pbl/services/blob_db/watch_app_prefs_db.h>
+#include <pbl/services/blob_db/weather_db.h>
+
+#include <kernel/events.h>
+#include <kernel/pbl_malloc.h>
 
 PBL_LOG_MODULE_DEFINE(service_blob_db, CONFIG_SERVICE_BLOB_DB_LOG_LEVEL);
 
@@ -191,7 +188,7 @@ static bool prv_db_valid(BlobDBId db_id) {
 
 void blob_db_event_put(BlobDBEventType type, BlobDBId db_id, const uint8_t *key, int key_len) {
   // copy key for event
-  uint8_t *key_bytes = NULL;
+  uint8_t *key_bytes = nullptr;
   if (key_len > 0) {
     key_bytes = kernel_malloc(key_len);
     memcpy(key_bytes, key, key_len);
@@ -316,7 +313,7 @@ status_t blob_db_flush(BlobDBId db_id) {
     status_t rv = db->flush();
     if (rv == S_SUCCESS) {
       PBL_LOG_INFO("Flushing BlobDB with Id %d", db_id);
-      blob_db_event_put(BlobDBEventTypeFlush, db_id, NULL, 0);
+      blob_db_event_put(BlobDBEventTypeFlush, db_id, nullptr, 0);
     }
     return rv;
   }
@@ -326,7 +323,7 @@ status_t blob_db_flush(BlobDBId db_id) {
 
 BlobDBDirtyItem *blob_db_get_dirty_list(BlobDBId db_id) {
   if (!prv_db_valid(db_id)) {
-    return NULL;
+    return nullptr;
   }
 
   const BlobDB *db = &s_blob_dbs[db_id];
@@ -334,7 +331,7 @@ BlobDBDirtyItem *blob_db_get_dirty_list(BlobDBId db_id) {
     return db->get_dirty_list();
   }
 
-  return NULL;
+  return nullptr;
 }
 
 status_t blob_db_mark_synced(BlobDBId db_id, uint8_t *key, int key_len) {

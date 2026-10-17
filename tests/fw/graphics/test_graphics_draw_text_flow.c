@@ -1,53 +1,33 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "clar.h"
-#include "fixtures/load_test_resources.h"
+#include <pbl/util/size.h>
 
-#include "applib/fonts/fonts_private.h"
-#include "applib/graphics/framebuffer.h"
-#include "applib/graphics/graphics.h"
-#include "applib/graphics/gtypes.h"
-#include "applib/graphics/text.h"
-#include "applib/graphics/text_resources.h"
-#include "applib/ui/layer.h"
-#include "applib/ui/window_private.h"
-#include "resource/resource_ids.auto.h"
-#include "pbl/util/size.h"
+#include <applib/fonts/fonts_private.h>
+#include <applib/graphics/framebuffer.h>
+#include <applib/graphics/graphics.h>
+#include <applib/graphics/gtypes.h>
+#include <applib/graphics/text.h>
+#include <applib/graphics/text_resources.h>
+#include <applib/ui/layer.h>
+#include <applib/ui/window_private.h>
+#include <clar.h>
+#include <fixtures/load_test_resources.h>
+#include <resource/resource_ids.auto.h>
 
 // Helper Functions
 ////////////////////////////////////
-#include "test_graphics.h"
 #include "8bit/test_framebuffer.h"
+#include "test_graphics.h"
 #include "util.h"
 
 ///////////////////////////////////////////////////////////
 // Stubs
-#include "stubs_analytics.h"
-#include "stubs_app_state.h"
-#include "stubs_applib_resource.h"
-#include "stubs_bootbits.h"
-#include "stubs_heap.h"
-#include "stubs_logging.h"
-#include "stubs_memory_layout.h"
-#include "stubs_mutex.h"
-#include "stubs_passert.h"
-#include "stubs_pbl_malloc.h"
-#include "stubs_pebble_tasks.h"
-#include "stubs_print.h"
-#include "stubs_serial.h"
-#include "stubs_sleep.h"
-#include "stubs_syscall_internal.h"
-#include "stubs_syscalls.h"
-#include "stubs_system_reset.h"
-#include "stubs_task_wdt.h"
-#include "stubs_ui_window.h"
-#include "stubs_unobstructed_area.h"
 
 ///////////////////////////////////////////////////////////
 // Tests
 
-static FrameBuffer *fb = NULL;
+static FrameBuffer *fb = nullptr;
 static GContext ctx;
 
 #define NUM_STEPS (5)
@@ -111,7 +91,7 @@ void test_graphics_draw_text_flow__initialize(void) {
 void test_graphics_draw_text_flow__cleanup(void) {
   free(fb);
   gbitmap_destroy(s_dest_bitmap);
-  s_dest_bitmap = NULL;
+  s_dest_bitmap = nullptr;
 }
 
 #define RECT_TEXT_0_0 GRect(0, 0, DISP_COLS, DISP_ROWS)
@@ -178,7 +158,7 @@ void test_graphics_draw_text_flow__flow_no_paging(void) {
       .perimeter.inset = 8,
     },
   };
-  render_steps(&layout, RenderMoveTextBox, DELTA, DISP_ROWS, NULL);
+  render_steps(&layout, RenderMoveTextBox, DELTA, DISP_ROWS, nullptr);
   cl_check(gbitmap_pbi_eq(s_dest_bitmap, TEST_PBI_FILE));
 }
 
@@ -189,7 +169,7 @@ void test_graphics_draw_text_flow__flow_no_paging_draw_box(void) {
       .perimeter.inset = 8,
     },
   };
-  render_steps(&layout, RenderMoveDrawBox, DELTA, DISP_ROWS, NULL);
+  render_steps(&layout, RenderMoveDrawBox, DELTA, DISP_ROWS, nullptr);
   // should result in the very same output as if you did a placement via text box
   cl_check(gbitmap_pbi_eq(s_dest_bitmap, "test_graphics_draw_text_flow__flow_no_paging.pbi"));
 }
@@ -203,7 +183,7 @@ void test_graphics_draw_text_flow__with_origin_zero(void) {
       .paging.origin_on_screen = {0, 0},
     },
   };
-  render_steps(&layout, RenderMoveTextBox, DELTA, DISP_ROWS, NULL);
+  render_steps(&layout, RenderMoveTextBox, DELTA, DISP_ROWS, nullptr);
   cl_check(gbitmap_pbi_eq(s_dest_bitmap, TEST_PBI_FILE));
 }
 
@@ -216,7 +196,7 @@ void test_graphics_draw_text_flow__with_origin_non_zero(void) {
       .paging.origin_on_screen = {DELTA, 2 * DELTA},
     },
   };
-  render_steps(&layout, RenderMoveTextBox, DELTA, DISP_ROWS, NULL);
+  render_steps(&layout, RenderMoveTextBox, DELTA, DISP_ROWS, nullptr);
   cl_check(gbitmap_pbi_eq(s_dest_bitmap, TEST_PBI_FILE));
 }
 
@@ -230,7 +210,7 @@ void test_graphics_draw_text_flow__with_paging(void) {
           {.origin_y = 25, .size_h = 100}, // setting a page height != enables positioning
     },
   };
-  render_steps(&layout, RenderMoveTextBox, DELTA, 1000, NULL);
+  render_steps(&layout, RenderMoveTextBox, DELTA, 1000, nullptr);
   cl_check(gbitmap_pbi_eq(s_dest_bitmap, TEST_PBI_FILE));
 }
 

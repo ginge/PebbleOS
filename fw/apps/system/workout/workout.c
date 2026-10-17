@@ -2,6 +2,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "workout.h"
+
 #include "active.h"
 #include "controller.h"
 #include "data.h"
@@ -9,19 +10,18 @@
 #include "summary.h"
 #include "utils.h"
 
-#include "applib/app.h"
-#include "applib/ui/dialogs/expandable_dialog.h"
-#include "applib/ui/ui.h"
-#include "kernel/pbl_malloc.h"
-#include "popups/health_tracking_ui.h"
-#include "process_state/app_state/app_state.h"
-#include "resource/resource_ids.auto.h"
-#include "pbl/services/i18n/i18n.h"
-#include "pbl/services/activity/activity.h"
-#include "pbl/services/activity/health_util.h"
-#include "pbl/services/activity/workout_service.h"
-#include "resource/resource_ids.auto.h"
-#include "popups/health_tracking_ui.h"
+#include <pbl/services/activity/activity.h>
+#include <pbl/services/activity/health_util.h>
+#include <pbl/services/activity/workout_service.h>
+#include <pbl/services/i18n/i18n.h>
+
+#include <applib/app.h>
+#include <applib/ui/dialogs/expandable_dialog.h>
+#include <applib/ui/ui.h>
+#include <kernel/pbl_malloc.h>
+#include <popups/health_tracking_ui.h>
+#include <process_state/app_state/app_state.h>
+#include <resource/resource_ids.auto.h>
 
 // Workout app versions
 // 0: Invalid (app was never opened)

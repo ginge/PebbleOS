@@ -3,34 +3,34 @@
 
 #include "mfg_hrm_ctr_leakage_obelix.h"
 
-#include "applib/app.h"
-#include "applib/tick_timer_service.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/text_layer.h"
-#include "applib/ui/window.h"
-#include "applib/ui/window_private.h"
-#include "apps/prf/mfg_test_result.h"
-#include <pbl/drivers/accel.h>
-#include <pbl/drivers/hrm.h>
-#include <pbl/drivers/rtc.h>
-#include <pbl/drivers/hrm/gh3x2x.h>
-#include "gh_demo.h"
-#include "kernel/pbl_malloc.h"
-#include "kernel/util/sleep.h"
-#include "mfg/mfg_info.h"
-#include "process_state/app_state/app_state.h"
-#include "process_management/pebble_process_md.h"
-#include "process_management/process_manager.h"
-#include "pbl/services/evented_timer.h"
-#include "pbl/services/hrm/hrm_manager.h"
-#include "pbl/util/bitops.h"
-#include "pbl/util/size.h"
-#include "pbl/util/trig.h"
-
-#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
-#include "pbl/util/units.h"
+
+#include <pbl/drivers/accel.h>
+#include <pbl/drivers/hrm.h>
+#include <pbl/drivers/hrm/gh3x2x.h>
+#include <pbl/drivers/rtc.h>
+#include <pbl/services/evented_timer.h>
+#include <pbl/services/hrm/hrm_manager.h>
+#include <pbl/util/bitops.h>
+#include <pbl/util/size.h>
+#include <pbl/util/trig.h>
+#include <pbl/util/units.h>
+
+#include <applib/app.h>
+#include <applib/tick_timer_service.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/text_layer.h>
+#include <applib/ui/window.h>
+#include <applib/ui/window_private.h>
+#include <apps/prf/mfg_test_result.h>
+#include <gh_demo.h>
+#include <kernel/pbl_malloc.h>
+#include <mfg/mfg_info.h>
+#include <process_management/pebble_process_md.h>
+#include <process_management/process_manager.h>
+#include <process_state/app_state/app_state.h>
+#include <syscall/syscall.h>
 
 #define STATUS_STRING_LEN  32
 #define CTR_STRING_LEN     128
@@ -164,7 +164,7 @@ static void prv_result_timer_callback(void *cb_data) {
   }
 
   layer_mark_dirty(&data->window.layer);
-  app_timer_register(100, prv_result_timer_callback, NULL);
+  app_timer_register(100, prv_result_timer_callback, nullptr);
 }
 
 static void prv_update_status(void *param) {
@@ -179,7 +179,7 @@ static void prv_select_click_handler(ClickRecognizerRef recognizer, void *data) 
     app_data->test_mode = TestMode_CTR;
     snprintf(app_data->status_string, STATUS_STRING_LEN, "CTR Sampling...");
     // Start polling timer for result display timeout
-    app_timer_register(100, prv_result_timer_callback, NULL);
+    app_timer_register(100, prv_result_timer_callback, nullptr);
   } else if (app_data->test_mode != TestMode_Leakage) {
     gh3x2x_start_ft_leakage();
     app_data->test_mode = TestMode_Leakage;
@@ -207,7 +207,7 @@ static void prv_down_click_handler(ClickRecognizerRef recognizer, void *data) {
   event_service_client_unsubscribe(&app_data->hrm_event_info);
   sys_hrm_manager_unsubscribe(app_data->hrm_session);
   // let sensor sleep by waiting 50ms
-  psleep(50);
+  sys_psleep(50);
   event_service_client_subscribe(&app_data->hrm_event_info);
   // Use app data as session ref
   AppInstallId app_id = 1;

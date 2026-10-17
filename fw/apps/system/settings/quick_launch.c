@@ -7,23 +7,25 @@
 //! This file is also responsible for saving / storing the uuid of each quicklaunch app as well as
 //! whether or not the quicklaunch app is enabled.
 
+#include "quick_launch.h"
+
 #include "menu.h"
 #include "option_menu.h"
-#include "quick_launch.h"
 #include "quick_launch_app_menu.h"
 #include "quick_launch_setup_menu.h"
 #include "window.h"
 
-#include "applib/app_launch_button.h"
-#include "applib/app_launch_reason.h"
-#include "applib/ui/window_stack.h"
-#include "kernel/pbl_malloc.h"
-#include "process_management/app_install_manager.h"
-#include "process_management/app_menu_data_source.h"
-#include "resource/resource_ids.auto.h"
-#include "pbl/services/i18n/i18n.h"
-#include "shell/normal/quick_launch.h"
-#include "system/passert.h"
+#include <pbl/services/i18n/i18n.h>
+
+#include <applib/app_launch_button.h>
+#include <applib/app_launch_reason.h>
+#include <applib/ui/window_stack.h>
+#include <kernel/pbl_malloc.h>
+#include <process_management/app_install_manager.h>
+#include <process_management/app_menu_data_source.h>
+#include <resource/resource_ids.auto.h>
+#include <shell/normal/quick_launch.h>
+#include <system/passert.h>
 
 #define NUM_ROWS (NUM_BUTTONS + 2) // 4 hold buttons + 2 tap buttons (up and down)
 
@@ -123,7 +125,7 @@ static void prv_draw_row_cb(SettingsCallbacks *context, GContext *ctx, const Lay
   PBL_ASSERTN(row < NUM_ROWS);
   const char *title = i18n_get(s_row_titles[row], data);
   char *subtitle_buf = data->app_names[row];
-  menu_cell_basic_draw(ctx, cell_layer, title, subtitle_buf, NULL);
+  menu_cell_basic_draw(ctx, cell_layer, title, subtitle_buf, nullptr);
 }
 
 static uint16_t prv_get_initial_selection_cb(SettingsCallbacks *context) {

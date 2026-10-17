@@ -3,11 +3,12 @@
 
 #pragma once
 
-#include <pbl/bluetooth/types.h>
-
-#include "kernel/events.h"
 #include "menu.h"
-#include "pbl/util/list.h"
+
+#include <pbl/bluetooth/types.h>
+#include <pbl/util/list.h>
+
+#include <kernel/events.h>
 
 typedef struct GAPLEConnection GAPLEConnection;
 

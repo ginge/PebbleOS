@@ -3,11 +3,8 @@
 
 #pragma once
 
-#include "shell/normal/quick_launch.h"
-
-#include "applib/ui/window.h"
-
-#include <stdbool.h>
+#include <applib/ui/window.h>
+#include <shell/normal/quick_launch.h>
 
 typedef enum QuickLaunchMenuCategory {
   //! Entries that are only visible in Quick Launch, e.g. the system toggles.

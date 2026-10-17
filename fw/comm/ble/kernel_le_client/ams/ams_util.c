@@ -1,11 +1,10 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/logging/logging.h>
-
 #include "ams_util.h"
 
-#include "pbl/util/math.h"
+#include <pbl/logging/logging.h>
+#include <pbl/util/math.h>
 
 // -------------------------------------------------------------------------------------------------
 // Parsing C-string with real number to an integer using a given multiplication factor
@@ -95,7 +94,7 @@ bool ams_util_float_string_parse(const char *number_str, uint32_t number_str_len
 
 uint8_t ams_util_csv_parse(const char *csv_value, uint32_t csv_length, void *context,
                            AMSUtilCSVCallback callback) {
-  if (csv_value == NULL || csv_length == 0) {
+  if (csv_value == nullptr || csv_length == 0) {
     return 0;
   }
 

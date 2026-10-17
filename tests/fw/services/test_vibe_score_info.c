@@ -1,14 +1,11 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/vibes/vibe_score_info.h"
+#include <pbl/services/vibes/vibe_score_info.h>
 
-#include "clar.h"
-#include "resource/resource_ids.auto.h"
+#include <clar.h>
+#include <resource/resource_ids.auto.h>
 // stub
-#include "stubs_logging.h"
-#include "stubs_passert.h"
-
 #include <string.h>
 
 // unit test code

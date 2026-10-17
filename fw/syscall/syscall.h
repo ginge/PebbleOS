@@ -3,41 +3,34 @@
 
 #pragma once
 
-#include "applib/app_comm.h"
-#include "applib/app_exit_reason.h"
-#include "applib/app_inbox.h"
-#include "applib/app_outbox.h"
-#include "applib/app_logging.h"
-#include "applib/app_timer.h"
-#include "applib/app_watch_info.h"
-#include "applib/app_worker.h"
-#include "applib/bluetooth/ble_client.h"
-#include "applib/data_logging.h"
-#include "applib/event_service_client.h"
-#include "applib/fonts/fonts.h"
-#include "applib/tick_timer_service.h"
-#include "applib/graphics/gtypes.h"
-#include "applib/ui/window_stack_animation.h"
-
-#include "comm/ble/gap_le_scan.h"
-
+#include <pbl/bluetooth/types.h>
 #include <pbl/drivers/mag.h>
 #include <pbl/drivers/rtc.h>
+#include <pbl/kernel/compiler.h>
+#include <pbl/services/activity/activity.h>
+#include <pbl/services/app_glances/app_glance_service.h>
+#include <pbl/services/comm_session/session.h>
+#include <pbl/services/evented_timer.h>
+#include <pbl/services/wakeup.h>
+#include <pbl/util/time.h>
 
-#include "kernel/events.h"
-#include "logging/logging_private.h"
-#include "pbl/services/wakeup.h"
-#include "pbl/services/comm_session/session.h"
-#include "pbl/services/evented_timer.h"
-#include "pbl/services/activity/activity.h"
-#include "pbl/services/app_glances/app_glance_service.h"
-
-#include "process_management/pebble_process_info.h"
-
-#include "pbl/kernel/compiler.h"
-
-#include <pbl/bluetooth/types.h>
-#include "pbl/util/time.h"
+#include <applib/app_comm.h>
+#include <applib/app_exit_reason.h>
+#include <applib/app_inbox.h>
+#include <applib/app_logging.h>
+#include <applib/app_outbox.h>
+#include <applib/app_timer.h>
+#include <applib/app_watch_info.h>
+#include <applib/app_worker.h>
+#include <applib/data_logging.h>
+#include <applib/event_service_client.h>
+#include <applib/fonts/fonts.h>
+#include <applib/graphics/gtypes.h>
+#include <applib/tick_timer_service.h>
+#include <applib/ui/window_stack_animation.h>
+#include <kernel/events.h>
+#include <logging/logging_private.h>
+#include <process_management/pebble_process_info.h>
 
 //! @internal
 //! Just a dummy syscall that we use in the user mode test app. Remove eventually.
@@ -46,8 +39,8 @@ int sys_test(int arg);
 time_t sys_get_time(void);
 void sys_get_time_ms(time_t *t, uint16_t *out_ms);
 RtcTicks sys_get_ticks(void);
-struct tm *sys_gmtime_r(const time_t *timep, struct tm *result);
-struct tm *sys_localtime_r(const time_t *timep, struct tm *result);
+struct pbl_tm *sys_gmtime_r(const time_t *timep, struct pbl_tm *result);
+struct pbl_tm *sys_localtime_r(const time_t *timep, struct pbl_tm *result);
 void sys_copy_timezone_abbr(char *timezone_abbr, time_t time);
 time_t sys_time_start_of_today(void);
 
@@ -60,7 +53,7 @@ void sys_get_pebble_event(PebbleEvent *event);
 
 void sys_pbl_log(LogBinaryMessage *log_message, uint32_t flags);
 
-PBL_NORETURN void sys_app_fault(uint32_t stashed_lr);
+[[noreturn]] void sys_app_fault(uint32_t stashed_lr);
 
 bool sys_resource_is_valid(ResAppNum app_num, uint32_t resource_id);
 size_t sys_resource_size(ResAppNum app_num, uint32_t handle);
@@ -73,7 +66,7 @@ const uint8_t *sys_resource_read_only_bytes(ResAppNum app_num, uint32_t resource
 
 uint32_t sys_resource_get_and_cache(ResAppNum app_num, uint32_t resource_id);
 
-PBL_NORETURN void sys_exit(void);
+[[noreturn]] void sys_exit(void);
 
 GFont sys_font_get_system_font(const char *font_key);
 void sys_font_reload_font(FontInfo *fontinfo);
@@ -88,8 +81,8 @@ bool sys_vibe_history_was_vibrating(uint64_t time_search);
 int32_t sys_vibe_get_vibe_strength(void);
 
 // Speaker syscalls
-#include "pbl/services/speaker/note_sequence.h"
-#include "pbl/services/speaker/track.h"
+#include <pbl/services/speaker/note_sequence.h>
+#include <pbl/services/speaker/track.h>
 bool sys_speaker_play_note_seq(const SpeakerNote *notes, uint32_t num_notes, uint8_t priority,
                                uint8_t volume);
 bool sys_speaker_play_tone(uint16_t freq_hz, uint16_t duration_ms, uint8_t waveform,
@@ -124,58 +117,6 @@ void sys_event_service_client_subscribe(EventServiceInfo *handler);
 void sys_event_service_client_unsubscribe(EventServiceInfo *state, EventServiceInfo *handler);
 void sys_event_service_cleanup(PebbleEvent *e);
 
-int sys_ble_scan_start(void);
-int sys_ble_scan_stop(void);
-bool sys_ble_scan_is_scanning(void);
-bool sys_ble_consume_scan_results(uint8_t *buffer, uint16_t *size_in_out);
-int8_t sys_ble_get_advertising_tx_power(void);
-
-enum pbl_bt_errno sys_ble_central_connect(struct pbl_bt_device device, bool auto_reconnect,
-                                          bool is_pairing_required);
-enum pbl_bt_errno sys_ble_central_cancel_connect(struct pbl_bt_device device);
-
-enum pbl_bt_errno sys_ble_client_discover_services_and_characteristics(struct pbl_bt_device device);
-uint8_t sys_ble_client_copy_services(struct pbl_bt_device_internal device,
-                                     pbl_bt_service_t services[], uint8_t num_services);
-uint16_t sys_ble_client_get_maximum_value_length(struct pbl_bt_device device);
-enum pbl_bt_errno sys_ble_client_read(pbl_bt_characteristic_t characteristic);
-bool sys_ble_client_get_notification_value_length(uint16_t *value_length_out);
-void sys_ble_client_consume_read(uintptr_t object_ref, uint8_t value_out[],
-                                 uint16_t *value_length_in_out);
-bool sys_ble_client_consume_notification(uintptr_t *object_ref_out, uint8_t value_out[],
-                                         uint16_t *value_length_in_out, bool *has_more_out);
-enum pbl_bt_errno sys_ble_client_write(pbl_bt_characteristic_t characteristic, const uint8_t *value,
-                                       size_t value_length);
-enum pbl_bt_errno sys_ble_client_write_without_response(pbl_bt_characteristic_t characteristic,
-                                                        const uint8_t *value, size_t value_length);
-enum pbl_bt_errno sys_ble_client_subscribe(pbl_bt_characteristic_t characteristic,
-                                           BLESubscription subscription_type);
-enum pbl_bt_errno sys_ble_client_write_descriptor(pbl_bt_descriptor_t descriptor,
-                                                  const uint8_t *value, size_t value_length);
-enum pbl_bt_errno sys_ble_client_read_descriptor(pbl_bt_descriptor_t descriptor);
-
-uint8_t sys_ble_service_get_characteristics(pbl_bt_service_t service,
-                                            pbl_bt_characteristic_t characteristics_out[],
-                                            uint8_t num_characteristics);
-void sys_ble_service_get_uuid(Uuid *uuid, pbl_bt_service_t service);
-void sys_ble_service_get_device(struct pbl_bt_device *device, pbl_bt_service_t service);
-uint8_t sys_ble_service_get_included_services(pbl_bt_service_t service,
-                                              pbl_bt_service_t included_services_out[],
-                                              uint8_t num_services);
-
-void sys_ble_characteristic_get_uuid(Uuid *uuid, pbl_bt_characteristic_t characteristic);
-enum pbl_bt_attribute_property sys_ble_characteristic_get_properties(
-    pbl_bt_characteristic_t characteristic);
-pbl_bt_service_t sys_ble_characteristic_get_service(pbl_bt_characteristic_t characteristic);
-void sys_ble_characteristic_get_device(struct pbl_bt_device *device,
-                                       pbl_bt_characteristic_t characteristic);
-uint8_t sys_ble_characteristic_get_descriptors(pbl_bt_characteristic_t characteristic,
-                                               pbl_bt_descriptor_t descriptors_out[],
-                                               uint8_t num_descriptors);
-
-void sys_ble_descriptor_get_uuid(Uuid *uuid, pbl_bt_descriptor_t descriptor);
-pbl_bt_characteristic_t sys_ble_descriptor_get_characteristic(pbl_bt_descriptor_t descriptor);
-
 int16_t sys_event_service_get_plugin_service_index(const Uuid *uuid);
 
 DataLoggingSessionRef sys_data_logging_create(uint32_t tag, DataLoggingItemType type,
@@ -185,7 +126,7 @@ DataLoggingResult sys_data_logging_log(DataLoggingSessionRef logging_session, co
                                        uint32_t num_items);
 
 bool sys_clock_is_24h_style(void);
-size_t sys_strftime(char *s, size_t maxsize, const char *format, const struct tm *tim_p,
+size_t sys_strftime(char *s, size_t maxsize, const char *format, const struct pbl_tm *tim_p,
                     char *locale);
 
 BatteryChargeState sys_battery_get_charge_state(void);
@@ -244,9 +185,9 @@ void sys_tick_timer_unsubscribe(void);
 //! NULL \a frame clears the snapshot. Not exported to the SDK.
 void sys_touch_set_action_bar(const GRect *frame, uint8_t icon_mask);
 
-//! Set whether the calling app participates in touch navigation (the privileged side of the
-//! app_touch_navigation_enable() SDK call). Only acts on the app task.
-void sys_app_touch_navigation_enable(bool enable);
+//! Mark whether the app task's touch-nav dispatcher is installed. Only acts on the app task. Not
+//! exported to the SDK.
+void sys_touch_set_app_nav_active(bool active);
 
 bool sys_app_inbox_service_register(uint8_t *storage, size_t storage_size,
                                     AppInboxMessageHandler message_handler,
@@ -316,7 +257,7 @@ size_t sys_i18n_get_length(const char *string);
 //! @param timezone A pointer to the buffer to copy the timezone long name into
 //! @param buffer_size Size of the allocated buffer to copy the timezone long name into
 //! @note timezone buffer should be at least TIMEZONE_NAME_LENGTH bytes
-void sys_clock_get_timezone(char *timezone, const size_t buffer_size);
+void sys_clock_get_timezone(char *timezone, size_t buffer_size);
 
 //!   @} // end addtogroup WallTime
 //! @} // end addtogroup Foundation

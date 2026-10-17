@@ -1,50 +1,122 @@
 /* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/shell/backend.h>
-#include <pbl/shell/shell.h>
-
 #include <errno.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "pbl/services/system_task.h"
-
-extern const struct pbl_shell_cmd __pbl_shell_root_cmds_start[];
-extern const struct pbl_shell_cmd __pbl_shell_root_cmds_end[];
+#include <pbl/services/system_task.h>
+#include <pbl/shell/backend.h>
+#include <pbl/shell/shell.h>
 
 #define ESC_NONE  0
 #define ESC_START 1
 #define ESC_CSI   2
 
+static const struct pbl_shell_cmd *prv_array_get(const struct pbl_shell_cmd *cmds, size_t idx) {
+  return (cmds[idx].syntax != nullptr) ? &cmds[idx] : nullptr;
+}
+
+#ifndef PBL_NO_LINKER_SCRIPT
+// The linker script gathers the root commands sorted by name, and the entries of each set
+// between the set's two markers.
+
+extern const struct pbl_shell_cmd __pbl_shell_root_cmds_start[];
+extern const struct pbl_shell_cmd __pbl_shell_root_cmds_end[];
+
+static const struct pbl_shell_cmd *prv_root_get(size_t idx) {
+  const struct pbl_shell_cmd *cmd = &__pbl_shell_root_cmds_start[idx];
+  return (cmd < __pbl_shell_root_cmds_end) ? cmd : nullptr;
+}
+
+static const struct pbl_shell_cmd *prv_subcmd_get(const struct pbl_shell_cmd *subcmd, size_t idx) {
+  return prv_array_get(subcmd, idx);
+}
+#else
+// Without the linker script the commands are gathered unsorted, and the entries of a set apart
+// from each other, each naming its set: pick them by name when looked up.
+
+extern const struct pbl_shell_cmd __pbl_shell_root_cmds_start[] PBL_UNSORTED_SECTION_START(
+    pbl_shroot);
+extern const struct pbl_shell_cmd __pbl_shell_root_cmds_end[] PBL_UNSORTED_SECTION_END(pbl_shroot);
+extern const struct pbl_shell_cmd __pbl_shell_sets_start[] PBL_UNSORTED_SECTION_START(pbl_shset);
+extern const struct pbl_shell_cmd __pbl_shell_sets_end[] PBL_UNSORTED_SECTION_END(pbl_shset);
+extern const struct pbl_shell_subcmd_entry __pbl_shell_subcmds_start[] PBL_UNSORTED_SECTION_START(
+    pbl_shsub);
+extern const struct pbl_shell_subcmd_entry __pbl_shell_subcmds_end[] PBL_UNSORTED_SECTION_END(
+    pbl_shsub);
+
+// The idx-th command of a set, or of the root commands if @p set is NULL, in no order.
+static const struct pbl_shell_cmd *prv_unsorted_get(const char *set, size_t idx) {
+  if (set == nullptr) {
+    return (&__pbl_shell_root_cmds_start[idx] < __pbl_shell_root_cmds_end)
+               ? &__pbl_shell_root_cmds_start[idx]
+               : nullptr;
+  }
+  for (const struct pbl_shell_subcmd_entry *e = __pbl_shell_subcmds_start;
+       e < __pbl_shell_subcmds_end; e++) {
+    if (strcmp(e->set, set) == 0 && idx-- == 0) {
+      return &e->cmd;
+    }
+  }
+  return nullptr;
+}
+
+static const struct pbl_shell_cmd *prv_sorted_get(const char *set, size_t idx) {
+  const struct pbl_shell_cmd *prev = nullptr;
+
+  for (size_t n = 0; n <= idx; n++) {
+    const struct pbl_shell_cmd *next = nullptr;
+    const struct pbl_shell_cmd *cmd;
+    for (size_t i = 0; (cmd = prv_unsorted_get(set, i)) != nullptr; i++) {
+      if ((prev == nullptr || strcmp(cmd->syntax, prev->syntax) > 0) &&
+          (next == nullptr || strcmp(cmd->syntax, next->syntax) < 0)) {
+        next = cmd;
+      }
+    }
+    if (next == nullptr) {
+      return nullptr;
+    }
+    prev = next;
+  }
+
+  return prev;
+}
+
+static const struct pbl_shell_cmd *prv_root_get(size_t idx) {
+  return prv_sorted_get(nullptr, idx);
+}
+
+static const struct pbl_shell_cmd *prv_subcmd_get(const struct pbl_shell_cmd *subcmd, size_t idx) {
+  if (subcmd >= __pbl_shell_sets_start && subcmd < __pbl_shell_sets_end) {
+    return prv_sorted_get(subcmd->help, idx);
+  }
+  return prv_array_get(subcmd, idx);
+}
+#endif
+
 static const struct pbl_shell_cmd *prv_level_get(const struct pbl_shell_cmd *parent, size_t idx) {
-  const struct pbl_shell_cmd *cmd;
-
-  if (parent == NULL) {
-    cmd = &__pbl_shell_root_cmds_start[idx];
-    return (cmd < __pbl_shell_root_cmds_end) ? cmd : NULL;
+  if (parent == nullptr) {
+    return prv_root_get(idx);
   }
-
-  if (parent->subcmd == NULL) {
-    return NULL;
+  if (parent->subcmd == nullptr) {
+    return nullptr;
   }
-
-  cmd = &parent->subcmd[idx];
-  return (cmd->syntax != NULL) ? cmd : NULL;
+  return prv_subcmd_get(parent->subcmd, idx);
 }
 
 static const struct pbl_shell_cmd *prv_find(const struct pbl_shell_cmd *parent, const char *name) {
   const struct pbl_shell_cmd *cmd;
 
-  for (size_t i = 0; (cmd = prv_level_get(parent, i)) != NULL; i++) {
+  for (size_t i = 0; (cmd = prv_level_get(parent, i)) != nullptr; i++) {
     if (strcmp(cmd->syntax, name) == 0) {
       return cmd;
     }
   }
 
-  return NULL;
+  return nullptr;
 }
 
 static void prv_write(const struct pbl_shell *sh, const char *data, size_t len) {
@@ -120,26 +192,26 @@ static void prv_print_level(const struct pbl_shell *sh, const struct pbl_shell_c
   const struct pbl_shell_cmd *cmd;
   int width = 0;
 
-  for (size_t i = 0; (cmd = prv_level_get(parent, i)) != NULL; i++) {
+  for (size_t i = 0; (cmd = prv_level_get(parent, i)) != nullptr; i++) {
     int len = strlen(cmd->syntax);
     if (len > width) {
       width = len;
     }
   }
 
-  for (size_t i = 0; (cmd = prv_level_get(parent, i)) != NULL; i++) {
+  for (size_t i = 0; (cmd = prv_level_get(parent, i)) != nullptr; i++) {
     pbl_shell_print(sh, "  %-*s  %s", width, cmd->syntax, cmd->help ? cmd->help : "");
   }
 }
 
 void pbl_shell_help(const struct pbl_shell *sh, const struct pbl_shell_cmd *cmd) {
-  if (cmd->help != NULL) {
+  if (cmd->help != nullptr) {
     pbl_shell_print(sh, "%s - %s", cmd->syntax, cmd->help);
   } else {
     pbl_shell_print(sh, "%s", cmd->syntax);
   }
 
-  if (cmd->subcmd != NULL) {
+  if (cmd->subcmd != nullptr) {
     pbl_shell_print(sh, "Subcommands:");
     prv_print_level(sh, cmd);
   }
@@ -198,15 +270,15 @@ static int prv_execute(const struct pbl_shell *sh) {
     return -E2BIG;
   }
 
-  cmd = prv_find(NULL, argv[0]);
-  if (cmd == NULL) {
+  cmd = prv_find(nullptr, argv[0]);
+  if (cmd == nullptr) {
     pbl_shell_error(sh, "%s: command not found, try 'help'", argv[0]);
     return -ENOEXEC;
   }
 
-  while (argc > 1 && cmd->subcmd != NULL) {
+  while (argc > 1 && cmd->subcmd != nullptr) {
     const struct pbl_shell_cmd *sub = prv_find(cmd, args[1]);
-    if (sub == NULL) {
+    if (sub == nullptr) {
       break;
     }
     cmd = sub;
@@ -219,7 +291,7 @@ static int prv_execute(const struct pbl_shell *sh) {
     return 0;
   }
 
-  if (cmd->handler == NULL) {
+  if (cmd->handler == nullptr) {
     if (argc > 1) {
       pbl_shell_error(sh, "%s: unknown subcommand '%s'", args[0], args[1]);
     }
@@ -234,7 +306,7 @@ static int prv_execute(const struct pbl_shell *sh) {
     return -EINVAL;
   }
 
-  args[argc] = NULL;
+  args[argc] = nullptr;
   return cmd->handler(sh, argc, args);
 }
 
@@ -250,11 +322,11 @@ static void prv_finish(const struct pbl_shell *sh, int ret) {
   ctx->len = 0;
   ctx->busy = false;
 
-  if (sh->api->done != NULL) {
+  if (sh->api->done != nullptr) {
     sh->api->done(sh, ret);
   }
 
-  if (sh->prompt != NULL && ctx->active) {
+  if (sh->prompt != nullptr && ctx->active) {
     prv_print_prompt(sh);
     if (ctx->rx_head != ctx->rx_tail && !ctx->rx_scheduled) {
       ctx->rx_scheduled = true;
@@ -324,8 +396,8 @@ static void prv_append(const struct pbl_shell *sh, const char *str, size_t len) 
 
 static void prv_complete(const struct pbl_shell *sh) {
   struct pbl_shell_ctx *ctx = sh->ctx;
-  const struct pbl_shell_cmd *parent = NULL;
-  const struct pbl_shell_cmd *first = NULL;
+  const struct pbl_shell_cmd *parent = nullptr;
+  const struct pbl_shell_cmd *first = nullptr;
   const struct pbl_shell_cmd *cmd;
   char tmp[CONFIG_SHELL_CMD_BUFF_SIZE + 1];
   char *argv[CONFIG_SHELL_ARGC_MAX + 1];
@@ -346,7 +418,7 @@ static void prv_complete(const struct pbl_shell *sh) {
 
   for (size_t i = 0; i < argc; i++) {
     cmd = prv_find(parent, argv[i]);
-    if (cmd == NULL || cmd->subcmd == NULL) {
+    if (cmd == nullptr || cmd->subcmd == nullptr) {
       return;
     }
     parent = cmd;
@@ -355,11 +427,11 @@ static void prv_complete(const struct pbl_shell *sh) {
   prefix = &ctx->line[start];
   plen = ctx->len - start;
 
-  for (size_t i = 0; (cmd = prv_level_get(parent, i)) != NULL; i++) {
+  for (size_t i = 0; (cmd = prv_level_get(parent, i)) != nullptr; i++) {
     if (strncmp(cmd->syntax, prefix, plen) != 0) {
       continue;
     }
-    if (first == NULL) {
+    if (first == nullptr) {
       first = cmd;
       common = strlen(cmd->syntax);
     } else {
@@ -389,7 +461,7 @@ static void prv_complete(const struct pbl_shell *sh) {
   }
 
   prv_puts(sh, "\r\n");
-  for (size_t i = 0; (cmd = prv_level_get(parent, i)) != NULL; i++) {
+  for (size_t i = 0; (cmd = prv_level_get(parent, i)) != nullptr; i++) {
     if (strncmp(cmd->syntax, prefix, plen) == 0) {
       pbl_shell_print(sh, "  %s", cmd->syntax);
     }
@@ -513,7 +585,7 @@ void pbl_shell_input_from_isr(const struct pbl_shell *sh, char c) {
 static int prv_strto(const char *str, bool is_signed, long *sout, unsigned long *uout) {
   char *end;
 
-  if (str == NULL || *str == '\0') {
+  if (str == nullptr || *str == '\0') {
     return -EINVAL;
   }
 
@@ -531,18 +603,18 @@ static int prv_strto(const char *str, bool is_signed, long *sout, unsigned long 
 }
 
 int pbl_shell_strtol(const char *str, long *out) {
-  return prv_strto(str, true, out, NULL);
+  return prv_strto(str, true, out, nullptr);
 }
 
 int pbl_shell_strtoul(const char *str, unsigned long *out) {
-  return prv_strto(str, false, NULL, out);
+  return prv_strto(str, false, nullptr, out);
 }
 
 static int prv_cmd_help(const struct pbl_shell *sh, size_t argc, char **argv) {
   pbl_shell_print(sh, "Commands:");
-  prv_print_level(sh, NULL);
+  prv_print_level(sh, nullptr);
   pbl_shell_print(sh, "Run '<command> -h' for details.");
   return 0;
 }
 
-PBL_SHELL_CMD_REGISTER(help, NULL, "List commands", prv_cmd_help);
+PBL_SHELL_CMD_REGISTER(help, nullptr, "List commands", prv_cmd_help);

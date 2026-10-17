@@ -2,9 +2,11 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "weather_math.h"
-#include "applib/ui/animation_interpolate.h"
+
 #include <string.h>
 #include <time.h>
+
+#include <applib/ui/animation_interpolate.h>
 
 int64_t weather_interpolate_moook_soft1(int32_t n, int64_t from, int64_t to) {
   return interpolate_moook_soft(n, from, to, 1);
@@ -193,9 +195,9 @@ void weather_fill_weekday_abbrev(int day_offset, const char *fallback, char *buf
                                  size_t buffer_size) {
   if (!buffer || buffer_size == 0)
     return;
-  time_t target = time(NULL) + (time_t)day_offset * 86400;
-  struct tm *lt = localtime(&target);
-  if (!lt || strftime(buffer, buffer_size, "%a", lt) == 0) {
+  time_t target = time(nullptr) + (time_t)day_offset * 86400;
+  struct pbl_tm *lt = localtime(&target);
+  if (!lt || pbl_strftime_r(buffer, buffer_size, "%a", lt) == 0) {
     if (fallback && fallback[0]) {
       snprintf(buffer, buffer_size, "%.3s", fallback);
     } else {

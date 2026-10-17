@@ -3,11 +3,10 @@
 
 #pragma once
 
-#include <stdbool.h>
+#include <pbl/services/notifications/notifications.h>
 
-#include "applib/fonts/fonts.h"
-#include "pbl/services/notifications/notifications.h"
-#include "kernel/events.h"
+#include <applib/fonts/fonts.h>
+#include <kernel/events.h>
 
 void notification_window_service_init(void);
 

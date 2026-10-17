@@ -3,20 +3,20 @@
 
 #pragma once
 
-#include "applib/ui/date_time_selection_window_private.h"
-#include "applib/ui/selection_layer.h"
-#include "applib/ui/status_bar_layer.h"
-#include "applib/ui/text_layer.h"
-#include "applib/ui/window.h"
-
 #include <stdint.h>
 #include <time.h>
+
+#include <applib/ui/date_time_selection_window_private.h>
+#include <applib/ui/selection_layer.h>
+#include <applib/ui/status_bar_layer.h>
+#include <applib/ui/text_layer.h>
+#include <applib/ui/window.h>
 
 struct DateSelectionWindowData;
 
 typedef void (*DateSelectionCompleteCallback)(struct DateSelectionWindowData *window, void *ctx);
 
-//! Date data stored as fields mirroring struct tm
+//! Date data stored as fields mirroring struct pbl_tm
 typedef struct {
   int16_t year; //!< years since 1900 (tm_year)
   int8_t month; //!< 0-11 (tm_mon)

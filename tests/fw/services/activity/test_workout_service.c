@@ -1,26 +1,21 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "clar.h"
+#include <pbl/services/activity/activity.h>
+#include <pbl/services/activity/activity_calculators.h>
+#include <pbl/services/activity/workout_service.h>
+#include <pbl/services/hrm/hrm_manager.h>
+#include <pbl/services/time.h>
+#include <pbl/util/units.h>
 
-#include "pbl/services/activity/activity.h"
-#include "pbl/services/activity/activity_calculators.h"
-#include "pbl/services/activity/workout_service.h"
-#include "pbl/services/hrm/hrm_manager.h"
-#include "drivers/hrm.h"
-#include "process_management/app_install_types.h"
-#include "pbl/services/time.h"
-#include "pbl/util/units.h"
+#include <clar.h>
+#include <drivers/hrm.h>
+#include <fff.h>
+#include <process_management/app_install_types.h>
 
 // ---------------------------------------------------------------------------------------
-#include "stubs_activity_insights.h"
-#include "stubs_evented_timer.h"
-#include "stubs_logging.h"
-#include "stubs_pbl_malloc.h"
-#include "stubs_regular_timer.h"
-
-#include "fake_rtc.h"
-#include "fake_mutex.h"
+#include <fake_mutex.h>
+#include <fake_rtc.h>
 
 extern void prv_abandon_workout_timer_callback(void *data);
 extern void prv_abandoned_notification_timer_callback(void *data);
@@ -133,10 +128,7 @@ bool activity_get_metric(ActivityMetric metric, uint32_t history_len, int32_t *h
   return true;
 }
 
-static bool s_abandoned_workout_notification_sent;
-void workout_utils_send_abandoned_workout_notification() {
-  s_abandoned_workout_notification_sent = true;
-}
+FAKE_VOID_FUNC(workout_utils_send_abandoned_workout_notification);
 
 // ---------------------------------------------------------------------------------------
 static void prv_inc_steps_and_put_event(int steps) {
@@ -171,13 +163,13 @@ static void prv_put_bpm_event(int bpm, HRMQuality quality) {
 
 static void prv_inc_time(int seconds) {
   fake_rtc_increment_time(seconds);
-  prv_workout_timer_cb(NULL);
+  prv_workout_timer_cb(nullptr);
 }
 
 static void prv_assert_current_hr(int expected_bpm, HRZone expected_zone) {
   int32_t bpm;
   HRZone hr_zone;
-  cl_assert(workout_service_get_current_workout_info(NULL, NULL, NULL, &bpm, &hr_zone));
+  cl_assert(workout_service_get_current_workout_info(nullptr, nullptr, nullptr, &bpm, &hr_zone));
   cl_assert_equal_i(bpm, expected_bpm);
   cl_assert_equal_i(hr_zone, expected_zone);
 }
@@ -193,7 +185,7 @@ void test_workout_service__initialize(void) {
   s_hrm_expiration = 0;
   s_hrm_subscribed = false;
   s_hrm_measurement_interval = HRMonitoringInterval_10Min;
-  s_abandoned_workout_notification_sent = false;
+  RESET_FAKE(workout_utils_send_abandoned_workout_notification);
 
   const bool assert_all_unlocked = true;
   fake_mutex_reset(assert_all_unlocked);
@@ -919,7 +911,7 @@ void test_workout_service__heart_rate_zone_time(void) {
   cl_assert_equal_i(hr_zone_time_s[HRZone_Zone2], 20);
   cl_assert_equal_i(hr_zone_time_s[HRZone_Zone3], 20);
 
-  cl_assert(!workout_service_get_current_workout_hr_zone_time(NULL));
+  cl_assert(!workout_service_get_current_workout_hr_zone_time(nullptr));
   cl_assert(workout_service_stop_workout());
   cl_assert(!workout_service_get_current_workout_hr_zone_time(hr_zone_time_s));
 }
@@ -977,16 +969,16 @@ void test_workout_service__abandon_workout(void) {
   prv_inc_time(30 * PBL_SEC_PER_MIN);
 
   // Make sure notification is not sent yet and the workout is still ongoing
-  cl_assert_equal_b(s_abandoned_workout_notification_sent, false);
+  cl_assert_equal_i(workout_utils_send_abandoned_workout_notification_fake.call_count, 0);
   cl_assert_equal_b(workout_service_is_workout_ongoing(), true);
 
   // Wait 25 minutes, call evented timer callback and make sure the notification is sent
   prv_inc_time(25 * PBL_SEC_PER_MIN);
-  prv_abandoned_notification_timer_callback(NULL);
-  cl_assert_equal_b(s_abandoned_workout_notification_sent, true);
+  prv_abandoned_notification_timer_callback(nullptr);
+  cl_assert_equal_i(workout_utils_send_abandoned_workout_notification_fake.call_count, 1);
 
   // Wait 5 minutes, call evented timer callback and make sure the workout was ended
   prv_inc_time(5 * PBL_SEC_PER_MIN);
-  prv_abandon_workout_timer_callback(NULL);
+  prv_abandon_workout_timer_callback(nullptr);
   cl_assert_equal_b(workout_service_is_workout_ongoing(), false);
 }

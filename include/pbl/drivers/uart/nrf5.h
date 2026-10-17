@@ -3,17 +3,12 @@
 
 #pragma once
 
-#include <pbl/drivers/uart.h>
-
-#include "board/board.h"
-
-#include <stdbool.h>
 #include <stdint.h>
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wunused-variable"
+#include <pbl/drivers/uart.h>
+
+#include <board/board.h>
 #include <nrfx_uarte.h>
-#pragma GCC diagnostic pop
 
 /**
  * @defgroup drivers_uart_nrf5 nRF5

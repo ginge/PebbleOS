@@ -1,35 +1,24 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "comm/ble/gatt_service_changed.h"
-#include "comm/ble/gap_le_connection.h"
-
-#include "kernel/events.h"
-
-#include "clar.h"
-
 #include <pbl/btutil/bt_device.h>
+
+#include <clar.h>
+#include <comm/ble/gap_le_connection.h>
+#include <comm/ble/gatt_service_changed.h>
+#include <kernel/events.h>
 
 // Fakes
 ///////////////////////////////////////////////////////////
 
-#include "fake_bt_gatt.h"
-#include "fake_pbl_malloc.h"
-#include "fake_new_timer.h"
-#include "fake_rtc.h"
-#include "fake_system_task.h"
+#include <fake_bt_gatt.h>
+#include <fake_new_timer.h>
+#include <fake_pbl_malloc.h>
+#include <fake_rtc.h>
+#include <fake_system_task.h>
 
 // Stubs
 ///////////////////////////////////////////////////////////
-
-#include "stubs_bt_lock.h"
-#include "stubs_events.h"
-#include "stubs_gatt_client_subscriptions.h"
-#include "stubs_logging.h"
-#include "stubs_mutex.h"
-#include "stubs_passert.h"
-#include "stubs_rand_ptr.h"
-#include "stubs_regular_timer.h"
 
 void core_dump_reset(bool is_forced) {
 }
@@ -53,7 +42,7 @@ bool gap_le_connection_is_valid(const GAPLEConnection *conn) {
 }
 
 GAPLEConnection *gap_le_connection_any(void) {
-  return NULL;
+  return nullptr;
 }
 
 uint16_t gaps_get_starting_att_handle(void) {
@@ -62,7 +51,7 @@ uint16_t gaps_get_starting_att_handle(void) {
 
 GAPLEConnection *gatt_client_characteristic_get_connection(
     pbl_bt_characteristic_t characteristic_ref) {
-  return NULL;
+  return nullptr;
 }
 
 pbl_bt_service_t gatt_client_att_handle_get_service(GAPLEConnection *connection,
@@ -153,7 +142,7 @@ void test_gatt_service_changed_client__handle_gatt_profile_service_missing_servi
 void test_gatt_service_changed_client__handle_indication_non_service_changed(void) {
   fake_gatt_put_discovery_indication_gatt_profile_service(
       TEST_GATT_CONNECTION_ID, true /* has_service_changed_characteristic */);
-  const uint8_t value;
+  const uint8_t value = 0;
   const bool handled =
       gatt_service_changed_client_handle_indication(&s_connection, 0xfffe, &value, sizeof(value));
   cl_assert_equal_b(handled, false);

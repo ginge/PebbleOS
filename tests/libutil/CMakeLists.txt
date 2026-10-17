@@ -27,6 +27,8 @@ pbl_clar_test(test_byteorder)
 
 pbl_clar_test(test_bitops)
 
+pbl_clar_test(test_bits)
+
 pbl_clar_test(test_misc)
 
 pbl_clar_test(test_ratio)
@@ -46,3 +48,7 @@ pbl_clar_test(test_stats)
 pbl_clar_test(test_shared_cbuf)
 
 pbl_clar_test(test_time)
+
+pbl_clar_test(test_gmtime)
+
+pbl_clar_test(test_mktime)

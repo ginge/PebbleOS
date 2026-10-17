@@ -11,18 +11,22 @@ import time
 
 from harness.device import DeviceAdapter
 from harness.errors import HarnessError
-from harness.lab import VIRTUAL
 
 MICRO_FLASH_IMAGE = "qemu_micro_flash.bin"
 SPI_FLASH_IMAGE = "qemu_spi_flash.bin"
 ABS_MAX = 32767
-# --qemu-bt-hci value for Bumble's software controllers instead of a radio.
+HCI_DRAIN_S = 0.2
 
 
 def _free_port():
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
+
+
+def _tcp_port(chardev):
+    address = chardev["filename"].removeprefix("disconnected:").split(",")[0]
+    return int(address.rsplit(":", 1)[1])
 
 
 class _Monitor:
@@ -82,13 +86,12 @@ class QemuAdapter(DeviceAdapter):
     def __init__(self, config):
         super().__init__(config)
         self.workdir = config.results_dir
-        self.console_port = _free_port()
-        self.pebble_port = _free_port()
+        self.console_port = None
+        self.pebble_port = None
         # Unix socket paths are limited to ~100 characters.
         self._sockdir = None
         self._process = None
         self._qemu_log = None
-        self._virtual_link = None
         self._bt_hci = None
 
     def _qemu(self):
@@ -120,8 +123,8 @@ class QemuAdapter(DeviceAdapter):
             "-monitor", f"unix:{self.monitor_socket},server=on,wait=off",
             "-qmp", f"unix:{self.qmp_socket},server=on,wait=off",
             "-serial", f"file:{os.path.join(self.workdir, 'uart1.log')}",
-            "-serial", f"tcp:127.0.0.1:{self.pebble_port},server=on,wait=off",
-            "-serial", f"tcp:127.0.0.1:{self.console_port},server=on,wait=off",
+            "-serial", "tcp:127.0.0.1:0,server=on,wait=off",
+            "-serial", "tcp:127.0.0.1:0,server=on,wait=off",
             *(["-serial", self._bt_hci] if self._bt_hci else []),
             *machine_args,
             "-kernel", self.build.elf,
@@ -136,31 +139,14 @@ class QemuAdapter(DeviceAdapter):
     def qmp_socket(self):
         return os.path.join(self._sockdir, "qmp.sock")
 
-    def _start_bluetooth(self):
-        """Attach the emulator's fourth UART to an H4 controller, as the
-        build's CONFIG_BT_HCI_UART needs: the given one, or Bumble's
-        software controllers ('virtual'), whose other end is the harness's."""
-        hci_uart = bool(self.build.config.get("CONFIG_BT_HCI_UART"))
-        chardev = self.config.qemu_bt_hci
-        if hci_uart and not chardev:
-            raise HarnessError(
-                "the build uses CONFIG_BT_HCI_UART: its Bluetooth needs a controller"
-            )
-        if chardev and not hci_uart:
-            raise HarnessError("--qemu-bt-hci needs a build with CONFIG_BT_HCI_UART=y")
-        if chardev == VIRTUAL:
-            from harness.ble.virtual import VirtualLink
-
-            self._virtual_link = VirtualLink(os.path.join(self.workdir, "bt-link.log"))
-            self._virtual_link.start()
-            chardev = self._virtual_link.watch_chardev
-            self.ble_controller = self._virtual_link.host_controller
-        self._bt_hci = chardev
-
     def _device_launch(self):
         self._sockdir = tempfile.mkdtemp(prefix="pbl-qemu-")
         os.makedirs(self.workdir, exist_ok=True)
-        self._start_bluetooth()
+        controller = self._start_bluetooth()
+        # The fourth UART, as a QEMU -serial spec.
+        self._bt_hci = (
+            f"tcp:127.0.0.1:{controller}" if isinstance(controller, int) else controller
+        )
         for image in (MICRO_FLASH_IMAGE, SPI_FLASH_IMAGE):
             if not os.path.isfile(self.build.join(image)):
                 raise HarnessError(
@@ -179,16 +165,37 @@ class QemuAdapter(DeviceAdapter):
             command, stdout=self._qemu_log, stderr=subprocess.STDOUT
         )
 
+        # QMP can answer before the -serial chardevs exist; QEMU picks the
+        # TCP ports.
         deadline = time.monotonic() + 10
-        while not os.path.exists(self.monitor_socket):
-            if self._process.poll() is not None:
-                raise HarnessError(
-                    f"QEMU exited with {self._process.returncode}; see "
-                    f"{os.path.join(self.workdir, 'qemu.log')}"
-                )
-            if time.monotonic() > deadline:
-                raise HarnessError("QEMU did not open its monitor socket")
-            time.sleep(0.05)
+        while True:
+            self._check_alive(deadline, "QEMU did not answer on its QMP socket")
+            try:
+                qmp = _Qmp(self.qmp_socket)
+                break
+            except (OSError, ValueError):
+                time.sleep(0.05)
+        try:
+            while True:
+                reply = qmp.execute("query-chardev")["return"]
+                chardevs = {c["label"]: c for c in reply}
+                if "serial1" in chardevs and "serial2" in chardevs:
+                    break
+                self._check_alive(deadline, "QEMU did not create its serial ports")
+                time.sleep(0.05)
+        finally:
+            qmp.close()
+        self.pebble_port = _tcp_port(chardevs["serial1"])
+        self.console_port = _tcp_port(chardevs["serial2"])
+
+    def _check_alive(self, deadline, timeout_message):
+        if self._process.poll() is not None:
+            raise HarnessError(
+                f"QEMU exited with {self._process.returncode}; see "
+                f"{os.path.join(self.workdir, 'qemu.log')}"
+            )
+        if time.monotonic() > deadline:
+            raise HarnessError(timeout_message)
 
     def _close_device(self):
         if self._process is not None and self._process.poll() is None:
@@ -208,9 +215,7 @@ class QemuAdapter(DeviceAdapter):
         if self._qemu_log is not None:
             self._qemu_log.close()
             self._qemu_log = None
-        if self._virtual_link is not None:
-            self._virtual_link.stop()
-            self._virtual_link = None
+        self._stop_bluetooth()
 
     def _monitor(self, command):
         monitor = _Monitor(self.monitor_socket)
@@ -220,7 +225,12 @@ class QemuAdapter(DeviceAdapter):
             monitor.close()
 
     def _hard_reset(self):
+        self._monitor("stop")
+        # Let the controller take what the stopped firmware already sent.
+        time.sleep(HCI_DRAIN_S)
+        self._power_cycle_bluetooth()
         self._monitor("system_reset")
+        self._monitor("cont")
         return True
 
     def default_connections(self):

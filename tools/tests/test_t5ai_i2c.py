@@ -43,7 +43,7 @@ void i2c_hal_abort_transfer(I2CBus *);
 HARNESS = r"""
 #include "api.h"
 #include <sys/mman.h>
-#include "fw/drivers/i2c/t5ai.c"
+#include "drivers/i2c/t5ai.c"
 static bool scl_high=true,sda_high=true,irq_enabled,in_isr,stuck_scl;
 static unsigned pulses,release_after,elapsed,gpio_calls,completions;
 void gpio_output_init(const OutputConfig *p,int mode) {
@@ -114,12 +114,12 @@ class T5AII2CRecoveryTest(unittest.TestCase):
             path = Path(temporary)
             (path / "api.h").write_text(API)
             headers = [
-                "pbl/drivers/i2c/hal.h",
-                "pbl/drivers/i2c/definitions.h",
+                "pbl/drivers/i2c/t5ai_legacy_hal.h",
+                "pbl/drivers/i2c/t5ai_legacy_definitions.h",
                 "pbl/drivers/i2c/t5ai.h",
-                "pbl/drivers/gpio.h",
+                "pbl/drivers/gpio/t5ai_legacy.h",
                 "pbl/soc/t5ai/kernel.h",
-                "kernel/util/delay.h",
+                "pbl/soc/t5ai/delay.h",
                 "semphr.h",
                 "system/passert.h",
                 "cmsis_core.h",

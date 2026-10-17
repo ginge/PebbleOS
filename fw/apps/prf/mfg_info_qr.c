@@ -1,27 +1,26 @@
 /* SPDX-FileCopyrightText: 2025 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/app.h"
-#include "applib/app_watch_info.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/qr_code.h"
-#include "applib/ui/window.h"
-#include "applib/ui/text_layer.h"
-#include "kernel/pbl_malloc.h"
-#include "mfg/mfg_info.h"
-#include "mfg/mfg_serials.h"
-#include "process_state/app_state/app_state.h"
-#include "process_management/pebble_process_md.h"
-#include "pbl/services/battery/battery_state.h"
-#include "pbl/services/bluetooth/local_id.h"
-#include "pbl/util/size.h"
-
-#include "pbl/version.h"
-
-#include <pbl/bluetooth/types.h>
-#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+
+#include <pbl/bluetooth/types.h>
+#include <pbl/services/battery/battery_state.h>
+#include <pbl/services/bluetooth/local_id.h>
+#include <pbl/util/size.h>
+#include <pbl/version.h>
+
+#include <applib/app.h>
+#include <applib/app_watch_info.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/qr_code.h>
+#include <applib/ui/text_layer.h>
+#include <applib/ui/window.h>
+#include <kernel/pbl_malloc.h>
+#include <mfg/mfg_info.h>
+#include <mfg/mfg_serials.h>
+#include <process_management/pebble_process_md.h>
+#include <process_state/app_state/app_state.h>
 
 typedef struct {
   WatchInfoColor color;
@@ -32,12 +31,12 @@ static const ColorTable s_color_table[] = {
 #ifdef CONFIG_BOARD_ASTERIX
   {.color = WATCH_INFO_COLOR_COREDEVICES_P2D_BLACK, .short_name = "BK"},
   {.color = WATCH_INFO_COLOR_COREDEVICES_P2D_WHITE, .short_name = "WH"},
-#elif defined(CONFIG_BOARD_OBELIX)
+#elifdef CONFIG_BOARD_OBELIX
   {.color = WATCH_INFO_COLOR_COREDEVICES_PT2_BLACK_GREY, .short_name = "BG"},
   {.color = WATCH_INFO_COLOR_COREDEVICES_PT2_BLACK_RED, .short_name = "BR"},
   {.color = WATCH_INFO_COLOR_COREDEVICES_PT2_SILVER_BLUE, .short_name = "SB"},
   {.color = WATCH_INFO_COLOR_COREDEVICES_PT2_SILVER_GREY, .short_name = "SG"},
-#elif defined(CONFIG_BOARD_GETAFIX)
+#elifdef CONFIG_BOARD_GETAFIX
   {.color = WATCH_INFO_COLOR_COREDEVICES_PR2_BLACK_20, .short_name = "BK20"},
   {.color = WATCH_INFO_COLOR_COREDEVICES_PR2_SILVER_14, .short_name = "SV14"},
   {.color = WATCH_INFO_COLOR_COREDEVICES_PR2_SILVER_20, .short_name = "SV20"},

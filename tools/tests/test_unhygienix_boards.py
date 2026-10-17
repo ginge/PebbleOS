@@ -132,7 +132,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
 
         main = (ROOT / "fw/main.c").read_text()
         self.assertLess(main.index("init_drivers();"), main.index("services_early_init();"))
-        flash = (ROOT / "fw/drivers/flash/t5ai.c").read_text()
+        flash = (ROOT / "drivers/flash/t5ai.c").read_text()
         self.assertIn("return t5ai_flash_ipc_init();", flash)
 
     def test_unhygienix_raw_flash_console_paths_are_not_linked(self):
@@ -475,7 +475,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
             ROOT / "fw/services/shared_prf_storage/shared_prf_storage.c"
         ).read_text()
         regions = (ROOT / "fw/flash_region/flash_region_t5ai.h").read_text()
-        flash = (ROOT / "fw/drivers/flash/t5ai.c").read_text()
+        flash = (ROOT / "drivers/flash/t5ai.c").read_text()
         factory_reset = (ROOT / "fw/kernel/util/factory_reset.c").read_text()
 
         self.assertNotIn("CONFIG_SOC_T5AI", shared_prf)
@@ -488,7 +488,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
     def test_unhygienix_persistent_coredumps_are_disabled(self):
         core_dump = (ROOT / "fw/kernel/core_dump.c").read_text()
 
-        reset = core_dump.index("PBL_NORETURN void core_dump_reset(bool is_forced)")
+        reset = core_dump.index("[[noreturn]] void core_dump_reset(bool is_forced)")
         reset_guard = core_dump.index("#ifdef CONFIG_SOC_T5AI", reset)
         unavailable = core_dump.index(
             'prv_debug_str("Persistent core dumps unavailable on T5AI")',
@@ -575,7 +575,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertNotIn("s_request_transport_ack", source)
         self.assertNotIn("prv_wait_for_event_response_ack", source)
 
-        mailbox = (ROOT / "fw/drivers/t5ai/mailbox_channel.c").read_text()
+        mailbox = (ROOT / "drivers/t5ai/mailbox_channel.c").read_text()
         self.assertIn("static TxChannel s_tx[T5AI_MAILBOX_CHANNEL_COUNT]", mailbox)
         self.assertNotIn("s_active_channel", mailbox)
         self.assertIn("sequence != tx->sequence", mailbox)
@@ -640,7 +640,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertIn("prv_send_queued_acl(acl)", transport)
         self.assertNotIn("T5AI_HCI_ACL_SEND_ATTEMPTS", transport)
 
-        flash_driver = (ROOT / "fw/drivers/flash/t5ai.c").read_text()
+        flash_driver = (ROOT / "drivers/flash/t5ai.c").read_text()
         blank_check = flash_driver.split("static status_t prv_blank_check", 1)[1]
         blank_check = blank_check.split("status_t flash_impl_blank_check_subsector", 1)[
             0
@@ -709,7 +709,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertIn(".pin = 28u", board_source)
         self.assertIn("gpio_output_set(&s_amplifier_enable, false)", board_source)
 
-        battery_source = (ROOT / "fw/drivers/battery/t5ai.c").read_text()
+        battery_source = (ROOT / "drivers/battery/t5ai.c").read_text()
         self.assertIn(
             "gpio_input_init_pull_up_down(&s_charge, GPIO_PuPd_UP)",
             battery_source,

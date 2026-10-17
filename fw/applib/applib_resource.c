@@ -1,47 +1,49 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/applib_malloc.auto.h"
 #include "applib_resource_private.h"
-#include "board/board.h"
-#include "process_state/app_state/app_state.h"
-#include "resource/resource_storage_builtin.h"
-#include "resource/resource_storage_flash.h"
-#include "syscall/syscall.h"
+
+#include <applib/applib_malloc.auto.h>
+#include <board/board.h>
+#include <process_state/app_state/app_state.h>
+#include <resource/resource_storage_builtin.h>
+#include <resource/resource_storage_flash.h>
+#include <syscall/syscall.h>
 
 ResHandle applib_resource_get_handle(uint32_t resource_id) {
   if (sys_resource_is_valid(sys_get_current_resource_num(), resource_id)) {
-    return (ResHandle)resource_id;
+    return (ResHandle)(uintptr_t)resource_id;
   }
 
   return 0;
 }
 
 size_t applib_resource_size(ResHandle h) {
-  return sys_resource_size(sys_get_current_resource_num(), (uint32_t)h);
+  return sys_resource_size(sys_get_current_resource_num(), (uint32_t)(uintptr_t)h);
 }
 
 size_t applib_resource_load(ResHandle h, uint8_t *buffer, size_t max_length) {
-  return sys_resource_load_range(sys_get_current_resource_num(), (uint32_t)h, 0, buffer,
+  return sys_resource_load_range(sys_get_current_resource_num(), (uint32_t)(uintptr_t)h, 0, buffer,
                                  max_length);
 }
 
 size_t applib_resource_load_byte_range(ResHandle h, uint32_t start_offset, uint8_t *buffer,
                                        size_t num_bytes) {
-  return sys_resource_load_range(sys_get_current_resource_num(), (uint32_t)h, start_offset, buffer,
-                                 num_bytes);
+  return sys_resource_load_range(sys_get_current_resource_num(), (uint32_t)(uintptr_t)h,
+                                 start_offset, buffer, num_bytes);
 }
 
 void *applib_resource_mmap_or_load(ResAppNum app_num, uint32_t resource_id, size_t offset,
                                    size_t num_bytes, bool used_aligned) {
   if (num_bytes == 0) {
-    return NULL;
+    return nullptr;
   }
 
-  const uint8_t *mapped_data =
-      (app_num == SYSTEM_APP) ? sys_resource_read_only_bytes(SYSTEM_APP, resource_id, NULL) : NULL;
+  const uint8_t *mapped_data = (app_num == SYSTEM_APP)
+                                   ? sys_resource_read_only_bytes(SYSTEM_APP, resource_id, nullptr)
+                                   : nullptr;
 
-  uint8_t *result = NULL;
+  uint8_t *result = nullptr;
 
   if (mapped_data) {
     applib_resource_track_mmapped(mapped_data);
@@ -54,7 +56,7 @@ void *applib_resource_mmap_or_load(ResAppNum app_num, uint32_t resource_id, size
     if (!result ||
         sys_resource_load_range(app_num, resource_id, offset, result, num_bytes) != num_bytes) {
       applib_free(result);
-      return NULL;
+      return nullptr;
     }
   }
 

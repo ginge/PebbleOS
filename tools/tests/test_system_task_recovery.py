@@ -66,7 +66,7 @@ class SystemTaskRecoveryTest(unittest.TestCase):
             cfile = Path(tmp) / "test.c"
             exe = Path(tmp) / "test"
             cfile.write_text(HARNESS.replace("HELPERS", helpers))
-            subprocess.run(["cc", "-std=c11", str(cfile), "-o", str(exe)], check=True)
+            subprocess.run(["cc", "-std=gnu2x", str(cfile), "-o", str(exe)], check=True)
             subprocess.run([str(exe)], check=True, capture_output=True)
 
 

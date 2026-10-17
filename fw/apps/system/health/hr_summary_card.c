@@ -2,20 +2,22 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "hr_summary_card.h"
-#include "hr_summary_card_segments.h"
-#include "hr_detail_card.h"
-#include "progress.h"
-#include "pbl/services/activity/health_util.h"
 
-#include "applib/pbl_std/pbl_std.h"
-#include "applib/ui/kino/kino_reel.h"
-#include "apps/system/timeline/text_node.h"
-#include "board/display.h"
-#include "resource/resource_ids.auto.h"
-#include "pbl/services/clock.h"
-#include "pbl/services/i18n/i18n.h"
-#include "pbl/util/size.h"
-#include "pbl/util/units.h"
+#include "hr_detail_card.h"
+#include "hr_summary_card_segments.h"
+#include "progress.h"
+
+#include <pbl/services/activity/health_util.h>
+#include <pbl/services/clock.h>
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/util/size.h>
+#include <pbl/util/units.h>
+
+#include <applib/pbl_std/pbl_std.h>
+#include <applib/ui/kino/kino_reel.h>
+#include <apps/system/timeline/text_node.h>
+#include <board/display.h>
+#include <resource/resource_ids.auto.h>
 
 // Compile-time display offset calculations
 #define HEALTH_X_OFFSET ((DISP_COLS - LEGACY_2X_DISP_COLS) / 2)
@@ -117,8 +119,8 @@ static void prv_render_bpm(GContext *ctx, Layer *base_layer) {
 
   graphics_text_node_draw(
       &container->node, ctx,
-      &GRect(0, offset_y, base_layer->bounds.size.w, fonts_get_font_height(data->bpm_font)), NULL,
-      NULL);
+      &GRect(0, offset_y, base_layer->bounds.size.w, fonts_get_font_height(data->bpm_font)),
+      nullptr, nullptr);
   graphics_text_node_destroy(&container->node);
 }
 
@@ -142,7 +144,7 @@ static void prv_render_timstamp(GContext *ctx, Layer *base_layer) {
 
   graphics_context_set_text_color(ctx, TEXT_COLOR);
   graphics_draw_text(ctx, buffer, data->timestamp_font, rect, GTextOverflowModeWordWrap,
-                     GTextAlignmentCenter, NULL);
+                     GTextAlignmentCenter, nullptr);
 }
 
 static void prv_render_hrm_disabled(GContext *ctx, Layer *base_layer) {
@@ -157,7 +159,7 @@ static void prv_render_hrm_disabled(GContext *ctx, Layer *base_layer) {
 
   graphics_context_set_text_color(ctx, TEXT_COLOR);
   graphics_draw_text(ctx, text, data->timestamp_font, rect, GTextOverflowModeWordWrap,
-                     GTextAlignmentCenter, NULL);
+                     GTextAlignmentCenter, nullptr);
 }
 
 static void prv_base_layer_update_proc(Layer *base_layer, GContext *ctx) {

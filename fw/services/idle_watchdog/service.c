@@ -1,14 +1,14 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/idle_watchdog.h"
+#include <pbl/services/idle_watchdog.h>
+#include <pbl/services/regular_timer.h>
+#include <pbl/services/system_task.h>
 
-#include "applib/event_service_client.h"
-#include "comm/ble/gap_le_connection.h"
-#include "pbl/services/regular_timer.h"
-#include "pbl/services/system_task.h"
-#include "system/reboot_reason.h"
-#include "kernel/util/standby.h"
+#include <applib/event_service_client.h>
+#include <comm/ble/gap_le_connection.h>
+#include <kernel/util/standby.h>
+#include <system/reboot_reason.h>
 
 #define PRF_IDLE_TIMEOUT_MINUTES 10
 static RegularTimerInfo s_is_idle_timer;
@@ -35,7 +35,7 @@ static void prv_handle_watchdog_timeout_cb(void *not_used) {
 }
 
 static void prv_handle_watchdog_timeout(void *not_used) {
-  system_task_add_callback(prv_handle_watchdog_timeout_cb, NULL);
+  system_task_add_callback(prv_handle_watchdog_timeout_cb, nullptr);
 }
 
 static void prv_watchdog_feed(PebbleEvent *e, void *context) {

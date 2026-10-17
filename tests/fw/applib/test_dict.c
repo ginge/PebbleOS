@@ -1,21 +1,17 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/dict.h"
-#include "pbl/util/math.h"
-#include "pbl/util/size.h"
-
-#include "clar.h"
-
 #include <string.h>
-#include <stdbool.h>
+
+#include <pbl/util/math.h>
+#include <pbl/util/size.h>
+
+#include <applib/dict.h>
+#include <clar.h>
 #include <strings.h>
 
 // Stubs
 ///////////////////////////////////////////////////////////
-#include "stubs_logging.h"
-#include "stubs_passert.h"
-#include "stubs_pbl_malloc.h"
 
 // Tests
 ///////////////////////////////////////////////////////////
@@ -26,31 +22,31 @@ void test_dict__initialize(void) {
 void test_dict__cleanup(void) {
 }
 
-static const uint32_t SOME_DATA_KEY = 0xb00bf00b;
+#define SOME_DATA_KEY 0xb00bf00bU
 static const uint8_t SOME_DATA[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
 
-static const uint32_t SOME_STRING_KEY = 0xbeefbabe;
+#define SOME_STRING_KEY 0xbeefbabeU
 static const char *SOME_STRING = "Hello World";
 
-static const uint32_t SOME_NULL_KEY = 0x0;
+#define SOME_NULL_KEY 0x0U
 
-static const uint32_t SOME_EMPTY_STRING_KEY = 0x1;
+#define SOME_EMPTY_STRING_KEY 0x1U
 static const char *SOME_EMPTY_STRING = "";
 
-static const uint32_t SOME_UINT8_KEY = 0x88888888;
-static const uint32_t SOME_UINT16_KEY = 0x16161616;
-static const uint32_t SOME_UINT32_KEY = 0x32323232;
-static const uint32_t SOME_INT8_KEY = 0x11888888;
-static const uint32_t SOME_INT16_KEY = 0x11161616;
-static const uint32_t SOME_INT32_KEY = 0x11323232;
+#define SOME_UINT8_KEY  0x88888888U
+#define SOME_UINT16_KEY 0x16161616U
+#define SOME_UINT32_KEY 0x32323232U
+#define SOME_INT8_KEY   0x11888888U
+#define SOME_INT16_KEY  0x11161616U
+#define SOME_INT32_KEY  0x11323232U
 
 void test_dict__calc_size(void) {
   uint32_t size;
   size = dict_calc_buffer_size(0);
   cl_assert(size == sizeof(Dictionary));
-  size = dict_calc_buffer_size(1, 1);
+  size = dict_calc_buffer_size(1, (size_t)1);
   cl_assert(size == sizeof(Dictionary) + sizeof(Tuple) + 1);
-  size = dict_calc_buffer_size(3, 10, 100, 1000);
+  size = dict_calc_buffer_size(3, (size_t)10, (size_t)100, (size_t)1000);
   cl_assert(size == sizeof(Dictionary) + (3 * sizeof(Tuple)) + 10 + 100 + 1000);
 }
 
@@ -67,7 +63,7 @@ static void serialize_callback(const uint8_t *const data, const uint16_t size, v
   // Read back:
   DictionaryIterator iter;
   Tuple *tuple = dict_read_begin_from_buffer(&iter, data, size);
-  cl_assert(tuple != NULL);
+  cl_assert(tuple != nullptr);
   cl_assert(iter.dictionary->count == 3);
 }
 
@@ -94,7 +90,7 @@ void test_dict__write_read(void) {
   const uint32_t size =
       dict_calc_buffer_size(key_count, sizeof(SOME_DATA), strlen(SOME_STRING) + 1, sizeof(uint8_t),
                             sizeof(uint16_t), sizeof(uint32_t), sizeof(int8_t), sizeof(int16_t),
-                            sizeof(int32_t), 0, strlen(SOME_EMPTY_STRING) + 1);
+                            sizeof(int32_t), (size_t)0, strlen(SOME_EMPTY_STRING) + 1);
   const uint32_t surplus = 16; // allocate more than needed, see comment with the `final_size` test
   uint8_t buffer[size + surplus];
 
@@ -120,7 +116,7 @@ void test_dict__write_read(void) {
   cl_assert(result == DICT_OK);
   result = dict_write_int32(&iter, SOME_INT32_KEY, -32);
   cl_assert(result == DICT_OK);
-  result = dict_write_cstring(&iter, SOME_NULL_KEY, NULL);
+  result = dict_write_cstring(&iter, SOME_NULL_KEY, nullptr);
   cl_assert(result == DICT_OK);
   result = dict_write_cstring(&iter, SOME_EMPTY_STRING_KEY, SOME_EMPTY_STRING);
   cl_assert(result == DICT_OK);
@@ -143,7 +139,7 @@ void test_dict__write_read(void) {
   bool int32_found = false;
   bool null_cstring_found = false;
   bool empty_cstring_found = false;
-  while (tuple != NULL) {
+  while (tuple != nullptr) {
     ++count;
     switch (tuple->key) {
       case SOME_DATA_KEY:
@@ -319,7 +315,7 @@ void test_dict__merge(void) {
     dict_serialize_tuplets_to_buffer(dest_tuplets, ARRAY_LENGTH(dest_tuplets), dest_buffer,
                                      &tmp_size);
     DictionaryIterator dest_iter;
-    dict_read_begin_from_buffer(&dest_iter, dest_buffer, dest_size);
+    dict_read_begin_from_buffer(&dest_iter, dest_buffer, tmp_size);
 
     tmp_size = dest_size;
     dict_merge(&dest_iter, &tmp_size, &source_iter, should_update_existing_keys_only,

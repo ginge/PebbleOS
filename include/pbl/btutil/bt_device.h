@@ -5,8 +5,6 @@
 
 #include <pbl/bluetooth/types.h>
 
-#include <stdbool.h>
-
 /**
  * @defgroup btutil Bluetooth utilities
  * @ingroup lib

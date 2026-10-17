@@ -3,11 +3,10 @@
 
 #pragma once
 
-#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
-#include "pbl/kernel/backend.h"
+#include <pbl/kernel/backend.h>
 
 /**
  * @defgroup kernel_types Time and priorities

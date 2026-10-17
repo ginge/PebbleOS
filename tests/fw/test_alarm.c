@@ -4,12 +4,7 @@
 #include "test_alarm_common.h"
 
 // Stubs
-#include "stubs_activity.h"
-#include "stubs_blob_db_sync.h"
-#include "stubs_blob_db_sync_util.h"
-#include "stubs_clock.h"
-#include "stubs_pbl_malloc.h"
-#include "pbl/util/units.h"
+#include <pbl/util/units.h>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //! Counter variables
@@ -74,7 +69,7 @@ void test_alarm__initialize(void) {
   s_current_day = s_thursday;
 
   timeline_item_destroy(s_last_timeline_item_added);
-  s_last_timeline_item_added = NULL;
+  s_last_timeline_item_added = nullptr;
   s_last_timeline_item_removed_uuid = (Uuid){};
   memset(s_fake_pin_records, 0, sizeof(s_fake_pin_records));
 
@@ -302,47 +297,47 @@ void test_alarm__alarm_get_custom_days(void) {
 
 void test_alarm__alarm_get_string_for_custom(void) {
   bool schedule_1[7] = {true, false, false, false, false, false, true};
-  char alarm_day_text_1[32] = {0};
+  char alarm_day_text_1[32] = {};
   alarm_get_string_for_custom(schedule_1, alarm_day_text_1);
   cl_assert_equal_s(alarm_day_text_1, "Sat,Sun");
 
   bool schedule_2[7] = {true, true, true, true, true, true, true};
-  char alarm_day_text_2[32] = {0};
+  char alarm_day_text_2[32] = {};
   alarm_get_string_for_custom(schedule_2, alarm_day_text_2);
   cl_assert_equal_s(alarm_day_text_2, "Mon,Tue,Wed,Thu,Fri,Sat,Sun");
 
   bool schedule_3[7] = {false, true, false, false, false, false, false};
-  char alarm_day_text_3[32] = {0};
+  char alarm_day_text_3[32] = {};
   alarm_get_string_for_custom(schedule_3, alarm_day_text_3);
   cl_assert_equal_s(alarm_day_text_3, "Mondays");
 
   bool schedule_4[7] = {false, false, true, false, false, false, false};
-  char alarm_day_text_4[32] = {0};
+  char alarm_day_text_4[32] = {};
   alarm_get_string_for_custom(schedule_4, alarm_day_text_4);
   cl_assert_equal_s(alarm_day_text_4, "Tuesdays");
 
   bool schedule_5[7] = {false, false, false, true, false, false, false};
-  char alarm_day_text_5[32] = {0};
+  char alarm_day_text_5[32] = {};
   alarm_get_string_for_custom(schedule_5, alarm_day_text_5);
   cl_assert_equal_s(alarm_day_text_5, "Wednesdays");
 
   bool schedule_6[7] = {false, false, false, false, true, false, false};
-  char alarm_day_text_6[32] = {0};
+  char alarm_day_text_6[32] = {};
   alarm_get_string_for_custom(schedule_6, alarm_day_text_6);
   cl_assert_equal_s(alarm_day_text_6, "Thursdays");
 
   bool schedule_7[7] = {false, false, false, false, false, true, false};
-  char alarm_day_text_7[32] = {0};
+  char alarm_day_text_7[32] = {};
   alarm_get_string_for_custom(schedule_7, alarm_day_text_7);
   cl_assert_equal_s(alarm_day_text_7, "Fridays");
 
   bool schedule_8[7] = {false, false, false, false, false, false, true};
-  char alarm_day_text_8[32] = {0};
+  char alarm_day_text_8[32] = {};
   alarm_get_string_for_custom(schedule_8, alarm_day_text_8);
   cl_assert_equal_s(alarm_day_text_8, "Saturdays");
 
   bool schedule_9[7] = {true, false, false, false, false, false, false};
-  char alarm_day_text_9[32] = {0};
+  char alarm_day_text_9[32] = {};
   alarm_get_string_for_custom(schedule_9, alarm_day_text_9);
   cl_assert_equal_s(alarm_day_text_9, "Sundays");
 }
@@ -379,7 +374,7 @@ void test_alarm__alarm_set_get_enabled(void) {
 }
 
 void test_alarm__alarm_delete(void) {
-  AlarmId id1, id2, id3, id4, id5, id6, id7;
+  AlarmId id1, id2, id4;
   id1 = alarm_create(&(AlarmInfo){.hour = 3, .minute = 14, .kind = ALARM_KIND_EVERYDAY});
   id2 = alarm_create(&(AlarmInfo){.hour = 4, .minute = 14, .kind = ALARM_KIND_EVERYDAY});
   alarm_delete(id1);
@@ -388,14 +383,14 @@ void test_alarm__alarm_delete(void) {
   alarm_delete(id2);
   prv_assert_alarm_config_absent(id2);
   assert_alarm_pins_absent(id2);
-  id3 = alarm_create(&(AlarmInfo){.hour = 13, .minute = 13, .kind = ALARM_KIND_WEEKDAYS});
+  alarm_create(&(AlarmInfo){.hour = 13, .minute = 13, .kind = ALARM_KIND_WEEKDAYS});
   id4 = alarm_create(&(AlarmInfo){.hour = 14, .minute = 14, .kind = ALARM_KIND_WEEKDAYS});
-  id5 = alarm_create(&(AlarmInfo){.hour = 15, .minute = 15, .kind = ALARM_KIND_WEEKDAYS});
-  id6 = alarm_create(&(AlarmInfo){.hour = 16, .minute = 16, .kind = ALARM_KIND_WEEKDAYS});
+  alarm_create(&(AlarmInfo){.hour = 15, .minute = 15, .kind = ALARM_KIND_WEEKDAYS});
+  alarm_create(&(AlarmInfo){.hour = 16, .minute = 16, .kind = ALARM_KIND_WEEKDAYS});
   alarm_delete(id4);
   prv_assert_alarm_config_absent(id4);
   assert_alarm_pins_absent(id4);
-  id7 = alarm_create(&(AlarmInfo){.hour = 17, .minute = 17, .kind = ALARM_KIND_WEEKENDS});
+  alarm_create(&(AlarmInfo){.hour = 17, .minute = 17, .kind = ALARM_KIND_WEEKENDS});
 
   for (int i = 0; i < MAX_CONFIGURED_ALARMS; ++i) {
     alarm_delete(i);
@@ -441,9 +436,8 @@ void test_alarm__get_string_for_kind(void) {
 }
 
 void test_alarm__handle_clock_change(void) {
-  AlarmId id1, id2;
-  id1 = alarm_create(&(AlarmInfo){.hour = 3, .minute = 14, .kind = ALARM_KIND_WEEKENDS});
-  id2 = alarm_create(&(AlarmInfo){.hour = 13, .minute = 14, .kind = ALARM_KIND_WEEKDAYS});
+  alarm_create(&(AlarmInfo){.hour = 3, .minute = 14, .kind = ALARM_KIND_WEEKENDS});
+  alarm_create(&(AlarmInfo){.hour = 13, .minute = 14, .kind = ALARM_KIND_WEEKDAYS});
 
   s_current_hour = 12;
   s_current_minute = 14;
@@ -470,10 +464,10 @@ void test_alarm__pin_add(void) {
   const uint32_t pin_icon_tiny = attribute_get_uint32(pin_attr_list, AttributeIdIconTiny, 0);
   cl_assert_equal_i((int)pin_icon_tiny, TIMELINE_RESOURCE_ALARM_CLOCK);
 
-  const char *pin_title = attribute_get_string(pin_attr_list, AttributeIdTitle, NULL);
+  const char *pin_title = attribute_get_string(pin_attr_list, AttributeIdTitle, nullptr);
   cl_assert_equal_s(pin_title, "Alarm");
 
-  const char *pin_subtitle = attribute_get_string(pin_attr_list, AttributeIdSubtitle, NULL);
+  const char *pin_subtitle = attribute_get_string(pin_attr_list, AttributeIdSubtitle, nullptr);
   cl_assert_equal_s(pin_subtitle, alarm_get_string_for_kind(alarm_kind, false /* all_caps */));
 
   const AlarmKind pin_alarm_kind =
@@ -488,7 +482,7 @@ void test_alarm__pin_add(void) {
 
   const AttributeList *action_attr_list = &alarm_action->attr_list;
 
-  const char *action_title = attribute_get_string(action_attr_list, AttributeIdTitle, NULL);
+  const char *action_title = attribute_get_string(action_attr_list, AttributeIdTitle, nullptr);
   cl_assert_equal_s(action_title, "Edit");
 }
 

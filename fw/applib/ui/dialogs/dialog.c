@@ -3,10 +3,10 @@
 
 #include "dialog.h"
 
-#include "applib/ui/window.h"
-#include "applib/applib_malloc.auto.h"
-
 #include <string.h>
+
+#include <applib/applib_malloc.auto.h>
+#include <applib/ui/window.h>
 
 void dialog_set_fullscreen(Dialog *dialog, bool is_fullscreen) {
   window_set_fullscreen(&dialog->window, is_fullscreen);
@@ -17,7 +17,7 @@ void dialog_show_status_bar_layer(Dialog *dialog, bool show_status_layer) {
 }
 
 void dialog_set_text(Dialog *dialog, const char *text) {
-  dialog_set_text_buffer(dialog, NULL, false);
+  dialog_set_text_buffer(dialog, nullptr, false);
   uint16_t len = strlen(text);
   dialog->is_buffer_owned = true;
   dialog->buffer = applib_malloc(len + 1);

@@ -4,14 +4,14 @@
 #include <inttypes.h>
 #include <string.h>
 
-#include "pbl/services/activity/activity.h"
-#include "pbl/services/activity/insights_settings.h"
-#include "pbl/kernel/mutex.h"
-#include "pbl/services/filesystem/pfs.h"
-#include "pbl/services/settings/settings_file.h"
+#include <pbl/kernel/mutex.h>
 #include <pbl/logging/logging.h>
-#include "pbl/util/size.h"
-#include "pbl/util/units.h"
+#include <pbl/services/activity/activity.h>
+#include <pbl/services/activity/insights_settings.h>
+#include <pbl/services/filesystem/pfs.h>
+#include <pbl/services/settings/settings_file.h>
+#include <pbl/util/size.h>
+#include <pbl/util/units.h>
 
 PBL_LOG_MODULE_DECLARE(service_activity, CONFIG_SERVICE_ACTIVITY_LOG_LEVEL);
 
@@ -230,7 +230,7 @@ PFSCallbackHandle activity_insights_settings_watch(PFSFileChangedCallback callba
     return 0; // Return invalid handle
   }
   return pfs_watch_file(ACTIVITY_INSIGHTS_SETTINGS_FILENAME, callback, FILE_CHANGED_EVENT_CLOSED,
-                        NULL);
+                        nullptr);
 }
 
 void activity_insights_settings_unwatch(PFSCallbackHandle cb_handle) {

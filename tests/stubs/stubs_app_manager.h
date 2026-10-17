@@ -3,70 +3,41 @@
 
 #pragma once
 
-#include "process_management/app_manager.h"
-#include "process_management/pebble_process_md.h"
-#include "process_management/process_manager.h"
-#include "pbl/kernel/compiler.h"
+#include <pbl/kernel/compiler.h>
 
-bool PBL_WEAK app_manager_is_initialized(void) {
-  return true;
-}
+#include <process_management/app_manager.h>
+#include <process_management/pebble_process_md.h>
+#include <process_management/process_manager.h>
 
-static int s_app_manager_launch_new_app__callcount;
-static AppLaunchConfig s_app_manager_launch_new_app__config;
-bool PBL_WEAK app_manager_launch_new_app(const AppLaunchConfig *config) {
-  s_app_manager_launch_new_app__callcount++;
-  s_app_manager_launch_new_app__config = *config;
-  return true;
-}
+extern int s_app_manager_launch_new_app__callcount;
+extern AppLaunchConfig s_app_manager_launch_new_app__config;
 
-void PBL_WEAK app_manager_put_launch_app_event(const AppLaunchEventConfig *config) {
-  return;
-}
+bool app_manager_is_initialized(void);
 
-ProcessContext *PBL_WEAK app_manager_get_task_context(void) {
-  return NULL;
-}
+bool app_manager_launch_new_app(const AppLaunchConfig *config);
 
-void PBL_WEAK app_manager_close_current_app(bool gracefully) {
-  return;
-}
+void app_manager_put_launch_app_event(const AppLaunchEventConfig *config);
 
-AppInstallId PBL_WEAK app_manager_get_current_app_id(void) {
-  return 0;
-}
+ProcessContext *app_manager_get_task_context(void);
 
-AppInstallId PBL_WEAK sys_app_manager_get_current_app_id(void) {
-  return 0;
-}
+void app_manager_close_current_app(bool gracefully);
 
-bool PBL_WEAK app_manager_is_watchface_running(void) {
-  return false;
-}
+AppInstallId app_manager_get_current_app_id(void);
 
-WakeupInfo PBL_WEAK app_manager_get_app_wakeup_state(void) {
-  return (WakeupInfo){};
-}
+AppInstallId sys_app_manager_get_current_app_id(void);
 
-AppLaunchReason PBL_WEAK app_manager_get_launch_reason(void) {
-  return 0;
-}
+bool app_manager_is_watchface_running(void);
 
-ButtonId PBL_WEAK app_manager_get_launch_button(void) {
-  return 0;
-}
+WakeupInfo app_manager_get_app_wakeup_state(void);
 
-const PebbleProcessMd *PBL_WEAK app_manager_get_current_app_md(void) {
-  return NULL;
-}
+AppLaunchReason app_manager_get_launch_reason(void);
 
-bool PBL_WEAK app_manager_is_app_supported(const PebbleProcessMd *app_md) {
-  return true;
-}
+ButtonId app_manager_get_launch_button(void);
 
-Version sys_get_current_app_sdk_version(void) {
-  return (Version){PROCESS_INFO_CURRENT_SDK_VERSION_MAJOR, PROCESS_INFO_CURRENT_SDK_VERSION_MINOR};
-}
+const PebbleProcessMd *app_manager_get_current_app_md(void);
 
-void PBL_WEAK app_manager_get_framebuffer_size(GSize *size) {
-}
+bool app_manager_is_app_supported(const PebbleProcessMd *app_md);
+
+Version sys_get_current_app_sdk_version(void);
+
+void app_manager_get_framebuffer_size(GSize *size);

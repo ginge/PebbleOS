@@ -1,15 +1,16 @@
 /* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/app.h"
-#include "applib/ui/ui.h"
-#include "applib/ui/dialogs/confirmation_dialog.h"
-#include "apps/prf/mfg_test_result.h"
-#include "apps/prf/mfg_utilities.h"
-#include "kernel/pbl_malloc.h"
-#include "pbl/services/bluetooth/bluetooth_persistent_storage.h"
-#include "process_state/app_state/app_state.h"
-#include "pbl/util/size.h"
+#include <pbl/services/bluetooth/bluetooth_persistent_storage.h>
+#include <pbl/util/size.h>
+
+#include <applib/app.h>
+#include <applib/ui/dialogs/confirmation_dialog.h>
+#include <applib/ui/ui.h>
+#include <apps/prf/mfg_test_result.h>
+#include <apps/prf/mfg_utilities.h>
+#include <kernel/pbl_malloc.h>
+#include <process_state/app_state/app_state.h>
 
 typedef struct {
   Window *window;
@@ -101,7 +102,8 @@ static void prv_window_load(Window *window) {
   data->menu_section =
       (SimpleMenuSection){.num_items = ARRAY_LENGTH(s_menu_items), .items = s_menu_items};
 
-  data->menu_layer = simple_menu_layer_create(bounds, data->window, &data->menu_section, 1, NULL);
+  data->menu_layer =
+      simple_menu_layer_create(bounds, data->window, &data->menu_section, 1, nullptr);
   layer_add_child(window_layer, simple_menu_layer_get_layer(data->menu_layer));
 }
 

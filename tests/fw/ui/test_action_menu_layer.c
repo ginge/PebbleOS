@@ -1,40 +1,26 @@
 /* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "clar.h"
-#include "pebble_asserts.h"
+#include <pbl/drivers/rtc.h>
+#include <pbl/util/size.h>
 
-#include "applib/ui/action_menu_layer.h"
-#include "applib/ui/menu_layer.h"
-#include "applib/ui/menu_layer_private.h"
-#include "applib/ui/property_animation.h"
-#include "applib/ui/recognizer/recognizer.h"
-#include "applib/ui/recognizer/recognizer_list.h"
-#include "applib/ui/recognizer/recognizer_manager.h"
-#include "applib/ui/recognizer/touch_nav.h"
-#include "shell/system_theme.h"
-#include "pbl/util/size.h"
-
-#include "fake_rtc.h"
-#include "pbl/drivers/rtc.h"
+#include <applib/ui/action_menu_layer.h>
+#include <applib/ui/menu_layer.h>
+#include <applib/ui/menu_layer_private.h>
+#include <applib/ui/property_animation.h>
+#include <applib/ui/recognizer/recognizer.h>
+#include <applib/ui/recognizer/recognizer_list.h>
+#include <applib/ui/recognizer/recognizer_manager.h>
+#include <applib/ui/recognizer/touch_nav.h>
+#include <clar.h>
+#include <fake_rtc.h>
+#include <pebble_asserts.h>
+#include <shell/system_theme.h>
+#include <stubs_app_state.h>
+#include <stubs_fonts.h>
 
 // Stubs
 /////////////////////
-#include "stubs_app_state.h"
-#include "stubs_app_timer.h"
-#include "stubs_click.h"
-#include "stubs_fonts.h"
-#include "stubs_graphics.h"
-#include "stubs_heap.h"
-#include "stubs_logging.h"
-#include "stubs_passert.h"
-#include "stubs_pbl_malloc.h"
-#include "stubs_pebble_tasks.h"
-#include "stubs_process_manager.h"
-#include "stubs_system_theme.h"
-#include "stubs_ui_window.h"
-#include "stubs_unobstructed_area.h"
-#include "stubs_vibes.h"
 
 // ---------------------------------------------------------------------------------------------
 // Touch-navigation harness (CONFIG_TOUCH), mirroring test_menu_layer.c: menu_layer.c resolves the
@@ -65,7 +51,7 @@ struct Layer *window_get_root_layer(const Window *window) {
   return &s_root_layer;
 }
 RecognizerList *window_get_recognizer_list(Window *window) {
-  return NULL;
+  return nullptr;
 }
 RecognizerManager *window_get_recognizer_manager(Window *window) {
   return &s_recognizer_manager;
@@ -74,7 +60,7 @@ RecognizerManager *window_get_recognizer_manager(Window *window) {
 static TouchNavOps s_bridge_ops;
 
 static void prv_touch_nav_setup(void) {
-  s_bridge_ops = (TouchNavOps){0};
+  s_bridge_ops = (TouchNavOps){};
   layer_init(&s_root_layer, &GRect(0, 0, 300, 400));
   recognizer_list_init(&s_global_list);
   recognizer_manager_init(&s_recognizer_manager);
@@ -140,7 +126,13 @@ void menu_cell_basic_draw_custom(GContext *ctx, const Layer *cell_layer, GFont c
 int16_t menu_cell_basic_horizontal_inset(void) {
   return 8;
 }
+int16_t menu_cell_basic_horizontal_inset_for_size(PreferredContentSize size) {
+  return 8;
+}
 int16_t menu_cell_small_cell_height(void) {
+  return 24;
+}
+int16_t menu_cell_small_cell_height_for_size(PreferredContentSize size) {
   return 24;
 }
 int16_t menu_cell_basic_cell_height(void) {
@@ -245,7 +237,7 @@ static void prv_init_glyph_grid(void) {
                                     .select = prv_record_select,
                                     .selection_changed = prv_record_selection_changed,
                                   },
-                                  NULL);
+                                  nullptr);
   action_menu_layer_set_short_items(&s_aml, s_emoji_items, ARRAY_LENGTH(s_emoji_items), 0);
 }
 
@@ -291,9 +283,9 @@ static GPoint prv_tap_point_for_row(MenuLayer *ml, uint16_t row) {
 
 static void prv_reset_counters(void) {
   s_select_count = 0;
-  s_last_selected_item = NULL;
+  s_last_selected_item = nullptr;
   s_selection_changed_count = 0;
-  s_last_changed_item = NULL;
+  s_last_changed_item = nullptr;
 }
 
 static void prv_init_aml_with_wide_items(void) {
@@ -305,7 +297,7 @@ static void prv_init_aml_with_wide_items(void) {
                                     .select = prv_record_select,
                                     .selection_changed = prv_record_selection_changed,
                                   },
-                                  NULL);
+                                  nullptr);
   action_menu_layer_set_items(&s_aml, s_wide_items, ARRAY_LENGTH(s_wide_items), 0, 0);
   prv_reset_counters();
 }
@@ -366,7 +358,7 @@ void test_action_menu_layer__tap_short_row_adopts_first_column(void) {
                                     .select = prv_record_select,
                                     .selection_changed = prv_record_selection_changed,
                                   },
-                                  NULL);
+                                  nullptr);
   // 5 items in columns of 3: row 0 = items 0-2, row 1 = items 3-4.
   action_menu_layer_set_short_items(&s_aml, s_short_items, ARRAY_LENGTH(s_short_items), 0);
   prv_reset_counters();

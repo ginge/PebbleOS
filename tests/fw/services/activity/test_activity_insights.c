@@ -1,49 +1,36 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/activity/activity.h"
-#include "pbl/services/activity/activity_insights.h"
-#include "pbl/services/activity/activity_private.h"
-#include "pbl/services/activity/insights_settings.h"
-#include "pbl/services/filesystem/pfs.h"
-#include "pbl/kernel/compiler.h"
-
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "clar.h"
+#include <pbl/kernel/compiler.h>
+#include <pbl/services/activity/activity.h>
+#include <pbl/services/activity/activity_insights.h>
+#include <pbl/services/activity/activity_private.h>
+#include <pbl/services/activity/insights_settings.h>
+#include <pbl/services/filesystem/pfs.h>
+
+#include <clar.h>
 
 // Stubs
-#include "stubs_analytics.h"
-#include "stubs_app_install_manager.h"
-#include "stubs_app_state.h"
-#include "stubs_event_service_client.h"
-#include "stubs_health_db.h"
-#include "stubs_health_util.h"
-#include "stubs_i18n.h"
-#include "stubs_logging.h"
-#include "stubs_mutex.h"
-#include "stubs_passert.h"
-#include "stubs_pebble_tasks.h"
-#include "stubs_rand_ptr.h"
-#include "stubs_system_task.h"
-#include "pbl/services/time.h"
-#include "pbl/util/time.h"
-#include "pbl/util/units.h"
+#include <pbl/services/time.h>
+#include <pbl/util/time.h>
+#include <pbl/util/units.h>
 
 bool activity_is_initialized(void) {
   return true;
 }
 
 // Fakes
-#include "fake_kernel_services_notifications.h"
-#include "fake_pbl_malloc.h"
-#include "fake_rtc.h"
-#include "fake_settings_file.h"
+#include <fake_kernel_services_notifications.h>
+#include <fake_pbl_malloc.h>
+#include <fake_rtc.h>
+#include <fake_settings_file.h>
 
 // We start time out at 5pm on Jan 1, 2015 for all of these tests
-static struct tm s_init_time_tm = {
+static struct pbl_tm s_init_time_tm = {
   // Thursday, Jan 1, 2015, 10:00am
   .tm_hour = 10,
   .tm_mday = 1,
@@ -136,7 +123,6 @@ void activity_sessions_prv_get_sleep_bounds_utc(time_t now_utc, time_t *enter_ut
   uint32_t num_sessions = MAX_ACTIVITY_SESSIONS;
 
   activity_get_sessions(&num_sessions, activity_sessions);
-  uint32_t total_seconds = 0;
   *enter_utc = 0;
   *exit_utc = 0;
   for (uint32_t i = 0; i < num_sessions; i++) {
@@ -286,15 +272,15 @@ ActivityScalarStore activity_metrics_prv_steps_per_minute(void) {
 
 // =========================================================================================
 // PFS stubs
-static PFSFileChangedCallback pfs_watch_cb = NULL;
+static PFSFileChangedCallback pfs_watch_cb = nullptr;
 PFSCallbackHandle pfs_watch_file(const char *filename, PFSFileChangedCallback callback,
                                  uint8_t event_flags, void *data) {
   pfs_watch_cb = callback;
-  return NULL;
+  return nullptr;
 }
 
 void pfs_unwatch_file(PFSCallbackHandle cb_handle) {
-  pfs_watch_cb = NULL;
+  pfs_watch_cb = nullptr;
 }
 
 // =========================================================================================
@@ -373,9 +359,9 @@ void notification_storage_store(TimelineItem *notification) {
 }
 
 // Helpers
-static void prv_set_time(const struct tm *input) {
-  struct tm time_tm = *input;
-  time_t utc_sec = mktime(&time_tm);
+static void prv_set_time(const struct pbl_tm *input) {
+  struct pbl_tm time_tm = *input;
+  time_t utc_sec = pbl_mktime(&time_tm);
   rtc_set_time(utc_sec);
 
   s_activity_activation_delay_insight_bitmask = 0;
@@ -617,11 +603,11 @@ void test_activity_insights__disable_activity_reward(void) {
   ActivityInsightSettings disabled_activity;
   activity_insights_settings_read(ACTIVITY_INSIGHTS_SETTINGS_ACTIVITY_REWARD, &disabled_activity);
   disabled_activity.enabled = false,
-  settings_file_set(NULL, /* fake settings file don't care */
+  settings_file_set(nullptr, /* fake settings file don't care */
                     ACTIVITY_INSIGHTS_SETTINGS_ACTIVITY_REWARD,
                     strlen(ACTIVITY_INSIGHTS_SETTINGS_ACTIVITY_REWARD), &disabled_activity,
                     sizeof(disabled_activity));
-  pfs_watch_cb(NULL); // Update the settings cache
+  pfs_watch_cb(nullptr); // Update the settings cache
   prv_minute_update(ACTIVE_MINUTES);
   cl_assert_equal_i(fake_kernel_services_notifications_ancs_notifications_count(), 0);
 }
@@ -648,7 +634,7 @@ void test_activity_insights__sleep_summary(void) {
   prv_set_sleep_history_avg();
 
   // Let's start at 11:30pm
-  struct tm start_tm = {
+  struct pbl_tm start_tm = {
     // Thursday, Jan 1, 2015, 11:30pm
     .tm_hour = 23,
     .tm_min = 30,
@@ -821,7 +807,7 @@ void test_activity_insights__sleep_summary_no_history(void) {
 // the windows that used to trigger the day 1 / day 4 / day 10 nags produces no ANCS
 // notifications.
 void test_activity_insights__activation_delay_insights_time_trigger(void) {
-  time_t now = mktime(&s_init_time_tm);
+  time_t now = pbl_mktime(&s_init_time_tm);
   prv_set_activation_time(now);
 
   activity_insights_process_minute_data(now);
@@ -859,7 +845,7 @@ void test_activity_insights__activation_delay_insights_time_trigger(void) {
 // See the note above: the activation-delay nag was removed in aaf2f45f3, so the 15-minute
 // retry window that used to fire the day 1 nag now produces no notification either.
 void test_activity_insights__activation_delay_insights_fifteen_interval_trigger(void) {
-  time_t now = mktime(&s_init_time_tm);
+  time_t now = pbl_mktime(&s_init_time_tm);
   prv_set_activation_time(now);
 
   activity_insights_process_minute_data(now);
@@ -1100,7 +1086,7 @@ static void prv_push_session_notification(ActivitySessionType type, int32_t acti
       .distance_meters = 2000,
     },
   };
-  activity_insights_push_activity_session_notification(rtc_get_time(), &session, 120, NULL);
+  activity_insights_push_activity_session_notification(rtc_get_time(), &session, 120, nullptr);
 }
 
 // A manual "Workout" (Open) session should report its active calories, just like Run and Walk.

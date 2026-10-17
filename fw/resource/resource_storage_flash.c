@@ -2,16 +2,18 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "resource_storage_flash.h"
+
 #include "resource_storage_impl.h"
 
-#include <pbl/drivers/flash.h>
-#include "resource/resource_version.auto.h"
-#include "pbl/services/process_management/app_storage.h"
-#include "system/bootbits.h"
-#include <pbl/logging/logging.h>
-#include "pbl/util/size.h"
-
 #include <stdlib.h>
+
+#include <pbl/drivers/flash.h>
+#include <pbl/logging/logging.h>
+#include <pbl/services/process_management/app_storage.h>
+#include <pbl/util/size.h>
+
+#include <resource/resource_version.auto.h>
+#include <system/bootbits.h>
 
 static const SystemResourceBank s_resource_banks[] = {
   {
@@ -118,16 +120,16 @@ static const uint8_t *resource_storage_system_bank_readonly_bytes(ResourceStoreE
   // Bank is XIP-mapped, so data is addressable at BANK.begin + offset. Only
   // privileged callers get the raw pointer; unprivileged apps use the copy path.
   if (!has_privileged_access) {
-    return NULL;
+    return nullptr;
   }
   return (const uint8_t *)(uintptr_t)(BANK.begin + entry->offset);
 #else
-  return NULL;
+  return nullptr;
 #endif
 }
 
 static void resource_storage_system_bank_clear(ResourceStoreEntry *entry) {
-  uint8_t buffer[MANIFEST_SIZE] = {0};
+  uint8_t buffer[MANIFEST_SIZE] = {};
   flash_write_bytes(buffer, BANK.begin, MANIFEST_SIZE);
 }
 

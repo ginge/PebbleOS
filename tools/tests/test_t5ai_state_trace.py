@@ -8,6 +8,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 
 HEADERS = {
+    "pbl/kernel/time.h": '#include "pbl/kernel/sched.h"\n',
     "pbl/kernel/irq.h": "void pbl_irq_lock(void);\nvoid pbl_irq_unlock(void);\n",
     "pbl/kernel/sched.h": """
 #include <stdint.h>

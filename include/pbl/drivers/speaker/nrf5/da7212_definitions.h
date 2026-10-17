@@ -3,14 +3,14 @@
 
 #pragma once
 
-#include "board/board.h"
-#include <pbl/drivers/audio.h>
-#include "pbl/util/circular_buffer.h"
-
-#include <stdbool.h>
 #include <stdint.h>
 
-#include "nrfx_i2s.h"
+#include <pbl/drivers/audio.h>
+#include <pbl/drivers/i2c.h>
+#include <pbl/util/circular_buffer.h>
+
+#include <board/board.h>
+#include <nrfx_i2s.h>
 
 /**
  * @defgroup drivers_speaker_nrf5 DA7212 on nRF5
@@ -74,7 +74,7 @@ typedef const struct AudioDevice {
   uint8_t irq_priority;
 
   /** Codec control port. */
-  I2CSlavePort *codec;
+  const struct pbl_i2c_dev *codec;
 
   /** Board power hooks, or NULL. */
   const BoardPowerOps *power_ops;

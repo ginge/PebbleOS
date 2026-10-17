@@ -5,27 +5,26 @@
 
 #include "pulse.h"
 
-#include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 
-#include "console/cobs.h"
-#include "console/console_internal.h"
-#include "console/dbgserial.h"
-#include "console/pulse_internal.h"
-#include "console/pulse_llc.h"
-#include "console/pulse_protocol_impl.h"
-#include "kernel/pbl_malloc.h"
-#include "pbl/kernel/mutex.h"
-#include "pbl/services/new_timer/new_timer.h"
-#include "pbl/services/system_task.h"
-#include "system/passert.h"
-#include "pbl/kernel/compiler.h"
-#include "pbl/crc/crc.h"
-#include "pbl/util/math.h"
-#include "pbl/util/size.h"
-
+#include <pbl/crc/crc.h>
+#include <pbl/kernel/compiler.h>
+#include <pbl/kernel/mutex.h>
+#include <pbl/services/new_timer/new_timer.h>
+#include <pbl/services/system_task.h>
 #include <pbl/shell/shell.h>
+#include <pbl/util/math.h>
+#include <pbl/util/size.h>
+
+#include <console/cobs.h>
+#include <console/console_internal.h>
+#include <console/dbgserial.h>
+#include <console/pulse_internal.h>
+#include <console/pulse_llc.h>
+#include <console/pulse_protocol_impl.h>
+#include <kernel/pbl_malloc.h>
+#include <system/passert.h>
 
 #define FRAME_POOL_SIZE (3)
 
@@ -51,7 +50,7 @@ static char s_tx_buffer[MAX_SIZE_AFTER_COBS_ENCODING(PULSE_MAX_SEND_SIZE + PULSE
 typedef void (*ProtocolHandlerFunc)(void *packet, size_t length);
 typedef void (*LinkStateChangedHandlerFunc)(PulseLinkState link_state);
 
-typedef struct PBL_PACKED ProtocolHandler {
+typedef struct ProtocolHandler {
   uint8_t number;
   ProtocolHandlerFunc handler;
   LinkStateChangedHandlerFunc link_state_handler;
@@ -59,7 +58,7 @@ typedef struct PBL_PACKED ProtocolHandler {
 
 static const ProtocolHandler s_supported_protocols[] = {
 #define REGISTER_PROTOCOL(n, f1, f2) {.number = (n), .handler = (f1), .link_state_handler = (f2)},
-#include "console/pulse_protocol_registry.def"
+#include <console/pulse_protocol_registry.def>
 #undef REGISTER_PROTOCOL
 };
 
@@ -71,7 +70,7 @@ static void prv_reset_receive_buffer(IncomingPulseFrame *buf) {
 }
 
 static IncomingPulseFrame *prv_take_receive_buffer(void) {
-  IncomingPulseFrame *buf = NULL;
+  IncomingPulseFrame *buf = nullptr;
   for (unsigned int i = 0; i < ARRAY_LENGTH(s_receive_buffers); ++i) {
     if (s_receive_buffers[i]->taken == false) {
       buf = s_receive_buffers[i];
@@ -80,7 +79,7 @@ static IncomingPulseFrame *prv_take_receive_buffer(void) {
       return buf;
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 static void prv_return_receive_buffer(IncomingPulseFrame *buf) {
@@ -94,7 +93,7 @@ static void prv_keepalive_timeout_expired(void *data) {
 static void prv_reset_keepalive_timer(void) {
   if (s_keepalive_timer) {
     new_timer_start(s_keepalive_timer, PULSE_KEEPALIVE_TIMEOUT_DECISECONDS * 100,
-                    prv_keepalive_timeout_expired, NULL, TIMER_START_FLAG_FAIL_IF_EXECUTING);
+                    prv_keepalive_timeout_expired, nullptr, TIMER_START_FLAG_FAIL_IF_EXECUTING);
   }
 }
 
@@ -135,7 +134,7 @@ void pulse_end(void) {
   for (unsigned int i = 0; i < ARRAY_LENGTH(s_receive_buffers); ++i) {
     kernel_free(s_receive_buffers[i]);
   }
-  s_current_receive_buffer = NULL;
+  s_current_receive_buffer = nullptr;
 
   new_timer_delete(s_keepalive_timer);
   s_keepalive_timer = TIMER_INVALID_ID;
@@ -182,9 +181,9 @@ static void prv_assert_tx_buffer(void *buf) {
 
 void pulse_handle_character(char c) {
   // TODO: discard a frame outright if a framing error occurs
-  if (s_current_receive_buffer == NULL) {
+  if (s_current_receive_buffer == nullptr) {
     s_current_receive_buffer = prv_take_receive_buffer();
-    if (s_current_receive_buffer == NULL) {
+    if (s_current_receive_buffer == nullptr) {
       // No buffers are available to store the char; drop it.
       if (c != FRAME_DELIMITER) {
         s_drop_rest_of_frame = true;
@@ -267,6 +266,6 @@ static int prv_cmd_pulse(const struct pbl_shell *sh, size_t argc, char **argv) {
   return 0;
 }
 
-PBL_SHELL_CMD_REGISTER(PULSEv1, NULL, "Switch the debug serial to PULSEv1", prv_cmd_pulse);
+PBL_SHELL_CMD_REGISTER(PULSEv1, nullptr, "Switch the debug serial to PULSEv1", prv_cmd_pulse);
 #endif
 #endif

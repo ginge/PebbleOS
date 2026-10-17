@@ -1,11 +1,11 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/blob_db/notif_db.h"
-
-#include "kernel/pbl_malloc.h"
-#include "pbl/services/notifications/notification_storage.h"
 #include <pbl/logging/logging.h>
+#include <pbl/services/blob_db/notif_db.h>
+#include <pbl/services/notifications/notification_storage.h>
+
+#include <kernel/pbl_malloc.h>
 
 PBL_LOG_MODULE_DECLARE(service_blob_db, CONFIG_SERVICE_BLOB_DB_LOG_LEVEL);
 
@@ -45,6 +45,8 @@ status_t notif_db_insert(const uint8_t *key, int key_len, const uint8_t *val, in
     notification_storage_store(&notification);
     PBL_LOG_INFO("Notification added: %s", uuid_string);
     notifications_handle_notification_added(id);
+  } else {
+    kernel_free(id);
   }
 
   timeline_item_free_allocated_buffer(&notification);

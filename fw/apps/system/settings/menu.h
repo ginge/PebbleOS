@@ -3,12 +3,12 @@
 
 #pragma once
 
-#include "applib/graphics/gtypes.h"
-#include "applib/ui/layer.h"
-#include "applib/ui/window.h"
-#include "shell/prefs.h"
-
 #include <stdint.h>
+
+#include <applib/graphics/gtypes.h>
+#include <applib/ui/layer.h>
+#include <applib/ui/window.h>
+#include <shell/prefs.h>
 
 typedef enum {
   SettingsMenuItemBluetooth = 0,

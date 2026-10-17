@@ -3,13 +3,13 @@
 
 #pragma once
 
-#include "comm/ble/gatt_client_subscriptions.h"
-
 #include <stdint.h>
 
-#include "pbl/util/uuid.h"
-#include "mfg/mfg_serials.h"
-#include "pbl/kernel/compiler.h"
+#include <pbl/kernel/compiler.h>
+#include <pbl/util/uuid.h>
+
+#include <comm/ble/gatt_client_subscriptions.h>
+#include <mfg/mfg_serials.h>
 
 #define PPOGATT_V1_DESIRED_RX_WINDOW_SIZE  (4500 / MAX_ATT_WRITE_PAYLOAD_SIZE)
 #define PPOGATT_MIN_VERSION                (0x00)
@@ -55,9 +55,9 @@ typedef enum {
   PPoGATTPacketTypeInvalidRangeStart,
 } PPoGATTPacketType;
 
-_Static_assert(PPoGATTPacketTypeAck != 0, "Ack type can't be 0; see ack_packet_byte");
-_Static_assert(PPoGATTPacketTypeResetRequest != 0, "Reset type can't be 0; see reset_packet_byte");
-_Static_assert(PPoGATTPacketTypeResetComplete != 0, "Reset type can't be 0; see reset_packet_byte");
+static_assert(PPoGATTPacketTypeAck != 0, "Ack type can't be 0; see ack_packet_byte");
+static_assert(PPoGATTPacketTypeResetRequest != 0, "Reset type can't be 0; see reset_packet_byte");
+static_assert(PPoGATTPacketTypeResetComplete != 0, "Reset type can't be 0; see reset_packet_byte");
 
 typedef struct PBL_PACKED {
   PPoGATTPacketType type : 3;
@@ -65,8 +65,16 @@ typedef struct PBL_PACKED {
   uint8_t payload[];
 } PPoGATTPacket;
 
-_Static_assert(sizeof(PPoGATTPacket) == 1,
-               "You can't increase the size of PPoGATTPacket. It's set in stone now!");
+//! PPoGATTPacket without payload
+typedef struct PBL_PACKED {
+  PPoGATTPacketType type : 3;
+  uint8_t sn : PPOGATT_SN_BITS;
+} PPoGATTPacketHeader;
+
+static_assert(sizeof(PPoGATTPacketHeader) == sizeof(PPoGATTPacket), "");
+
+static_assert(sizeof(PPoGATTPacket) == 1,
+              "You can't increase the size of PPoGATTPacket. It's set in stone now!");
 
 //! Client identification payload that is attached to the client's Reset Request messages
 typedef struct PBL_PACKED {

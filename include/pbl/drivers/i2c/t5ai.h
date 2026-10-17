@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "definitions.h"
+#include "t5ai_legacy_definitions.h"
 
 #include <stdint.h>
 

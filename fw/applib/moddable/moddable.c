@@ -1,26 +1,30 @@
 /* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-FileCopyrightText: 2025-2026 Moddable Tech, Inc. */
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "applib/app.h"
-#include "logging/logging_private.h"
-#include "pbl/services/evented_timer.h"
-#include "syscall/syscall_internal.h"
-#include "syscall/syscall.h"
-#include "applib/app_logging.h"
-#include "applib/moddable/moddable.h"
-#include "applib/ui/dialogs/expandable_dialog.h"
-
 #include <stddef.h>
 
+#include <pbl/mcu/privilege.h>
+#include <pbl/services/evented_timer.h>
+
+#include <applib/app.h>
+#include <applib/app_logging.h>
+#include <applib/moddable/moddable.h>
+#include <applib/ui/dialogs/expandable_dialog.h>
+#include <logging/logging_private.h>
+#include <syscall/syscall.h>
+#include <syscall/syscall_define.h>
+
 #if defined(CONFIG_MODDABLE_XS) && !defined(CONFIG_RECOVERY_FW)
-#include "xsmc.h"
-#include "xsHost.h"
-#include "xsHosts.h"
-#include "moddableAppState.h"
-#include "kernel/pbl_malloc.h"
-#include "kernel/event_loop.h"
-#include "kernel/ui/modals/modal_manager.h"
-#include "shell/normal/watchface.h"
+#include <kernel/event_loop.h>
+#include <kernel/pbl_malloc.h>
+#include <kernel/ui/modals/modal_manager.h>
+#include <moddableAppState.h>
+#include <process_management/app_manager.h>
+#include <shell/normal/watchface.h>
+#include <xsHost.h>
+#include <xsHosts.h>
+#include <xsffi.h>
+#include <xsmc.h>
 
 static ExpandableDialog *prv_create_fatal_dialog(const char *message) {
   ExpandableDialog *dialog = expandable_dialog_create("");
@@ -39,7 +43,7 @@ static void prv_watchface_fatal_error(void *data) {
   // Keep the warning above the safe watchface until it is dismissed.
   expandable_dialog_push(dialog, modal_manager_get_window_stack(ModalPriorityAlert));
   watchface_set_default_install_id(INSTALL_ID_INVALID);
-  watchface_launch_default(NULL);
+  watchface_launch_default(nullptr);
 }
 
 void moddable_cleanup(void) {
@@ -60,8 +64,30 @@ void moddable_cleanup(void) {
     kernel_free(f);
   }
 
-  app_state_set_js_memory_api_context(NULL);
+  app_state_set_js_memory_api_context(nullptr);
   task_free(state);
+}
+
+typedef struct {
+  txBuildFFI build_ffi;
+  txMachine *the;
+  txAPI *api;
+} BuildFFICall;
+
+static txBuildFFI s_app_build_ffi;
+
+static void prv_build_ffi_unprivileged_cb(void *data) {
+  BuildFFICall *call = data;
+  call->build_ffi(call->the, call->api);
+}
+
+static void prv_build_ffi(txMachine *the, txAPI *api) {
+  BuildFFICall call = {
+    .build_ffi = s_app_build_ffi,
+    .the = the,
+    .api = api,
+  };
+  mcu_call_unprivileged(prv_build_ffi_unprivileged_cb, &call);
 }
 
 // Minimum recordSize for the original struct (without flags field)
@@ -71,31 +97,38 @@ void moddable_cleanup(void) {
 #define kModdableCreationRecordFFISize \
   (offsetof(ModdableCreationRecord, fxBuildFFI) + sizeof(((ModdableCreationRecord *)0)->fxBuildFFI))
 
-// PBL_ALWAYS_INLINE: PRIVILEGE_WAS_ELEVATED is only valid inside the syscall body.
-static PBL_ALWAYS_INLINE void prv_assert_userspace_creation_record(ModdableCreationRecord *cr,
-                                                                   size_t len) {
-  if (PRIVILEGE_WAS_ELEVATED) {
+static void prv_assert_userspace_creation_record(bool from_user, ModdableCreationRecord *cr,
+                                                 size_t len) {
+  if (from_user) {
     syscall_assert_userspace_buffer(cr, len);
   }
 }
 
-DEFINE_SYSCALL(void, moddable_createMachine, ModdableCreationRecord *cr) {
+PBL_SYSCALL(void, moddable_createMachine, (VAL, ModdableCreationRecord *, cr)) {
   uint32_t flags = 0;
   uint32_t record_size = 0;
+
+  if (from_user) {
+    const PebbleProcessMd *md = app_manager_get_current_app_md();
+    if (pebble_task_get_current() != PebbleTask_App || md == nullptr || !md->is_moddable_app ||
+        app_state_get_js_memory_api_context() != nullptr) {
+      syscall_failed();
+    }
+  }
 
   ModdablePebbleAppState state = task_zalloc_check(sizeof(ModdablePebbleAppStateRecord));
   app_state_set_js_memory_api_context((void *)state);
 
   // Read flags if the record is large enough to include them
   if (cr) {
-    prv_assert_userspace_creation_record(cr, sizeof(cr->recordSize));
+    prv_assert_userspace_creation_record(from_user, cr, sizeof(cr->recordSize));
     record_size = cr->recordSize;
     if (record_size < kModdableCreationRecordMinSize) {
       APP_LOG(APP_LOG_LEVEL_ERROR, "invalid recordSize");
       return;
     }
 
-    prv_assert_userspace_creation_record(cr, cr->recordSize);
+    prv_assert_userspace_creation_record(from_user, cr, record_size);
     if (record_size >= kModdableCreationRecordFlagsSize)
       flags = cr->flags;
   }
@@ -106,12 +139,12 @@ DEFINE_SYSCALL(void, moddable_createMachine, ModdableCreationRecord *cr) {
 
   state->creationFlags = flags;
 
-  void *fxBuildFFI = NULL;
+  void *fxBuildFFI = nullptr;
   xsCreation *defaultCreation;
   extern void *xsPreparationAndCreation(xsCreation * *creation);
   (void)xsPreparationAndCreation(&defaultCreation);
   struct xsCreationRecord creation = *defaultCreation;
-  if (NULL != cr) {
+  if (nullptr != cr) {
     APP_LOG(APP_LOG_LEVEL_ERROR, "evaluating creation record");
     uint32_t stack = (cr->stack + 3) & ~3, slot = (cr->slot + 3) & ~3, chunk = (cr->chunk + 3) & ~3;
     if (stack || slot || chunk) {
@@ -144,15 +177,16 @@ DEFINE_SYSCALL(void, moddable_createMachine, ModdableCreationRecord *cr) {
     }
   }
 
-  xsMachine *the = modCloneMachine(&creation, NULL);
-  if (NULL == the) {
+  xsMachine *the = modCloneMachine(&creation, nullptr);
+  if (nullptr == the) {
     APP_LOG(APP_LOG_LEVEL_ERROR, "failed to allocate XS machine");
     moddable_cleanup();
     return;
   }
 
   state->the = the;
-  state->fxBuildFFI = fxBuildFFI;
+  s_app_build_ffi = (txBuildFFI)fxBuildFFI;
+  state->fxBuildFFI = fxBuildFFI ? (void *)prv_build_ffi : nullptr;
   state->eventedTimer = EVENTED_TIMER_INVALID_ID;
 
   evented_timer_register(1, false, (EventedTimerCallback)modRunMachineSetup, the);
@@ -163,7 +197,7 @@ DEFINE_SYSCALL(void, moddable_createMachine, ModdableCreationRecord *cr) {
 
   int exitStatus = the->exitStatus;
   char *abortReason = state->abortReason;
-  state->abortReason = NULL;
+  state->abortReason = nullptr;
   moddable_cleanup();
 
   if ((xsNormalExit != exitStatus) && (xsDebuggerExit != exitStatus)) {
@@ -189,7 +223,7 @@ DEFINE_SYSCALL(void, moddable_createMachine, ModdableCreationRecord *cr) {
 
 #else
 
-DEFINE_SYSCALL(void, moddable_createMachine, ModdableCreationRecord *cr) {
+PBL_SYSCALL(void, moddable_createMachine, (VAL, ModdableCreationRecord *, cr)) {
   APP_LOG(APP_LOG_LEVEL_ERROR, "Moddable XS not supported in this build");
 }
 

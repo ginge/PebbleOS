@@ -4,7 +4,8 @@
 #pragma once
 
 #include <stdint.h>
-#include "kernel/pebble_tasks.h"
+
+#include <kernel/pebble_tasks.h>
 
 /**
  * @defgroup services_animation_service Animation service

@@ -3,21 +3,21 @@
 
 #include "crashed_ui.h"
 
-#include "pbl/services/light.h"
-
-#include "applib/ui/dialogs/dialog.h"
-#include "applib/ui/dialogs/actionable_dialog.h"
-#include "applib/ui/dialogs/expandable_dialog.h"
-#include "kernel/event_loop.h"
-#include "kernel/pbl_malloc.h"
-#include "kernel/ui/modals/modal_manager.h"
-#include "process_management/app_install_manager.h"
-#include "process_management/app_manager.h"
-#include "process_management/worker_manager.h"
-#include "resource/resource_ids.auto.h"
-#include "pbl/services/i18n/i18n.h"
-
 #include <stdio.h>
+
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/services/light.h>
+
+#include <applib/ui/dialogs/actionable_dialog.h>
+#include <applib/ui/dialogs/dialog.h>
+#include <applib/ui/dialogs/expandable_dialog.h>
+#include <kernel/event_loop.h>
+#include <kernel/pbl_malloc.h>
+#include <kernel/ui/modals/modal_manager.h>
+#include <process_management/app_install_manager.h>
+#include <process_management/app_manager.h>
+#include <process_management/worker_manager.h>
+#include <resource/resource_ids.auto.h>
 
 typedef struct {
   ActionableDialog *actionable_dialog;
@@ -97,7 +97,7 @@ static char *prv_create_worker_crash_reason_string(AppInstallId app_install_id) 
 }
 
 static void prv_push_worker_crash_dialog(void *context) {
-  const AppInstallId app_install_id = (AppInstallId)context;
+  const AppInstallId app_install_id = (AppInstallId)(intptr_t)context;
 
   WorkerCrashDialogData *data = kernel_zalloc_check(sizeof(WorkerCrashDialogData));
   data->app_install_id = app_install_id;
@@ -139,7 +139,7 @@ static void prv_push_worker_crash_dialog(void *context) {
 }
 
 void crashed_ui_show_worker_crash(const AppInstallId install_id) {
-  launcher_task_add_callback(prv_push_worker_crash_dialog, (void *)install_id);
+  launcher_task_add_callback(prv_push_worker_crash_dialog, (void *)(intptr_t)install_id);
 }
 
 // ---------------------------------------------------------------------------

@@ -1,36 +1,24 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "clar.h"
-#include "fixtures/load_test_resources.h"
+#include <pbl/services/filesystem/pfs.h>
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/services/i18n/mo.h>
 
-#include "kernel/events.h"
-#include "pbl/services/i18n/i18n.h"
-#include "pbl/services/i18n/mo.h"
-#include "pbl/services/filesystem/pfs.h"
-#include "resource/resource_ids.auto.h"
-#include "flash_region/flash_region.h"
+#include <clar.h>
+#include <fixtures/load_test_resources.h>
+#include <flash_region/flash_region.h>
+#include <kernel/events.h>
+#include <resource/resource_ids.auto.h>
 
 #define I18N_FIXTURE_PATH "i18n"
 
 // Fakes
 ////////////////////////////////////
-#include "fake_spi_flash.h"
+#include <fake_spi_flash.h>
 
 // Stubs
 ////////////////////////////////////
-#include "stubs_analytics.h"
-#include "stubs_hexdump.h"
-#include "stubs_language_ui.h"
-#include "stubs_logging.h"
-#include "stubs_mutex.h"
-#include "stubs_pbl_malloc.h"
-#include "stubs_pebble_tasks.h"
-#include "stubs_serial.h"
-#include "stubs_sleep.h"
-#include "stubs_system_reset.h"
-#include "stubs_task_wdt.h"
-#include "stubs_memory_layout.h"
 
 // Fakes
 /////////////////////////
@@ -72,7 +60,7 @@ extern I18nString *prv_list_find_string(const char *string, void *owner);
 void test_i18n__music(void) {
   const char *first = i18n_get("Music", (void *)0x12345);
   cl_assert(strcmp(first, "Musique") == 0);
-  cl_assert(prv_list_find_string("Music", (void *)0x12345) != NULL);
+  cl_assert(prv_list_find_string("Music", (void *)0x12345) != nullptr);
   const char *second = i18n_get("Music", (void *)0x12345);
   cl_assert(first == second);
   const char *third = i18n_get("Music", (void *)0xdeadbeef);
@@ -80,7 +68,7 @@ void test_i18n__music(void) {
   i18n_free_all((void *)0x12345);
   cl_assert(prv_list_find_string("Music", (void *)0xdeadbeef)->translated_string == third);
   i18n_free_all((void *)0xdeadbeef);
-  cl_assert(prv_list_find_string("Music", __FILE__) == NULL);
+  cl_assert(prv_list_find_string("Music", __FILE__) == nullptr);
   // this should be a no-op
   i18n_free("Music", __FILE__);
 }
@@ -153,9 +141,9 @@ void test_i18n__ctxt_get(void) {
   cl_assert(fourth == second);
 
   i18n_free(ctxt_txt_1, __FILE__);
-  cl_assert(prv_list_find_string(ctxt_txt_1, __FILE__) == NULL);
+  cl_assert(prv_list_find_string(ctxt_txt_1, __FILE__) == nullptr);
   i18n_ctx_free("Quiet Time", "Enabled", __FILE__);
-  cl_assert(prv_list_find_string(ctxt_txt_2, __FILE__) == NULL);
+  cl_assert(prv_list_find_string(ctxt_txt_2, __FILE__) == nullptr);
 }
 
 void test_i18n__ctxt_get_length(void) {
@@ -190,8 +178,8 @@ void test_i18n__ctxt_get_with_buffer(void) {
 
 void test_i18n__reset_language(void) {
   // allocate some crap, to test that freeing works
-  const char *first = i18n_get("Music", (void *)0x12345);
-  const char *second = i18n_get("abcd", (void *)0x12345);
+  i18n_get("Music", (void *)0x12345);
+  i18n_get("abcd", (void *)0x12345);
   shell_prefs_set_language_english(true);
   i18n_set_resource(RESOURCE_ID_STRINGS);
   // reinitialize

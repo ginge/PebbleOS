@@ -1,13 +1,13 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/battery/battery_curve.h"
-
-#include "board/board.h"
 #include <pbl/logging/logging.h>
-#include "pbl/util/math.h"
-#include "pbl/util/ratio.h"
-#include "pbl/util/size.h"
+#include <pbl/services/battery/battery_curve.h>
+#include <pbl/util/math.h>
+#include <pbl/util/ratio.h>
+#include <pbl/util/size.h>
+
+#include <board/board.h>
 
 typedef struct VoltagePoint {
   uint8_t percent;
@@ -18,8 +18,9 @@ typedef struct VoltagePoint {
 
 // TODO(ASTERIX,OBELIX): Needs customization for Asterix/Obelix
 #if defined(CONFIG_BOARD_ASTERIX) || defined(CONFIG_BOARD_OBELIX) ||        \
-    defined(CONFIG_BOARD_UNHYGIENIX) || defined(CONFIG_BOARD_QEMU_EMERY) || \
-    defined(CONFIG_BOARD_QEMU_FLINT) || defined(CONFIG_BOARD_QEMU_GABBRO)
+    defined(CONFIG_BOARD_UNHYGIENIX) || \
+    defined(CONFIG_BOARD_QEMU_EMERY) || defined(CONFIG_BOARD_QEMU_FLINT) || \
+    defined(CONFIG_BOARD_QEMU_GABBRO) || defined(CONFIG_BOARD_NATIVE_EMERY)
 // When the voltage drops below these (mV), the watch will start heading for standby (after delay)
 #define BATTERY_CRITICAL_VOLTAGE_CHARGING    3550
 #define BATTERY_CRITICAL_VOLTAGE_DISCHARGING 3300

@@ -18,7 +18,12 @@ import stm32_crc
 
 class TestInjectMetadata(unittest.TestCase):
     def inject(
-        self, load_size, virtual_size, version=(0x10, 1), max_binary_size=0x20000
+        self,
+        load_size,
+        virtual_size,
+        version=(0x10, 1),
+        max_binary_size=0x20000,
+        symbols="000000b0 T main\n",
     ):
         image = bytearray(load_size)
         image[:8] = b"PBLAPP\0\0"
@@ -29,7 +34,7 @@ class TestInjectMetadata(unittest.TestCase):
 
         def popen(command, **kwargs):
             if command[0] == "arm-none-eabi-nm":
-                output = "000000b0 T main\n000000b4 D pbl_table_addr\n"
+                output = symbols + "000000b4 D pbl_table_addr\n"
             elif isinstance(command, str):
                 output = (
                     f"  [ 5] .bss NOBITS {load_size:08x} 000000 "
@@ -38,7 +43,8 @@ class TestInjectMetadata(unittest.TestCase):
             elif command[1] == "-r":
                 output = (
                     "Relocation section '.rel.data' contains 1 entry:\n"
-                    "Offset Info Type\n000000b8 00000002 R_ARM_ABS32\n\n"
+                    "Offset Info Type\n000000b8 00000002 R_ARM_ABS32\n"
+                    "000000bc 00000026 R_ARM_TARGET1\n000000c0 0000000a R_ARM_THM_CALL\n\n"
                 )
             else:
                 output = ""
@@ -54,7 +60,7 @@ class TestInjectMetadata(unittest.TestCase):
             result = binary.read_bytes()
 
         self.assertEqual(result[0x84 : 0x84 + len(note)], note)
-        self.assertEqual(result[load_size:], struct.pack("<I", 0xB8))
+        self.assertEqual(result[load_size:], struct.pack("<II", 0xB8, 0xBC))
         self.assertEqual(
             struct.unpack_from("<I", result, 0x14)[0],
             stm32_crc.crc32(result[0x82:load_size]),
@@ -97,6 +103,22 @@ class TestInjectMetadata(unittest.TestCase):
     def test_relocations_must_fit_platform_limit(self):
         with self.assertRaisesRegex(RuntimeError, "App image size"):
             self.inject(0x10000, 0x10000, max_binary_size=0x10000)
+
+    def test_entry_point_is_pbl_process_entry(self):
+        result = self.inject(
+            0x1000, 0x1000, symbols="000000b0 T main\n000000c4 T pbl_process_entry\n"
+        )
+        self.assertEqual(struct.unpack_from("<I", result, 0x10)[0], 0xC4)
+
+    def test_entry_point_falls_back_to_main(self):
+        result = self.inject(
+            0x1000, 0x1000, symbols="000000b0 T main\n         U pbl_process_entry\n"
+        )
+        self.assertEqual(struct.unpack_from("<I", result, 0x10)[0], 0xB0)
+
+    def test_missing_main_is_rejected(self):
+        with self.assertRaisesRegex(RuntimeError, "Missing app entry point"):
+            self.inject(0x1000, 0x1000, symbols="000000c4 T pbl_process_entry\n")
 
 
 if __name__ == "__main__":

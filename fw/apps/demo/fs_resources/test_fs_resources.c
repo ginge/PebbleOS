@@ -3,13 +3,13 @@
 
 #include "test_fs_resources.h"
 
-#include "applib/app.h"
-#include "applib/ui/ui.h"
-#include "applib/ui/window.h"
-#include "kernel/pbl_malloc.h"
-#include "process_state/app_state/app_state.h"
-#include "resource/resource_ids.auto.h"
-#include "system/passert.h"
+#include <applib/app.h>
+#include <applib/ui/ui.h>
+#include <applib/ui/window.h>
+#include <kernel/pbl_malloc.h>
+#include <process_state/app_state/app_state.h>
+#include <resource/resource_ids.auto.h>
+#include <system/passert.h>
 
 typedef struct {
   Window window;
@@ -41,7 +41,7 @@ static void push_window(FSResourceAppData *data) {
 // App boilerplate
 static void handle_init(void) {
   FSResourceAppData *data = (FSResourceAppData *)app_malloc_check(sizeof(FSResourceAppData));
-  if (data == NULL) {
+  if (data == nullptr) {
     PBL_CROAK("Out of memory");
   }
   app_state_set_user_data(data);

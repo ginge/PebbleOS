@@ -1,37 +1,39 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "animations.h"
 #include "layer.h"
+
+#include "animations.h"
 #include "model.h"
 #include "relbar.h"
 
-#include "applib/fonts/fonts.h"
-#include "applib/graphics/gpath.h"
-#include "applib/graphics/graphics.h"
-#include "applib/preferred_content_size.h"
-#include "applib/ui/kino/kino_layer.h"
-#include "applib/ui/property_animation.h"
-#include "applib/ui/window.h"
-#include "kernel/pbl_malloc.h"
-#include "kernel/ui/kernel_ui.h"
-#include "kernel/ui/system_icons.h"
-#include "popups/timeline/peek_animations.h"
-#include "process_state/app_state/app_state.h"
-#include "resource/resource_ids.auto.h"
-#include "pbl/services/clock.h"
-#include "pbl/services/timeline/layout_layer.h"
-#include "pbl/services/timeline/timeline_layout.h"
-#include "pbl/services/timeline/timeline_resources.h"
-#include <pbl/logging/logging.h>
-#include "system/passert.h"
-#include "pbl/util/math.h"
-#include "pbl/util/size.h"
-#include "pbl/util/struct.h"
-#include "pbl/util/trig.h"
-
 #include <stdint.h>
 #include <time.h>
+
+#include <pbl/logging/logging.h>
+#include <pbl/services/clock.h>
+#include <pbl/services/timeline/layout_layer.h>
+#include <pbl/services/timeline/timeline_layout.h>
+#include <pbl/services/timeline/timeline_resources.h>
+#include <pbl/util/math.h>
+#include <pbl/util/size.h>
+#include <pbl/util/struct.h>
+#include <pbl/util/trig.h>
+
+#include <applib/fonts/fonts.h>
+#include <applib/graphics/gpath.h>
+#include <applib/graphics/graphics.h>
+#include <applib/preferred_content_size.h>
+#include <applib/ui/kino/kino_layer.h>
+#include <applib/ui/property_animation.h>
+#include <applib/ui/window.h>
+#include <kernel/pbl_malloc.h>
+#include <kernel/ui/kernel_ui.h>
+#include <kernel/ui/system_icons.h>
+#include <popups/timeline/peek_animations.h>
+#include <process_state/app_state/app_state.h>
+#include <resource/resource_ids.auto.h>
+#include <system/passert.h>
 
 #define PAST_TOP_MARGIN_EXTRA   PBL_IF_RECT_ELSE(10, 38)
 #define FUTURE_TOP_MARGIN_EXTRA PBL_IF_RECT_ELSE(10, 18)
@@ -117,7 +119,8 @@ static const int s_visible_items[] = {1, 2};
 static const int s_nonvisible_items[] = {0, TIMELINE_NUM_ITEMS_IN_TIMELINE_LAYER - 1};
 
 static const TimelineLayerStyle *prv_get_style(void) {
-  return s_styles[PreferredContentSizeDefault];
+  // Round pin heights and icon positions depend on the display, not the font size.
+  return s_styles[PBL_IF_ROUND_ELSE(PreferredContentSizeDefault, system_theme_get_content_size())];
 }
 
 uint16_t timeline_layer_get_fat_pin_height(void) {
@@ -126,6 +129,10 @@ uint16_t timeline_layer_get_fat_pin_height(void) {
 
 uint16_t timeline_layer_get_ideal_sidebar_width(void) {
   return prv_get_style()->sidebar_width;
+}
+
+uint16_t timeline_layer_get_sidebar_arrow_width(void) {
+  return prv_get_style()->sidebar_arrow_size.w;
 }
 
 ///////////////////////////////////////////////////////////
@@ -267,10 +274,10 @@ static void prv_destroy_layout(TimelineLayer *layer, int index) {
   timeline_layout->is_being_destroyed = true;
   layer_remove_from_parent((Layer *)timeline_layout);
   layout_destroy((LayoutLayer *)timeline_layout);
-  layer->layouts[index] = NULL;
+  layer->layouts[index] = nullptr;
 
   app_free(layer->layouts_info[index]);
-  layer->layouts_info[index] = NULL;
+  layer->layouts_info[index] = nullptr;
 }
 
 static void prv_destroy_nonvisible_items(TimelineLayer *layer) {
@@ -278,7 +285,7 @@ static void prv_destroy_nonvisible_items(TimelineLayer *layer) {
     TimelineLayout *timeline_layout = layer->layouts[s_nonvisible_items[i]];
     if (timeline_layout) {
       prv_destroy_layout(layer, s_nonvisible_items[i]);
-      layer->layouts[s_nonvisible_items[i]] = NULL;
+      layer->layouts[s_nonvisible_items[i]] = nullptr;
     }
   }
 }
@@ -387,7 +394,7 @@ Animation *timeline_layer_create_day_sep_hide(TimelineLayer *timeline_layer) {
   GRect to = timeline_layer->day_separator.layer.frame;
   to.origin = GPoint(0, frame.size.h * timeline_layer->move_delta); // all the way off screen
   PropertyAnimation *prop_anim =
-      property_animation_create_layer_frame((Layer *)&timeline_layer->day_separator, NULL, &to);
+      property_animation_create_layer_frame((Layer *)&timeline_layer->day_separator, nullptr, &to);
   Animation *anim = property_animation_get_animation(prop_anim);
   animation_set_duration(anim, TIMELINE_UP_DOWN_ANIMATION_DURATION_MS);
   animation_set_custom_interpolation(anim, timeline_animation_interpolate_moook_soft);
@@ -578,9 +585,9 @@ Animation *timeline_layer_create_up_down_animation(TimelineLayer *layer, uint32_
 
   Animation *mode_change = animation_create();
   animation_set_implementation(mode_change, &s_mode_change_impl);
-  animation_set_handlers(mode_change, (AnimationHandlers){0}, layer);
+  animation_set_handlers(mode_change, (AnimationHandlers){}, layer);
 
-  return animation_spawn_create(animation, mode_change, NULL);
+  return animation_spawn_create(animation, mode_change, nullptr);
 }
 
 #if PBL_ROUND
@@ -729,8 +736,8 @@ void timeline_layer_move_data(TimelineLayer *layer, int delta) {
       layer->layouts[i] = layer->layouts[i + 1];
       layer->layouts_info[i] = layer->layouts_info[i + 1];
     }
-    layer->layouts[TIMELINE_NUM_ITEMS_IN_TIMELINE_LAYER - 1] = NULL;
-    layer->layouts_info[TIMELINE_NUM_ITEMS_IN_TIMELINE_LAYER - 1] = NULL;
+    layer->layouts[TIMELINE_NUM_ITEMS_IN_TIMELINE_LAYER - 1] = nullptr;
+    layer->layouts_info[TIMELINE_NUM_ITEMS_IN_TIMELINE_LAYER - 1] = nullptr;
   } else if (delta == -1) {
     if (layer->layouts[s_nonvisible_items[1]]) {
       prv_destroy_layout(layer, s_nonvisible_items[1]);
@@ -739,8 +746,8 @@ void timeline_layer_move_data(TimelineLayer *layer, int delta) {
       layer->layouts[i] = layer->layouts[i - 1];
       layer->layouts_info[i] = layer->layouts_info[i - 1];
     }
-    layer->layouts[0] = NULL;
-    layer->layouts_info[0] = NULL;
+    layer->layouts[0] = nullptr;
+    layer->layouts_info[0] = nullptr;
   }
 
   layer->move_delta = delta * prv_get_scroll_delta(layer);
@@ -756,7 +763,7 @@ TimelineLayout *timeline_layer_get_current_layout(TimelineLayer *timeline_layer)
 void timeline_layer_reset(TimelineLayer *layer) {
   // reset the animation
   animation_unschedule(layer->animation);
-  layer->animation = NULL;
+  layer->animation = nullptr;
 
   // reset the day separator
   layer_set_hidden((Layer *)&layer->day_separator, true);
@@ -928,11 +935,9 @@ void timeline_layer_init(TimelineLayer *layer, const GRect *frame_ref,
   GRect frame;
   prv_get_day_sep_show_frame(layer, &frame);
   peek_layer_init(&layer->day_separator, &frame);
-  const GFont title_font =
-      system_theme_get_font_for_size(PreferredContentSizeDefault, TextStyleFont_Title);
+  const GFont title_font = system_theme_get_font(TextStyleFont_Title);
   peek_layer_set_title_font(&layer->day_separator, title_font);
-  const GFont subtitle_font =
-      system_theme_get_font_for_size(PreferredContentSizeDefault, TextStyleFont_PinSubtitle);
+  const GFont subtitle_font = system_theme_get_font(TextStyleFont_PinSubtitle);
   peek_layer_set_subtitle_font(&layer->day_separator, subtitle_font,
                                style->day_sep_subtitle_margin);
 

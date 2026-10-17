@@ -1,6 +1,7 @@
 /* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include <pbl/kernel/time.h>
 #include "system/bootbits.h"
 
 #include <pbl/logging/logging.h>
@@ -26,7 +27,7 @@ void boot_bit_set(BootBitValue bit) {
                       t5ai_retained_read(RTC_BKP_BOOTBIT_DR) | bit);
   if (bit == BOOT_BIT_FW_STABLE) {
     PBL_LOG_DBG("Firmware stable bit readback: bits=0x%08" PRIx32 " ticks=%" PRIu32,
-                boot_bits_get(), pbl_uptime_ticks());
+                boot_bits_get(), (uint32_t)pbl_uptime_ticks());
   }
 }
 

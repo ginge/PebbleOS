@@ -2,10 +2,12 @@
 # SPDX-FileCopyrightText: 2026 Core Devices LLC
 # SPDX-License-Identifier: Apache-2.0
 
-"""Firmware image steps: size checks, bundling and QEMU flash images."""
+"""Firmware image steps: size and syscall checks, bundling and QEMU flash images."""
 
 import argparse
 import os
+import re
+import subprocess
 import sys
 
 import wafshim
@@ -74,6 +76,64 @@ def cmd_size_resources(args):
     )
     if actual > maximum:
         sys.exit(f"Resources are too large for target board {actual} > {maximum}")
+
+
+def cmd_check_syscalls(args):
+    symbols = subprocess.run(
+        [args.objdump, "-t", args.elf], check=True, capture_output=True, text=True
+    ).stdout
+    addrs = {}
+    funcs = {}
+    for line in symbols.splitlines():
+        m = re.match(r"^([0-9a-f]{8}) (.{7}) .*\s(\S+)$", line)
+        if m:
+            addrs.setdefault(m.group(3), int(m.group(1), 16))
+            if "F" in m.group(2):
+                funcs[m.group(3)] = int(m.group(1), 16)
+    start = addrs["__syscall_text_start__"]
+    checked = addrs["__syscall_checked_text_start__"]
+    end = addrs["__syscall_text_end__"]
+
+    with open(args.legacy) as f:
+        legacy = {ln.strip() for ln in f if ln.strip() and not ln.startswith("#")}
+    unlisted = sorted(n for n, a in funcs.items() if start <= a < checked and n not in legacy)
+    if unlisted:
+        sys.exit(
+            "New syscalls must be defined with PBL_SYSCALL, not DEFINE_SYSCALL: "
+            + ", ".join(unlisted)
+        )
+    converted = sorted(n for n, a in funcs.items() if checked <= a < end and n in legacy)
+    if converted:
+        sys.exit(
+            f"Defined with PBL_SYSCALL, remove from {args.legacy}: " + ", ".join(converted)
+        )
+
+    disasm = subprocess.run(
+        [args.objdump, "-d", "--no-show-raw-insn", args.elf],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    func_re = re.compile(r"^[0-9a-f]+ <(.+)>:$")
+    callers = set()
+    func = None
+    for line in disasm.splitlines():
+        m = func_re.match(line)
+        if m:
+            func = m.group(1)
+        elif "<syscall_internal_check_return_address>" in line:
+            callers.add(func)
+
+    bad = sorted(
+        f
+        for f in callers
+        if not (f.startswith("__") and start <= addrs.get(f[2:], -1) < end)
+    )
+    if bad:
+        sys.exit(
+            "PRIVILEGE_WAS_ELEVATED is only valid in a DEFINE_SYSCALL body or a "
+            "PBL_ALWAYS_INLINE helper, but is evaluated in: " + ", ".join(bad)
+        )
 
 
 def cmd_bundle(args):
@@ -154,6 +214,12 @@ def main():
     p.add_argument("--config", required=True)
     p.add_argument("--pbpack", required=True)
     p.set_defaults(func=cmd_size_resources)
+
+    p = sub.add_parser("check-syscalls")
+    p.add_argument("--elf", required=True)
+    p.add_argument("--objdump", required=True)
+    p.add_argument("--legacy", required=True)
+    p.set_defaults(func=cmd_check_syscalls)
 
     p = sub.add_parser("bundle")
     p.add_argument("--config", required=True)

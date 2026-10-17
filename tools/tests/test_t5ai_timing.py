@@ -121,7 +121,7 @@ int main(void) {
         run_c(source, headers)
 
     def test_mailbox_sync_storage_and_send(self):
-        source = (ROOT / "fw/drivers/t5ai/mailbox_channel.c").read_text()
+        source = (ROOT / "drivers/t5ai/mailbox_channel.c").read_text()
         tx = source[source.index("typedef struct {\n  T5AIMailboxMessage message"):
                     source.index("} TxChannel;") + len("} TxChannel;")]
         harness = r"""

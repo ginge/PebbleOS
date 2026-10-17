@@ -1,8 +1,8 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/util/time.h"
-#include "pbl/util/units.h"
+#include <pbl/util/time.h>
+#include <pbl/util/units.h>
 
 #include <clar.h>
 
@@ -77,7 +77,7 @@ void test_time__weekday(void) {
 
 static void prv_assert_breakdown(time_t t, int year, int mon, int mday, int hour, int min, int sec,
                                  int wday, int yday) {
-  struct tm tm = {0};
+  struct pbl_tm tm = {};
   pbl_time_breakdown(t, &tm);
   cl_assert_equal_i(tm.tm_year, year - PBL_TM_YEAR_ORIGIN);
   cl_assert_equal_i(tm.tm_mon, mon);
@@ -98,7 +98,7 @@ void test_time__breakdown(void) {
 }
 
 void test_time__breakdown_keeps_zone_fields(void) {
-  struct tm tm = {.tm_isdst = 1, .tm_gmtoff = 3600, .tm_zone = "CET"};
+  struct pbl_tm tm = {.tm_isdst = 1, .tm_gmtoff = 3600, .tm_zone = "CET"};
   pbl_time_breakdown(0, &tm);
   cl_assert_equal_i(tm.tm_isdst, 1);
   cl_assert_equal_i(tm.tm_gmtoff, 3600);

@@ -5,37 +5,33 @@
 
 #include "getting_started_button_combo.h"
 
-#include "apps/core/spinner_ui_window.h"
-#include "applib/fonts/fonts.h"
-#include "comm/ble/gap_le_connection.h"
-#include "comm/ble/gap_le_device_name.h"
-#include "comm/ble/gap_le_connect.h"
-#include "mfg/mfg_info.h"
-#include "mfg/mfg_serials.h"
-
-#include "kernel/event_loop.h"
-#include "kernel/pbl_malloc.h"
-
-#include "applib/app.h"
-#include "applib/event_service_client.h"
-#include "applib/graphics/gtypes.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/layer.h"
-#include "applib/ui/qr_code.h"
-#include "applib/ui/text_layer.h"
-#include "applib/ui/window.h"
-#include "applib/ui/window_private.h"
-#include "process_state/app_state/app_state.h"
-
-#include "pbl/services/bluetooth/local_id.h"
-#include "pbl/services/bluetooth/pairability.h"
-#include "pbl/services/comm_session/session.h"
-
-#include "pbl/version.h"
-
 #include <stdio.h>
 #include <string.h>
-#include <stdbool.h>
+
+#include <pbl/services/bluetooth/local_id.h>
+#include <pbl/services/bluetooth/pairability.h>
+#include <pbl/services/comm_session/session.h>
+#include <pbl/version.h>
+
+#include <applib/app.h>
+#include <applib/event_service_client.h>
+#include <applib/fonts/fonts.h>
+#include <applib/graphics/gtypes.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/layer.h>
+#include <applib/ui/qr_code.h>
+#include <applib/ui/text_layer.h>
+#include <applib/ui/window.h>
+#include <applib/ui/window_private.h>
+#include <apps/core/spinner_ui_window.h>
+#include <comm/ble/gap_le_connect.h>
+#include <comm/ble/gap_le_connection.h>
+#include <comm/ble/gap_le_device_name.h>
+#include <kernel/event_loop.h>
+#include <kernel/pbl_malloc.h>
+#include <mfg/mfg_info.h>
+#include <mfg/mfg_serials.h>
+#include <process_state/app_state/app_state.h>
 
 #define QR_URL_BUFFER_SIZE 72
 #define NAME_BUFFER_SIZE   (PBL_BT_DEVICE_NAME_BUFFER_SIZE + 2)
@@ -127,9 +123,9 @@ static void prv_raw_up_handler(ClickRecognizerRef recognizer, void *context) {
 }
 
 static void prv_click_configure(void *context) {
-  window_raw_click_subscribe(BUTTON_ID_UP, prv_raw_down_handler, prv_raw_up_handler, NULL);
-  window_raw_click_subscribe(BUTTON_ID_SELECT, prv_raw_down_handler, prv_raw_up_handler, NULL);
-  window_raw_click_subscribe(BUTTON_ID_DOWN, prv_raw_down_handler, prv_raw_up_handler, NULL);
+  window_raw_click_subscribe(BUTTON_ID_UP, prv_raw_down_handler, prv_raw_up_handler, nullptr);
+  window_raw_click_subscribe(BUTTON_ID_SELECT, prv_raw_down_handler, prv_raw_up_handler, nullptr);
+  window_raw_click_subscribe(BUTTON_ID_DOWN, prv_raw_down_handler, prv_raw_up_handler, nullptr);
 }
 
 ////////////////////////////////////////////////////////////
@@ -143,7 +139,7 @@ static void prv_update_name_text(RecoveryFUAppData *data) {
     size_t len = MIN(strlen(PBL_VERSION_TAG), sizeof(data->name_text_buffer) - 1);
     memcpy(data->name_text_buffer, PBL_VERSION_TAG, len);
     data->name_text_buffer[len] = '\0';
-  } else if ((comm_session_get_system_session() != NULL) && (gap_conn != NULL)) {
+  } else if ((comm_session_get_system_session() != nullptr) && (gap_conn != nullptr)) {
     // If we have connected to a device and we have a connection to the mobile app, show the device
     // name (we are required to have a connection to mobile app to get the name).
     gap_le_connection_copy_device_name(gap_conn, data->name_text_buffer,
@@ -200,7 +196,7 @@ static void prv_window_load(Window *window) {
       name_text_layer,
       &GRect(0, window->layer.bounds.size.h - PBL_IF_RECT_ELSE(name_height, name_height + 10),
              window->layer.bounds.size.w, name_height),
-      NULL,
+      nullptr,
 #if defined(CONFIG_BOARD_OBELIX) || defined(CONFIG_BOARD_GETAFIX)
       fonts_get_system_font(FONT_KEY_GOTHIC_24),
 #else
@@ -260,6 +256,9 @@ static void prv_pebble_mobile_app_event_handler(PebbleEvent *event, void *contex
   if (is_connected) {
     s_fu_app_data->has_pebble_mobile_app_connected = true;
     gap_le_device_name_request_all();
+  } else {
+    // The app may have started with a session already open
+    prv_allow_pairing(s_fu_app_data, true);
   }
   prv_update_name_text(s_fu_app_data);
 }
@@ -294,7 +293,7 @@ static void handle_init(void) {
   *data = (RecoveryFUAppData){};
   app_state_set_user_data(data);
 
-  const bool is_connected = (comm_session_get_system_session() != NULL);
+  const bool is_connected = (comm_session_get_system_session() != nullptr);
   data->is_pebble_mobile_app_connected = is_connected;
   prv_allow_pairing(data, !is_connected);
 
@@ -342,7 +341,7 @@ static void handle_deinit(void) {
   prv_allow_pairing(data, false);
 
   app_free(data);
-  s_fu_app_data = NULL;
+  s_fu_app_data = nullptr;
 
   launcher_block_popups(false);
 }

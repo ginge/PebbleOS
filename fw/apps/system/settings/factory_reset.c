@@ -3,19 +3,21 @@
 
 #include "factory_reset.h"
 
-#include "applib/app_timer.h"
-#include "applib/fonts/fonts.h"
-#include "applib/ui/action_bar_layer.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/ui.h"
-#include "apps/system/timeline/peek_layer.h"
-#include "kernel/pbl_malloc.h"
-#include "kernel/ui/kernel_ui.h"
-#include "kernel/ui/system_icons.h"
-#include "kernel/util/factory_reset.h"
-#include "resource/resource_ids.auto.h"
-#include "pbl/services/i18n/i18n.h"
 #include "bluetooth.h"
+
+#include <pbl/services/i18n/i18n.h>
+
+#include <applib/app_timer.h>
+#include <applib/fonts/fonts.h>
+#include <applib/ui/action_bar_layer.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/ui.h>
+#include <apps/system/timeline/peek_layer.h>
+#include <kernel/pbl_malloc.h>
+#include <kernel/ui/kernel_ui.h>
+#include <kernel/ui/system_icons.h>
+#include <kernel/util/factory_reset.h>
+#include <resource/resource_ids.auto.h>
 
 #define MESSAGE_BUF_SIZE 96
 
@@ -37,7 +39,7 @@ static void start_factory_reset(void *data) {
 
 static void prv_lockout_back_button(Window *window) {
   window_set_overrides_back_button(window, true);
-  window_set_click_config_provider(window, NULL);
+  window_set_click_config_provider(window, nullptr);
 }
 
 static void confirm_click_handler(ClickRecognizerRef recognizer, Window *window) {
@@ -61,7 +63,7 @@ static void confirm_click_handler(ClickRecognizerRef recognizer, Window *window)
   // give it a chance to animate
   const uint32_t factory_reset_start_delay = 100;
   app_timer_register(PEEK_LAYER_UNFOLD_DURATION + factory_reset_start_delay, start_factory_reset,
-                     NULL);
+                     nullptr);
 }
 
 //! Wipe registry + Enter Standby (for factory)
@@ -81,7 +83,8 @@ static void decline_click_handler(ClickRecognizerRef recognizer, Window *window)
 
 static void config_provider(Window *window) {
   window_single_click_subscribe(BUTTON_ID_UP, (ClickHandler)confirm_click_handler);
-  window_long_click_subscribe(BUTTON_ID_UP, 1200, (ClickHandler)confirm_long_click_handler, NULL);
+  window_long_click_subscribe(BUTTON_ID_UP, 1200, (ClickHandler)confirm_long_click_handler,
+                              nullptr);
   window_single_click_subscribe(BUTTON_ID_DOWN, (ClickHandler)decline_click_handler);
   (void)window;
 }

@@ -1,21 +1,20 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/blob_db/ios_notif_pref_db.h"
-
-#include "pbl/services/blob_db/sync.h"
-#include "pbl/services/blob_db/sync_util.h"
-
-#include "kernel/pbl_malloc.h"
-#include "pbl/kernel/mutex.h"
-#include "pbl/services/filesystem/pfs.h"
-#include "pbl/services/settings/settings_file.h"
-#include "pbl/services/timeline/attributes_actions.h"
+#include <pbl/kernel/compiler.h>
+#include <pbl/kernel/mutex.h>
 #include <pbl/logging/logging.h>
-#include "system/passert.h"
-#include "pbl/kernel/compiler.h"
-#include "pbl/util/testing.h"
-#include "pbl/util/units.h"
+#include <pbl/services/blob_db/ios_notif_pref_db.h>
+#include <pbl/services/blob_db/sync.h>
+#include <pbl/services/blob_db/sync_util.h>
+#include <pbl/services/filesystem/pfs.h>
+#include <pbl/services/settings/settings_file.h>
+#include <pbl/services/timeline/attributes_actions.h>
+#include <pbl/util/testing.h>
+#include <pbl/util/units.h>
+
+#include <kernel/pbl_malloc.h>
+#include <system/passert.h>
 
 PBL_LOG_MODULE_DECLARE(service_blob_db, CONFIG_SERVICE_BLOB_DB_LOG_LEVEL);
 
@@ -108,17 +107,17 @@ iOSNotifPrefs *ios_notif_pref_db_get_prefs(const uint8_t *app_id, int key_len) {
     buffer[key_len] = '\0';
     PBL_LOG_DBG("No prefs found for <%s>", buffer);
     prv_file_close_and_unlock(&file);
-    return NULL;
+    return nullptr;
   }
 
-  SerializedNotifPrefs *serialized_prefs = NULL;
+  SerializedNotifPrefs *serialized_prefs = nullptr;
   const int serialized_prefs_data_len =
       prv_get_serialized_prefs(&file, app_id, key_len, &serialized_prefs);
   prv_file_close_and_unlock(&file);
 
   if (!serialized_prefs) {
     // Record was undersized, unreadable, or allocation failed.
-    return NULL;
+    return nullptr;
   }
 
   size_t string_alloc_size;
@@ -132,7 +131,7 @@ iOSNotifPrefs *ios_notif_pref_db_get_prefs(const uint8_t *app_id, int key_len) {
     buffer[key_len] = '\0';
     PBL_LOG_ERR("Could not parse serial data for <%s>", buffer);
     prv_free_serialized_prefs(serialized_prefs);
-    return NULL;
+    return nullptr;
   }
 
   const size_t alloc_size = attributes_actions_get_required_buffer_size(
@@ -156,7 +155,7 @@ iOSNotifPrefs *ios_notif_pref_db_get_prefs(const uint8_t *app_id, int key_len) {
     PBL_LOG_ERR("Could not deserialize data for <%s>", buffer);
     prv_free_serialized_prefs(serialized_prefs);
     kernel_free(notif_prefs);
-    return NULL;
+    return nullptr;
   }
 
   prv_free_serialized_prefs(serialized_prefs);
@@ -318,10 +317,10 @@ status_t ios_notif_pref_db_is_dirty(bool *is_dirty_out) {
 BlobDBDirtyItem *ios_notif_pref_db_get_dirty_list(void) {
   SettingsFile file;
   if (S_SUCCESS != prv_file_open_and_lock(&file)) {
-    return NULL;
+    return nullptr;
   }
 
-  BlobDBDirtyItem *dirty_list = NULL;
+  BlobDBDirtyItem *dirty_list = nullptr;
   settings_file_each(&file, sync_util_build_dirty_list_cb, &dirty_list);
 
   prv_file_close_and_unlock(&file);
@@ -356,7 +355,7 @@ uint32_t ios_notif_pref_db_get_flags(const uint8_t *app_id, int key_len) {
     return 0;
   }
 
-  SerializedNotifPrefs *prefs = NULL;
+  SerializedNotifPrefs *prefs = nullptr;
   prv_get_serialized_prefs(&file, app_id, key_len, &prefs);
   uint32_t flags = prefs->flags;
   prv_free_serialized_prefs(prefs);
@@ -367,6 +366,7 @@ uint32_t ios_notif_pref_db_get_flags(const uint8_t *app_id, int key_len) {
 
 #if defined(CONFIG_SHELL) && !defined(CONFIG_RECOVERY_FW)
 #include <errno.h>
+
 #include <pbl/shell/shell.h>
 
 static bool prv_print_notif_pref_db(SettingsFile *file, SettingsRecordInfo *info, void *context) {
@@ -379,7 +379,7 @@ static bool prv_print_notif_pref_db(SettingsFile *file, SettingsRecordInfo *info
   pbl_shell_print(sh, "Dirty: %s", info->dirty ? "Yes" : "No");
   pbl_shell_print(sh, "Last modified: %" PRIu32, info->last_modified);
 
-  SerializedNotifPrefs *serialized_prefs = NULL;
+  SerializedNotifPrefs *serialized_prefs = nullptr;
   prv_get_serialized_prefs(file, (uint8_t *)app_id, info->key_len, &serialized_prefs);
   if (!serialized_prefs) {
     pbl_shell_error(sh, "failed to read prefs");
@@ -407,6 +407,6 @@ static int prv_cmd_prefs(const struct pbl_shell *sh, size_t argc, char **argv) {
   return 0;
 }
 
-PBL_SHELL_SUBCMD_ADD(sub_notif, prefs, NULL, "Dump the notification preferences", prv_cmd_prefs, 0,
-                     0);
+PBL_SHELL_SUBCMD_ADD(sub_notif, prefs, nullptr, "Dump the notification preferences", prv_cmd_prefs,
+                     0, 0);
 #endif

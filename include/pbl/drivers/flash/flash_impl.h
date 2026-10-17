@@ -3,12 +3,12 @@
 
 #pragma once
 
-#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #include <pbl/drivers/flash.h>
-#include "system/status_codes.h"
+
+#include <system/status_codes.h>
 
 /**
  * @defgroup drivers_flash_flash_impl Low-level flash driver

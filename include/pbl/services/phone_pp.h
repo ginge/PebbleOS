@@ -4,7 +4,6 @@
 #pragma once
 
 #include <stdint.h>
-#include <stdbool.h>
 
 /**
  * @defgroup services_phone_pp Phone endpoint

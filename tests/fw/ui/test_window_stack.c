@@ -1,56 +1,33 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/window.h"
-#include "applib/ui/window_manager.h"
-#include "applib/ui/window_stack.h"
-#include "applib/ui/window_stack_private.h"
-#include "kernel/ui/modals/modal_manager.h"
-
-#include "applib/connection_service_private.h"
-#include "applib/battery_state_service_private.h"
-#include "applib/tick_timer_service_private.h"
-
-#include "clar.h"
+#include <applib/battery_state_service_private.h>
+#include <applib/connection_service_private.h>
+#include <applib/tick_timer_service_private.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/window.h>
+#include <applib/ui/window_manager.h>
+#include <applib/ui/window_stack.h>
+#include <applib/ui/window_stack_private.h>
+#include <clar.h>
+#include <kernel/ui/modals/modal_manager.h>
 
 // Stubs
 ////////////////////////////////////
 
-#include "stubs_sem.h"
-#include "stubs_accel_service.h"
-#include "stubs_app_state.h"
-#include "stubs_app_timer.h"
-#include "stubs_ble_app_support.h"
-#include "stubs_event_service_client.h"
-#include "stubs_fonts.h"
-#include "stubs_irq.h"
-#include "stubs_gbitmap.h"
-#include "stubs_graphics.h"
-#include "stubs_graphics_context.h"
-#include "stubs_heap.h"
-#include "stubs_logging.h"
-#include "stubs_new_timer.h"
-#include "stubs_passert.h"
-#include "stubs_persist.h"
-#include "stubs_plugin_service.h"
-#include "stubs_print.h"
-#include "stubs_process_manager.h"
-#include "stubs_resources.h"
-#include "stubs_syscalls.h"
-#include "stubs_unobstructed_area.h"
+#include <stubs_app_state.h>
 
 // Fakes
 ////////////////////////////////////
 
-#include "fake_events.h"
-#include "fake_pbl_malloc.h"
-#include "fake_pebble_tasks.h"
-#include "fake_animation.h"
-
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+#include <fake_animation.h>
+#include <fake_events.h>
+#include <fake_pbl_malloc.h>
+#include <fake_pebble_tasks.h>
 
 // Static Variables
 ////////////////////////////////////
@@ -129,7 +106,7 @@ bool compositor_is_animating(void) {
 }
 
 void *compositor_modal_transition_to_modal_get(bool dest) {
-  return NULL;
+  return nullptr;
 }
 
 void compositor_modal_render_ready(void) {
@@ -307,7 +284,7 @@ static void prv_pop_window_unload(Window *window) {
 ////////////////////////////////////
 
 void test_window_stack__initialize(void) {
-  s_last_click_configured_window = NULL;
+  s_last_click_configured_window = nullptr;
 
   WindowStack *stack = app_state_get_window_stack();
   *stack = (WindowStack){};
@@ -930,7 +907,7 @@ void test_window_stack__modal_and_app(void) {
   cl_assert_equal_p(s_last_click_configured_window, window2);
 
   // Switch to modal happens via the compositor
-  compositor_transition(NULL);
+  compositor_transition(nullptr);
   // Call the upkeep function so the change in state is handled
   modal_manager_event_loop_upkeep();
 
@@ -953,7 +930,7 @@ void test_window_stack__modal_and_app(void) {
   cl_assert_equal_i(window2->on_screen, false);
 
   // Switch to app happens via the compositor
-  compositor_transition(NULL);
+  compositor_transition(nullptr);
   // Call the upkeep function so the change in state is handled
   modal_manager_event_loop_upkeep();
 
@@ -1014,7 +991,7 @@ void test_window_stack__transparent_modal_and_app(void) {
   cl_assert_equal_p(s_last_click_configured_window, window2);
 
   // Switch to modal happens via the compositor
-  compositor_transition(NULL);
+  compositor_transition(nullptr);
   // Call the upkeep function so the change in state is handled
   modal_manager_event_loop_upkeep();
 
@@ -1037,7 +1014,7 @@ void test_window_stack__transparent_modal_and_app(void) {
   cl_assert_equal_i(window2->on_screen, false);
 
   // Switch to app happens via the compositor
-  compositor_transition(NULL);
+  compositor_transition(nullptr);
   // Call the upkeep function so the change in state is handled
   modal_manager_event_loop_upkeep();
 
@@ -1098,7 +1075,7 @@ void test_window_stack__unfocusable_modal_and_app(void) {
   cl_assert_equal_p(s_last_click_configured_window, window1);
 
   // Switch to modal happens via the compositor
-  compositor_transition(NULL);
+  compositor_transition(nullptr);
   // Call the upkeep function so the change in state is handled
   modal_manager_event_loop_upkeep();
 
@@ -1119,7 +1096,7 @@ void test_window_stack__unfocusable_modal_and_app(void) {
   cl_assert_equal_i(window2->on_screen, false);
 
   // Switch to app happens via the compositor
-  compositor_transition(NULL);
+  compositor_transition(nullptr);
   // Call the upkeep function so the change in state is handled
   modal_manager_event_loop_upkeep();
 
@@ -1241,8 +1218,8 @@ void test_window_stack__pop_all_modals(void) {
   modal_manager_pop_all();
   modal_manager_event_loop_upkeep();
 
-  _Static_assert(ModalPriorityMin == ModalPriorityDiscreet,
-                 "Update the test to handle priorities below discreet.");
+  static_assert(ModalPriorityMin == ModalPriorityDiscreet,
+                "Update the test to handle priorities below discreet.");
   // Discreet should not be popped
   cl_assert_equal_b(windows[ModalPriorityDiscreet]->on_screen, true);
 

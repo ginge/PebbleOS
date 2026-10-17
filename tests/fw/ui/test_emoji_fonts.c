@@ -1,44 +1,24 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/graphics/framebuffer.h"
-#include "applib/graphics/graphics.h"
-#include "resource/resource.h"
-#include "resource/resource_ids.auto.h"
-#include "applib/graphics/raw_image.h"
-#include "pbl/util/size.h"
-
-#include "clar.h"
-
 #include <stdio.h>
+
+#include <pbl/util/size.h>
+
+#include <applib/graphics/framebuffer.h>
+#include <applib/graphics/graphics.h>
+#include <applib/graphics/raw_image.h>
+#include <clar.h>
+#include <resource/resource.h>
+#include <resource/resource_ids.auto.h>
 
 // Fakes
 /////////////////////
 
-#include "fixtures/load_test_resources.h"
+#include <fixtures/load_test_resources.h>
 
 // Stubs
 /////////////////////
-
-#include "stubs_analytics.h"
-#include "stubs_app_install_manager.h"
-#include "stubs_app_state.h"
-#include "stubs_bootbits.h"
-#include "stubs_heap.h"
-#include "stubs_logging.h"
-#include "stubs_memory_layout.h"
-#include "stubs_mutex.h"
-#include "stubs_passert.h"
-#include "stubs_pbl_malloc.h"
-#include "stubs_pebble_tasks.h"
-#include "stubs_print.h"
-#include "stubs_serial.h"
-#include "stubs_shell_prefs.h"
-#include "stubs_sleep.h"
-#include "stubs_syscalls.h"
-#include "stubs_task_wdt.h"
-#include "stubs_ui_window.h"
-#include "stubs_unobstructed_area.h"
 
 // Helper Functions
 /////////////////////
@@ -74,10 +54,10 @@ void test_emoji_fonts__initialize(void) {
 
 void test_emoji_fonts__cleanup(void) {
   free(fb);
-  fb = NULL;
+  fb = nullptr;
 
   gbitmap_destroy(s_dest_bitmap);
-  s_dest_bitmap = NULL;
+  s_dest_bitmap = nullptr;
 }
 
 // Helpers

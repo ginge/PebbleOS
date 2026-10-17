@@ -3,13 +3,12 @@
 
 #include "fake_HCIAPI.h"
 
-#include "bluetopia_interface.h"
-
-#include "HCIAPI.h"
-
-#include "pbl/util/list.h"
-
 #include <stdlib.h>
+
+#include <pbl/util/list.h>
+
+#include <HCIAPI.h>
+#include <bluetopia_interface.h>
 
 typedef struct {
   ListNode node;
@@ -89,7 +88,7 @@ int HCI_LE_Remove_Device_From_White_List(unsigned int BluetoothStackID, Byte_t A
   };
   WhitelistEntry *e = prv_find_whitelist_entry(&model);
   if (e) {
-    list_remove(&e->node, (ListNode **)&s_head, NULL);
+    list_remove(&e->node, (ListNode **)&s_head, nullptr);
     free(e);
     return 0;
   } else {
@@ -104,7 +103,7 @@ bool fake_HCIAPI_whitelist_contains(const struct pbl_bt_device_internal *device)
     .Address_Type = device->is_random_address ? 0x01 : 0x00,
     .Address = BTDeviceAddressToBDADDR(device->address),
   };
-  return (prv_find_whitelist_entry(&model) != NULL);
+  return (prv_find_whitelist_entry(&model) != nullptr);
 }
 
 uint32_t fake_HCIAPI_whitelist_count(void) {
@@ -122,7 +121,7 @@ void fake_HCIAPI_deinit(void) {
     free(e);
     e = next;
   }
-  s_head = NULL;
+  s_head = nullptr;
 
   s_whitelist_error_count = 0;
 }

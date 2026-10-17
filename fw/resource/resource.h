@@ -4,11 +4,11 @@
 #pragma once
 
 #include <stdint.h>
-#include <stdbool.h>
 #include <stdlib.h>
 
-#include "applib/applib_resource.h"
-#include "pbl/kernel/compiler.h"
+#include <pbl/kernel/compiler.h>
+
+#include <applib/applib_resource.h>
 
 //! @addtogroup Foundation
 //! @{

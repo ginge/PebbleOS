@@ -3,28 +3,61 @@
 #
 # Compiler and linker flags shared by every firmware object.
 
-add_compile_options($<$<COMPILE_LANGUAGE:C>:-std=c11>)
+add_compile_options($<$<COMPILE_LANGUAGE:C>:-std=c23>)
 
 add_compile_options(
   -Wall
   -Wextra
-  -Werror
   -Wpointer-arith
   -Wno-unused-parameter
   -Wno-missing-field-initializers
-  -Wno-address-of-packed-member
 )
 
-set(pbl_arch_flags
-  -fvar-tracking-assignments
-  -mthumb
-  -ffreestanding
-  -ffunction-sections
-  # let --gc-sections drop unreferenced const/data objects too
-  -fdata-sections
-  -fbuiltin
-  -fno-builtin-itoa
-)
+add_compile_options(-Werror)
+
+if(CONFIG_ARCH_POSIX)
+  # Host clang does not know some of the GCC-only flags shared with ARM.
+  add_compile_options(-Wno-unknown-warning-option)
+  # Enums as small as the ARM EABI makes them, for the same struct layouts.
+  set(pbl_arch_flags
+    -fno-common
+    -fno-strict-aliasing
+    -fshort-enums
+    -ffunction-sections
+    -fdata-sections
+  )
+  set(pbl_sanitize_flags "")
+  if(CONFIG_ASAN)
+    list(APPEND pbl_sanitize_flags -fsanitize=address -fno-omit-frame-pointer)
+    if(CONFIG_ASAN_RECOVER)
+      list(APPEND pbl_sanitize_flags -fsanitize-recover=address)
+    endif()
+  endif()
+  if(CONFIG_UBSAN)
+    # Packed structs holding pointers leave what follows them misaligned on
+    # a 64-bit host, which they are not on the target.
+    list(APPEND pbl_sanitize_flags -fsanitize=undefined -fno-sanitize=alignment)
+  endif()
+  if(CONFIG_TSAN)
+    list(APPEND pbl_sanitize_flags -fsanitize=thread)
+  endif()
+  # The host side is instrumented along with the firmware.
+  list(APPEND pbl_arch_flags ${pbl_sanitize_flags})
+  if(pbl_sanitize_flags)
+    pbl_host_compile_options(${pbl_sanitize_flags})
+  endif()
+else()
+  set(pbl_arch_flags
+    -fvar-tracking-assignments
+    -mthumb
+    -ffreestanding
+    -ffunction-sections
+    # let --gc-sections drop unreferenced const/data objects too
+    -fdata-sections
+    -fbuiltin
+    -fno-builtin-itoa
+  )
+endif()
 
 if(CONFIG_DEBUG_INFO)
   # -gdwarf-4 is the more detailed debug info; -g3 additionally keeps the
@@ -62,7 +95,8 @@ if(CONFIG_LTO)
   )
 endif()
 
-if(CONFIG_CPU_STAR_MC1)
+if(CONFIG_ARCH_POSIX)
+elseif(CONFIG_CPU_STAR_MC1)
   set(pbl_cpu star-mc1)
 elseif(CONFIG_CPU_CORTEX_M33)
   set(pbl_cpu cortex-m33)
@@ -75,7 +109,9 @@ elseif(CONFIG_CPU_CORTEX_M33)
 elseif(CONFIG_CPU_CORTEX_M4)
   set(pbl_cpu cortex-m4)
 endif()
-list(APPEND pbl_arch_flags -mcpu=${pbl_cpu})
+if(pbl_cpu)
+  list(APPEND pbl_arch_flags -mcpu=${pbl_cpu})
+endif()
 
 if(CONFIG_CPU_HAS_FPU)
   if(CONFIG_ARMV8_M_MAINLINE)
@@ -113,15 +149,16 @@ else()
 endif()
 
 add_compile_options(${pbl_arch_flags} ${pbl_optimize})
-add_link_options(-Wl,--warn-common ${pbl_arch_flags} ${pbl_optimize})
+if(CONFIG_ARCH_POSIX)
+  add_link_options(${pbl_arch_flags} ${pbl_optimize})
+else()
+  add_link_options(-Wl,--warn-common ${pbl_arch_flags} ${pbl_optimize})
+endif()
 
 # Kconfig reaches every compilation unit, headers included.
 # SHELL: keeps the flag and its argument together; CMake would
 # otherwise fold the repeated -include options into one.
 add_compile_options("SHELL:-include ${PBL_AUTOCONF_H}")
-
-# time.h shims the firmware needs ahead of the toolchain's.
-include_directories(${PBL_BASE}/lib/c/include)
 
 # MAX_FONT_GLYPH_SIZE comes from the SDK platform description.
 execute_process(
@@ -135,7 +172,7 @@ execute_process(
 add_compile_definitions(MAX_FONT_GLYPH_SIZE=${PBL_MAX_FONT_GLYPH_SIZE})
 
 # Stationary mode is for shipping watch firmware only.
-if(NOT CONFIG_RECOVERY_FW AND NOT CONFIG_QEMU AND NOT CONFIG_SHELL_SDK)
+if(NOT CONFIG_RECOVERY_FW AND NOT CONFIG_QEMU AND NOT CONFIG_SOC_POSIX AND NOT CONFIG_SHELL_SDK)
   add_compile_definitions(STATIONARY_MODE)
 endif()
 

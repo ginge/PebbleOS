@@ -3,11 +3,11 @@
 
 #pragma once
 
-#include <pbl/bluetooth/types.h>
-#include <pbl/bluetooth/sm_types.h>
-#include <pbl/kernel/compiler.h>
-#include <stdbool.h>
 #include <stdint.h>
+
+#include <pbl/bluetooth/sm_types.h>
+#include <pbl/bluetooth/types.h>
+#include <pbl/kernel/compiler.h>
 
 /**
  * @defgroup services_bluetooth_bluetooth_persistent_storage_v2_impl Bonding storage format
@@ -69,7 +69,7 @@ typedef struct PBL_PACKED BtPersistLEPairingInfo {
  * @param[out] out Stored pairing info.
  * @param in Pairing info.
  */
-static void bt_persistent_storage_assign_persist_pairing_info(
+static inline void bt_persistent_storage_assign_persist_pairing_info(
     BtPersistLEPairingInfo *out, const struct pbl_bt_sm_pairing_info *in) {
   *out = (BtPersistLEPairingInfo){
     .local_encryption_info =
@@ -101,8 +101,8 @@ static void bt_persistent_storage_assign_persist_pairing_info(
  * @param[out] out Pairing info.
  * @param in Stored pairing info.
  */
-static void bt_persistent_storage_assign_sm_pairing_info(struct pbl_bt_sm_pairing_info *out,
-                                                         const BtPersistLEPairingInfo *in) {
+static inline void bt_persistent_storage_assign_sm_pairing_info(struct pbl_bt_sm_pairing_info *out,
+                                                                const BtPersistLEPairingInfo *in) {
   *out = (struct pbl_bt_sm_pairing_info){
     .local_encryption_info =
         {

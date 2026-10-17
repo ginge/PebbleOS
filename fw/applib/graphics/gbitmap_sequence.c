@@ -4,14 +4,16 @@
 #include "gbitmap_sequence.h"
 
 #include "gbitmap_png.h"
-#include "applib/graphics/raw_image.h"
-#include "pbl/util/units.h"
-#include "applib/app_logging.h"
-#include "applib/applib_malloc.auto.h"
-#include "syscall/syscall.h"
-#include "system/passert.h"
-#include "pbl/util/bitops.h"
-#include "pbl/util/math.h"
+
+#include <pbl/util/bitops.h>
+#include <pbl/util/math.h>
+#include <pbl/util/units.h>
+
+#include <applib/app_logging.h>
+#include <applib/applib_malloc.auto.h>
+#include <applib/graphics/raw_image.h>
+#include <syscall/syscall.h>
+#include <system/passert.h>
 
 #define APNG_DECODE_ERROR    "APNG decoding failed"
 #define APNG_MEMORY_ERROR    "APNG memory allocation failed"
@@ -19,15 +21,17 @@
 #define APNG_LOAD_ERROR      "Failed to load APNG"
 #define APNG_UPDATE_ERROR    "gbitmap_sequence failed to update bitmap"
 #define APNG_ELAPSED_WARNING "invalid elapsed_ms for gbitmap_sequence, forward progression only"
+#define APNG_DISPOSE_PREVIOUS_WARNING \
+  "APNG dispose op PREVIOUS unsupported, treated as NONE; re-encode without it"
 
 static bool prv_gbitmap_sequence_restart(GBitmapSequence *bitmap_sequence, bool reset_elapsed) {
-  if (bitmap_sequence == NULL) {
+  if (bitmap_sequence == nullptr) {
     return false;
   }
 
   // can start seeking after SIG + IHDR
   int32_t metadata_bytes =
-      png_seek_chunk_in_resource(bitmap_sequence->resource_id, PNG_HEADER_SIZE, false, NULL);
+      png_seek_chunk_in_resource(bitmap_sequence->resource_id, PNG_HEADER_SIZE, false, nullptr);
 
   if (metadata_bytes <= 0) {
     return false;
@@ -72,11 +76,11 @@ GBitmapSequence *gbitmap_sequence_create_with_resource(uint32_t resource_id) {
 
 GBitmapSequence *gbitmap_sequence_create_with_resource_system(ResAppNum app_num,
                                                               uint32_t resource_id) {
-  uint8_t *frame_data_buffer = NULL;
+  uint8_t *frame_data_buffer = nullptr;
 
   // Allocate gbitmap
   GBitmapSequence *bitmap_sequence = applib_type_zalloc(GBitmapSequence);
-  if (bitmap_sequence == NULL) {
+  if (bitmap_sequence == nullptr) {
     goto cleanup;
   }
 
@@ -89,7 +93,7 @@ GBitmapSequence *gbitmap_sequence_create_with_resource_system(ResAppNum app_num,
   int32_t frame_bytes = bitmap_sequence->png_decoder_data.read_cursor;
 
   frame_data_buffer = applib_zalloc(frame_bytes);
-  if (frame_data_buffer == NULL) {
+  if (frame_data_buffer == nullptr) {
     goto cleanup;
   }
 
@@ -100,7 +104,7 @@ GBitmapSequence *gbitmap_sequence_create_with_resource_system(ResAppNum app_num,
   }
 
   upng_t *upng = upng_create();
-  if (upng == NULL) {
+  if (upng == nullptr) {
     goto cleanup;
   }
 
@@ -166,14 +170,6 @@ void gbitmap_sequence_destroy(GBitmapSequence *bitmap_sequence) {
   }
 }
 
-static PBL_ALWAYS_INLINE GColor8 *prv_target_pixel_addr(GBitmap *bitmap, apng_fctl *fctl,
-                                                        uint32_t x, uint32_t y) {
-  uint32_t offset = (fctl->y_offset + y + bitmap->bounds.origin.y) * bitmap->row_size_bytes +
-                    (fctl->x_offset + x + bitmap->bounds.origin.x);
-  GColor8 *pixel_data = bitmap->addr;
-  return &pixel_data[offset];
-}
-
 static void prv_set_pixel_in_row(uint8_t *row_data, GBitmapFormat bitmap_format, uint32_t x,
                                  GColor8 color) {
   if (bitmap_format == GBitmapFormat1Bit) {
@@ -192,7 +188,7 @@ static void prv_set_pixel_in_row(uint8_t *row_data, GBitmapFormat bitmap_format,
 bool gbitmap_sequence_update_bitmap_next_frame(GBitmapSequence *bitmap_sequence, GBitmap *bitmap,
                                                uint32_t *delay_ms) {
   bool retval = false;
-  uint8_t *buffer = NULL;
+  uint8_t *buffer = nullptr;
 
   // Disabled if play count is 0 and not the very first frame
   if (!bitmap_sequence ||
@@ -205,7 +201,7 @@ bool gbitmap_sequence_update_bitmap_next_frame(GBitmapSequence *bitmap_sequence,
 
   // Check bitmap_sequence metadata is loaded, bitmap_sequence size, type & memory constraints
   const GBitmapFormat bitmap_format = gbitmap_get_format(bitmap); // call is NULL-safe
-  if (!bitmap_sequence->header_loaded || bitmap == NULL || bitmap->addr == NULL ||
+  if (!bitmap_sequence->header_loaded || bitmap == nullptr || bitmap->addr == nullptr ||
       bitmap_sequence->bitmap_size.w > (bitmap->bounds.size.w) ||
       bitmap_sequence->bitmap_size.h > (bitmap->bounds.size.h)) {
     goto cleanup;
@@ -231,14 +227,14 @@ bool gbitmap_sequence_update_bitmap_next_frame(GBitmapSequence *bitmap_sequence,
   }
 
   const int32_t metadata_bytes = png_seek_chunk_in_resource(
-      bitmap_sequence->resource_id, png_decoder_data->read_cursor, true, NULL);
+      bitmap_sequence->resource_id, png_decoder_data->read_cursor, true, nullptr);
 
   if (metadata_bytes <= 0) {
     goto cleanup;
   }
 
   buffer = applib_zalloc(metadata_bytes);
-  if (buffer == NULL) {
+  if (buffer == nullptr) {
     goto cleanup;
   }
 
@@ -287,7 +283,7 @@ bool gbitmap_sequence_update_bitmap_next_frame(GBitmapSequence *bitmap_sequence,
     }
   }
 
-  apng_fctl fctl = {0}; // Defaults work for IDAT frame without fctl data
+  apng_fctl fctl = {}; // Defaults work for IDAT frame without fctl data
 
   // If this frame doesn't have fctl, use the full width & height
   if (!upng_get_apng_fctl(upng, &fctl)) {
@@ -296,6 +292,11 @@ bool gbitmap_sequence_update_bitmap_next_frame(GBitmapSequence *bitmap_sequence,
     // As a PNG image is only a single frame, display it forever
     bitmap_sequence->current_frame_delay_ms = PLAY_DURATION_INFINITE;
   } else {
+    if ((fctl.dispose_op == APNG_DISPOSE_OP_PREVIOUS) &&
+        !bitmap_sequence->dispose_op_previous_warned) {
+      APP_LOG(APP_LOG_LEVEL_WARNING, APNG_DISPOSE_PREVIOUS_WARNING);
+      bitmap_sequence->dispose_op_previous_warned = true;
+    }
     png_decoder_data->last_dispose_op = fctl.dispose_op;
     png_decoder_data->previous_xoffset = fctl.x_offset;
     png_decoder_data->previous_yoffset = fctl.y_offset;
@@ -309,7 +310,7 @@ bool gbitmap_sequence_update_bitmap_next_frame(GBitmapSequence *bitmap_sequence,
   }
 
   // Return the delay_ms for the new frame
-  if (delay_ms != NULL) {
+  if (delay_ms != nullptr) {
     *delay_ms = bitmap_sequence->current_frame_delay_ms;
   }
 
@@ -408,7 +409,7 @@ bool gbitmap_sequence_update_bitmap_by_elapsed(GBitmapSequence *bitmap_sequence,
   bool frame_updated = true;
   while (frame_updated && ((elapsed_ms > bitmap_sequence->elapsed_ms) ||
                            (bitmap_sequence->current_frame_delay_ms == 0))) {
-    frame_updated = gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, NULL);
+    frame_updated = gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, nullptr);
     // If frame is updated at least once, return true
     if (frame_updated) {
       retval = true;

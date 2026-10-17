@@ -1,12 +1,11 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/util/circular_buffer.h"
-
-#include "pbl/util/assert.h"
-#include "pbl/util/math.h"
-
 #include <string.h>
+
+#include <pbl/util/assert.h>
+#include <pbl/util/circular_buffer.h>
+#include <pbl/util/math.h>
 
 static uint16_t get_write_length_available(CircularBuffer *buffer) {
   return buffer->buffer_size - buffer->data_length;
@@ -60,7 +59,7 @@ bool circular_buffer_write(CircularBuffer *buffer, const void *data, uint16_t le
 
 uint16_t circular_buffer_write_prepare(CircularBuffer *buffer, uint8_t **data_out) {
   if (!get_write_length_available(buffer) || buffer->write_in_progress) {
-    *data_out = NULL;
+    *data_out = nullptr;
     return 0;
   }
   buffer->write_in_progress = true;

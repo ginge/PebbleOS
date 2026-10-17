@@ -2,28 +2,30 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "health_service.h"
+
+#include "event_service_client.h"
 #include "health_service_private.h"
 
-#include "applib/app.h"
-#include "applib/applib_malloc.auto.h"
-#include "applib/pbl_std/pbl_std.h"
-#include "event_service_client.h"
-#include "kernel/events.h"
-#include "process_state/app_state/app_state.h"
-#include "process_state/worker_state/worker_state.h"
-#include "pbl/services/hrm/hrm_manager.h"
-#include "pbl/services/activity/activity.h"
-#include "shell/prefs_syscalls.h"
-#include "syscall/syscall.h"
 #include <pbl/logging/logging.h>
-#include "system/passert.h"
-#include "pbl/util/math.h"
-#include "pbl/util/size.h"
-#include "pbl/util/stats.h"
-#include "pbl/util/testing.h"
-#include "pbl/services/time.h"
-#include "pbl/util/time.h"
-#include "pbl/util/units.h"
+#include <pbl/services/activity/activity.h>
+#include <pbl/services/hrm/hrm_manager.h>
+#include <pbl/services/time.h>
+#include <pbl/util/math.h>
+#include <pbl/util/size.h>
+#include <pbl/util/stats.h>
+#include <pbl/util/testing.h>
+#include <pbl/util/time.h>
+#include <pbl/util/units.h>
+
+#include <applib/app.h>
+#include <applib/applib_malloc.auto.h>
+#include <applib/pbl_std/pbl_std.h>
+#include <kernel/events.h>
+#include <process_state/app_state/app_state.h>
+#include <process_state/worker_state/worker_state.h>
+#include <shell/prefs_syscalls.h>
+#include <syscall/syscall.h>
+#include <system/passert.h>
 
 // Fetching minute history can take a while, so we limit the amount of data we will ever access
 // in one call to this
@@ -68,7 +70,7 @@ static HealthAggregation prv_default_aggregation(HealthMetric metric) {
 static HealthServiceState *prv_get_state(bool ensure_cache_initialized) {
   PebbleTask task = pebble_task_get_current();
 
-  HealthServiceState *result = NULL;
+  HealthServiceState *result = nullptr;
   if (task == PebbleTask_App) {
     result = app_state_get_health_service_state();
   } else if (task == PebbleTask_Worker) {
@@ -78,7 +80,7 @@ static HealthServiceState *prv_get_state(bool ensure_cache_initialized) {
   }
 
   // clients can free the cache by calling health_service_events_unsubscribe()
-  if (result && ensure_cache_initialized && result->cache == NULL) {
+  if (result && ensure_cache_initialized && result->cache == nullptr) {
     result->cache = applib_type_zalloc(HealthServiceCache);
   }
 
@@ -89,14 +91,14 @@ static HealthServiceState *prv_get_state(bool ensure_cache_initialized) {
 static void prv_health_service_deinit_cache(HealthServiceState *state) {
   if (state) {
     applib_free(state->cache);
-    state->cache = NULL;
+    state->cache = nullptr;
   }
 }
 
 // ----------------------------------------------------------------------------------------------
 // returns a time_t of a given time that represents midnight of the given local time.
 static time_t prv_get_midnight_of_local_time(time_t now) {
-  struct tm *local_tm = pbl_override_gmtime(&now);
+  struct pbl_tm *local_tm = pbl_override_gmtime(&now);
   local_tm->tm_hour = 0;
   local_tm->tm_min = 0;
   local_tm->tm_sec = 0;
@@ -174,7 +176,7 @@ static bool prv_metric_aggregation_implemented(HealthMetric metric, time_t time_
             return true;
           }
         }
-        /* FALLTHROUGH */
+          [[fallthrough]];
         case HealthAggregationMax:
         case HealthAggregationMin: {
           // Only supported using minute data (short time range, no scope) because
@@ -233,7 +235,7 @@ static bool prv_get_metric_stats(HealthServiceState *state, HealthMetric metric,
 
   // What day of the week is it now?
   const time_t now_utc = sys_get_time();
-  struct tm *local_tm = pbl_override_localtime(&now_utc);
+  struct pbl_tm *local_tm = pbl_override_localtime(&now_utc);
 
   // Compute weekly, weekday, and daily stats
   *stats = (HealthServiceMetricStats){};
@@ -359,7 +361,7 @@ static bool prv_get_intraday_averages(HealthServiceState *state, HealthMetric me
 static HealthValue prv_sum_intraday_averages(ActivityMetricAverages *averages, time_t time_start,
                                              time_t time_end) {
   PBL_ASSERTN((time_end - time_start) <= PBL_SEC_PER_DAY);
-  struct tm *local_tm = pbl_override_localtime(&time_start);
+  struct pbl_tm *local_tm = pbl_override_localtime(&time_start);
 
   // Add up the metric averages for the passed in time range
   time_t chunk_start_time = time_start;
@@ -462,7 +464,7 @@ PBL_T_STATIC bool prv_calculate_time_range(time_t time_start, time_t time_end,
 static HealthServiceAccessibilityMask prv_get_range_and_daily_history(
     HealthServiceState *state, HealthMetric metric, time_t time_start, time_t time_end,
     HealthServiceTimeRange *time_range, HealthServiceDailyHistory *daily_history) {
-  PBL_ASSERTN((time_range != NULL) && (daily_history != NULL));
+  PBL_ASSERTN((time_range != nullptr) && (daily_history != nullptr));
 
   // TODO: PBL-31628 permission system to reply with HealthServiceAccessibilityMaskNoPermission
 
@@ -567,7 +569,7 @@ static HealthValue prv_compute_aggregate_averaged_using_daily_totals(
   // What day of the week is the scope for? For now, we will use the day of the week that
   // time_start falls on. In the future, we could be better about blending weekday with weekend
   // if the time range spans both
-  struct tm *local_tm = pbl_override_localtime(&time_start);
+  struct pbl_tm *local_tm = pbl_override_localtime(&time_start);
   bool is_weekend = prv_is_weekend(local_tm->tm_wday);
 
   // Compute all stats
@@ -578,7 +580,7 @@ static HealthValue prv_compute_aggregate_averaged_using_daily_totals(
 
   // Return the appropriate statistic given the scope and aggregation
   HealthValue result = 0;
-  HealthServiceStats *which_stats = NULL;
+  HealthServiceStats *which_stats = nullptr;
   if (scope == HealthServiceTimeScopeDaily) {
     which_stats = &stats.daily;
   } else if (scope == HealthServiceTimeScopeDailyWeekdayOrWeekend) {
@@ -764,7 +766,7 @@ uint16_t health_service_peek_hrv_ppi_ms(void) {
 PBL_T_STATIC void prv_health_event_handler(PebbleEvent *e, void *context) {
 #if !defined(CONFIG_RECOVERY_FW)
   HealthServiceState *state = prv_get_state(true);
-  PBL_ASSERTN(state && state->event_handler != NULL);
+  PBL_ASSERTN(state && state->event_handler != nullptr);
 
   // If this is an HRV update event, remember the reading for peeking
   if (e->health_event.type == HealthEventHRVUpdate) {
@@ -875,19 +877,19 @@ bool health_service_private_non_zero_filter(int index, int32_t value, void *cont
 
 bool health_service_private_weekday_filter(int index, int32_t value, void *tm_weekday_ref) {
   const int tm_weekday = (int)(uintptr_t)tm_weekday_ref;
-  return (health_service_private_non_zero_filter(index, value, NULL) &&
+  return (health_service_private_non_zero_filter(index, value, nullptr) &&
           pbl_time_is_weekday(positive_modulo(tm_weekday - index, PBL_DAY_PER_WEEK)));
 }
 
 bool health_service_private_weekend_filter(int index, int32_t value, void *tm_weekday_ref) {
   const int tm_weekday = (int)(uintptr_t)tm_weekday_ref;
-  return (health_service_private_non_zero_filter(index, value, NULL) &&
+  return (health_service_private_non_zero_filter(index, value, nullptr) &&
           pbl_time_is_weekend(positive_modulo(tm_weekday - index, PBL_DAY_PER_WEEK)));
 }
 
 bool health_service_private_weekly_filter(int index, int32_t value, void *tm_weekday_ref) {
   const int tm_weekday = (int)(uintptr_t)tm_weekday_ref;
-  return (health_service_private_non_zero_filter(index, value, NULL) &&
+  return (health_service_private_non_zero_filter(index, value, nullptr) &&
           (positive_modulo(tm_weekday - index, PBL_DAY_PER_WEEK) == 0));
 }
 
@@ -1065,7 +1067,7 @@ HealthValue health_service_aggregate_averaged(HealthMetric metric, time_t time_s
       ((time_end - time_start) < PBL_SEC_PER_DAY)) {
     // For now, we will use the day of the week that time_start falls on. In the future, we could
     // be better about blending weekday with weekend if the time range spans both
-    struct tm *local_tm = pbl_override_localtime(&time_start);
+    struct pbl_tm *local_tm = pbl_override_localtime(&time_start);
     bool is_weekend = prv_is_weekend(local_tm->tm_wday);
 
     ActivityMetricAverages averages;
@@ -1141,7 +1143,7 @@ bool health_service_events_subscribe(HealthEventHandler handler, void *context) 
 bool health_service_events_unsubscribe(void) {
   HealthServiceState *state = prv_get_state(false);
   event_service_client_unsubscribe(&state->health_event_service_info);
-  state->event_handler = NULL;
+  state->event_handler = nullptr;
   prv_health_service_deinit_cache(state);
   return true;
 }
@@ -1150,12 +1152,12 @@ bool health_service_events_unsubscribe(void) {
 HealthMetricAlert *health_service_register_metric_alert(HealthMetric metric,
                                                         HealthValue threshold) {
   if (prv_is_heart_rate_metric(metric) && !sys_activity_prefs_heart_rate_is_enabled()) {
-    return NULL;
+    return nullptr;
   }
 
   HealthServiceState *state = prv_get_state(true);
   if (!state->cache) {
-    return NULL;
+    return nullptr;
   }
 
   switch (metric) {
@@ -1164,13 +1166,13 @@ HealthMetricAlert *health_service_register_metric_alert(HealthMetric metric,
       // metric right now
       if (state->cache->alert_threshold_heart_rate.threshold != 0) {
         APP_LOG(APP_LOG_LEVEL_INFO, "Only 1 alert allowed per metric");
-        return NULL;
+        return nullptr;
       }
       prv_init_metric_alert(state, HealthMetricHeartRateBPM, threshold,
                             &state->cache->alert_threshold_heart_rate);
       return (void *)HealthMetricHeartRateBPM;
     default:
-      return NULL;
+      return nullptr;
   }
 }
 
@@ -1178,10 +1180,10 @@ HealthMetricAlert *health_service_register_metric_alert(HealthMetric metric,
 bool health_service_cancel_metric_alert(HealthMetricAlert *alert) {
   HealthServiceState *state = prv_get_state(true);
   if (!state->cache) {
-    return NULL;
+    return false;
   }
 
-  HealthMetric metric = (HealthMetric)alert;
+  HealthMetric metric = (HealthMetric)(uintptr_t)alert;
   if (prv_is_heart_rate_metric(metric) && !sys_activity_prefs_heart_rate_is_enabled()) {
     return false;
   }
@@ -1388,7 +1390,7 @@ void health_service_activities_iterate(HealthActivityMask activity_mask, time_t 
     return;
   }
 
-  if (callback == NULL || activity_mask == HealthActivityNone) {
+  if (callback == nullptr || activity_mask == HealthActivityNone) {
     return;
   }
 
@@ -1439,8 +1441,9 @@ void health_service_activities_iterate(HealthActivityMask activity_mask, time_t 
 // ----------------------------------------------------------------------------------------------
 bool health_service_private_get_yesterdays_sleep_activity(HealthValue *enter_sec,
                                                           HealthValue *exit_sec) {
-  return sys_activity_get_metric(ActivityMetricSleepEnterAtSeconds, 1, enter_sec) &
-         sys_activity_get_metric(ActivityMetricSleepExitAtSeconds, 1, exit_sec);
+  const bool enter_ok = sys_activity_get_metric(ActivityMetricSleepEnterAtSeconds, 1, enter_sec);
+  const bool exit_ok = sys_activity_get_metric(ActivityMetricSleepExitAtSeconds, 1, exit_sec);
+  return enter_ok && exit_ok;
 }
 
 // ----------------------------------------------------------------------------------------------

@@ -6,10 +6,9 @@
 
 #pragma once
 
-#include <pbl/drivers/button_id.h>
-
 #include <stdint.h>
-#include <stdbool.h>
+
+#include <pbl/drivers/button_id.h>
 
 //! @addtogroup UI
 //! @{

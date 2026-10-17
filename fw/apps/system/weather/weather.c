@@ -15,21 +15,21 @@
 
 #include "weather.h"
 
-#include "pbl/services/i18n/i18n.h"
 #include "clock_face.h"
-#include "warning_dialog.h"
-#include "weather_report.h"
 #include "expanded_view.h"
 #include "forecast_list.h"
 #include "globe_view.h"
-#include "saved_locations.h"
-#include "weather_types.h"
-#include "weather_math.h"
-#include "weather_data_source.h"
-
 #include "pebble_compat.h"
-#include "pbl/services/timeline/timeline.h" // UUID_WEATHER_DATA_SOURCE
-#include "pbl/util/units.h"
+#include "saved_locations.h"
+#include "warning_dialog.h"
+#include "weather_data_source.h"
+#include "weather_math.h"
+#include "weather_report.h"
+#include "weather_types.h"
+
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/services/timeline/timeline.h> // UUID_WEATHER_DATA_SOURCE
+#include <pbl/util/units.h>
 
 #define WX_MAX_DAYS 7
 
@@ -114,7 +114,7 @@ static const char *prv_phrase_for_type(uint8_t type) {
     case WeatherType_Generic:
     case WeatherType_Unknown:
     default:
-      return NULL;
+      return nullptr;
   }
 }
 
@@ -143,7 +143,7 @@ static void prv_day_label(int day_offset, char *buf, size_t bufsize) {
       i18n_noop("Thursday"), i18n_noop("Friday"), i18n_noop("Saturday"),
     };
     time_t t = rtc_get_time() + (time_t)day_offset * PBL_SEC_PER_DAY;
-    struct tm *lt = localtime(&t); // compat maps to pbl_override_localtime
+    struct pbl_tm *lt = localtime(&t); // compat maps to pbl_override_localtime
     int w = (lt && lt->tm_wday >= 0 && lt->tm_wday < 7) ? lt->tm_wday : 0;
     i18n_get_with_buffer(kWday[w], buf, bufsize);
   }
@@ -155,7 +155,7 @@ static void prv_day_label(int day_offset, char *buf, size_t bufsize) {
 // same pair the sunset computation uses).
 static int prv_location_local_hour(const WxDsForecast *ds) {
   time_t now = rtc_get_time();
-  struct tm *lt = localtime(&now);
+  struct pbl_tm *lt = localtime(&now);
   if (!lt)
     return -1;
   int hour = lt->tm_hour;
@@ -246,7 +246,7 @@ static void prv_fill_days_from_ds(WeatherAppData *data, const WxDsForecast *ds) 
     // delta on the same city. Consistency with the clock outranks the saved-city refinement
     // (which the clock doesn't have either).
     time_t now_t = rtc_get_time();
-    struct tm *lt_h = localtime(&now_t);
+    struct pbl_tm *lt_h = localtime(&now_t);
     const int hour = lt_h ? lt_h->tm_hour : -1;
     if (ds->hourly_count == WX_DS_HOURLY && hour >= 0 && hour < WX_DS_HOURLY &&
         ds->hourly_type[hour] <= WeatherType_RainAndSnow) {
@@ -332,7 +332,7 @@ static void prv_fill_days_from_ds(WeatherAppData *data, const WxDsForecast *ds) 
 // Push the card's glance strings (sunset title, high/low°, location) to the forecast so its
 // hero icon-fly can animate the identical text in, synced to the icon landing.
 static void prv_sync_glance_strings(WeatherAppData *data) {
-  const WeatherLocationForecast *today = data->days_received >= 1 ? &data->days[0] : NULL;
+  const WeatherLocationForecast *today = data->days_received >= 1 ? &data->days[0] : nullptr;
   char sunset[40], temp[16], loc[64];
   expanded_view_format_glance(today, data->latitude_e2, data->longitude_e2, data->utc_offset_min,
                               sunset, sizeof(sunset), temp, sizeof(temp), loc, sizeof(loc));
@@ -361,7 +361,7 @@ static void prv_read_current_location(WeatherAppData *data, WxDsForecast *scratc
 
 static void prv_warning_dialog_dismiss_cb(void) {
   if (s_data) {
-    s_data->warning_dialog = NULL;
+    s_data->warning_dialog = nullptr;
   }
 }
 
@@ -387,7 +387,7 @@ static void prv_refresh(WeatherAppData *data) {
   data->location_count = weather_ds_location_count();
   if (data->location_count <= 0) {
     data->days_received = 0;
-    forecast_list_update_data(NULL, 0);
+    forecast_list_update_data(nullptr, 0);
     prv_show_no_data_warning(data);
     return;
   }
@@ -406,8 +406,8 @@ static void prv_refresh(WeatherAppData *data) {
     // prv_refresh in prv_init runs before the base window is pushed).
     forecast_list_update_data(data->days, data->days_received);
     // Keep the expanded card current too if it happens to be showing (no-op otherwise).
-    expanded_view_update_data(data->days_received >= 1 ? &data->days[0] : NULL, data->latitude_e2,
-                              data->longitude_e2, data->utc_offset_min);
+    expanded_view_update_data(data->days_received >= 1 ? &data->days[0] : nullptr,
+                              data->latitude_e2, data->longitude_e2, data->utc_offset_min);
     // And the weather report — it borrows days[] and must re-render today's edition.
     weather_report_update_data(data->days, data->days_received);
     prv_sync_glance_strings(data); // for the hero-fly text
@@ -447,7 +447,7 @@ static void prv_push_clock(WeatherAppData *data, bool static_push) {
   // day the record carries hourly for today).
   uint8_t s_hourly_type[24]; // stack scratch — every consumer copies synchronously
   int8_t s_hourly_temp[24];
-  const uint8_t *hourly_types = NULL;
+  const uint8_t *hourly_types = nullptr;
   bool have_hourly = false;
 
   if (di == 0 && data->hourly_valid) {
@@ -502,7 +502,7 @@ static void prv_on_clock_burst_requested(void *ctx) {
 // The expanded weather card is the middle of the vertical stack: forecast -> card -> globe.
 // It borrows today's forecast (day 0) and takes the UP/DOWN callbacks that step the stack.
 static void prv_push_expanded(WeatherAppData *data, ExpandedViewEntrance entrance) {
-  const WeatherLocationForecast *today = (data->days_received >= 1) ? &data->days[0] : NULL;
+  const WeatherLocationForecast *today = (data->days_received >= 1) ? &data->days[0] : nullptr;
   expanded_view_push(today, data->latitude_e2, data->longitude_e2, data->utc_offset_min, entrance,
                      prv_expanded_down_to_main, data, prv_expanded_select_to_globe, data);
 }
@@ -579,8 +579,8 @@ static void prv_on_report_requested(void *ctx) {
 static void prv_on_list_transition_done(void *ctx) {
   WeatherAppData *data = (WeatherAppData *)ctx;
   // The animated forecast is the carousel base window — pushed once and never dismissed.
-  forecast_list_push(data->days, data->days_received, (int)data->current_day_index, false, NULL,
-                     NULL, prv_on_city_select_requested, data);
+  forecast_list_push(data->days, data->days_received, (int)data->current_day_index, false, nullptr,
+                     nullptr, prv_on_city_select_requested, data);
   forecast_list_set_on_clock_request(prv_on_clock_burst_requested, data);
   forecast_list_set_on_up_request(prv_on_list_up_to_expanded, data);
   forecast_list_set_on_select_request(prv_on_report_requested, data);
@@ -771,13 +771,13 @@ static void prv_deinit(void) {
       event_service_client_unsubscribe(&s_data->weather_event_info);
     }
     i18n_free_all(s_data);
-    clock_face_set_wrap_callback(NULL, NULL);
+    clock_face_set_wrap_callback(nullptr, nullptr);
     if (s_data->globe_view) {
       globe_view_destroy(s_data->globe_view);
-      s_data->globe_view = NULL;
+      s_data->globe_view = nullptr;
     }
   }
-  s_data = NULL;
+  s_data = nullptr;
 }
 
 static void prv_main(void) {
@@ -796,5 +796,5 @@ const PebbleProcessMd *weather_app_get_info(void) {
     .name = i18n_noop("Weather"),
     .icon_resource_id = RESOURCE_ID_GENERIC_WEATHER_TINY,
   };
-  return weather_ds_supported() ? (const PebbleProcessMd *)&s_weather_app_info : NULL;
+  return weather_ds_supported() ? (const PebbleProcessMd *)&s_weather_app_info : nullptr;
 }

@@ -6,12 +6,12 @@
 #include "api_types.h"
 
 #include <stdint.h>
-#include <stdbool.h>
-
-#include "system/status_codes.h"
-#include "pbl/kernel/compiler.h"
-#include "pbl/util/list.h"
 #include <time.h>
+
+#include <pbl/kernel/compiler.h>
+#include <pbl/util/list.h>
+
+#include <system/status_codes.h>
 
 /**
  * @defgroup services_blob_db BlobDB
@@ -79,7 +79,7 @@ typedef enum PBL_PACKED {
   /** Number of database ids. */
   NumBlobDBs,
 } BlobDBId;
-_Static_assert(sizeof(BlobDBId) == 1, "BlobDBId is larger than 1 byte");
+static_assert(sizeof(BlobDBId) == 1, "BlobDBId is larger than 1 byte");
 
 /**
  * @brief Node of a list of records that have not been synced to the phone yet.

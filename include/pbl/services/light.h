@@ -3,9 +3,10 @@
 
 #pragma once
 
-#include <stdbool.h>
 #include <stdint.h>
-#include "shell/prefs.h"
+
+#include <kernel/pebble_tasks.h>
+#include <shell/prefs.h>
 
 /**
  * @defgroup services_light Backlight
@@ -110,11 +111,11 @@ void light_enable_interaction(void);
 
 /**
  * @ingroup services_light
- * @brief Return to the normal state machine after an app forced the light with light_enable().
+ * @brief Return to the normal state machine if @p task forced the light with light_enable().
  *
- * Also releases a touch hold that never saw its liftoff.
+ * @param task Task that exited.
  */
-void light_reset_user_controlled(void);
+void light_reset_user_controlled_by_task(PebbleTask task);
 
 /**
  * @brief Tint the backlight LED to a packed 24-bit RGB value.
@@ -227,6 +228,22 @@ bool light_is_lit_by_touch(void);
  * @return Ambient light level in lux.
  */
 uint32_t light_get_ambient_lux(void);
+
+/**
+ * @ingroup services_light
+ * @brief Get the ambient light level below which the backlight turns on.
+ *
+ * @return Threshold, in the units of light_get_ambient_lux().
+ */
+uint32_t light_get_dark_threshold(void);
+
+/**
+ * @ingroup services_light
+ * @brief Set the ambient light level below which the backlight turns on.
+ *
+ * @param threshold Threshold, in the units of light_get_ambient_lux().
+ */
+void light_set_dark_threshold(uint32_t threshold);
 
 /** @} */
 

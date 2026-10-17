@@ -2,14 +2,13 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <pbl/bluetooth/gatt.h>
-
-#include <pbl/logging/logging.h>
-#include "comm/ble/gap_le_connection.h"
-#include "comm/ble/gatt_service_changed.h"
-#include "comm/bt_lock.h"
-#include "kernel/events.h"
-
 #include <pbl/bluetooth/pebble_pairing_service.h>
+#include <pbl/logging/logging.h>
+
+#include <comm/ble/gap_le_connection.h>
+#include <comm/ble/gatt_service_changed.h>
+#include <comm/bt_lock.h>
+#include <kernel/events.h>
 
 PBL_LOG_MODULE_DECLARE(bt, CONFIG_BT_LOG_LEVEL);
 
@@ -19,7 +18,7 @@ extern void gatt_client_subscriptions_handle_server_notification(GAPLEConnection
                                                                  const uint8_t *att_value,
                                                                  uint16_t att_length);
 
-extern PebbleTaskBitset gap_le_connect_task_mask_for_connection(const GAPLEConnection *connection);
+extern bool gap_le_connect_has_intent_for_connection(const GAPLEConnection *connection);
 
 void pbl_bt_cb_gatt_handle_connect(const struct pbl_bt_gatt_device_connection_event *event) {
   bt_lock();
@@ -67,14 +66,14 @@ unlock:
 }
 
 void pbl_bt_cb_gatt_handle_notification(const struct pbl_bt_gatt_server_notif_indic_event *event) {
-  GAPLEConnection *connection = NULL;
+  GAPLEConnection *connection = nullptr;
   bt_lock();
   {
     connection = gap_le_connection_by_addr(&event->dev_address);
   }
   bt_unlock();
 
-  if (connection == NULL) {
+  if (connection == nullptr) {
     return;
   }
 
@@ -85,7 +84,7 @@ void pbl_bt_cb_gatt_handle_notification(const struct pbl_bt_gatt_server_notif_in
 }
 
 void pbl_bt_cb_gatt_handle_indication(const struct pbl_bt_gatt_server_notif_indic_event *event) {
-  GAPLEConnection *connection = NULL;
+  GAPLEConnection *connection = nullptr;
   bool done = false;
   bt_lock();
   {
@@ -96,7 +95,7 @@ void pbl_bt_cb_gatt_handle_indication(const struct pbl_bt_gatt_server_notif_indi
 
     // We are done if we got disconnected in the meantime or if this is a Service Changed indication
     // consumed by gatt_service_changed.c
-    done = (connection == NULL) ||
+    done = (connection == nullptr) ||
            gatt_service_changed_client_handle_indication(connection, event->attr_handle,
                                                          event->attr_val, event->attr_val_len);
   }
@@ -114,15 +113,13 @@ void pbl_bt_cb_gatt_handle_buffer_empty(const struct pbl_bt_gatt_device_buffer_e
   bt_lock();
   {
     const GAPLEConnection *connection = gap_le_connection_by_addr(&event->dev_address);
-    if (!connection) {
+    if (!connection || !gap_le_connect_has_intent_for_connection(connection)) {
       goto unlock;
     }
 
-    PebbleTaskBitset task_mask = gap_le_connect_task_mask_for_connection(connection);
-
     PebbleEvent e = {
       .type = PEBBLE_BLE_GATT_CLIENT_EVENT,
-      .task_mask = task_mask,
+      .task_mask = (PebbleTaskBitset) ~(1u << PebbleTask_KernelMain),
       .bluetooth = {
         .le = {
           .gatt_client = {

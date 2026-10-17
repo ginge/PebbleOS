@@ -3,16 +3,16 @@
 
 #include "getting_started_button_combo.h"
 
-#include "applib/ui/app_window_stack.h"
-#include "applib/graphics/gtypes.h"
-
-#include "apps/core/spinner_ui_window.h"
-#include "kernel/util/factory_reset.h"
-#include "mfg/mfg_mode/mfg_factory_mode.h"
-#include "process_management/process_manager.h"
-#include "pbl/services/system_task.h"
 #include <pbl/logging/logging.h>
-#include "pbl/util/size.h"
+#include <pbl/services/system_task.h>
+#include <pbl/util/size.h>
+
+#include <applib/graphics/gtypes.h>
+#include <applib/ui/app_window_stack.h>
+#include <apps/core/spinner_ui_window.h>
+#include <kernel/util/factory_reset.h>
+#include <mfg/mfg_mode/mfg_factory_mode.h>
+#include <process_management/process_manager.h>
 
 void getting_started_button_combo_init(GettingStartedButtonComboState *state,
                                        GettingStartedButtonComboCallback select_callback) {
@@ -36,7 +36,7 @@ static void prv_down_cb(void *data) {
   app_window_stack_push(spinner_window, false /* animated */);
 
   // Factory reset on KernelBG so the animation gets priority
-  system_task_add_callback(prv_factory_reset, NULL);
+  system_task_add_callback(prv_factory_reset, nullptr);
 }
 
 #ifdef CONFIG_RECOVERY_FW
@@ -50,7 +50,7 @@ static void prv_timeout_expired(void *data) {
 
   // Timeout expired, jump over the app thread to do the thing.
   void (*real_callback)(void *) = data;
-  process_manager_send_callback_event_to_process(PebbleTask_App, real_callback, NULL);
+  process_manager_send_callback_event_to_process(PebbleTask_App, real_callback, nullptr);
 }
 
 static void prv_update_state(GettingStartedButtonComboState *state) {

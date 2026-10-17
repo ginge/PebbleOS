@@ -2,26 +2,27 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "debug.h"
+
 #include "advanced_logging.h"
-
-#include "flash_logging.h"
 #include "debug_reboot_reason.h"
+#include "flash_logging.h"
 
-#include "kernel/events.h"
-#include "logging/logging_private.h"
-#include "kernel/pebble_tasks.h"
-#include "mfg/mfg_serials.h"
-#include "process_management/app_manager.h"
-#include "pbl/services/comm_session/session.h"
-#include "pbl/services/comm_session/session_send_buffer.h"
-#include "pbl/services/process_management/app_storage.h"
-#include "system/hexdump.h"
+#include <pbl/kernel/compiler.h>
 #include <pbl/logging/logging.h>
-#include "system/passert.h"
-#include "system/reboot_reason.h"
-#include "system/version.h"
-#include "pbl/kernel/compiler.h"
-#include "pbl/util/build_id.h"
+#include <pbl/services/comm_session/session.h>
+#include <pbl/services/comm_session/session_send_buffer.h>
+#include <pbl/services/process_management/app_storage.h>
+#include <pbl/util/build_id.h>
+
+#include <kernel/events.h>
+#include <kernel/pebble_tasks.h>
+#include <logging/logging_private.h>
+#include <mfg/mfg_serials.h>
+#include <process_management/app_manager.h>
+#include <system/hexdump.h>
+#include <system/passert.h>
+#include <system/reboot_reason.h>
+#include <system/version.h>
 
 static const uint16_t ENDPOINT_ID = 2002;
 
@@ -128,7 +129,7 @@ void dump_log_protocol_msg_callback(CommSession *session, const uint8_t *data, s
   int generation = 0;
   if (data[0] == 0x10 || data[0] == 0x11) {
     if (length != 6) {
-      PBL_LOG_ERR("Invalid dump log message received -- length %u", length);
+      PBL_LOG_ERR("Invalid dump log message received -- length %zu", length);
       return;
     }
 
@@ -136,7 +137,7 @@ void dump_log_protocol_msg_callback(CommSession *session, const uint8_t *data, s
     cookie = *((uint32_t *)(data + 2));
   } else {
     if (length != 5) {
-      PBL_LOG_ERR("Invalid dump log message received -- length %u", length);
+      PBL_LOG_ERR("Invalid dump log message received -- length %zu", length);
       return;
     }
 

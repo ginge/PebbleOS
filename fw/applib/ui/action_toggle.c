@@ -3,19 +3,20 @@
 
 #include "action_toggle.h"
 
-#include "applib/app_launch_button.h"
-#include "applib/app_launch_reason.h"
-#include "applib/applib_malloc.auto.h"
-#include "applib/ui/dialogs/actionable_dialog.h"
-#include "applib/ui/dialogs/dialog.h"
-#include "applib/ui/dialogs/simple_dialog.h"
-#include "applib/ui/vibes.h"
-#include "applib/ui/window_manager.h"
-#include "kernel/ui/modals/modal_manager.h"
-#include "process_state/app_state/app_state.h"
-#include "resource/resource_ids.auto.h"
-#include "pbl/services/i18n/i18n.h"
-#include "system/passert.h"
+#include <pbl/services/i18n/i18n.h>
+
+#include <applib/app_launch_button.h>
+#include <applib/app_launch_reason.h>
+#include <applib/applib_malloc.auto.h>
+#include <applib/ui/dialogs/actionable_dialog.h>
+#include <applib/ui/dialogs/dialog.h>
+#include <applib/ui/dialogs/simple_dialog.h>
+#include <applib/ui/vibes.h>
+#include <applib/ui/window_manager.h>
+#include <kernel/ui/modals/modal_manager.h>
+#include <process_state/app_state/app_state.h>
+#include <resource/resource_ids.auto.h>
+#include <system/passert.h>
 
 typedef struct ActionToggleDialogConfig {
   const char *window_name;
@@ -151,7 +152,7 @@ static void prv_push_prompt_dialog(ActionToggleContext *ctx) {
   };
   prv_setup_state_config(ctx, &config, ActionToggleDialogType_Prompt);
   ActionableDialog *actionable_dialog = actionable_dialog_create(config.window_name);
-  actionable_dialog_set_action_bar_type(actionable_dialog, DialogActionBarConfirm, NULL);
+  actionable_dialog_set_action_bar_type(actionable_dialog, DialogActionBarConfirm, nullptr);
   actionable_dialog_set_click_config_provider(actionable_dialog, prv_prompt_click_config_provider);
   prv_setup_dialog(actionable_dialog_get_dialog(actionable_dialog), &config, (void *)ctx);
   actionable_dialog_push(actionable_dialog, prv_get_window_stack());

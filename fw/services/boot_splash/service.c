@@ -1,26 +1,27 @@
 /* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/kernel/thread.h"
-#include "pbl/services/boot_splash.h"
+#include <pbl/kernel/delay.h>
+#include <pbl/kernel/thread.h>
+#include <pbl/services/boot_splash.h>
 
-#if defined(CONFIG_PBLBOOT) || defined(CONFIG_QEMU)
-
-#include "board/display.h"
-#include "board/splash.h"
-#include <pbl/drivers/display/display.h>
-#include "kernel/pbl_malloc.h"
-#include "kernel/util/sleep.h"
+#if defined(CONFIG_PBLBOOT) || defined(CONFIG_QEMU) || defined(CONFIG_SOC_POSIX)
 
 #include <string.h>
 
+#include <pbl/drivers/display/display.h>
+
+#include <board/display.h>
+#include <board/splash.h>
+#include <kernel/pbl_malloc.h>
+
 // Platform-specific colors: PebbleOS uses ARGB2222 (GColor8), not raw RGB332
-#ifdef CONFIG_QEMU
-// QEMU display natively renders ARGB2222
+#if defined(CONFIG_QEMU) || defined(CONFIG_SOC_POSIX)
+// QEMU and native displays render ARGB2222
 #define SPLASH_COLOR_WHITE 0xFF // A=3, R=3, G=3, B=3
 #define SPLASH_COLOR_BLACK 0xC0 // A=3, R=0, G=0, B=0
 #define SPLASH_COLOR_LGRAY 0xEA // A=3, R=2, G=2, B=2
-// QEMU boot splash always uses 8bpp framebuffer regardless of platform bit depth
+// Their boot splash always uses an 8bpp framebuffer regardless of platform bit depth
 #define BOOT_SPLASH_FB_BYTES (PBL_DISPLAY_WIDTH * PBL_DISPLAY_HEIGHT)
 #else
 // Hardware displays: the compositor handles GColor8 → native conversion,
@@ -138,9 +139,9 @@ static void prv_boot_splash_task(void *param) {
 
   // Cleanup
   kernel_free(fb);
-  s_boot_splash_fb = NULL;
-  s_boot_splash_task = NULL;
-  pbl_thread_abort(NULL);
+  s_boot_splash_fb = nullptr;
+  s_boot_splash_task = nullptr;
+  pbl_thread_abort(nullptr);
 }
 
 void boot_splash_start(void) {
@@ -169,11 +170,11 @@ void boot_splash_start(void) {
 }
 
 void boot_splash_stop(void) {
-  if (s_boot_splash_running && s_boot_splash_task != NULL) {
+  if (s_boot_splash_running && s_boot_splash_task != nullptr) {
     s_boot_splash_running = false;
     // Wait for the splash task to finish (max ~10ms delay due to short sleep intervals)
-    while (s_boot_splash_task != NULL) {
-      psleep(10);
+    while (s_boot_splash_task != nullptr) {
+      pbl_sleep_ms(10);
     }
 
     // Draw final frame with logo only (no progress bar)

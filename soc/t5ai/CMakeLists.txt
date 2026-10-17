@@ -42,8 +42,8 @@ if(CONFIG_T5AI_REMINDER_PROFILE)
         "fw/services/settings|settings_raw_iter.c"
         "fw/services/filesystem|pfs.c"
         "fw/services/filesystem|flash_translation.c"
-        "fw/drivers/flash|flash_api.c"
-        "fw/drivers/flash|flash_erase.c")
+        "drivers/flash|flash_api.c"
+        "drivers/flash|flash_erase.c")
       string(REPLACE "|" ";" parts "${pair}")
       list(GET parts 0 directory)
       list(GET parts 1 source)
@@ -136,8 +136,8 @@ if(CONFIG_T5AI_WDT_RECOVERY_TRACE)
   function(t5ai_wdt_recovery_trace_call_boundaries)
     set_property(SOURCE ${PBL_BASE}/kernel/mutex.c DIRECTORY ${PBL_BASE}/kernel
       APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
-    foreach(pair "fw/services/filesystem|pfs.c" "fw/drivers/flash|flash_api.c"
-                 "fw/drivers/flash|flash_erase.c")
+    foreach(pair "fw/services/filesystem|pfs.c" "drivers/flash|flash_api.c"
+                 "drivers/flash|flash_erase.c")
       string(REPLACE "|" ";" parts "${pair}")
       list(GET parts 0 directory)
       list(GET parts 1 source)

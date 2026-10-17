@@ -3,46 +3,44 @@
 
 #pragma once
 
-#include "applib/accel_service.h"
-#include "applib/app_launch_button.h"
-#include "applib/app_launch_reason.h"
-#include "applib/app_outbox.h"
-#include "applib/bluetooth/ble_client.h"
-#include "applib/health_service.h"
-#include "applib/plugin_service.h"
-#include "applib/tick_timer_service.h"
-#include "applib/voice/dictation_session.h"
-#include "applib/ui/click.h"
-#include "apps/system/app_fetch_ui.h"
-#include <pbl/drivers/battery.h>
-#include <pbl/drivers/button_id.h>
-#include "process_management/app_install_types.h"
-#include "pbl/services/battery/battery_monitor.h"
-#include "pbl/services/bluetooth/bluetooth_ctl.h"
-#include "pbl/services/comm_session/session_remote_os.h"
-#include "pbl/services/comm_session/session_remote_version.h"
-#include "pbl/services/hrm/hrm_manager.h"
-#include "pbl/services/put_bytes/put_bytes.h"
-#include "pbl/services/touch/touch_event.h"
-#include "pbl/services/touch/gesture_event.h"
-#include "pbl/services/imu/units.h"
-#include "pbl/services/blob_db/api.h"
-#include "pbl/services/music.h"
-#include "pbl/services/notifications/notifications.h"
-#include "pbl/services/voice/voice.h"
-#include "pbl/services/wakeup.h"
-#include "pbl/services/timeline/peek.h"
-#include "pbl/services/timeline/reminders.h"
-#include "kernel/pebble_tasks.h"
-#include "pbl/kernel/compiler.h"
-
-#include "pbl/kernel/msgq.h"
+#include <stdint.h>
+#include <time.h>
 
 #include <pbl/bluetooth/types.h>
+#include <pbl/drivers/battery.h>
+#include <pbl/drivers/button_id.h>
+#include <pbl/kernel/compiler.h>
+#include <pbl/kernel/msgq.h>
+#include <pbl/services/battery/battery_monitor.h>
+#include <pbl/services/blob_db/api.h>
+#include <pbl/services/bluetooth/bluetooth_ctl.h>
+#include <pbl/services/comm_session/session_remote_os.h>
+#include <pbl/services/comm_session/session_remote_version.h>
+#include <pbl/services/hrm/hrm_manager.h>
+#include <pbl/services/imu/units.h>
+#include <pbl/services/music.h>
+#include <pbl/services/notifications/notifications.h>
+#include <pbl/services/put_bytes/put_bytes.h>
+#include <pbl/services/timeline/peek.h>
+#include <pbl/services/timeline/reminders.h>
+#include <pbl/services/touch/gesture_event.h>
+#include <pbl/services/touch/touch_event.h>
+#include <pbl/services/voice/voice.h>
+#include <pbl/services/wakeup.h>
 
-#include <stdint.h>
-#include <stdbool.h>
-#include <time.h>
+#include <applib/accel_service.h>
+#include <applib/app_launch_button.h>
+#include <applib/app_launch_reason.h>
+#include <applib/app_outbox.h>
+#include <applib/health_service.h>
+#include <applib/plugin_service.h>
+#include <applib/tick_timer_service.h>
+#include <applib/ui/click.h>
+#include <applib/voice/dictation_session.h>
+#include <apps/system/app_fetch_ui.h>
+#include <comm/ble/gatt_client_subscriptions.h>
+#include <kernel/pebble_tasks.h>
+#include <process_management/app_install_types.h>
 
 typedef struct PebblePhoneCaller PebblePhoneCaller;
 
@@ -89,7 +87,6 @@ typedef enum {
   PEBBLE_COMPASS_DATA_EVENT,
   PEBBLE_PLUGIN_SERVICE_EVENT,
   PEBBLE_WORKER_LAUNCH_EVENT,
-  PEBBLE_BLE_SCAN_EVENT,
   PEBBLE_BLE_CONNECTION_EVENT,
   PEBBLE_BLE_GATT_CLIENT_EVENT,
   PEBBLE_BLE_DEVICE_NAME_UPDATED_EVENT,
@@ -195,7 +192,7 @@ typedef struct PBL_PACKED { // 6 bytes
 } PebbleSysNotificationEvent;
 
 typedef struct PBL_PACKED { // 4 bytes
-  time_t tick_time;         //!< Needs to be converted to 'struct tm' in the event service handler
+  time_t tick_time; //!< Needs to be converted to 'struct pbl_tm' in the event service handler
 } PebbleTickEvent;
 
 typedef struct PBL_PACKED { // 4 bytes
@@ -337,13 +334,12 @@ typedef struct PBL_PACKED { // 9 bytes
   uint8_t subtype : BLE_GATT_CLIENT_EVENT_SUBTYPE_BITS;
 } PebbleBLEGATTClientServiceEvent;
 
-_Static_assert((1 << BLE_GATT_CLIENT_EVENT_SUBTYPE_BITS) >= PebbleBLEGATTClientEventTypeNum,
-               "Not enough bits to represent all PebbleBLEGATTClientEventTypes");
+static_assert((1 << BLE_GATT_CLIENT_EVENT_SUBTYPE_BITS) >= PebbleBLEGATTClientEventTypeNum,
+              "Not enough bits to represent all PebbleBLEGATTClientEventTypes");
 
 #ifdef __arm__
-_Static_assert(
-    sizeof(PebbleBLEGATTClientServiceEvent) == sizeof(PebbleBLEGATTClientServiceEvent),
-    "PebbleBLEGATTClientEvent and PebbleBLEGATTClientServiceEvent must be the same size");
+static_assert(sizeof(PebbleBLEGATTClientServiceEvent) == sizeof(PebbleBLEGATTClientServiceEvent),
+              "PebbleBLEGATTClientEvent and PebbleBLEGATTClientServiceEvent must be the same size");
 #endif
 
 #define PebbleEventToBTDeviceInternal(e) \
@@ -434,7 +430,7 @@ typedef struct PBL_PACKED { // 8 bytes
 } PebbleLaunchAppEvent;
 
 typedef struct PBL_PACKED { // 8 bytes
-  time_t alarm_time;        //!< Needs to be converted to 'struct tm' in the event service handler
+  time_t alarm_time; //!< Needs to be converted to 'struct pbl_tm' in the event service handler
   const char *alarm_label;
 } PebbleAlarmClockEvent;
 
@@ -687,8 +683,8 @@ typedef struct PBL_PACKED {
 } PebbleUnobstructedAreaEvent;
 
 #if !__clang__
-_Static_assert(sizeof(PebbleUnobstructedAreaEvent) == 9,
-               "PebbleUnobstructedAreaEvent size mismatch.");
+static_assert(sizeof(PebbleUnobstructedAreaEvent) == 9,
+              "PebbleUnobstructedAreaEvent size mismatch.");
 #endif
 
 typedef struct PBL_PACKED PebbleAppGlanceEvent {
@@ -704,7 +700,7 @@ typedef struct PBL_PACKED {
 } PebbleTimelinePeekEvent;
 
 #if !__clang__
-_Static_assert(sizeof(PebbleTimelinePeekEvent) == 8, "PebbleTimelinePeekEvent size mismatch.");
+static_assert(sizeof(PebbleTimelinePeekEvent) == 8, "PebbleTimelinePeekEvent size mismatch.");
 #endif
 
 typedef enum PebbleAppCacheEventType {
@@ -719,7 +715,7 @@ typedef struct PBL_PACKED PebbleAppCacheEvent {
 } PebbleAppCacheEvent;
 
 #if !__clang__
-_Static_assert(sizeof(PebbleAppCacheEvent) == 5, "PebbleTimelinePeekEvent size mismatch.");
+static_assert(sizeof(PebbleAppCacheEvent) == 5, "PebbleTimelinePeekEvent size mismatch.");
 #endif
 
 typedef enum PebbleActivityEventType {
@@ -745,7 +741,7 @@ typedef struct PebbleWorkoutEvent {
   PebbleWorkoutEventType type;
 } PebbleWorkoutEvent;
 
-typedef struct PBL_PACKED {
+typedef struct PBL_PACKED PBL_ALIGNED(sizeof(void *)) {
   union PBL_PACKED {
     PebblePanicEvent panic;
     PebbleButtonEvent button;
@@ -820,7 +816,7 @@ typedef struct PBL_PACKED {
 // Guard the on-target size. The bound assumes 4-byte pointers, so it only
 // applies to the firmware target; the host unit-test build has wider pointers.
 #if __SIZEOF_POINTER__ == 4
-_Static_assert(sizeof(PebbleEvent) <= 12, "PebbleEvent grew; check the event union layout");
+static_assert(sizeof(PebbleEvent) <= 12, "PebbleEvent grew; check the event union layout");
 #endif
 
 void events_init(void);
@@ -834,8 +830,11 @@ bool event_try_put_from_process(PebbleTask task, PebbleEvent *event);
 
 bool event_take_timeout(PebbleEvent *event, pbl_timeout_t timeout);
 
-//! Return a reference to the allocated buffer within an event, if applicable
-void **event_get_buffer(PebbleEvent *event);
+//! Return the allocated buffer within an event, if applicable
+void *event_get_buffer(PebbleEvent *event);
+
+//! Clear the allocated buffer reference within an event, without freeing it
+void event_clear_buffer(PebbleEvent *event);
 
 //! De-initialize an event, freeing the allocated buffer if necessary
 void event_deinit(PebbleEvent *event);
@@ -849,6 +848,9 @@ void event_reset_from_process_queue(PebbleTask task);
 struct pbl_msgq *event_get_to_kernel_queue(PebbleTask task);
 
 struct pbl_msgq *event_kernel_to_kernel_event_queue(void);
+
+//! Number of free slots in the queue KernelMain uses to post events to itself
+uint32_t event_kernel_to_kernel_num_free(void);
 
 //! Call to reset a queue and free all memory associated w/ the events it contains
 void event_queue_cleanup_and_reset(struct pbl_msgq *queue);

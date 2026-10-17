@@ -3,15 +3,16 @@
 
 #include "gdraw_command_transforms.h"
 
-#include "applib/applib_malloc.auto.h"
-#include "applib/graphics/gdraw_command_private.h"
-#include "pbl/util/trig.h"
-#include "applib/ui/animation.h"
-#include "applib/ui/animation_interpolate.h"
-#include "applib/ui/animation_timing.h"
-#include "system/passert.h"
-#include "pbl/util/math_fixed.h"
-#include "pbl/util/testing.h"
+#include <pbl/util/math_fixed.h>
+#include <pbl/util/testing.h>
+#include <pbl/util/trig.h>
+
+#include <applib/applib_malloc.auto.h>
+#include <applib/graphics/gdraw_command_private.h>
+#include <applib/ui/animation.h>
+#include <applib/ui/animation_interpolate.h>
+#include <applib/ui/animation_timing.h>
+#include <system/passert.h>
 
 ////////////////////
 // scale
@@ -137,7 +138,7 @@ GPointIndexLookup *gdraw_command_list_create_index_lookup(GDrawCommandList *list
   const bool is_precise = false;
   GPoint *const points = gdraw_command_list_collect_points(list, is_precise, &num_points);
   if (!points) {
-    return NULL;
+    return nullptr;
   }
 
   gpoint_sort(points, num_points, comparator, context, reverse);

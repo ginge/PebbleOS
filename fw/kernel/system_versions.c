@@ -1,30 +1,30 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/drivers/mcu.h>
-#include "mfg/mfg_info.h"
-#include "mfg/mfg_serials.h"
-#include "resource/resource.h"
-#include "resource/system_resource.h"
-#include "pbl/services/bluetooth/bluetooth_persistent_storage.h"
-#include "pbl/services/bluetooth/local_id.h"
-#include "pbl/services/comm_session/protocol.h"
-#include "pbl/services/comm_session/session.h"
-#include "pbl/services/comm_session/session_remote_version.h"
-#include "pbl/services/i18n/i18n.h"
-#include "pbl/services/activity/insights_settings.h"
-#include "pbl/services/notifications/notification_image.h"
-#include "shell/system_app_ids.auto.h"
-#include "system/bootbits.h"
-#include <pbl/logging/logging.h>
-#include "system/version.h"
-#include "pbl/kernel/compiler.h"
-#include "pbl/util/byteorder.h"
-#include "pbl/util/string.h"
+#include <string.h>
 
 #include <pbl/bluetooth/types.h>
+#include <pbl/drivers/mcu.h>
+#include <pbl/kernel/compiler.h>
+#include <pbl/logging/logging.h>
+#include <pbl/services/activity/insights_settings.h>
+#include <pbl/services/bluetooth/bluetooth_persistent_storage.h>
+#include <pbl/services/bluetooth/local_id.h>
+#include <pbl/services/comm_session/protocol.h>
+#include <pbl/services/comm_session/session.h>
+#include <pbl/services/comm_session/session_remote_version.h>
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/services/notifications/notification_image.h>
+#include <pbl/util/byteorder.h>
+#include <pbl/util/string.h>
 
-#include <string.h>
+#include <mfg/mfg_info.h>
+#include <mfg/mfg_serials.h>
+#include <resource/resource.h>
+#include <resource/system_resource.h>
+#include <shell/system_app_ids.auto.h>
+#include <system/bootbits.h>
+#include <system/version.h>
 
 #ifdef CONFIG_SHELL
 #include <pbl/shell/shell.h>
@@ -56,7 +56,7 @@ struct PBL_PACKED VersionsMessage {
 };
 
 static void fixup_string(char *str, unsigned int length) {
-  if (memchr(str, 0, length) == NULL) {
+  if (memchr(str, 0, length) == nullptr) {
     memset(str, 0, length);
   }
 }
@@ -91,10 +91,10 @@ static void prv_send_watch_versions(CommSession *session) {
     .boot_version = pbl_cpu_to_be32(boot_version_read()),
   };
 
-  _Static_assert(sizeof(struct VersionsMessage) >=
-                     126 /* pre-v1.5 version info */ +
-                         24 /* v1.5 version info or later, added system_resources_version */,
-                 "");
+  static_assert(sizeof(struct VersionsMessage) >=
+                    126 /* pre-v1.5 version info */ +
+                        24 /* v1.5 version info or later, added system_resources_version */,
+                "");
 
   version_copy_running_fw_metadata(&versions_msg.running_fw_metadata);
   prv_fixup_running_firmware_metadata(&versions_msg.running_fw_metadata);
@@ -160,6 +160,7 @@ static void prv_send_watch_versions(CommSession *session) {
   versions_msg.capabilities.weather_db_v4_support = 1;
   versions_msg.capabilities.unknown_attributes_support = 1;
   versions_msg.capabilities.notification_image_support = NOTIFICATION_IMAGE_SUPPORTED;
+  versions_msg.capabilities.notification_window_state_support = 1;
   bt_local_id_copy_address(&versions_msg.device_address);
 
   versions_msg.system_resources_version = resource_get_system_version();
@@ -251,5 +252,5 @@ static int prv_cmd_version(const struct pbl_shell *sh, size_t argc, char **argv)
   return 0;
 }
 
-PBL_SHELL_CMD_REGISTER(version, NULL, "Show firmware and hardware versions", prv_cmd_version);
+PBL_SHELL_CMD_REGISTER(version, nullptr, "Show firmware and hardware versions", prv_cmd_version);
 #endif

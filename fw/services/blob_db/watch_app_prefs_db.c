@@ -1,18 +1,18 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/blob_db/watch_app_prefs_db.h"
-
-#include "kernel/pbl_malloc.h"
-#include "pbl/kernel/mutex.h"
-#include "pbl/services/filesystem/pfs.h"
-#include "pbl/services/settings/settings_file.h"
-#include "pbl/services/weather/weather_service_private.h"
+#include <pbl/kernel/mutex.h>
 #include <pbl/logging/logging.h>
-#include "system/status_codes.h"
-#include "pbl/util/units.h"
-#include "pbl/util/uuid.h"
-#include "pbl/util/testing.h"
+#include <pbl/services/blob_db/watch_app_prefs_db.h>
+#include <pbl/services/filesystem/pfs.h>
+#include <pbl/services/settings/settings_file.h>
+#include <pbl/services/weather/weather_service_private.h>
+#include <pbl/util/testing.h>
+#include <pbl/util/units.h>
+#include <pbl/util/uuid.h>
+
+#include <kernel/pbl_malloc.h>
+#include <system/status_codes.h>
 
 PBL_LOG_MODULE_DECLARE(service_blob_db, CONFIG_SERVICE_BLOB_DB_LOG_LEVEL);
 
@@ -54,7 +54,7 @@ static void prv_close_file_and_unlock_mutex(void) {
 static void *prv_get_prefs(const char *pref_key) {
   status_t rv = prv_lock_mutex_and_open_file();
   if (rv != S_SUCCESS) {
-    return NULL;
+    return nullptr;
   }
 
   const int len =
@@ -66,7 +66,7 @@ static void *prv_get_prefs(const char *pref_key) {
                            len);
     if (rv != S_SUCCESS) {
       task_free(prefs);
-      prefs = NULL;
+      prefs = nullptr;
     }
   }
 
@@ -83,7 +83,7 @@ SerializedWeatherAppPrefs *watch_app_prefs_get_weather(void) {
 }
 
 SerializedReminderAppPrefs *watch_app_prefs_get_reminder(void) {
-  SerializedReminderAppPrefs *result = NULL;
+  SerializedReminderAppPrefs *result = nullptr;
   pbl_mutex_lock(&s_watch_app_prefs_db.mutex, PBL_FOREVER);
   if (s_watch_app_prefs_db.is_cached_reminder_app_prefs_valid) {
     result = task_zalloc(sizeof(*result));

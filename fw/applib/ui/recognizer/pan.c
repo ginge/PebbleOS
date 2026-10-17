@@ -6,12 +6,13 @@
 #include "recognizer.h"
 #include "recognizer_impl.h"
 
-#include "pbl/drivers/rtc.h"
-#include "pbl/util/math.h"
-#include "syscall/syscall.h"
-
 #include <string.h>
-#include "pbl/util/units.h"
+
+#include <pbl/drivers/rtc.h>
+#include <pbl/util/math.h>
+#include <pbl/util/units.h>
+
+#include <syscall/syscall.h>
 
 // Component-wise movement budget from the touchdown point that the finger must
 // exceed on the locked axis before the pan Starts. A smaller drift is treated as
@@ -231,8 +232,8 @@ Recognizer *pan_recognizer_create(RecognizerEventCb event_cb, void *user_data, P
 
 Recognizer *pan_recognizer_init_static(void *storage, RecognizerEventCb event_cb, void *user_data,
                                        PanAxis axis) {
-  _Static_assert(RECOGNIZER_INSTANCE_SIZE + sizeof(PanRecognizerData) <= PAN_RECOGNIZER_STATIC_SIZE,
-                 "PAN_RECOGNIZER_STATIC_SIZE too small for a static pan recognizer");
+  static_assert(RECOGNIZER_INSTANCE_SIZE + sizeof(PanRecognizerData) <= PAN_RECOGNIZER_STATIC_SIZE,
+                "PAN_RECOGNIZER_STATIC_SIZE too small for a static pan recognizer");
   PanRecognizerData data = {
     .config = {
       .axis_lock = axis,

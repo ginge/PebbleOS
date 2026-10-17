@@ -3,7 +3,6 @@
 
 #pragma once
 
-#include <stdbool.h>
 #include <stdint.h>
 
 /**
@@ -14,15 +13,6 @@
  * Functions returning bool report whether the PMIC could be accessed.
  * @{
  */
-
-/**
- * @brief Initialize the PMIC driver.
- *
- * Called once at startup.
- *
- * @return true on success.
- */
-bool pmic_init(void);
 
 /**
  * @brief Power off the board.

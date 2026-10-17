@@ -3,27 +3,26 @@
 
 #ifdef CONFIG_PULSE_EVERYWHERE
 
-#include "pulse_protocol_impl.h"
 #include "pulse2_reliable_retransmit_timer.h"
+#include "pulse_protocol_impl.h"
 
-#include "console/control_protocol.h"
-#include "console/control_protocol_impl.h"
-#include "console/pulse.h"
-#include "console/pulse2_transport_impl.h"
-#include "console/pulse_control_message_protocol.h"
-#include "kernel/events.h"
-#include "kernel/pbl_malloc.h"
-#include "pbl/services/system_task.h"
-#include "system/passert.h"
-#include <pbl/kernel/compiler.h>
-#include <pbl/util/byteorder.h>
-
-#include "pbl/kernel/sem.h"
-
-#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+
+#include <pbl/kernel/compiler.h>
+#include <pbl/kernel/sem.h>
+#include <pbl/services/system_task.h>
+#include <pbl/util/byteorder.h>
+
+#include <console/control_protocol.h>
+#include <console/control_protocol_impl.h>
+#include <console/pulse.h>
+#include <console/pulse2_transport_impl.h>
+#include <console/pulse_control_message_protocol.h>
+#include <kernel/events.h>
+#include <kernel/pbl_malloc.h>
+#include <system/passert.h>
 
 //! Modulus for sequence numbers
 #define MODULUS               (128u)
@@ -72,10 +71,10 @@ static PulseControlMessageProtocol s_reliable_pcmp = {
   .send_fn = pulse_reliable_send,
 };
 
-_Static_assert(sizeof((ReliablePacket){0}.i) == 6, "sizeof ReliablePacket.i is wrong");
-_Static_assert(sizeof((ReliablePacket){0}.s) == 2, "sizeof ReliablePacket.s is wrong");
-_Static_assert(sizeof((ReliablePacket){0}.i) == sizeof(ReliablePacket),
-               "Something is really wrong here");
+static_assert(sizeof((ReliablePacket){}.i) == 6, "sizeof ReliablePacket.i is wrong");
+static_assert(sizeof((ReliablePacket){}.s) == 2, "sizeof ReliablePacket.s is wrong");
+static_assert(sizeof((ReliablePacket){}.i) == sizeof(ReliablePacket),
+              "Something is really wrong here");
 
 static bool s_layer_up = false;
 static ReliableInfoBuffer *s_tx_buffer;
@@ -142,7 +141,7 @@ void pulse2_reliable_transport_on_command_packet(void *raw_packet, size_t length
     return;
   }
 
-  if (length < sizeof((ReliablePacket){0}.s)) {
+  if (length < sizeof((ReliablePacket){}.s)) {
     PBL_LOG_DBG("Received malformed command packet");
     prv_bounce_ncp_state();
     return;
@@ -189,7 +188,7 @@ void pulse2_reliable_transport_on_command_packet(void *raw_packet, size_t length
     HANDLER(packet->i.information, info_length); \
     break;
 #define ON_TRANSPORT_STATE_CHANGE(...)
-#include "console/pulse2_reliable_protocol_registry.def"
+#include <console/pulse2_reliable_protocol_registry.def>
 #undef ON_PACKET
 #undef ON_TRANSPORT_STATE_CHANGE
           default: {
@@ -220,7 +219,7 @@ void pulse2_reliable_transport_on_response_packet(void *raw_packet, size_t lengt
     return;
   }
 
-  if (length < sizeof((ReliablePacket){0}.s)) {
+  if (length < sizeof((ReliablePacket){}.s)) {
     PBL_LOG_DBG("Received malformed response packet");
     prv_bounce_ncp_state();
     return;
@@ -277,14 +276,14 @@ void *pulse_reliable_send_begin(const uint16_t app_protocol) {
   // We will deadlock if we ever have to wait on s_tx_lock from the PULSE task.
   PBL_ASSERT_NOT_TASK(PebbleTask_PULSE);
   if (!s_layer_up) {
-    return NULL;
+    return nullptr;
   }
   pbl_sem_take(&s_tx_lock, PBL_FOREVER);
   if (!s_layer_up) {
     // Transport went down while waiting for the lock
     PBL_LOG_DBG("Transport went down while waiting for lock");
     pbl_sem_give(&s_tx_lock);
-    return NULL;
+    return nullptr;
   }
   s_tx_buffer->app_protocol = app_protocol;
   return &s_tx_buffer->information[0];
@@ -328,7 +327,7 @@ static void prv_on_this_layer_up(PPPControlProtocol *this) {
 
 #define ON_PACKET(...)
 #define ON_TRANSPORT_STATE_CHANGE(UP_HANDLER, DOWN_HANDLER) UP_HANDLER();
-#include "console/pulse2_reliable_protocol_registry.def"
+#include <console/pulse2_reliable_protocol_registry.def>
 #undef ON_PACKET
 #undef ON_TRANSPORT_STATE_CHANGE
 }
@@ -340,7 +339,7 @@ static void prv_on_this_layer_down(PPPControlProtocol *this) {
 
 #define ON_PACKET(...)
 #define ON_TRANSPORT_STATE_CHANGE(UP_HANDLER, DOWN_HANDLER) DOWN_HANDLER();
-#include "console/pulse2_reliable_protocol_registry.def"
+#include <console/pulse2_reliable_protocol_registry.def>
 #undef ON_PACKET
 #undef ON_TRANSPORT_STATE_CHANGE
 }

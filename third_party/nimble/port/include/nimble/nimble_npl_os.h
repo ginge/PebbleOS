@@ -8,28 +8,29 @@
 #ifndef _NIMBLE_NPL_OS_H_
 #define _NIMBLE_NPL_OS_H_
 
+#include "kernel/pbl_malloc.h"
+#include "os/os_cputime.h"
+#include "pbl/drivers/rtc.h"
 #include "pbl/kernel/irq.h"
+#include "pbl/kernel/msgq.h"
+#include "pbl/kernel/mutex.h"
 #include "pbl/kernel/sched.h"
+#include "pbl/kernel/sem.h"
+#include "pbl/kernel/thread.h"
+#include "pbl/services/new_timer/new_timer.h"
+
 #include <assert.h>
 #include <stdint.h>
 #include <string.h>
 
-#include "kernel/pbl_malloc.h"
-#include "pbl/kernel/mutex.h"
-#include "pbl/drivers/rtc.h"
-#include "pbl/kernel/msgq.h"
-#include "pbl/kernel/thread.h"
-#include "pbl/kernel/sem.h"
-#include "pbl/services/new_timer/new_timer.h"
-
-#include "os/os_cputime.h"
-
 #if NRF52_SERIES
-#include <pbl/drivers/clocksource.h>
 #include "pbl/soc/nrf/sleep.h"
+
+#include <pbl/drivers/clocksource.h>
 #endif
 
-#define BLE_NPL_OS_ALIGNMENT 4
+// Pool blocks hold pointers.
+#define BLE_NPL_OS_ALIGNMENT __SIZEOF_POINTER__
 
 #define BLE_NPL_TIME_FOREVER PBL_TICK_FOREVER
 
@@ -243,6 +244,7 @@ static inline void ble_npl_hw_exit_critical(uint32_t ctx) {
 static inline bool ble_npl_hw_is_in_critical(void) {
   return pbl_irq_is_locked();
 }
+#undef realloc
 #define realloc kernel_realloc
 
 #if NRF52_SERIES

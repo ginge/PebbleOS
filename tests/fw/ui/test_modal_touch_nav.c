@@ -5,74 +5,47 @@
 // transitions) the kernel recognizer manager follows the focus, and the kernel touch dispatcher is
 // gated on a focused modal so app gestures never tick the kernel twin.
 
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/window.h"
-#include "applib/ui/window_manager.h"
-#include "applib/ui/window_private.h"
-#include "applib/ui/window_stack.h"
-#include "applib/ui/window_stack_private.h"
-#include "applib/ui/recognizer/recognizer_manager.h"
-#include "applib/ui/recognizer/touch_nav.h"
-#include "applib/touch_service_private.h"
-#include "kernel/ui/modals/modal_manager.h"
-#include "pbl/services/touch/touch_event.h"
+#include <pbl/services/touch/touch_event.h>
 
-#include "applib/connection_service_private.h"
-#include "applib/battery_state_service_private.h"
-#include "applib/tick_timer_service_private.h"
-
-#include "clar.h"
+#include <applib/battery_state_service_private.h>
+#include <applib/connection_service_private.h>
+#include <applib/tick_timer_service_private.h>
+#include <applib/touch_service_private.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/recognizer/recognizer_manager.h>
+#include <applib/ui/recognizer/touch_nav.h>
+#include <applib/ui/window.h>
+#include <applib/ui/window_manager.h>
+#include <applib/ui/window_private.h>
+#include <applib/ui/window_stack.h>
+#include <applib/ui/window_stack_private.h>
+#include <clar.h>
+#include <fff.h>
+#include <kernel/ui/modals/modal_manager.h>
 
 // Stubs
 ////////////////////////////////////
 
-#include "stubs_sem.h"
-#include "stubs_accel_service.h"
-#include "stubs_app_state.h"
-#include "stubs_app_timer.h"
-#include "stubs_ble_app_support.h"
-#include "stubs_event_service_client.h"
-#include "stubs_fonts.h"
-#include "stubs_irq.h"
-#include "stubs_gbitmap.h"
-#include "stubs_graphics.h"
-#include "stubs_graphics_context.h"
-#include "stubs_heap.h"
-#include "stubs_logging.h"
-#include "stubs_new_timer.h"
-#include "stubs_passert.h"
-#include "stubs_persist.h"
-#include "stubs_plugin_service.h"
-#include "stubs_print.h"
-#include "stubs_process_manager.h"
-#include "stubs_resources.h"
-#include "stubs_syscalls.h"
-#include "stubs_unobstructed_area.h"
+#include <stubs_app_state.h>
 
 // Fakes
 ////////////////////////////////////
 
-#include "fake_events.h"
-#include "fake_pbl_malloc.h"
-#include "fake_pebble_tasks.h"
-#include "fake_animation.h"
-#include "fake_rtc.h"
-
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+#include <fake_animation.h>
+#include <fake_events.h>
+#include <fake_pbl_malloc.h>
+#include <fake_pebble_tasks.h>
+#include <fake_rtc.h>
 
 // Static Variables
 ////////////////////////////////////
 
-static Window *s_last_click_configured_window;
 static bool s_app_idle = false;
 static bool s_nav_enabled = true;
-
-// Captured kernel touch-slot handler (the gated modal dispatcher subscribed via
-// modal_touch_nav_subscribe).
-static TouchServiceHandler s_kernel_handler;
-static void *s_kernel_ctx;
 
 // The app twin of the recognizer manager; window_get_recognizer_manager routes app windows here.
 static RecognizerManager s_app_recognizer_manager;
@@ -127,7 +100,7 @@ bool compositor_is_animating(void) {
   return false;
 }
 void *compositor_modal_transition_to_modal_get(bool dest) {
-  return NULL;
+  return nullptr;
 }
 void compositor_modal_render_ready(void) {
 }
@@ -182,9 +155,7 @@ const WindowTransitionImplementation g_window_transition_none_implementation = {
   .create_animation = window_transition_none_create_animation,
 };
 
-void app_click_config_setup_with_window(ClickManager *click_manager, struct Window *window) {
-  s_last_click_configured_window = window;
-}
+FAKE_VOID_FUNC(app_click_config_setup_with_window, ClickManager *, struct Window *);
 
 // Touch-nav collaborators for the kernel twin.
 bool sys_touch_nav_enabled(void) {
@@ -194,10 +165,9 @@ bool sys_touch_app_nav_active(void) {
   return false;
 }
 
-void touch_service_set_system_handler(TouchServiceHandler handler, void *context) {
-  s_kernel_handler = handler;
-  s_kernel_ctx = context;
-}
+// Captures the kernel touch-slot handler (the gated modal dispatcher subscribed via
+// modal_touch_nav_subscribe).
+FAKE_VOID_FUNC(touch_service_set_system_handler, TouchServiceHandler, void *);
 
 RecognizerManager *app_state_get_recognizer_manager(void) {
   return &s_app_recognizer_manager;
@@ -226,8 +196,9 @@ static void prv_kernel_touchdown(void) {
     .y = 90,
     .non_navigational = true,
   };
-  cl_assert(s_kernel_handler != NULL);
-  s_kernel_handler(&e, s_kernel_ctx);
+  cl_assert(touch_service_set_system_handler_fake.arg0_val != nullptr);
+  touch_service_set_system_handler_fake.arg0_val(&e,
+                                                 touch_service_set_system_handler_fake.arg1_val);
 }
 
 static RecognizerManager *prv_kernel_manager(void) {
@@ -239,11 +210,10 @@ static RecognizerManager *prv_kernel_manager(void) {
 
 void test_modal_touch_nav__initialize(void) {
   fake_rtc_init(0, 0);
-  s_last_click_configured_window = NULL;
+  RESET_FAKE(app_click_config_setup_with_window);
   s_app_idle = false;
   s_nav_enabled = true;
-  s_kernel_handler = NULL;
-  s_kernel_ctx = NULL;
+  RESET_FAKE(touch_service_set_system_handler);
   recognizer_manager_init(&s_app_recognizer_manager);
 
   WindowStack *stack = app_state_get_window_stack();
@@ -374,7 +344,7 @@ void test_modal_touch_nav__reset_after_last_modal(void) {
 
   window_stack_remove(modal_window, false);
   modal_manager_event_loop_upkeep();
-  cl_assert_equal_p(manager->window, NULL);
+  cl_assert_equal_p(manager->window, nullptr);
   cl_assert_equal_i(manager->state, RecognizerManagerState_WaitForTouchdown);
 }
 
@@ -391,7 +361,7 @@ void test_modal_touch_nav__unfocusable_does_not_grab(void) {
   modal_manager_event_loop_upkeep();
 
   // The unfocusable modal did not bind the manager...
-  cl_assert_equal_p(manager->window, NULL);
+  cl_assert_equal_p(manager->window, nullptr);
 
   // ...and the dispatcher stays gated (no focused modal), so a gesture ticks nothing.
   prv_kernel_touchdown();

@@ -1,19 +1,18 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/new_timer/new_timer.h"
-
-#include "kernel/pbl_malloc.h"
-#include "kernel/task_timer_manager.h"
-#include "kernel/util/task_init.h"
-#include "kernel/pebble_tasks.h"
+#include <pbl/kernel/msgq.h>
+#include <pbl/kernel/sem.h>
+#include <pbl/kernel/thread.h>
 #include <pbl/logging/logging.h>
-
-#include "pbl/kernel/msgq.h"
-#include "pbl/kernel/thread.h"
-#include "pbl/kernel/sem.h"
+#include <pbl/services/new_timer/new_timer.h>
 #include <pbl/task_wdt/task_wdt.h>
-#include "system/passert.h"
+
+#include <kernel/pbl_malloc.h>
+#include <kernel/pebble_tasks.h>
+#include <kernel/task_timer_manager.h>
+#include <kernel/util/task_init.h>
+#include <system/passert.h>
 
 PBL_LOG_MODULE_DEFINE(service_new_timer, CONFIG_SERVICE_NEW_TIMER_LOG_LEVEL);
 
@@ -82,7 +81,7 @@ static void *prv_wdt_expired(int channel_id, void *user_data) {
 static void new_timer_service_loop(void *data) {
   task_init();
 
-  PBL_ASSERTN(pbl_task_wdt_add(NULL, CONFIG_TASK_WDT_TIMEOUT_MS, prv_wdt_expired, NULL) >= 0);
+  PBL_ASSERTN(pbl_task_wdt_add(nullptr, CONFIG_TASK_WDT_TIMEOUT_MS, prv_wdt_expired, nullptr) >= 0);
 
   while (1) {
     pbl_tick_t ticks_to_wait = task_timer_manager_execute_expired_timers(&s_task_timer_manager);
@@ -96,7 +95,7 @@ static void new_timer_service_loop(void *data) {
     if (pbl_msgq_get(&s_work_queue, &work, PBL_NO_WAIT) == 0) {
       s_current_work_cb = work.cb;
       work.cb(work.data);
-      s_current_work_cb = NULL;
+      s_current_work_cb = nullptr;
     }
   }
 }

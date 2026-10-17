@@ -3,13 +3,13 @@
 
 #include "bouncing_box.h"
 
-#include "applib/app.h"
-#include "applib/graphics/graphics.h"
-#include "applib/graphics/gtypes.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/window.h"
-#include "kernel/pbl_malloc.h"
-#include "process_state/app_state/app_state.h"
+#include <applib/app.h>
+#include <applib/graphics/graphics.h>
+#include <applib/graphics/gtypes.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/window.h>
+#include <kernel/pbl_malloc.h>
+#include <process_state/app_state/app_state.h>
 
 static const int TARGET_FPS = 20;
 static const int PIXEL_SPEED_PER_FRAME = 4;
@@ -69,7 +69,7 @@ void prv_redraw_timer_cb(void *cb_data) {
 
   layer_mark_dirty(&data->window.layer);
 
-  app_timer_register(1000 / TARGET_FPS, prv_redraw_timer_cb, NULL);
+  app_timer_register(1000 / TARGET_FPS, prv_redraw_timer_cb, nullptr);
 }
 
 static void s_main(void) {
@@ -91,7 +91,7 @@ static void s_main(void) {
   data->x_velocity = 1;
   data->y_velocity = 1;
 
-  app_timer_register(33, prv_redraw_timer_cb, NULL);
+  app_timer_register(33, prv_redraw_timer_cb, nullptr);
 
   app_event_loop();
 }

@@ -6,9 +6,7 @@
 #include "activity.h"
 #include "hr_util.h"
 
-#include "kernel/events.h"
-
-#include <stdbool.h>
+#include <kernel/events.h>
 
 /**
  * @defgroup services_activity_workout_service Workout service

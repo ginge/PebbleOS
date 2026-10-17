@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: Apache-2.0 */
+#include <pbl/kernel/time.h>
 #include <pbl/soc/t5ai/reboot_trace.h>
 #include <pbl/soc/t5ai/interrupt_profile.h>
 #include <pbl/soc/t5ai/heap_trace.h>
@@ -176,7 +177,7 @@ static void prv_entry(void *arg) {
     }
     PBL_LOG_DBG("T5REBOOT drain rtc_ms=%" PRIu32 " ticks=%" PRIu32 " next=%" PRIu32,
                 (uint32_t)(t5ai_rtc_get_raw_ticks() / (T5AI_AON_RTC_HZ / 1000u)),
-                pbl_uptime_ticks(), cursor);
+                (uint32_t)pbl_uptime_ticks(), cursor);
     const uint32_t live = T5AI_TRACE_PMU_LIVE;
     const uint32_t boot = T5AI_TRACE_PMU_BOOT;
     if (live != last_live || boot != last_boot) {

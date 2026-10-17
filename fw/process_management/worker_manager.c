@@ -1,30 +1,34 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "process_manager.h"
 #include "worker_manager.h"
+
 #include "process_loader.h"
+#include "process_manager.h"
 
 // Pebble stuff
-#include "kernel/pbl_malloc.h"
-#include "kernel/util/segment.h"
-#include "kernel/util/task_init.h"
-#include "pbl/mcu/privilege.h"
-#include "popups/crashed_ui.h"
-#include "process_management/app_install_manager.h"
-#include "process_management/app_manager.h"
-#include "process_management/process_heap.h"
-#include "process_state/worker_state/worker_state.h"
-#include "shell/prefs.h"
-
-#include "syscall/syscall.h"
-#include "syscall/syscall_internal.h"
 #include <pbl/logging/logging.h>
-#include "system/passert.h"
+#include <pbl/mcu/privilege.h>
+#include <pbl/services/light.h>
+#include <pbl/services/speaker/speaker_service.h>
+#include <pbl/services/vibe_pattern.h>
+
+#include <kernel/memory_layout.h>
+#include <kernel/pbl_malloc.h>
+#include <kernel/util/segment.h>
+#include <kernel/util/task_init.h>
+#include <popups/crashed_ui.h>
+#include <process_management/app_install_manager.h>
+#include <process_management/app_manager.h>
+#include <process_management/process_heap.h>
+#include <process_state/worker_state/worker_state.h>
+#include <shell/prefs.h>
+#include <syscall/syscall.h>
+#include <syscall/syscall_define.h>
+#include <system/passert.h>
 
 // FreeRTOS stuff
 
-#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -98,9 +102,14 @@ static void prv_heap_lock(void *unused) {
   PBL_ASSERT_TASK(PebbleTask_Worker);
 }
 
+// Undo process_manager_init_context() for a worker that never started
+static void prv_abort_launch(void) {
+  app_install_release_md(s_worker_task_context.app_md);
+  s_worker_task_context = (ProcessContext){};
+}
+
 static size_t prv_get_worker_segment_size(const PebbleProcessMd *app_md) {
-  // 12 KiB - 640 bytes workerlib static = 11648 bytes
-  return 11648;
+  return CONFIG_WORKER_RAM_SEGMENT_SIZE;
 }
 
 static size_t prv_get_worker_stack_size(const PebbleProcessMd *app_md) {
@@ -127,7 +136,7 @@ bool worker_manager_launch_new_worker_with_args(const PebbleProcessMd *app_md, c
 
   // If there is a different worker currently running, tell it to quit first. When it sees
   // s_next_worker set, it will call us again once it finishes closing the current worker
-  if (s_worker_task_context.app_md != NULL && s_worker_task_context.app_md != app_md) {
+  if (s_worker_task_context.app_md != nullptr && s_worker_task_context.app_md != app_md) {
     s_next_worker = (NextWorker){
       .md = app_md,
       .args = args,
@@ -140,7 +149,7 @@ bool worker_manager_launch_new_worker_with_args(const PebbleProcessMd *app_md, c
   s_next_worker = (NextWorker){};
 
   // Error if a worker already launched
-  if (pebble_task_get_thread(PebbleTask_Worker) != NULL) {
+  if (pebble_task_get_thread(PebbleTask_Worker) != nullptr) {
     PBL_LOG_WRN("Worker already launched");
     return false;
   }
@@ -151,7 +160,7 @@ bool worker_manager_launch_new_worker_with_args(const PebbleProcessMd *app_md, c
   // Set up the worker's memory and load the binary into it.
   const size_t worker_segment_size = prv_get_worker_segment_size(app_md);
   // The stack guard is counted as part of the app segment size...
-  const size_t stack_guard_size = (uintptr_t)__stack_guard_size__;
+  const size_t stack_guard_size = MEMORY_LAYOUT_STACK_GUARD_SIZE;
   // ...and is carved out of the stack.
   const size_t stack_size = prv_get_worker_stack_size(app_md) - stack_guard_size;
 
@@ -161,14 +170,14 @@ bool worker_manager_launch_new_worker_with_args(const PebbleProcessMd *app_md, c
 
   MemorySegment worker_segment;
   PBL_ASSERTN(memory_segment_split(&worker_ram, &worker_segment, worker_segment_size));
-  PBL_ASSERTN(memory_segment_split(&worker_segment, NULL, stack_guard_size));
+  PBL_ASSERTN(memory_segment_split(&worker_segment, nullptr, stack_guard_size));
   // No (accessible) memory segments can be placed between the top of WORKER_RAM
   // and the end of stack. Stacks always grow towards lower memory addresses, so
   // we want a stack overflow to touch the stack guard region before it begins
   // to clobber actual data. And syscalls assume that the stack is always at the
   // top of WORKER_RAM; violating this assumption will result in syscalls
   // sometimes failing when the worker hasn't done anything wrong.
-  void *stack = memory_segment_split(&worker_segment, NULL, stack_size);
+  void *stack = memory_segment_split(&worker_segment, nullptr, stack_size);
   PBL_ASSERTN(stack);
   s_worker_task_context.load_start = worker_segment.start;
   g_worker_load_address = worker_segment.start;
@@ -177,12 +186,14 @@ bool worker_manager_launch_new_worker_with_args(const PebbleProcessMd *app_md, c
   if (!entry_point) {
     PBL_LOG_WRN("Tried to launch an invalid worker in bank %u!",
                 process_metadata_get_code_bank_num(app_md));
+    prv_abort_launch();
     return false;
   }
 
   // The rest of worker_ram is available for worker state to use as it sees fit.
   if (!worker_state_configure(&worker_ram)) {
     PBL_LOG_ERR("Worker state configuration failed");
+    prv_abort_launch();
     return false;
   }
   // The remaining space in worker_segment is assigned to the worker's
@@ -238,7 +249,7 @@ static void prv_reset_last_worker_crashed_data(void) {
 // Launch the next worker, if there is one
 void worker_manager_launch_next_worker(AppInstallId previous_worker_install_id) {
   // Is there another worker set to switch to?
-  if (s_next_worker.md != NULL) {
+  if (s_next_worker.md != nullptr) {
     worker_manager_launch_new_worker_with_args(s_next_worker.md, s_next_worker.args);
   } else {
     // Do we have a default worker we should switch to that is different from the previous worker?
@@ -280,6 +291,12 @@ void worker_manager_close_current_worker(bool gracefully) {
 
   // Perform generic process cleanup
   process_manager_process_cleanup(PebbleTask_Worker);
+
+  light_reset_user_controlled_by_task(PebbleTask_Worker);
+  vibe_pattern_clear_for_owner(VibePatternOwner_Worker);
+#ifndef CONFIG_RECOVERY_FW
+  speaker_service_stop_for_task(PebbleTask_Worker);
+#endif
 
   // Notify the app install manager that we finally exited
   app_install_notify_worker_closed();
@@ -377,7 +394,7 @@ void worker_manager_disable(void) {
 }
 
 // ------------------------------------------------------------------------------------------------
-DEFINE_SYSCALL(AppInstallId, sys_worker_manager_get_current_worker_id, void) {
+PBL_SYSCALL(AppInstallId, sys_worker_manager_get_current_worker_id) {
   return worker_manager_get_current_worker_id();
 }
 
@@ -387,5 +404,6 @@ static int prv_cmd_worker_kill(const struct pbl_shell *sh, size_t argc, char **a
   return 0;
 }
 
-PBL_SHELL_SUBCMD_ADD(sub_worker, kill, NULL, "Kill the running worker", prv_cmd_worker_kill, 0, 0);
+PBL_SHELL_SUBCMD_ADD(sub_worker, kill, nullptr, "Kill the running worker", prv_cmd_worker_kill, 0,
+                     0);
 #endif

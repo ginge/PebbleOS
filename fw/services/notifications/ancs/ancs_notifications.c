@@ -1,29 +1,28 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/notifications/ancs/ancs_notifications.h"
-
-#include "pbl/services/notifications/ancs/ancs_filtering.h"
-#include "pbl/services/notifications/ancs/ancs_item.h"
-#include "pbl/services/notifications/ancs/ancs_phone_call.h"
-#include "pbl/services/notifications/ancs/ancs_notifications_util.h"
-#include "pbl/services/notifications/ancs/nexmo.h"
-
-#include "comm/ble/kernel_le_client/ancs/ancs_types.h"
 #include <pbl/drivers/rtc.h>
-#include "kernel/pbl_malloc.h"
-#include "pbl/services/blob_db/ios_notif_pref_db.h"
-#include "pbl/services/blob_db/pin_db.h"
-#include "pbl/services/blob_db/reminder_db.h"
-#include "pbl/services/i18n/i18n.h"
-#include "pbl/services/notifications/notification_storage.h"
-#include "pbl/services/notifications/notifications.h"
-#include "pbl/services/timeline/attribute.h"
-#include "pbl/services/timeline/timeline.h"
-#include "pbl/services/timeline/timeline_resources.h"
 #include <pbl/logging/logging.h>
-#include "system/passert.h"
-#include "pbl/util/pstring.h"
+#include <pbl/services/blob_db/ios_notif_pref_db.h>
+#include <pbl/services/blob_db/pin_db.h>
+#include <pbl/services/blob_db/reminder_db.h>
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/services/notifications/ancs/ancs_filtering.h>
+#include <pbl/services/notifications/ancs/ancs_item.h>
+#include <pbl/services/notifications/ancs/ancs_notifications.h>
+#include <pbl/services/notifications/ancs/ancs_notifications_util.h>
+#include <pbl/services/notifications/ancs/ancs_phone_call.h>
+#include <pbl/services/notifications/ancs/nexmo.h>
+#include <pbl/services/notifications/notification_storage.h>
+#include <pbl/services/notifications/notifications.h>
+#include <pbl/services/timeline/attribute.h>
+#include <pbl/services/timeline/timeline.h>
+#include <pbl/services/timeline/timeline_resources.h>
+#include <pbl/util/pstring.h>
+
+#include <comm/ble/kernel_le_client/ancs/ancs_types.h>
+#include <kernel/pbl_malloc.h>
+#include <system/passert.h>
 
 PBL_LOG_MODULE_DECLARE(service_notifications, CONFIG_SERVICE_NOTIFICATIONS_LOG_LEVEL);
 
@@ -34,7 +33,7 @@ static void prv_dismiss_notification(const TimelineItem *notification) {
   const TimelineItemAction *action = timeline_item_find_dismiss_action(notification);
 
   if (action) {
-    timeline_invoke_action(notification, action, NULL);
+    timeline_invoke_action(notification, action, nullptr);
   } else {
     char uuid_buffer[UUID_STRING_BUFFER_LENGTH];
     uuid_to_string(&notification->header.id, uuid_buffer);
@@ -369,7 +368,7 @@ void ancs_notifications_handle_message(uint32_t uid, ANCSProperty properties,
   if (is_notification_from_phone_app && has_missed_call_property) {
     TimelineItem *missed_call_pin = ancs_item_create_and_populate(
         notif_attributes, app_attributes, app_metadata, app_notif_prefs, timestamp, properties);
-    if (missed_call_pin == NULL) {
+    if (missed_call_pin == nullptr) {
       goto cleanup;
     }
     timeline_add_missed_call_pin(missed_call_pin, uid);
@@ -420,7 +419,7 @@ void ancs_notifications_handle_access_denied(void) {
   attribute_list_add_uint8(&attr_list, AttributeIdBgColor, GColorOrangeARGB8);
 
   TimelineItem *item = timeline_item_create_with_attributes(
-      rtc_get_time(), 0, TimelineItemTypeNotification, LayoutIdNotification, &attr_list, NULL);
+      rtc_get_time(), 0, TimelineItemTypeNotification, LayoutIdNotification, &attr_list, nullptr);
   i18n_free_all(&attr_list);
   attribute_list_destroy_list(&attr_list);
   if (!item) {

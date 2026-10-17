@@ -3,21 +3,21 @@
 
 #include "expandable_dialog.h"
 
-#include "applib/applib_malloc.auto.h"
-#include "applib/fonts/fonts.h"
-#include "applib/graphics/gtypes.h"
-#include "applib/graphics/text.h"
-#include "applib/ui/dialogs/dialog_private.h"
-#include "applib/ui/layer.h"
-#include "applib/ui/text_layer.h"
-#include "applib/ui/window.h"
-#include "kernel/ui/kernel_ui.h"
-#include "resource/resource.h"
-#include "resource/resource_ids.auto.h"
-#include "system/passert.h"
-
 #include <stdint.h>
 #include <string.h>
+
+#include <applib/applib_malloc.auto.h>
+#include <applib/fonts/fonts.h>
+#include <applib/graphics/gtypes.h>
+#include <applib/graphics/text.h>
+#include <applib/ui/dialogs/dialog_private.h>
+#include <applib/ui/layer.h>
+#include <applib/ui/text_layer.h>
+#include <applib/ui/window.h>
+#include <kernel/ui/kernel_ui.h>
+#include <resource/resource.h>
+#include <resource/resource_ids.auto.h>
+#include <system/passert.h>
 
 static void prv_show_action_bar_icon(ExpandableDialog *expandable_dialog, ButtonId button_id) {
   ActionBarLayer *action_bar = &expandable_dialog->action_bar;
@@ -405,7 +405,7 @@ void expandable_dialog_set_select_action(ExpandableDialog *expandable_dialog, ui
                                          ClickHandler select_click_handler) {
   if (expandable_dialog->select_icon) {
     gbitmap_destroy(expandable_dialog->select_icon);
-    expandable_dialog->select_icon = NULL;
+    expandable_dialog->select_icon = nullptr;
   }
 
   if (resource_id != RESOURCE_ID_INVALID) {

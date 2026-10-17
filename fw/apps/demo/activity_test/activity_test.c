@@ -1,30 +1,31 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/app.h"
-#include "applib/app_logging.h"
-#include "applib/fonts/fonts.h"
-#include "applib/health_service.h"
-#include "applib/ui/simple_menu_layer.h"
-#include "applib/ui/ui.h"
-#include "kernel/pbl_malloc.h"
-#include "process_state/app_state/app_state.h"
-#include "pbl/services/activity/activity.h"
-#include "pbl/services/activity/activity_algorithm.h"
-#include "pbl/services/activity/activity_insights.h"
-#include "pbl/services/activity/activity_private.h"
-#include "pbl/services/activity/kraepelin/activity_algorithm_kraepelin.h"
-#include "pbl/services/activity/insights_settings.h"
-#include <pbl/logging/logging.h>
-#include "pbl/util/math.h"
-#include "pbl/util/size.h"
-
 #include "activity_test.h"
 
 #include <stdio.h>
+
+#include <pbl/logging/logging.h>
+#include <pbl/services/activity/activity.h>
+#include <pbl/services/activity/activity_algorithm.h>
+#include <pbl/services/activity/activity_insights.h>
+#include <pbl/services/activity/activity_private.h>
+#include <pbl/services/activity/insights_settings.h>
+#include <pbl/services/activity/kraepelin/activity_algorithm_kraepelin.h>
+#include <pbl/services/time.h>
+#include <pbl/util/math.h>
+#include <pbl/util/size.h>
+#include <pbl/util/units.h>
+
+#include <applib/app.h>
+#include <applib/app_logging.h>
+#include <applib/fonts/fonts.h>
+#include <applib/health_service.h>
+#include <applib/ui/simple_menu_layer.h>
+#include <applib/ui/ui.h>
+#include <kernel/pbl_malloc.h>
+#include <process_state/app_state/app_state.h>
 #include <services/activity/activity.h>
-#include "pbl/services/time.h"
-#include "pbl/util/units.h"
 
 // Test the activity API
 typedef struct {
@@ -291,7 +292,7 @@ static void prv_test_steps(void *context) {
   bool passed = false;
 
   // Reset all stored data
-  activity_test_reset(true /*reset_settings*/, true /*tracking_on*/, NULL, NULL);
+  activity_test_reset(true /*reset_settings*/, true /*tracking_on*/, nullptr, nullptr);
 
   // Fill the steps pipeline then capture step count before
   activity_test_feed_samples(s_walk_30_steps, ARRAY_LENGTH(s_walk_30_steps));
@@ -321,7 +322,7 @@ static void prv_test_30_min_walk(void *context) {
   activity_prefs_activity_insights_set_enabled(true);
 
   // Reset all stored data
-  activity_test_reset(true /*reset_settings*/, true /*tracking_on*/, NULL, NULL);
+  activity_test_reset(true /*reset_settings*/, true /*tracking_on*/, nullptr, nullptr);
 
   int32_t before;
   activity_get_metric(ActivityMetricStepCount, 1, &before);
@@ -356,7 +357,7 @@ static void prv_test_sleep(void *context) {
   int32_t value;
 
   // Reset all stored data
-  activity_test_reset(true /*reset_settings*/, true /*tracking_on*/, NULL, NULL);
+  activity_test_reset(true /*reset_settings*/, true /*tracking_on*/, nullptr, nullptr);
 
   // Change into awake state and capture the sleep before
   // Walk long enough to overlap with a periodic sleep recomputation
@@ -439,7 +440,7 @@ static void prv_test_sleep_time_change(void *context) {
   bool passed = true;
 
   // Reset all stored data
-  activity_test_reset(true /*reset_settings*/, true /*tracking_on*/, NULL, NULL);
+  activity_test_reset(true /*reset_settings*/, true /*tracking_on*/, nullptr, nullptr);
 
   // Walk a little
   prv_feed_steps_min(15);
@@ -534,7 +535,7 @@ static void prv_test_nap(void *context) {
   PBL_LOG_DBG("test start time changed to: %d", (int)test_start_utc);
 
   // Reset all stored data
-  activity_test_reset(false /* reset_settings */, true /*tracking_on*/, NULL, NULL);
+  activity_test_reset(false /* reset_settings */, true /*tracking_on*/, nullptr, nullptr);
 
   // Walk a little first
   prv_feed_steps_min(15);
@@ -597,7 +598,7 @@ static void prv_test_sleep_reward(void *context) {
   };
 
   // Reset all stored data
-  activity_test_reset(true /*reset_settings*/, true /*tracking_on*/, &sleep_history, NULL);
+  activity_test_reset(true /*reset_settings*/, true /*tracking_on*/, &sleep_history, nullptr);
 
   for (int i = 0; i < 3; ++i) {
     // Change into awake state and capture the sleep before
@@ -642,7 +643,7 @@ static void prv_test_activity_reward(void *context) {
   };
 
   // Reset all stored data
-  activity_test_reset(true /*reset_settings*/, true /*tracking_on*/, NULL, &step_history);
+  activity_test_reset(true /*reset_settings*/, true /*tracking_on*/, nullptr, &step_history);
 
   // Walk for about 30 minutes (this should give us over 2500 steps)
   const int k_num_minutes = 30;
@@ -688,7 +689,7 @@ static void prv_test_sleep_summary(void *context) {
   };
 
   // Reset all stored data
-  activity_test_reset(false /*reset_settings*/, true /*tracking_on*/, &sleep_history, NULL);
+  activity_test_reset(false /*reset_settings*/, true /*tracking_on*/, &sleep_history, nullptr);
 
   // Change into awake state and capture the sleep before
   // Walk long enough to overlap with a periodic sleep recomputation
@@ -713,12 +714,12 @@ static void prv_test_activity_summary(void *context) {
   activity_prefs_activity_insights_set_enabled(true);
 
   // Set to the trigger time
-  struct tm time_tm = {};
+  struct pbl_tm time_tm = {};
   const time_t now = rtc_get_time();
-  localtime_r(&now, &time_tm);
+  pbl_localtime_r(&now, &time_tm);
   time_tm.tm_hour = 20;
   time_tm.tm_min = 25;
-  rtc_set_time(mktime(&time_tm));
+  rtc_set_time(pbl_mktime(&time_tm));
 
   // Set the step history
   activity_test_set_steps_history();

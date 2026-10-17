@@ -1,21 +1,21 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/blob_db/api.h"
-#include "pbl/services/blob_db/pin_db.h"
-#include "pbl/services/blob_db/reminder_db.h"
-#include "pbl/services/blob_db/sync.h"
-#include "pbl/services/blob_db/sync_util.h"
-#include "pbl/services/blob_db/timeline_item_storage.h"
-
-#include "kernel/events.h"
-#include "kernel/pbl_malloc.h"
-#include "process_management/app_install_manager.h"
-#include "pbl/services/app_cache.h"
-#include "pbl/services/timeline/timeline.h"
 #include <pbl/logging/logging.h>
-#include "pbl/util/units.h"
-#include "pbl/util/uuid.h"
+#include <pbl/services/app_cache.h>
+#include <pbl/services/blob_db/api.h>
+#include <pbl/services/blob_db/pin_db.h>
+#include <pbl/services/blob_db/reminder_db.h>
+#include <pbl/services/blob_db/sync.h>
+#include <pbl/services/blob_db/sync_util.h>
+#include <pbl/services/blob_db/timeline_item_storage.h>
+#include <pbl/services/timeline/timeline.h>
+#include <pbl/util/units.h>
+#include <pbl/util/uuid.h>
+
+#include <kernel/events.h>
+#include <kernel/pbl_malloc.h>
+#include <process_management/app_install_manager.h>
 
 PBL_LOG_MODULE_DECLARE(service_blob_db, CONFIG_SERVICE_BLOB_DB_LOG_LEVEL);
 
@@ -30,7 +30,7 @@ static TimelineItemStorage s_pin_db_storage;
 /////////////////////////
 
 status_t pin_db_delete_with_parent(const TimelineItemId *parent_id) {
-  return (timeline_item_storage_delete_with_parent(&s_pin_db_storage, parent_id, NULL));
+  return (timeline_item_storage_delete_with_parent(&s_pin_db_storage, parent_id, nullptr));
 }
 
 //! Caution: CommonTimelineItemHeader .flags & .status are stored inverted and not auto-restored
@@ -80,7 +80,7 @@ static status_t prv_insert_serialized_item(const uint8_t *key, int key_len, cons
       .app_fetch_request = {
         .id = install_id,
         .with_ui = false,
-        .fetch_args = NULL,
+        .fetch_args = nullptr,
       },
     };
     event_put(&e);
@@ -175,7 +175,7 @@ bool pin_db_exists_with_parent(const TimelineItemId *parent_id) {
 }
 
 status_t pin_db_read_item_header(TimelineItem *item_out, TimelineItemId *id) {
-  SerializedTimelineItemHeader hdr = {{{0}}};
+  SerializedTimelineItemHeader hdr = {};
   status_t rv = pin_db_read((uint8_t *)id, sizeof(TimelineItemId), (uint8_t *)&hdr,
                             sizeof(SerializedTimelineItemHeader));
   timeline_item_deserialize_header(item_out, &hdr);
@@ -248,7 +248,7 @@ status_t pin_db_is_dirty(bool *is_dirty_out) {
 }
 
 BlobDBDirtyItem *pin_db_get_dirty_list(void) {
-  BlobDBDirtyItem *dirty_list = NULL;
+  BlobDBDirtyItem *dirty_list = nullptr;
   timeline_item_storage_each(&s_pin_db_storage, sync_util_build_dirty_list_cb, &dirty_list);
 
   return dirty_list;

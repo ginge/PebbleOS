@@ -1,11 +1,11 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <stdio.h>
-
 #include "mfg_serials.h"
 
-#include "pbl/util/size.h"
+#include <stdio.h>
+
+#include <pbl/util/size.h>
 
 static const uint8_t OTP_SERIAL_SLOT_INDICES[] = {
   OTP_SERIAL,
@@ -99,6 +99,7 @@ MfgSerialsResult mfg_write_hw_version(const char *hwver, size_t hwver_size, uint
 #if defined(CONFIG_IS_BIGBOARD)
 
 #include <stdio.h>
+
 #include <pbl/drivers/rtc.h>
 #include <pbl/logging/logging.h>
 
@@ -142,13 +143,14 @@ void mfg_write_bigboard_serial_number(void) {
 
   // Create a "more unique" serial number using rand():
   if (prv_get_more_unique_serial(serial_number)) {
-    mfg_write_serial_number(serial_number, MFG_SERIAL_NUMBER_SIZE, NULL);
+    mfg_write_serial_number(serial_number, MFG_SERIAL_NUMBER_SIZE, nullptr);
   }
 }
 #endif
 
 #if defined(CONFIG_SHELL) && defined(CONFIG_RECOVERY_FW)
 #include <errno.h>
+
 #include <pbl/shell/shell.h>
 
 static int prv_print_feedback(const struct pbl_shell *sh, const MfgSerialsResult result,
@@ -228,10 +230,10 @@ static int prv_cmd_pcbaserial(const struct pbl_shell *sh, size_t argc, char **ar
   return prv_print_feedback(sh, result, index, "PCBA Serial");
 }
 
-PBL_SHELL_SUBCMD_ADD(sub_mfg, serial, NULL, "Read or write the serial number [serial]",
+PBL_SHELL_SUBCMD_ADD(sub_mfg, serial, nullptr, "Read or write the serial number [serial]",
                      prv_cmd_serial, 1, 1);
-PBL_SHELL_SUBCMD_ADD(sub_mfg, hwver, NULL, "Read or write the HW version [hwver]", prv_cmd_hwver, 1,
-                     1);
-PBL_SHELL_SUBCMD_ADD(sub_mfg, pcbaserial, NULL, "Read or write the PCBA serial number [serial]",
+PBL_SHELL_SUBCMD_ADD(sub_mfg, hwver, nullptr, "Read or write the HW version [hwver]", prv_cmd_hwver,
+                     1, 1);
+PBL_SHELL_SUBCMD_ADD(sub_mfg, pcbaserial, nullptr, "Read or write the PCBA serial number [serial]",
                      prv_cmd_pcbaserial, 1, 1);
 #endif

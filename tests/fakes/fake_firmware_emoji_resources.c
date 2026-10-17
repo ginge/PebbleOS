@@ -1,12 +1,11 @@
 /* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "resource/resource.h"
-#include "resource/resource_ids.auto.h"
-
-#include "clar_asserts.h"
-
 #include <stdio.h>
+
+#include <clar_asserts.h>
+#include <resource/resource.h>
+#include <resource/resource_ids.auto.h>
 
 #if CONFIG_SCREEN_COLOR_DEPTH_BITS == 8
 #define EMOJI_SUFFIX "~color.pbf"
@@ -16,7 +15,7 @@
 
 static FILE *prv_open_emoji(ResAppNum app_num, uint32_t id) {
   if (app_num != SYSTEM_APP) {
-    return NULL;
+    return nullptr;
   }
   const char *path;
   switch (id) {
@@ -33,7 +32,7 @@ static FILE *prv_open_emoji(ResAppNum app_num, uint32_t id) {
       path = FIRMWARE_EMOJI_DIR "/EMOJI_28" EMOJI_SUFFIX;
       break;
     default:
-      return NULL;
+      return nullptr;
   }
   FILE *file = fopen(path, "rb");
   cl_assert_(file, path);

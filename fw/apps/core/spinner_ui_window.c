@@ -3,14 +3,15 @@
 
 #include "spinner_ui_window.h"
 
-#include "applib/graphics/graphics.h"
-#include "applib/graphics/gtypes.h"
-#include "pbl/util/trig.h"
-#include "applib/ui/animation.h"
-#include "applib/ui/layer.h"
-#include "applib/ui/property_animation.h"
-#include "kernel/pbl_malloc.h"
-#include "system/passert.h"
+#include <pbl/util/trig.h>
+
+#include <applib/graphics/graphics.h>
+#include <applib/graphics/gtypes.h>
+#include <applib/ui/animation.h>
+#include <applib/ui/layer.h>
+#include <applib/ui/property_animation.h>
+#include <kernel/pbl_malloc.h>
+#include <system/passert.h>
 
 ////////////////////////////////////////////////////////////
 // Data structures
@@ -140,7 +141,8 @@ static void prv_window_load_handler(Window *window) {
   // See comment about loops above (animation section)
   const int animation_duration_ms = LOOP_DURATION_MS * LOOPS_PER_ANIMATION;
   const int animation_delay_ms = 0;
-  data->spinner_animation = property_animation_create_layer_frame(&data->anim_layer, NULL, NULL);
+  data->spinner_animation =
+      property_animation_create_layer_frame(&data->anim_layer, nullptr, nullptr);
   if (data->spinner_animation) {
     Animation *animation = property_animation_get_animation(data->spinner_animation);
     animation_set_duration(animation, animation_duration_ms);

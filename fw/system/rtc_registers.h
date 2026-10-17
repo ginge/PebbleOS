@@ -32,7 +32,7 @@
 extern void retained_write(uint8_t id, uint32_t value);
 extern uint32_t retained_read(uint8_t id);
 
-#elif defined(CONFIG_SOC_SF32LB52)
+#elifdef CONFIG_SOC_SF32LB52
 /* sf32lb52 rtc backup register 2/5/6/7/8/9 is freely usable */
 #define RTC_BKP_BOOTBIT_DR                2
 #define REBOOT_REASON_REGISTER_1          5
@@ -61,7 +61,7 @@ extern uint32_t retained_read(uint8_t id);
 #define T5AI_RTC_BASE_TICKS_LOW           20
 #define T5AI_RTC_BASE_TICKS_HIGH          21
 
-#elif defined(CONFIG_QEMU)
+#elif defined(CONFIG_QEMU) || defined(CONFIG_SOC_POSIX)
 /* QEMU backup registers mapped to MMIO backup region (indices 0..15) */
 #define RTC_BKP_BOOTBIT_DR                0
 #define STUCK_BUTTON_REGISTER             1

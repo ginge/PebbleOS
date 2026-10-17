@@ -1,27 +1,25 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "clar.h"
+#include <stdio.h>
 
-#include "applib/health_service_private.h"
-#include "pbl/services/activity/activity.h"
-#include "shell/prefs_syscalls.h"
-#include "pbl/util/size.h"
+#include <pbl/services/activity/activity.h>
+#include <pbl/util/size.h>
+
+#include <applib/health_service_private.h>
+#include <clar.h>
+#include <shell/prefs_syscalls.h>
 
 // Stubs
-#include "stubs_app_manager.h"
-#include "stubs_logging.h"
-#include "stubs_passert.h"
-#include "stubs_pbl_malloc.h"
-#include "stubs_worker_manager.h"
 
 // Fakes
-#include "fake_rtc.h"
-#include "fake_pbl_std.h"
-#include "pbl/util/testing.h"
-#include "pbl/services/time.h"
-#include "pbl/util/time.h"
-#include "pbl/util/units.h"
+#include <pbl/services/time.h>
+#include <pbl/util/testing.h>
+#include <pbl/util/time.h>
+#include <pbl/util/units.h>
+
+#include <fake_pbl_std.h>
+#include <fake_rtc.h>
 
 bool sys_activity_is_initialized(void) {
   return true;
@@ -60,7 +58,7 @@ PebbleTask pebble_task_get_current(void) {
 
 HealthServiceState *worker_state_get_health_service_state(void) {
   cl_fail("should never be called");
-  return NULL;
+  return nullptr;
 }
 
 void sys_send_pebble_event_to_kernel(PebbleEvent *event) {
@@ -338,7 +336,7 @@ void test_health__sum_today(void) {
     HealthServiceTimeRange r_b = (b);                                                              \
     bool success = memcmp(&r_a, &r_b, sizeof(r_a)) == 0;                                           \
     if (!success) {                                                                                \
-      char error_msg[256] = {0};                                                                   \
+      char error_msg[256] = {};                                                                    \
       snprintf(error_msg, sizeof(error_msg),                                                       \
                "HealthServiceInternalTimeRange equal\n"                                            \
                "    a: {last_day_idx:%d, num_days:%d, seconds_first_day:%d, seconds_last_day:%d, " \
@@ -435,20 +433,20 @@ void test_health__range_to_day_id_rejects_invalid_values(void) {
   bool result;
 
   // check that we *can* return success
-  result = prv_calculate_time_range(now - 10, now, NULL);
+  result = prv_calculate_time_range(now - 10, now, nullptr);
   cl_assert_equal_b(result, true);
 
   // in the future
-  result = prv_calculate_time_range(now + 10, now + 20, NULL);
+  result = prv_calculate_time_range(now + 10, now + 20, nullptr);
   cl_assert_equal_b(result, false);
 
   // too far in the past
   result = prv_calculate_time_range(now - (ACTIVITY_HISTORY_DAYS + 10) * PBL_SEC_PER_DAY,
-                                    now - (ACTIVITY_HISTORY_DAYS + 2) * PBL_SEC_PER_DAY, NULL);
+                                    now - (ACTIVITY_HISTORY_DAYS + 2) * PBL_SEC_PER_DAY, nullptr);
   cl_assert_equal_b(result, false);
 
   // start after end
-  result = prv_calculate_time_range(now - 100, now - 200, NULL);
+  result = prv_calculate_time_range(now - 100, now - 200, nullptr);
   cl_assert_equal_b(result, false);
 }
 
@@ -607,21 +605,21 @@ void test_health__sum_fraction_days(void) {
 }
 
 void test_health__cache(void) {
-  cl_assert_equal_p(s_health_service.cache, NULL);
-  health_service_events_subscribe(NULL, NULL);
+  cl_assert_equal_p(s_health_service.cache, nullptr);
+  health_service_events_subscribe(nullptr, nullptr);
   HealthServiceCache *const cache = s_health_service.cache;
-  cl_assert(cache != NULL);
+  cl_assert(cache != nullptr);
 
   // cache is preserved
-  health_service_events_subscribe(NULL, NULL);
+  health_service_events_subscribe(nullptr, nullptr);
   cl_assert_equal_p(s_health_service.cache, cache);
 
   health_service_events_unsubscribe();
-  cl_assert_equal_p(s_health_service.cache, NULL);
+  cl_assert_equal_p(s_health_service.cache, nullptr);
 
   // multiple unsubscribe/empty cache doesn't cause a problem
   health_service_events_unsubscribe();
-  cl_assert_equal_p(s_health_service.cache, NULL);
+  cl_assert_equal_p(s_health_service.cache, nullptr);
 }
 
 void test_health__metric_accessible(void) {
@@ -915,30 +913,27 @@ void test_health__activities_iterate(void) {
   // oldest to most-recent (looking at each session's start): 3, 2, 1, 0
   // most-recent to oldest (looking at each session's end): 1, 0, 3, 2
 
-  const int num_sleep_sessions = 4;
   const int num_restfulsleep_sessions = 2;
   const int num_run_sessions = 1;
   const int num_walk_sessions = 1;
   const int num_open_sessions = 1;
-  const int num_sessions = num_sleep_sessions + num_restfulsleep_sessions + num_run_sessions +
-                           num_walk_sessions + num_open_sessions;
 
   // result from mocked sys_activity_get_sessions_values is still false
   health_service_activities_iterate(HealthActivityMaskAll, now - (100 * PBL_SEC_PER_MIN), now,
-                                    HealthIterationDirectionPast, prv_activity_cb, NULL);
+                                    HealthIterationDirectionPast, prv_activity_cb, nullptr);
   cl_assert_equal_i(0, s_prv_activity_cb__call_count);
 
   s_sys_activity_get_sessions_values.out.result = true;
   // result from mocked sys_activity_get_sessions_values is still 0 sessions
   health_service_activities_iterate(HealthActivityMaskAll, now - (100 * PBL_SEC_PER_MIN), now,
-                                    HealthIterationDirectionPast, prv_activity_cb, NULL);
+                                    HealthIterationDirectionPast, prv_activity_cb, nullptr);
   cl_assert_equal_i(0, s_prv_activity_cb__call_count);
 
   // respect mask for RestfulSleep
   s_prv_activity_cb__call_count = 0;
   s_sys_activity_get_sessions_values.out.num_sessions = 7;
   health_service_activities_iterate(HealthActivityRestfulSleep, now - (100 * PBL_SEC_PER_MIN), now,
-                                    HealthIterationDirectionPast, prv_activity_cb, NULL);
+                                    HealthIterationDirectionPast, prv_activity_cb, nullptr);
   cl_assert_equal_i(num_restfulsleep_sessions, s_prv_activity_cb__call_count);
   cl_assert_equal_b(s_prv_activity_cb__args[0].activity, HealthActivityRestfulSleep);
 
@@ -947,7 +942,7 @@ void test_health__activities_iterate(void) {
   s_sys_activity_get_sessions_values.out.num_sessions = 7;
   health_service_activities_iterate(
       HealthActivityRun | HealthActivityWalk | HealthActivityOpenWorkout,
-      now - (100 * PBL_SEC_PER_MIN), now, HealthIterationDirectionPast, prv_activity_cb, NULL);
+      now - (100 * PBL_SEC_PER_MIN), now, HealthIterationDirectionPast, prv_activity_cb, nullptr);
   cl_assert_equal_i(num_run_sessions + num_walk_sessions + num_open_sessions,
                     s_prv_activity_cb__call_count);
   cl_assert_equal_b(s_prv_activity_cb__args[0].activity, HealthActivityRun);
@@ -956,14 +951,14 @@ void test_health__activities_iterate(void) {
   s_prv_activity_cb__call_count = 0;
   s_sys_activity_get_sessions_values.out.num_sessions = 7;
   health_service_activities_iterate(HealthActivitySleep, now - (15 * PBL_SEC_PER_MIN), now,
-                                    HealthIterationDirectionPast, prv_activity_cb, NULL);
+                                    HealthIterationDirectionPast, prv_activity_cb, nullptr);
   cl_assert_equal_i(1, s_prv_activity_cb__call_count);
   cl_assert_equal_b(s_prv_activity_cb__args[0].activity, HealthActivitySleep);
 
   // order direction past
   s_prv_activity_cb__call_count = 0;
   health_service_activities_iterate(HealthActivityMaskAll, now - (200 * PBL_SEC_PER_MIN), now,
-                                    HealthIterationDirectionPast, prv_activity_cb, NULL);
+                                    HealthIterationDirectionPast, prv_activity_cb, nullptr);
   cl_assert_equal_i(7, s_prv_activity_cb__call_count);
   cl_assert_equal_i(s_prv_activity_cb__args[0].time_start,
                     s_sys_activity_get_sessions_values.out.sessions[1].start_utc);
@@ -973,7 +968,7 @@ void test_health__activities_iterate(void) {
   // order direction future
   s_prv_activity_cb__call_count = 0;
   health_service_activities_iterate(HealthActivityMaskAll, now - (200 * PBL_SEC_PER_MIN), now,
-                                    HealthIterationDirectionFuture, prv_activity_cb, NULL);
+                                    HealthIterationDirectionFuture, prv_activity_cb, nullptr);
   cl_assert_equal_i(7, s_prv_activity_cb__call_count);
   cl_assert_equal_i(s_prv_activity_cb__args[0].time_start,
                     s_sys_activity_get_sessions_values.out.sessions[6].start_utc);
@@ -1052,7 +1047,7 @@ void test_health__get_minute_history_edge_case_args(void) {
   // null pointer
   time_t time_start = now - 10 * 60 - 30;
   time_t time_end = now - 20;
-  written = health_service_get_minute_history(NULL, ARRAY_LENGTH(data), &time_start, &time_end);
+  written = health_service_get_minute_history(nullptr, ARRAY_LENGTH(data), &time_start, &time_end);
   cl_assert_equal_i(0, written);
 
   // empty boundary
@@ -1060,7 +1055,7 @@ void test_health__get_minute_history_edge_case_args(void) {
   cl_assert_equal_i(0, written);
 
   // empty start
-  written = health_service_get_minute_history(data, ARRAY_LENGTH(data), NULL, &time_end);
+  written = health_service_get_minute_history(data, ARRAY_LENGTH(data), nullptr, &time_end);
   cl_assert_equal_i(0, written);
 
   // empty end before start
@@ -1075,7 +1070,7 @@ void test_health__get_minute_history_edge_case_args(void) {
       .result = true,
     },
   };
-  written = health_service_get_minute_history(data, ARRAY_LENGTH(data), &time_start, NULL);
+  written = health_service_get_minute_history(data, ARRAY_LENGTH(data), &time_start, nullptr);
   cl_assert_equal_i(2, written);
 }
 
@@ -1195,8 +1190,8 @@ void test_health__get_yesterdays_sleep_activity(void) {
 void test_health__avg_full_days(void) {
   // Get the current time and day
   const time_t now = rtc_get_time();
-  struct tm local_tm;
-  localtime_r(&now, &local_tm);
+  struct pbl_tm local_tm;
+  pbl_localtime_r(&now, &local_tm);
   enum pbl_weekday day_in_week = local_tm.tm_wday;
 
   // ----------------------------------------
@@ -1298,8 +1293,8 @@ static uint32_t prv_averages_sum(uint32_t minute_start_idx, uint32_t minute_end_
 void test_health__avg_partial_days(void) {
   // Get the current time and day
   const time_t now = rtc_get_time();
-  struct tm local_tm;
-  localtime_r(&now, &local_tm);
+  struct pbl_tm local_tm;
+  pbl_localtime_r(&now, &local_tm);
   enum pbl_weekday day_in_week = local_tm.tm_wday;
 
   // Our _initialize should set us to Monday, 9am UTC
@@ -1465,11 +1460,11 @@ void DISABLED_test_health__min_max_avg_full_days(void) {
   const time_t now = rtc_get_time();
   const time_t yesterday_utc = now - PBL_SEC_PER_DAY;
 
-  struct tm local_tm;
-  localtime_r(&now, &local_tm);
+  struct pbl_tm local_tm;
+  pbl_localtime_r(&now, &local_tm);
   enum pbl_weekday todays_day_in_week = local_tm.tm_wday;
 
-  localtime_r(&yesterday_utc, &local_tm);
+  pbl_localtime_r(&yesterday_utc, &local_tm);
   enum pbl_weekday yesterday_day_in_week = local_tm.tm_wday;
   bool yesterday_was_weekend =
       (yesterday_day_in_week == PBL_SUNDAY) || (yesterday_day_in_week == PBL_SATURDAY);
@@ -1544,7 +1539,7 @@ void DISABLED_test_health__min_max_avg_full_days(void) {
     for (HealthServiceTimeScope scope = HealthServiceTimeScopeOnce;
          scope <= HealthServiceTimeScopeDaily; scope++) {
       // Figure out the expected value
-      HealthServiceStats *stats = NULL;
+      HealthServiceStats *stats = nullptr;
       char *scope_str;
       switch (scope) {
         case HealthServiceTimeScopeOnce:
@@ -1627,7 +1622,7 @@ void test_health__heart_rate_scope_once(void) {
 
   // ----------------------------------------------------------------
   // Put in our minute history
-  HealthServiceCache *cache = NULL;
+  HealthServiceCache *cache = nullptr;
   unsigned num_minutes_per_call = ARRAY_LENGTH(cache->minute_data);
   s_sys_activity_get_minute_history_values = (sys_activity_get_minute_history_values){
     .out[0] =
@@ -1711,7 +1706,7 @@ static void prv_test_event_handler(HealthEventType event, void *context) {
 // --------------------------------------------------------------------------------------
 // Test the health metric alert generation
 void test_health__metric_alert_generation(void) {
-  health_service_events_subscribe(prv_test_event_handler, NULL);
+  health_service_events_subscribe(prv_test_event_handler, nullptr);
   s_sys_activity_get_metric_values.out.result = true;
 
   PebbleEvent event = {
@@ -1723,7 +1718,7 @@ void test_health__metric_alert_generation(void) {
   s_metric_alert_count = 0;
   for (int i = 50; i < 60; i++) {
     s_sys_activity_get_metric_values.out.history[0] = i;
-    prv_health_event_handler(&event, NULL);
+    prv_health_event_handler(&event, nullptr);
   }
   // Should not get any metric alerts because none registered
   cl_assert_equal_i(s_metric_alert_count, 0);
@@ -1732,7 +1727,7 @@ void test_health__metric_alert_generation(void) {
   HealthMetricAlert *alert = health_service_register_metric_alert(HealthMetricHeartRateBPM, 65);
   for (int i = 60; i < 70; i++) {
     s_sys_activity_get_metric_values.out.history[0] = i;
-    prv_health_event_handler(&event, NULL);
+    prv_health_event_handler(&event, nullptr);
   }
   // One alert on the way up
   cl_assert_equal_i(s_metric_alert_count, 1);
@@ -1743,7 +1738,7 @@ void test_health__metric_alert_generation(void) {
       .type = PEBBLE_HEALTH_SERVICE_EVENT,
       .health_event.type = HealthEventHeartRateUpdate,
     };
-    prv_health_event_handler(&event, NULL);
+    prv_health_event_handler(&event, nullptr);
   }
   // One alert on the way down
   cl_assert_equal_i(s_metric_alert_count, 2);
@@ -1753,7 +1748,7 @@ void test_health__metric_alert_generation(void) {
   health_service_cancel_metric_alert(alert);
   for (int i = 60; i < 70; i++) {
     s_sys_activity_get_metric_values.out.history[0] = i;
-    prv_health_event_handler(&event, NULL);
+    prv_health_event_handler(&event, nullptr);
   }
   // Should not get an alert
   cl_assert_equal_i(s_metric_alert_count, 0);
@@ -1762,7 +1757,7 @@ void test_health__metric_alert_generation(void) {
 // --------------------------------------------------------------------------------------
 // Test the health metric alert registration
 void test_health__metric_alert_registration(void) {
-  health_service_events_subscribe(prv_test_event_handler, NULL);
+  health_service_events_subscribe(prv_test_event_handler, nullptr);
 
   time_t now = rtc_get_time();
   HealthServiceAccessibilityMask accessible = health_service_metric_aggregate_averaged_accessible(
@@ -1771,17 +1766,17 @@ void test_health__metric_alert_registration(void) {
 
   // Create an alert for heart rate
   HealthMetricAlert *alert = health_service_register_metric_alert(HealthMetricHeartRateBPM, 65);
-  cl_assert(alert != NULL);
+  cl_assert(alert != nullptr);
 
   // If we try to register another for heart rate, it should fail
   HealthMetricAlert *fail_alert =
       health_service_register_metric_alert(HealthMetricHeartRateBPM, 65);
-  cl_assert(fail_alert == NULL);
+  cl_assert(fail_alert == nullptr);
 
   // Cancel the original
   health_service_cancel_metric_alert(alert);
 
   // Should be able to register another now
   alert = health_service_register_metric_alert(HealthMetricHeartRateBPM, 65);
-  cl_assert(alert != NULL);
+  cl_assert(alert != nullptr);
 }

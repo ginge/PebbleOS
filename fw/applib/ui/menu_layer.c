@@ -2,35 +2,39 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "menu_layer.h"
-#include "menu_layer_private.h"
 
-#include "applib/applib_malloc.auto.h"
-#include "applib/graphics/graphics.h"
-#include "pbl/util/trig.h"
-#include "applib/ui/animation_timing.h"
-#include "applib/ui/click.h"
-#include "applib/ui/window.h"
-#include "applib/legacy2/ui/menu_layer_legacy2.h"
-#include "kernel/pbl_malloc.h"
-#include "process_management/process_manager.h"
-#include <pbl/logging/logging.h>
-#include "system/passert.h"
-#include "pbl/kernel/compiler.h"
-#include "pbl/util/testing.h"
-#include "pbl/util/math.h"
-#include "pbl/util/size.h"
+#include "menu_layer_private.h"
 #include "vibes.h"
 
+#include <pbl/kernel/compiler.h>
+#include <pbl/logging/logging.h>
+#include <pbl/util/math.h>
+#include <pbl/util/size.h>
+#include <pbl/util/testing.h>
+#include <pbl/util/trig.h>
+
+#include <applib/applib_malloc.auto.h>
+#include <applib/graphics/graphics.h>
+#include <applib/legacy2/ui/menu_layer_legacy2.h>
+#include <applib/ui/animation_timing.h>
+#include <applib/ui/click.h>
+#include <applib/ui/menu_text_scroll.h>
+#include <applib/ui/window.h>
+#include <kernel/pbl_malloc.h>
+#include <process_management/process_manager.h>
+#include <system/passert.h>
+
 #ifdef CONFIG_TOUCH
-#include "applib/ui/recognizer/touch_nav.h"
-#include "applib/ui/recognizer/recognizer_manager.h"
-#include "applib/ui/recognizer/pan.h"
-#include "applib/ui/recognizer/swipe.h"
-#include "applib/ui/recognizer/tap.h"
-#include "applib/ui/scroll_layer_private.h"
-#include "kernel/pebble_tasks.h"
-#include "pbl/drivers/rtc.h"
-#include "syscall/syscall.h"
+#include <pbl/drivers/rtc.h>
+
+#include <applib/ui/recognizer/pan.h>
+#include <applib/ui/recognizer/recognizer_manager.h>
+#include <applib/ui/recognizer/swipe.h>
+#include <applib/ui/recognizer/tap.h>
+#include <applib/ui/recognizer/touch_nav.h>
+#include <applib/ui/scroll_layer_private.h>
+#include <kernel/pebble_tasks.h>
+#include <syscall/syscall.h>
 
 // The per-task touch-nav state lives in the app state (app task) or the modal manager (KernelMain).
 // Forward-declared here to avoid pulling those heavy kernel/app headers into this applib module.
@@ -67,14 +71,14 @@ static bool prv_cancel_selection_animation(MenuLayer *menu_layer);
 static void prv_scrollbar_cancel_hide_timer(MenuLayer *menu_layer) {
   if (menu_layer->scrollbar_hide_timer) {
     app_timer_cancel(menu_layer->scrollbar_hide_timer);
-    menu_layer->scrollbar_hide_timer = NULL;
+    menu_layer->scrollbar_hide_timer = nullptr;
   }
 }
 
 #ifdef CONFIG_TOUCH
 static void prv_scrollbar_hide_timer_cb(void *data) {
   MenuLayer *menu_layer = data;
-  menu_layer->scrollbar_hide_timer = NULL;
+  menu_layer->scrollbar_hide_timer = nullptr;
   menu_layer->scrollbar_visible = false;
   layer_mark_dirty(&menu_layer->scroll_layer.layer);
 }
@@ -436,7 +440,7 @@ static void prv_menu_click_config_provider(MenuLayer *menu_layer) {
   }
   if (menu_layer->callbacks.select_long_click) {
     window_long_click_subscribe(BUTTON_ID_SELECT, 0,
-                                (ClickHandler)prv_menu_select_long_click_handler, NULL);
+                                (ClickHandler)prv_menu_select_long_click_handler, nullptr);
   }
   window_single_repeating_click_subscribe(BUTTON_ID_DOWN, 100 /*ms*/,
                                           (ClickHandler)menu_down_click_handler);
@@ -1013,12 +1017,13 @@ void menu_layer_deinit(MenuLayer *menu_layer) {
 #endif
   prv_cancel_selection_animation(menu_layer);
   prv_scrollbar_cancel_hide_timer(menu_layer);
+  menu_text_scroll_layer_deinit(&menu_layer->scroll_layer.content_sublayer);
   layer_deinit(&menu_layer->inverter.layer);
   scroll_layer_deinit(&menu_layer->scroll_layer);
 }
 
 void menu_layer_destroy(MenuLayer *menu_layer) {
-  if (menu_layer == NULL) {
+  if (menu_layer == nullptr) {
     return;
   }
   menu_layer_deinit(menu_layer);
@@ -1144,7 +1149,7 @@ int16_t menu_index_compare(const MenuIndex *a, const MenuIndex *b) {
 
 static void prv_selection_complete(Animation *animation, bool finished, void *context) {
   MenuLayer *menu_layer = (MenuLayer *)context;
-  menu_layer->animation.animation = NULL;
+  menu_layer->animation.animation = nullptr;
 }
 
 static bool prv_cancel_selection_animation(MenuLayer *menu_layer) {
@@ -1152,7 +1157,7 @@ static bool prv_cancel_selection_animation(MenuLayer *menu_layer) {
   if (result) {
     animation_unschedule(menu_layer->animation.animation);
   }
-  menu_layer->animation.animation = NULL;
+  menu_layer->animation.animation = nullptr;
   return result;
 }
 
@@ -1204,7 +1209,7 @@ static void prv_setup_selection_animation(MenuLayer *menu_layer, bool up) {
   animation_set_curve(a2, AnimationCurveEaseOut);
   animation_set_auto_destroy(a2, true);
 
-  Animation *a = animation_sequence_create(a1, a2, NULL);
+  Animation *a = animation_sequence_create(a1, a2, nullptr);
 
   animation_set_auto_destroy(a, true); // [MJ] false?
   animation_set_handlers(a, (AnimationHandlers){.stopped = prv_selection_complete}, menu_layer);
@@ -1465,7 +1470,8 @@ static void prv_schedule_center_focus_animation(MenuLayer *menu_layer, bool up,
   const PropertyAnimationImplementation *impl =
       was_animating ? &s_center_focus_selection_animation_out_only_impl
                     : &s_center_focus_selection_animation_in_out_impl;
-  PropertyAnimation *const prop_anim = property_animation_create(impl, menu_layer, NULL, NULL);
+  PropertyAnimation *const prop_anim =
+      property_animation_create(impl, menu_layer, nullptr, nullptr);
   // we're (ab)using the .to value to store the direction, see prv_center_focus_animation_state()
   property_animation_to(prop_anim, &up, sizeof(up), true);
   Animation *const anim = property_animation_get_animation(prop_anim);
@@ -1543,7 +1549,7 @@ void menu_layer_set_selected_index(MenuLayer *menu_layer, MenuIndex index,
     index.section = num_sections - 1;
   }
   // check to make sure this callback has been set, return early if not
-  if (menu_layer->callbacks.get_num_rows == NULL) {
+  if (menu_layer->callbacks.get_num_rows == nullptr) {
     PBL_LOG_ERR("Please set menu layer callbacks before running menu_layer_set_selected_index.");
     return;
   }
@@ -1781,8 +1787,8 @@ void menu_layer_set_scroll_vibe_on_blocked(MenuLayer *menu_layer, bool scroll_vi
 // usual comfortable double-tap spacing; tune on hardware if it feels too eager/sluggish.
 #define DOUBLE_TAP_WINDOW_MS 300
 
-_Static_assert(sizeof(((MenuLayer *)0)->touch_nav_node) == sizeof(TouchNavWidgetNode),
-               "MenuLayer touch_nav_node must match TouchNavWidgetNode layout");
+static_assert(sizeof(((MenuLayer *)0)->touch_nav_node) == sizeof(TouchNavWidgetNode),
+              "MenuLayer touch_nav_node must match TouchNavWidgetNode layout");
 
 static bool prv_is_app_task(void) {
   return pebble_task_get_current() == PebbleTask_App;
@@ -2408,7 +2414,7 @@ static void prv_menu_ops_swipe(void *w, SwipeDirection dir) {
 
 // can_start is NULL: a MenuLayer is always ready to start a pan.
 static const TouchNavWidgetOps s_menu_touch_nav_ops = {
-  .can_start = NULL,
+  .can_start = nullptr,
   .touchdown = prv_menu_ops_touchdown,
   .pan_started = prv_menu_ops_pan_started,
   .get_base_offset = prv_menu_ops_get_base_offset,

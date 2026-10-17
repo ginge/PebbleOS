@@ -8,16 +8,17 @@
 #include "graphics_private.h"
 #include "graphics_private_raw.h"
 
-#include "applib/app_logging.h"
-#include "process_management/process_manager.h"
-#include "process_state/app_state/app_state.h"
-#include "system/passert.h"
-#include "pbl/util/bitops.h"
-#include "applib/graphics/raw_image.h"
-#include "pbl/util/math.h"
-
 #include <string.h>
-#include "pbl/util/testing.h"
+
+#include <pbl/util/bitops.h>
+#include <pbl/util/math.h>
+#include <pbl/util/testing.h>
+
+#include <applib/app_logging.h>
+#include <applib/graphics/raw_image.h>
+#include <process_management/process_manager.h>
+#include <process_state/app_state/app_state.h>
+#include <system/passert.h>
 
 #if !defined(__clang__)
 #pragma GCC optimize("O3")
@@ -80,9 +81,15 @@ PBL_T_STATIC void prv_fill_rect_legacy2(GContext *ctx, GRect rect, uint16_t radi
       MAX(0, rect.size.w - clipped_rect.size.w - left_cropped_columns_count);
 
   if (top_cropped_rows_count) {
-    // Skip over rows for each one that's cropped off the top.
-    corner_insets_left >>= 4 * MIN(top_cropped_rows_count, 8);
-    corner_insets_right >>= 4 * MIN(top_cropped_rows_count, 8);
+    // Skip over rows for each one that's cropped off the top; past 8 rows,
+    // none is left (a 32-bit shift by 32 is undefined).
+    if (top_cropped_rows_count >= 8) {
+      corner_insets_left = 0;
+      corner_insets_right = 0;
+    } else {
+      corner_insets_left >>= 4 * top_cropped_rows_count;
+      corner_insets_right >>= 4 * top_cropped_rows_count;
+    }
   }
 
   // Mark the destination dirty before clipped_rect is modified.
@@ -633,7 +640,7 @@ GBitmap *graphics_capture_frame_buffer_format(GContext *ctx, GBitmapFormat forma
     APP_LOG(APP_LOG_LEVEL_WARNING,
             "Frame buffer has already been captured; it cannot be captured again until "
             "graphics_release_frame_buffer has been called.");
-    return NULL;
+    return nullptr;
   }
   ctx->lock = true;
 
@@ -643,7 +650,7 @@ GBitmap *graphics_capture_frame_buffer_format(GContext *ctx, GBitmapFormat forma
     return native;
   }
 
-  GBitmap *result = NULL;
+  GBitmap *result = nullptr;
   if (format == GBitmapFormat1Bit && native->info.format == GBitmapFormat8Bit) {
     // Create a new blank gbitmap in the correct format.
     const GBitmap *native_framebuffer = graphics_context_get_bitmap(ctx);

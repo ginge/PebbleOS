@@ -1,20 +1,16 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/ui/animation_private.h"
-#include "applib/app_logging.h"
+#include <pbl/services/new_timer/new_timer.h>
 
-#include "kernel/events.h"
-#include "kernel/kernel_applib_state.h"
-
-#include "process_management/process_manager.h"
-#include "process_state/app_state/app_state.h"
-
-#include "pbl/services/new_timer/new_timer.h"
-
-#include "system/passert.h"
-
-#include "syscall/syscall_internal.h"
+#include <applib/app_logging.h>
+#include <applib/ui/animation_private.h>
+#include <kernel/events.h>
+#include <kernel/kernel_applib_state.h>
+#include <process_management/process_manager.h>
+#include <process_state/app_state/app_state.h>
+#include <syscall/syscall_define.h>
+#include <system/passert.h>
 
 // The timer ID used for each task that we support
 static TimerID s_kernel_main_timer_id = TIMER_INVALID_ID;
@@ -44,7 +40,7 @@ void animation_service_cleanup(PebbleTask task) {
 
 // ------------------------------------------------------------------------------------------
 static void prv_timer_callback(void *context) {
-  PebbleTask task = (PebbleTask)context;
+  PebbleTask task = (PebbleTask)(uintptr_t)context;
 
   PebbleEvent e = {
     .type = PEBBLE_CALLBACK_EVENT,
@@ -71,23 +67,20 @@ static void prv_timer_callback(void *context) {
 }
 
 // ------------------------------------------------------------------------------------------
-DEFINE_SYSCALL(void, animation_service_timer_event_received, void) {
+PBL_SYSCALL(void, animation_service_timer_event_received) {
   PebbleTask task = pebble_task_get_current();
 
   if (task == PebbleTask_KernelMain) {
     s_kernel_main_event_pending = false;
   } else if (task == PebbleTask_App) {
     s_app_event_pending = false;
-  } else {
-    if (PRIVILEGE_WAS_ELEVATED) {
-      syscall_failed();
-    }
-    return;
+  } else if (from_user) {
+    syscall_failed();
   }
 }
 
 // ------------------------------------------------------------------------------------------
-DEFINE_SYSCALL(void, animation_service_timer_schedule, uint32_t ms) {
+PBL_SYSCALL(void, animation_service_timer_schedule, (VAL, uint32_t, ms)) {
   PebbleTask task = pebble_task_get_current();
   TimerID *timer_id;
 
@@ -96,7 +89,7 @@ DEFINE_SYSCALL(void, animation_service_timer_schedule, uint32_t ms) {
   } else if (task == PebbleTask_App) {
     timer_id = &s_app_timer_id;
   } else {
-    if (PRIVILEGE_WAS_ELEVATED) {
+    if (from_user) {
       syscall_failed();
     }
     return;

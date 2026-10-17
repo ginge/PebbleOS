@@ -1,15 +1,15 @@
 /* SPDX-FileCopyrightText: 2025 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include "nimble_type_conversions.h"
+
 #include <pbl/bluetooth/gatt.h>
+#include <pbl/logging/logging.h>
 
 #include <host/ble_gatt.h>
 #include <host/ble_uuid.h>
 #include <os/os_mbuf.h>
 #include <services/gatt/ble_svc_gatt.h>
-#include <pbl/logging/logging.h>
-
-#include "nimble_type_conversions.h"
 
 PBL_LOG_MODULE_DECLARE(bt, CONFIG_BT_LOG_LEVEL);
 
@@ -32,7 +32,7 @@ void pbl_bt_gatt_send_changed_indication(const struct pbl_bt_device_internal *de
   const ble_uuid16_t svc_uuid = BLE_UUID16_INIT(PBL_BT_GATT_SERVICE_UUID);
   const ble_uuid16_t chr_uuid = BLE_UUID16_INIT(BLE_SVC_GATT_CHR_SERVICE_CHANGED_UUID16);
   uint16_t val_handle;
-  int rc = ble_gatts_find_chr(&svc_uuid.u, &chr_uuid.u, NULL, &val_handle);
+  int rc = ble_gatts_find_chr(&svc_uuid.u, &chr_uuid.u, nullptr, &val_handle);
   if (rc != 0) {
     PBL_LOG_ERR("Service Changed: find_chr failed: 0x%04x", (uint16_t)rc);
     return;

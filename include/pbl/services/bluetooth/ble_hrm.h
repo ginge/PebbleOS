@@ -3,9 +3,7 @@
 
 #pragma once
 
-#include <stdbool.h>
-
-#include "pbl/util/units.h"
+#include <pbl/util/units.h>
 
 /**
  * @defgroup services_bluetooth_ble_hrm Heart rate sharing

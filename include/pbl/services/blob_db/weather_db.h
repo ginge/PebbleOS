@@ -3,17 +3,17 @@
 
 #pragma once
 
-#include "pbl/services/weather/weather_service.h"
-#include "pbl/services/weather/weather_types.h"
-#include "system/status_codes.h"
-#include "pbl/kernel/compiler.h"
-#include "pbl/util/pstring.h"
-#include <time.h>
-#include "pbl/util/uuid.h"
-
 #include <stddef.h>
-#include <stdbool.h>
 #include <stdint.h>
+#include <time.h>
+
+#include <pbl/kernel/compiler.h>
+#include <pbl/services/weather/weather_service.h>
+#include <pbl/services/weather/weather_types.h>
+#include <pbl/util/pstring.h>
+#include <pbl/util/uuid.h>
+
+#include <system/status_codes.h>
 
 /**
  * @defgroup services_blob_db_weather_db Weather database
@@ -84,7 +84,7 @@ typedef struct PBL_PACKED {
   /** Tomorrow's low temperature. */
   int16_t tomorrow_low_temp;
   /** Time of the last update, UTC. */
-  time_t last_update_time_utc;
+  int32_t last_update_time_utc;
   /** Whether this is the phone's current location. */
   bool is_current_location;
   /** Location name and short phrase, see ::WeatherDbStringIndex. */
@@ -140,7 +140,7 @@ typedef struct PBL_PACKED {
   /** Tomorrow's low temperature. */
   int16_t tomorrow_low_temp;
   /** Time of the last update, UTC. */
-  time_t last_update_time_utc;
+  int32_t last_update_time_utc;
   /** Whether this is the phone's current location. */
   bool is_current_location;
 

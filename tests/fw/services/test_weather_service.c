@@ -1,39 +1,30 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "clar.h"
-
 #include "./blob_db/weather_data_shared.h"
 
-#include "applib/event_service_client.h"
-#include "kernel/events.h"
-#include "pbl/services/comm_session/session_remote_version.h"
-#include "pbl/services/blob_db/weather_db.h"
-#include "pbl/services/filesystem/pfs.h"
-#include "pbl/services/weather/weather_service.h"
-#include "pbl/services/weather/weather_service_private.h"
-#include "pbl/services/weather/weather_types.h"
-#include "pbl/util/pstring.h"
+#include <pbl/services/blob_db/weather_db.h>
+#include <pbl/services/comm_session/session_remote_version.h>
+#include <pbl/services/filesystem/pfs.h>
+#include <pbl/services/weather/weather_service.h>
+#include <pbl/services/weather/weather_service_private.h>
+#include <pbl/services/weather/weather_types.h>
+#include <pbl/util/pstring.h>
+
+#include <applib/event_service_client.h>
+#include <clar.h>
+#include <kernel/events.h>
 
 // Fixture
 ////////////////////////////////////////////////////////////////
 
 // Fakes
 ////////////////////////////////////////////////////////////////
-#include "fake_pbl_malloc.h"
-#include "fake_spi_flash.h"
+#include <fake_pbl_malloc.h>
+#include <fake_spi_flash.h>
 
 // Stubs
 ////////////////////////////////////////////////////////////////
-#include "stubs_analytics.h"
-#include "stubs_events.h"
-#include "stubs_logging.h"
-#include "stubs_mutex.h"
-#include "stubs_hexdump.h"
-#include "stubs_passert.h"
-#include "stubs_task_wdt.h"
-#include "stubs_pebble_tasks.h"
-#include "stubs_sleep.h"
 
 static EventServiceInfo *s_event_info;
 void event_service_client_subscribe(EventServiceInfo *service_info) {
@@ -167,7 +158,7 @@ void test_weather_service__get_default_location_forecast_from_weather_db_update(
     .blob_db = {
       .db_id = BlobDBIdWeather,
       .type = BlobDBEventTypeFlush,
-      .key = NULL,
+      .key = nullptr,
       .key_len = 0,
     }
   };
@@ -181,9 +172,6 @@ void test_weather_service__get_default_location_forecast_from_watch_app_prefs_db
   WeatherLocationForecast *forecast = weather_service_create_default_forecast();
   // no blob db events were fired during unit test, therefore forecast cache never updated
   cl_assert(!forecast);
-
-  const int default_location_index = 0;
-  const WeatherDBKey *default_location_key = weather_shared_data_get_key(0);
 
   PebbleEvent insert_event = (PebbleEvent){
     .type = PEBBLE_BLOBDB_EVENT,

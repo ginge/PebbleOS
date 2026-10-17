@@ -6,12 +6,13 @@
 #include "recognizer.h"
 #include "recognizer_impl.h"
 
-#include "pbl/drivers/rtc.h"
-#include "pbl/util/math.h"
-#include "syscall/syscall.h"
-
 #include <string.h>
-#include "pbl/util/units.h"
+
+#include <pbl/drivers/rtc.h>
+#include <pbl/util/math.h>
+#include <pbl/util/units.h>
+
+#include <syscall/syscall.h>
 
 // SWIPE_MIN_LENGTH_PX and SWIPE_MAX_DURATION_MS live in swipe.h: synthetic gesture generators size
 // their paths from the same limits this recognizer enforces.
@@ -220,7 +221,7 @@ Recognizer *swipe_recognizer_create(RecognizerEventCb event_cb, void *user_data,
 
 Recognizer *swipe_recognizer_init_static(void *storage, RecognizerEventCb event_cb, void *user_data,
                                          uint8_t direction_mask) {
-  _Static_assert(
+  static_assert(
       RECOGNIZER_INSTANCE_SIZE + sizeof(SwipeRecognizerData) <= SWIPE_RECOGNIZER_STATIC_SIZE,
       "SWIPE_RECOGNIZER_STATIC_SIZE too small for a static swipe recognizer");
   SwipeRecognizerData data = {

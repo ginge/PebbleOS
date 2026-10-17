@@ -3,21 +3,22 @@
 
 #include "watchfaces.h"
 
-#include "applib/app.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/dialogs/simple_dialog.h"
-#include "applib/ui/menu_layer.h"
-#include "applib/ui/window.h"
-#include "kernel/pbl_malloc.h"
-#include "process_management/app_manager.h"
-#include "process_management/app_menu_data_source.h"
-#include "shell/normal/app_idle_timeout.h"
-#include "shell/normal/watchface.h"
-#include "process_state/app_state/app_state.h"
-#include "resource/resource_ids.auto.h"
-#include "pbl/services/i18n/i18n.h"
-#include "shell/prefs.h"
-#include "shell/system_theme.h"
+#include <pbl/services/i18n/i18n.h>
+
+#include <applib/app.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/dialogs/simple_dialog.h>
+#include <applib/ui/menu_layer.h>
+#include <applib/ui/window.h>
+#include <kernel/pbl_malloc.h>
+#include <process_management/app_manager.h>
+#include <process_management/app_menu_data_source.h>
+#include <process_state/app_state/app_state.h>
+#include <resource/resource_ids.auto.h>
+#include <shell/normal/app_idle_timeout.h>
+#include <shell/normal/watchface.h>
+#include <shell/prefs.h>
+#include <shell/system_theme.h>
 
 typedef struct SettingsWatchfacesData {
   Window window;
@@ -95,7 +96,7 @@ static void draw_row_callback(GContext *ctx, const Layer *cell_layer, MenuIndex 
   AppMenuNode *node = app_menu_data_source_get_node_at_index(&data->data_source, cell_index->row);
   GBitmap *bitmap = app_menu_data_source_get_node_icon(&data->data_source, node);
   const char *subtitle =
-      (data->active_watchface_id == node->install_id) ? i18n_get("Active", data) : NULL;
+      (data->active_watchface_id == node->install_id) ? i18n_get("Active", data) : nullptr;
 
   const GCompOp op = (gbitmap_get_format(bitmap) == GBitmapFormat1Bit) ? GCompOpTint : GCompOpSet;
   graphics_context_set_compositing_mode(ctx, op);
@@ -107,10 +108,10 @@ static void draw_row_callback(GContext *ctx, const Layer *cell_layer, MenuIndex 
   const GFont title_font =
       system_theme_get_font(selected ? TextStyleFont_MenuCellTitle : TextStyleFont_Header);
 #else
-  const GFont title_font = NULL;
+  const GFont title_font = nullptr;
 #endif
-  menu_cell_basic_draw_custom(ctx, cell_layer, title_font, node->name, NULL, NULL, NULL, subtitle,
-                              bitmap, false, GTextOverflowModeTrailingEllipsis);
+  menu_cell_basic_draw_custom(ctx, cell_layer, title_font, node->name, nullptr, nullptr, nullptr,
+                              subtitle, bitmap, false, GTextOverflowModeTrailingEllipsis);
 }
 
 ///////////////////

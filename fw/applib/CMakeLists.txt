@@ -1,16 +1,12 @@
 # SPDX-FileCopyrightText: 2026 Core Devices LLC
 # SPDX-License-Identifier: Apache-2.0
 
-add_subdirectory(vendor/tinflate)
-add_subdirectory(vendor/uPNG)
-
 # The graphics code ships one implementation per screen colour depth.
 if(CONFIG_SCREEN_COLOR_DEPTH_BITS EQUAL 1)
   set(excl 8_bit/**)
 else()
   set(excl 1_bit/**)
 endif()
-list(APPEND excl vendor)
 
 if(CONFIG_RECOVERY_FW)
   list(APPEND excl
@@ -55,12 +51,16 @@ pbl_filter_sources(sources EXCLUDE ${excl})
 set(applib_malloc_h ${CMAKE_CURRENT_BINARY_DIR}/applib_malloc.auto.h)
 set(applib_malloc_c ${CMAKE_CURRENT_BINARY_DIR}/applib_malloc.auto.c)
 file(GLOB applib_malloc_templates CONFIGURE_DEPENDS ${PBL_BASE}/tools/applib_malloc*)
+set(applib_malloc_args "")
+if(CONFIG_ARCH_POSIX)
+  list(APPEND applib_malloc_args --no-size-checks)
+endif()
 add_custom_command(
   OUTPUT ${applib_malloc_h} ${applib_malloc_c}
   COMMAND ${PBL_TOOLCHAIN_ENV} ${PYTHON_EXECUTABLE} ${PBL_BASE}/tools/cmake/generate.py applib-malloc
           --input ${CMAKE_CURRENT_SOURCE_DIR}/applib_malloc.json
           --header ${applib_malloc_h} --impl ${applib_malloc_c}
-          --min-sdk ${PBL_MIN_SDK_VERSION}
+          --min-sdk ${PBL_MIN_SDK_VERSION} ${applib_malloc_args}
   DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/applib_malloc.json ${applib_malloc_templates}
   WORKING_DIRECTORY ${PBL_BASE}
   COMMENT "Generating applib_malloc tables"

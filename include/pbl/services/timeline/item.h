@@ -6,13 +6,12 @@
 #include "attribute.h"
 #include "layout_layer.h"
 
-#include "pbl/kernel/compiler.h"
-#include "pbl/util/uuid.h"
-
-#include <time.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <stdbool.h>
+#include <time.h>
+
+#include <pbl/kernel/compiler.h>
+#include <pbl/util/uuid.h>
 
 /**
  * @defgroup services_timeline_item Timeline items
@@ -29,13 +28,13 @@
  * Building a pin with an action that opens its app:
  *
  * @code{.c}
- * AttributeList attr_list = {0};
+ * AttributeList attr_list = {};
  * attribute_list_add_cstring(&attr_list, AttributeIdTitle, "Workout");
  * attribute_list_add_cstring(&attr_list, AttributeIdBody, "45 min run");
  * attribute_list_add_resource_id(&attr_list, AttributeIdIconPin,
  *                                TIMELINE_RESOURCE_TIMELINE_SPORTS);
  *
- * AttributeList open_attrs = {0};
+ * AttributeList open_attrs = {};
  * attribute_list_add_cstring(&open_attrs, AttributeIdTitle, "Open");
  * attribute_list_add_uint32(&open_attrs, AttributeIdLaunchCode, 42);
  * TimelineItemActionGroup action_group = {
@@ -215,7 +214,7 @@ typedef struct PBL_PACKED {
    * Time at which the item occurs, in seconds since the epoch. UTC, except for all-day and
    * floating items in serialized headers, which use local time.
    */
-  time_t timestamp;
+  int32_t timestamp;
   /**
    * Duration in minutes. A pin stays in the NOW section of the timeline until timestamp plus
    * duration.

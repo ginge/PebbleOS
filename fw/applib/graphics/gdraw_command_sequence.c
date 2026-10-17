@@ -2,17 +2,18 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "gdraw_command_sequence.h"
+
 #include "gdraw_command_private.h"
 
-#include "applib/applib_malloc.auto.h"
-#include "applib/applib_resource_private.h"
-#include "syscall/syscall.h"
+#include <applib/applib_malloc.auto.h>
+#include <applib/applib_resource_private.h>
+#include <syscall/syscall.h>
 
 #define GDRAW_COMMAND_SEQUENCE_PLAY_COUNT_INFINITE_STORED ((uint16_t)~0)
 
 static GDrawCommandFrame *prv_next_frame(GDrawCommandFrame *frame) {
   // Iterate to the end of the command list (next frame starts immediately afterwards)
-  return gdraw_command_list_iterate_private(&frame->command_list, NULL, NULL);
+  return gdraw_command_list_iterate_private(&frame->command_list, nullptr, nullptr);
 }
 
 GDrawCommandSequence *gdraw_command_sequence_create_with_resource(uint32_t resource_id) {
@@ -24,7 +25,7 @@ GDrawCommandSequence *gdraw_command_sequence_create_with_resource_system(ResAppN
                                                                          uint32_t resource_id) {
   uint32_t data_size;
   if (!gdraw_command_resource_is_valid(app_num, resource_id, PDCS_SIGNATURE, &data_size)) {
-    return NULL;
+    return nullptr;
   }
 
   GDrawCommandSequence *draw_command_sequence =
@@ -33,7 +34,7 @@ GDrawCommandSequence *gdraw_command_sequence_create_with_resource_system(ResAppN
   // Validate the loaded command sequence
   if (!gdraw_command_sequence_validate(draw_command_sequence, data_size)) {
     gdraw_command_sequence_destroy(draw_command_sequence);
-    return NULL;
+    return nullptr;
   }
 
   return draw_command_sequence;
@@ -41,7 +42,7 @@ GDrawCommandSequence *gdraw_command_sequence_create_with_resource_system(ResAppN
 
 GDrawCommandSequence *gdraw_command_sequence_clone(GDrawCommandSequence *sequence) {
   if (!sequence) {
-    return NULL;
+    return nullptr;
   }
 
   // potentially extracting into a generic task_ptrdup(void *, size_t)
@@ -90,7 +91,7 @@ static uint32_t prv_get_single_play_duration(GDrawCommandSequence *sequence) {
 GDrawCommandFrame *gdraw_command_sequence_get_frame_by_elapsed(GDrawCommandSequence *sequence,
                                                                uint32_t elapsed) {
   if (!sequence) {
-    return NULL;
+    return nullptr;
   }
 
   if ((sequence->play_count != GDRAW_COMMAND_SEQUENCE_PLAY_COUNT_INFINITE_STORED) &&
@@ -120,7 +121,7 @@ GDrawCommandFrame *gdraw_command_sequence_get_frame_by_elapsed(GDrawCommandSeque
 GDrawCommandFrame *gdraw_command_sequence_get_frame_by_index(GDrawCommandSequence *sequence,
                                                              uint32_t index) {
   if (!sequence || (index >= sequence->num_frames)) {
-    return NULL;
+    return nullptr;
   }
 
   GDrawCommandFrame *frame = sequence->frames;

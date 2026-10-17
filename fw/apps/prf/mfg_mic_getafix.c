@@ -3,35 +3,36 @@
 
 #include "mfg_mic_getafix.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
-#include <math.h>
 
-#include "pbl/util/math.h"
-#include "applib/app.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/text_layer.h"
-#include "applib/ui/window.h"
-#include "apps/prf/mfg_test_result.h"
-#include "kernel/pbl_malloc.h"
-#include <pbl/logging/logging.h>
-#include "board/board.h"
-#include "process_management/pebble_process_md.h"
-#include "process_state/app_state/app_state.h"
+#include <pbl/drivers/flash.h>
 #include <pbl/drivers/mic.h>
 #include <pbl/drivers/rtc.h>
-#include "mfg/mfg_info.h"
-#include "flash_region/flash_region.h"
-#include <pbl/drivers/flash.h>
+#include <pbl/logging/logging.h>
+#include <pbl/util/math.h>
+
+#include <applib/app.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/text_layer.h>
+#include <applib/ui/window.h>
+#include <apps/prf/mfg_test_result.h>
+#include <board/board.h>
+#include <flash_region/flash_region.h>
+#include <kernel/pbl_malloc.h>
+#include <mfg/mfg_info.h>
+#include <process_management/pebble_process_md.h>
+#include <process_state/app_state/app_state.h>
 
 // Kiss FFT from Speex library - must include config and os_support before kiss_fft headers
 // Save and undefine ABS to avoid redefinition warning with Speex's arch.h
 #ifdef ABS
 #undef ABS
 #endif
-#include "config.h"
-#include "os_support_custom.h"
-#include "kiss_fftr.h"
+#include <config.h>
+#include <kiss_fftr.h>
+#include <os_support_custom.h>
 
 #define SAMPLE_RATE_HZ        16000
 #define RECORDING_DURATION_MS 1000
@@ -97,7 +98,7 @@ static int prv_find_peak_frequency(int16_t *samples, size_t sample_count) {
   }
 
   // Allocate FFT configuration
-  kiss_fftr_cfg fft_cfg = kiss_fftr_alloc(FFT_SIZE, 0, NULL, NULL);
+  kiss_fftr_cfg fft_cfg = kiss_fftr_alloc(FFT_SIZE, 0, nullptr, nullptr);
   if (!fft_cfg) {
     PBL_LOG_ERR("Failed to allocate FFT configuration");
     return -1;
@@ -148,7 +149,7 @@ static int prv_find_peak_frequency(int16_t *samples, size_t sample_count) {
 
 // Convert interleaved stereo (L/R/L/R) to non-interleaved (all L, then all R)
 static void prv_interleaved_to_non_interleaved(int16_t *audio_data, size_t frame_count) {
-  if (audio_data == NULL || frame_count == 0) {
+  if (audio_data == nullptr || frame_count == 0) {
     return;
   }
 
@@ -280,7 +281,7 @@ static void prv_start_test(void) {
   mic_init(MIC);
   mic_set_volume(MIC, 100); // maximum volume
 
-  if (!mic_start(MIC, prv_mic_data_handler, NULL, data->pcm, PCM_BUFFER_SIZE)) {
+  if (!mic_start(MIC, prv_mic_data_handler, nullptr, data->pcm, PCM_BUFFER_SIZE)) {
     PBL_LOG_ERR("Failed to start microphone");
     mfg_test_result_report(MfgTestId_Mic, false, 0);
     data->state = TestState_Failed;
@@ -318,7 +319,7 @@ static void prv_timer_callback(void *cb_data) {
     }
   }
 
-  app_timer_register(100, prv_timer_callback, NULL);
+  app_timer_register(100, prv_timer_callback, nullptr);
 }
 
 // Initialize the app
@@ -386,7 +387,7 @@ static void prv_handle_init(void) {
   app_window_stack_push(window, true);
 
   // Start UI update timer
-  app_timer_register(100, prv_timer_callback, NULL);
+  app_timer_register(100, prv_timer_callback, nullptr);
 }
 
 static void s_main(void) {

@@ -5,15 +5,13 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <clar.h>
+#include <pbl/util/rand32.h>
 
-#include "kernel/pebble_tasks.h"
-#include "pbl/util/rand32.h"
+#include <clar.h>
+#include <kernel/pebble_tasks.h>
 
 // Stubs
 ///////////////////////////////////////////////////////////
-#include "stubs_passert.h"
-#include "stubs_rand_ptr.h"
 
 PebbleTask pebble_task_get_current(void) {
   return PebbleTask_KernelMain; // System seed

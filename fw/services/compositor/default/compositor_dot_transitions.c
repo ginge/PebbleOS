@@ -1,23 +1,22 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/compositor/default/compositor_dot_transitions.h"
+#include <pbl/kernel/compiler.h>
+#include <pbl/services/compositor/compositor_private.h>
+#include <pbl/services/compositor/compositor_transitions.h>
+#include <pbl/services/compositor/default/compositor_dot_transitions.h>
+#include <pbl/util/math.h>
+#include <pbl/util/size.h>
+#include <pbl/util/trig.h>
 
-#include "pbl/services/compositor/compositor_private.h"
-#include "pbl/services/compositor/compositor_transitions.h"
-
-#include "apps/system/timeline/common.h"
-#include "applib/ui/animation_interpolate.h"
-#include "applib/ui/animation_timing.h"
-#include "applib/graphics/framebuffer.h"
-#include "applib/graphics/gtypes.h"
-#include "applib/graphics/graphics.h"
-#include "applib/graphics/gpath.h"
-#include "pbl/util/trig.h"
-#include "system/passert.h"
-#include "pbl/kernel/compiler.h"
-#include "pbl/util/math.h"
-#include "pbl/util/size.h"
+#include <applib/graphics/framebuffer.h>
+#include <applib/graphics/gpath.h>
+#include <applib/graphics/graphics.h>
+#include <applib/graphics/gtypes.h>
+#include <applib/ui/animation_interpolate.h>
+#include <applib/ui/animation_timing.h>
+#include <apps/system/timeline/common.h>
+#include <system/passert.h>
 
 static CompositorTransitionDirection prv_flip_transition_direction(
     CompositorTransitionDirection direction) {
@@ -101,7 +100,7 @@ static void prv_collapse_animation(GContext *ctx, uint32_t distance_normalized, 
 
     GPath path = {.num_points = ARRAY_LENGTH(path_points), .points = path_points};
 
-    gpath_draw_filled_with_cb(ctx, &path, ring_fill_cb, NULL);
+    gpath_draw_filled_with_cb(ctx, &path, ring_fill_cb, nullptr);
   } else {
     // gpath that creates a solid "ring"
     GPoint path_points[] = {
@@ -110,7 +109,7 @@ static void prv_collapse_animation(GContext *ctx, uint32_t distance_normalized, 
 
     GPath path = {.num_points = ARRAY_LENGTH(path_points), .points = path_points};
 
-    gpath_draw_filled_with_cb(ctx, &path, ring_fill_cb, NULL);
+    gpath_draw_filled_with_cb(ctx, &path, ring_fill_cb, nullptr);
   }
 
   ctx->draw_state.stroke_width = sw;
@@ -157,7 +156,7 @@ typedef struct PBL_PACKED {
   };
 } DotTransitionAnimationConfiguration;
 
-_Static_assert(sizeof(DotTransitionAnimationConfiguration) == sizeof(void *), "");
+static_assert(sizeof(DotTransitionAnimationConfiguration) == sizeof(void *), "");
 
 #if PBL_RECT
 static void prv_collapse_animation_update_rect(GContext *ctx,
@@ -286,7 +285,7 @@ static void prv_configure_dot_transition_animation(Animation *animation, GColor 
 
   animation_set_curve(animation, AnimationCurveLinear);
   animation_set_duration(animation, duration);
-  animation_set_handlers(animation, (AnimationHandlers){0}, config.data);
+  animation_set_handlers(animation, (AnimationHandlers){}, config.data);
   animation_set_reverse(animation, !collapse_starting_animation);
 }
 
@@ -323,7 +322,7 @@ static void prv_dot_transition_from_app_fetch_animation_init(Animation *animatio
 const CompositorTransition *compositor_dot_transition_timeline_get(bool timeline_is_future,
                                                                    bool timeline_is_destination) {
   if (compositor_transition_app_to_app_should_be_skipped()) {
-    return NULL;
+    return nullptr;
   }
 
   if (timeline_is_future) {
@@ -359,7 +358,7 @@ const CompositorTransition *compositor_dot_transition_timeline_get(bool timeline
 
 const CompositorTransition *compositor_dot_transition_app_fetch_get(void) {
   if (compositor_transition_app_to_app_should_be_skipped()) {
-    return NULL;
+    return nullptr;
   }
 
   static const CompositorTransition s_impl = {

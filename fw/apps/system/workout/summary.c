@@ -2,16 +2,18 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "summary.h"
+
 #include "countdown.h"
 #include "selection.h"
 #include "utils.h"
 
-#include "applib/ui/action_menu_window.h"
-#include "applib/ui/kino/kino_layer.h"
-#include "applib/ui/ui.h"
-#include "kernel/pbl_malloc.h"
-#include "resource/resource_ids.auto.h"
-#include "pbl/services/i18n/i18n.h"
+#include <pbl/services/i18n/i18n.h>
+
+#include <applib/ui/action_menu_window.h>
+#include <applib/ui/kino/kino_layer.h>
+#include <applib/ui/ui.h>
+#include <kernel/pbl_malloc.h>
+#include <resource/resource_ids.auto.h>
 
 #define BACKGROUND_COLOR PBL_IF_COLOR_ELSE(GColorYellow, GColorWhite)
 #define TEXT_COLOR       (gcolor_legible_over(BACKGROUND_COLOR))
@@ -72,7 +74,7 @@ static void prv_render_activity_type(GContext *ctx, Layer *layer, KinoReel *icon
   GRect name_rect = GRect(name_x, name_y, drawing_rect.size.w, 32);
 
   graphics_context_set_text_color(ctx, TEXT_COLOR);
-  graphics_draw_text(ctx, name, font, name_rect, overflow_mode, alignment, NULL);
+  graphics_draw_text(ctx, name, font, name_rect, overflow_mode, alignment, nullptr);
 }
 
 static void prv_base_layer_update_proc(struct Layer *layer, GContext *ctx) {

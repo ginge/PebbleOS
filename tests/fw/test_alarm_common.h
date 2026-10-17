@@ -3,51 +3,35 @@
 
 #pragma once
 
-#include "applib/event_service_client.h"
-#include "pbl/services/activity/activity.h"
-#include "pbl/services/alarms/alarm.h"
-#include "pbl/services/alarms/alarm_pin.h"
-#include "pbl/services/blob_db/pin_db.h"
-
-#include <pbl/drivers/rtc.h>
-#include "resource/timeline_resource_ids.auto.h"
-#include <pbl/cron/cron.h>
-#include "pbl/services/new_timer/new_timer.h"
-#include "pbl/services/system_task.h"
-#include "pbl/services/filesystem/pfs.h"
-#include "pbl/services/settings/settings_file.h"
-#include "pbl/services/timeline/item.h"
-#include "pbl/services/timeline/timeline.h"
-#include "pbl/kernel/compiler.h"
-#include "pbl/util/size.h"
-
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
-#include "clar.h"
+#include <pbl/cron/cron.h>
+#include <pbl/drivers/rtc.h>
+#include <pbl/kernel/compiler.h>
+#include <pbl/services/activity/activity.h>
+#include <pbl/services/alarms/alarm.h>
+#include <pbl/services/alarms/alarm_pin.h>
+#include <pbl/services/blob_db/pin_db.h>
+#include <pbl/services/filesystem/pfs.h>
+#include <pbl/services/new_timer/new_timer.h>
+#include <pbl/services/settings/settings_file.h>
+#include <pbl/services/system_task.h>
+#include <pbl/services/timeline/item.h>
+#include <pbl/services/timeline/timeline.h>
+#include <pbl/util/size.h>
+
+#include <applib/event_service_client.h>
+#include <clar.h>
+#include <resource/timeline_resource_ids.auto.h>
 
 // Stubs
-#include "stubs_analytics.h"
-#include "stubs_app_cache.h"
-#include "stubs_app_install_manager.h"
-#include "stubs_blob_db.h"
-#include "stubs_calendar.h"
-#include "stubs_hexdump.h"
-#include "stubs_i18n.h"
-#include "stubs_layout_layer.h"
-#include "stubs_logging.h"
-#include "stubs_mutex.h"
-#include "stubs_passert.h"
-#include "stubs_pebble_tasks.h"
-#include "stubs_rand_ptr.h"
-#include "stubs_regular_timer.h"
-#include "stubs_sleep.h"
-#include "stubs_task_wdt.h"
-#include "stubs_timeline_event.h"
 
 // Fakes
-#include "fake_spi_flash.h"
-#include "pbl/util/units.h"
+#include <pbl/util/units.h>
+
+#include <fake_spi_flash.h>
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 //! Stubs
@@ -116,7 +100,7 @@ static const int s_tuesday = 1426550400;
 // Wednesday, March 18, 2015, 00:00 UTC
 static const int s_wednesday = 1426636800;
 
-static TimelineItem *s_last_timeline_item_added = NULL;
+static TimelineItem *s_last_timeline_item_added = nullptr;
 static Uuid s_last_timeline_item_removed_uuid = {};
 
 typedef struct {
@@ -138,7 +122,8 @@ static void prv_fake_pin_get_val(SettingsFile *file, void *buf, size_t len) {
   memcpy(buf, &s_current_fake_pin_record->header, len);
 }
 
-static void prv_fake_pin_record_add(Uuid id, Uuid parent, time_t timestamp, LayoutId layout) {
+static inline void prv_fake_pin_record_add(Uuid id, Uuid parent, time_t timestamp,
+                                           LayoutId layout) {
   for (size_t i = 0; i < ARRAY_LENGTH(s_fake_pin_records); ++i) {
     if (!s_fake_pin_records[i].exists) {
       s_fake_pin_records[i] = (FakePinRecord){
@@ -172,7 +157,16 @@ static int s_num_alarms_fired = 0;
 
 void prv_timer_kernel_bg_callback(void *data);
 
+static bool s_defer_system_task_callbacks;
+static SystemTaskEventCallback s_pending_system_task_callback;
+static void *s_pending_system_task_data;
+
 bool system_task_add_callback(SystemTaskEventCallback cb, void *data) {
+  if (s_defer_system_task_callbacks) {
+    s_pending_system_task_callback = cb;
+    s_pending_system_task_data = data;
+    return true;
+  }
   cb(data);
   if (cb == prv_timer_kernel_bg_callback) {
     s_num_alarms_fired++;
@@ -185,7 +179,7 @@ int prv_hours_and_minutes_to_seconds(int hour, int minute) {
 }
 
 const char *timeline_get_private_data_source(Uuid *parent_id) {
-  return NULL;
+  return nullptr;
 }
 
 status_t pin_db_insert_item_without_event(TimelineItem *item) {
@@ -218,11 +212,11 @@ status_t pin_db_each(TimelineItemStorageEachCallback each, void *data) {
       .get_val = prv_fake_pin_get_val,
       .val_len = sizeof(SerializedTimelineItemHeader),
     };
-    if (!each(NULL, &info, data)) {
+    if (!each(nullptr, &info, data)) {
       break;
     }
   }
-  s_current_fake_pin_record = NULL;
+  s_current_fake_pin_record = nullptr;
   return S_SUCCESS;
 }
 

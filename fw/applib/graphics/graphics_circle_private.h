@@ -3,7 +3,8 @@
 
 #pragma once
 #include "gtypes.h"
-#include "pbl/util/testing.h"
+
+#include <pbl/util/testing.h>
 
 // For arc/radial fill algorithms
 #define QUADRANTS_NUM  4 // Just in case of fluctuation

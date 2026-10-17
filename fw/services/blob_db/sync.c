@@ -1,22 +1,22 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/blob_db/sync.h"
-#include "pbl/services/blob_db/endpoint.h"
-#include "pbl/services/blob_db/util.h"
-
-#include "kernel/pbl_malloc.h"
-#include "pbl/services/comm_session/session.h"
-#include "pbl/services/system_task.h"
 #include <pbl/logging/logging.h>
-#include "pbl/util/list.h"
+#include <pbl/services/blob_db/endpoint.h>
+#include <pbl/services/blob_db/sync.h>
+#include <pbl/services/blob_db/util.h>
+#include <pbl/services/comm_session/session.h>
+#include <pbl/services/system_task.h>
+#include <pbl/util/list.h>
+
+#include <kernel/pbl_malloc.h>
 
 PBL_LOG_MODULE_DECLARE(service_blob_db, CONFIG_SERVICE_BLOB_DB_LOG_LEVEL);
 
 #define SYNC_TIMEOUT_SECONDS         30
 #define SYNC_ABANDON_TIMEOUT_SECONDS (5 * 60) // 5 minutes to fully abandon
 
-static BlobDBSyncSession *s_sync_sessions = NULL;
+static BlobDBSyncSession *s_sync_sessions = nullptr;
 
 //! Ids are handed out monotonically and never reused, so a stale id can never
 //! resolve to a different session that happens to reuse the same allocation.
@@ -38,7 +38,7 @@ static BlobDBSyncSession *prv_find_live_session(void *session_id) {
 }
 
 static bool prv_session_id_filter_callback(ListNode *node, void *data) {
-  BlobDBId db_id = (BlobDBId)data;
+  BlobDBId db_id = (BlobDBId)(uintptr_t)data;
   BlobDBSyncSession *session = (BlobDBSyncSession *)node;
   if (session->session_type == BlobDBSyncSessionTypeRecord) {
     return false;
@@ -183,19 +183,17 @@ status_t blob_db_sync_db(BlobDBId db_id) {
   }
   PBL_LOG_DBG("Starting BlobDB db sync: %d", db_id);
 
+  if (blob_db_sync_get_session_for_id(db_id)) {
+    return E_BUSY;
+  }
+
   BlobDBDirtyItem *dirty_list = blob_db_get_dirty_list(db_id);
   if (!dirty_list) {
     blob_db_endpoint_send_sync_done(db_id);
     return S_NO_ACTION_REQUIRED;
   }
 
-  BlobDBSyncSession *session = blob_db_sync_get_session_for_id(db_id);
-  if (session) {
-    // already have a session in progress!
-    return E_BUSY;
-  }
-
-  session = prv_create_sync_session(db_id, dirty_list, BlobDBSyncSessionTypeDB);
+  BlobDBSyncSession *session = prv_create_sync_session(db_id, dirty_list, BlobDBSyncSessionTypeDB);
 
   prv_send_writeback(session);
 
@@ -240,7 +238,7 @@ void blob_db_sync_cancel(BlobDBSyncSession *session) {
     regular_timer_remove_callback(&session->abandon_timer);
   }
   blob_db_util_free_dirty_list(session->dirty_list);
-  list_remove((ListNode *)session, (ListNode **)&s_sync_sessions, NULL);
+  list_remove((ListNode *)session, (ListNode **)&s_sync_sessions, nullptr);
   kernel_free(session);
 }
 
@@ -256,7 +254,7 @@ void blob_db_sync_next(BlobDBSyncSession *session) {
   blob_db_mark_synced(session->db_id, dirty_item->key, dirty_item->key_len);
 
   // we're done with this item, we pop it off the stack
-  list_remove((ListNode *)dirty_item, (ListNode **)&session->dirty_list, NULL);
+  list_remove((ListNode *)dirty_item, (ListNode **)&session->dirty_list, nullptr);
   kernel_free(dirty_item);
 
   if (session->dirty_list) {
@@ -281,7 +279,7 @@ void blob_db_sync_next(BlobDBSyncSession *session) {
         // Only send the sync done when syncing an entire db
         blob_db_endpoint_send_sync_done(session->db_id);
       }
-      list_remove((ListNode *)session, (ListNode **)&s_sync_sessions, NULL);
+      list_remove((ListNode *)session, (ListNode **)&s_sync_sessions, nullptr);
       kernel_free(session);
     }
   }

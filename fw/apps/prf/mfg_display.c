@@ -1,21 +1,22 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/app.h"
-#include "applib/graphics/graphics.h"
-#include "applib/graphics/text.h"
-#include "applib/tick_timer_service.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/dialogs/confirmation_dialog.h"
-#include "applib/ui/window.h"
-#include "apps/prf/mfg_test_result.h"
-#include "kernel/event_loop.h"
-#include "kernel/pbl_malloc.h"
-#include "mfg/mfg_mode/mfg_factory_mode.h"
-#include "process_management/app_manager.h"
-#include "process_management/pebble_process_md.h"
-#include "process_state/app_state/app_state.h"
-#include "pbl/util/size.h"
+#include <pbl/util/size.h>
+
+#include <applib/app.h>
+#include <applib/graphics/graphics.h>
+#include <applib/graphics/text.h>
+#include <applib/tick_timer_service.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/dialogs/confirmation_dialog.h>
+#include <applib/ui/window.h>
+#include <apps/prf/mfg_test_result.h>
+#include <kernel/event_loop.h>
+#include <kernel/pbl_malloc.h>
+#include <mfg/mfg_mode/mfg_factory_mode.h>
+#include <process_management/app_manager.h>
+#include <process_management/pebble_process_md.h>
+#include <process_state/app_state/app_state.h>
 
 typedef enum {
   TestPattern_Crosshair,
@@ -82,7 +83,7 @@ static void prv_draw_border(Layer *layer, GContext *ctx, uint8_t radial_padding_
     char identifier[] = {'A' + radial_padding_size - 2, 0};
     graphics_context_set_text_color(ctx, GColorWhite);
     graphics_draw_text(ctx, identifier, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD),
-                       identifier_area, GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+                       identifier_area, GTextOverflowModeWordWrap, GTextAlignmentCenter, nullptr);
   }
 }
 
@@ -226,6 +227,7 @@ const PebbleProcessMd *mfg_display_app_get_info(void) {
 
 #if defined(CONFIG_SHELL) && defined(CONFIG_MFG)
 #include <errno.h>
+
 #include <pbl/shell/shell.h>
 
 static void prv_change_pattern(void *data) {
@@ -278,6 +280,6 @@ static int prv_cmd_display(const struct pbl_shell *sh, size_t argc, char **argv)
   return -EINVAL;
 }
 
-PBL_SHELL_SUBCMD_ADD(sub_mfg, display, NULL, "Show a test pattern <pattern>", prv_cmd_display, 2,
+PBL_SHELL_SUBCMD_ADD(sub_mfg, display, nullptr, "Show a test pattern <pattern>", prv_cmd_display, 2,
                      0);
 #endif

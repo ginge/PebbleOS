@@ -1,17 +1,17 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/compositor/default/compositor_launcher_app_transitions.h"
+#include <pbl/kernel/compiler.h>
+#include <pbl/services/compositor/compositor_transitions.h>
+#include <pbl/services/compositor/default/compositor_launcher_app_transitions.h>
+#include <pbl/util/math.h>
+#include <pbl/util/size.h>
 
-#include "applib/graphics/bitblt.h"
-#include "applib/graphics/framebuffer.h"
-#include "applib/graphics/graphics_private.h"
-#include "apps/system/launcher/default/launcher.h"
-#include "pbl/services/compositor/compositor_transitions.h"
-#include "system/passert.h"
-#include "pbl/kernel/compiler.h"
-#include "pbl/util/math.h"
-#include "pbl/util/size.h"
+#include <applib/graphics/bitblt.h>
+#include <applib/graphics/framebuffer.h>
+#include <applib/graphics/graphics_private.h>
+#include <apps/system/launcher/default/launcher.h>
+#include <system/passert.h>
 
 typedef struct CompositorLauncherAppTransitionData {
   bool app_is_destination;
@@ -116,7 +116,7 @@ static void prv_manipulate_launcher_in_system_framebuffer(GContext *ctx,
 }
 
 static void prv_launcher_app_transition_animation_update(GContext *ctx,
-                                                         Animation *PBL_UNUSED animation,
+                                                         [[maybe_unused]] Animation *animation,
                                                          uint32_t distance_normalized) {
   const bool is_right = s_data.app_is_destination;
   const GRangeVertical selection_vertical_range =
@@ -191,7 +191,7 @@ static void prv_launcher_app_transition_animation_init(Animation *animation) {
 
 const CompositorTransition *compositor_launcher_app_transition_get(bool app_is_destination) {
   if (compositor_transition_app_to_app_should_be_skipped()) {
-    return NULL;
+    return nullptr;
   }
 
   s_data = (CompositorLauncherAppTransitionData){

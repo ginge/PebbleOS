@@ -1,21 +1,21 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/timeline/alarm_layout.h"
-#include "pbl/services/timeline/timeline_layout.h"
+#include <pbl/services/alarms/alarm.h>
+#include <pbl/services/clock.h>
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/services/timeline/alarm_layout.h>
+#include <pbl/services/timeline/timeline_layout.h>
+#include <pbl/util/size.h>
+#include <pbl/util/string.h>
+#include <pbl/util/testing.h>
 
-#include "applib/graphics/gtypes.h"
-#include "applib/graphics/text.h"
-#include "applib/preferred_content_size.h"
-#include "font_resource_keys.auto.h"
-#include "kernel/pbl_malloc.h"
-#include "kernel/ui/kernel_ui.h"
-#include "pbl/services/clock.h"
-#include "pbl/services/i18n/i18n.h"
-#include "pbl/services/alarms/alarm.h"
-#include "pbl/util/size.h"
-#include "pbl/util/string.h"
-#include "pbl/util/testing.h"
+#include <applib/graphics/gtypes.h>
+#include <applib/graphics/text.h>
+#include <applib/preferred_content_size.h>
+#include <font_resource_keys.auto.h>
+#include <kernel/pbl_malloc.h>
+#include <kernel/ui/kernel_ui.h>
 
 //////////////////////////////////////////
 //  Card Mode
@@ -34,7 +34,7 @@ static void prv_until_time_update(const LayoutLayer *layout_ref,
 
 PBL_T_STATIC void prv_get_subtitle_from_attributes(AttributeList *attributes, char *buffer,
                                                    size_t buffer_size, const void *i18n_owner) {
-  const char *subtitle_string = NULL;
+  const char *subtitle_string = nullptr;
   // We only all-caps the subtitle in the card view on rectangular displays
   bool all_caps_desired = PBL_IF_RECT_ELSE(true, false);
   bool need_to_all_caps_string = false;
@@ -129,7 +129,7 @@ static GTextNode *prv_card_view_constructor(TimelineLayout *timeline_layout) {
     .text.extent.node.type = LayoutNodeType_TextDynamic,
     .update = prv_until_time_update,
     .buffer_size = TIME_STRING_REQUIRED_LENGTH,
-    .text.style = LayoutContentSizeDefault,
+    .text.style = LayoutContentSize_Auto,
     .text.style_font = TextStyleFont_Header,
     .text.alignment = LayoutTextAlignment_Center,
     .text.extent.margin.h =
@@ -160,7 +160,7 @@ static GTextNode *prv_card_view_constructor(TimelineLayout *timeline_layout) {
     .text.extent.node.type = LayoutNodeType_TextDynamic,
     .update = prv_subtitle_update,
     .buffer_size = TIME_STRING_REQUIRED_LENGTH,
-    .text.style = LayoutContentSizeDefault,
+    .text.style = LayoutContentSize_Auto,
     .text.style_font = TextStyleFont_Header,
     .text.alignment = LayoutTextAlignment_Center,
   };

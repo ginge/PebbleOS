@@ -4,9 +4,9 @@
 #pragma once
 
 #if defined(__clang__)
-#include "pbl/kernel/compiler/clang.h"
+#include <pbl/kernel/compiler/clang.h>
 #elif defined(__GNUC__)
-#include "pbl/kernel/compiler/gcc.h"
+#include <pbl/kernel/compiler/gcc.h>
 #else
 #error "Unsupported compiler"
 #endif
@@ -19,7 +19,8 @@
  * The only place the tree may spell compiler specifics: code outside @c pbl/kernel/compiler/ must
  * not use @c __attribute__ or @c __builtin_* directly. Each macro expands to a @c *_IMPL
  * counterpart from @c compiler/gcc.h or @c compiler/clang.h; attributes a compiler does not
- * implement expand to nothing. Shipped with the SDK.
+ * implement expand to nothing. What C23 standardizes, such as @c [[noreturn]], @c [[maybe_unused]]
+ * or @c unreachable(), is spelled the standard way instead.
  *
  * @code{.c}
  * typedef struct PBL_PACKED {
@@ -27,7 +28,7 @@
  *   uint32_t value;
  * } Record;
  *
- * PBL_NORETURN void fatal(const char *fmt, ...) PBL_FORMAT_PRINTF(1, 2);
+ * [[noreturn]] void fatal(const char *fmt, ...) PBL_FORMAT_PRINTF(1, 2);
  *
  * if (PBL_UNLIKELY(len > MAX_LEN)) {
  *   return -EINVAL;
@@ -42,14 +43,8 @@
 /** @brief Never inline the function. */
 #define PBL_NOINLINE PBL_NOINLINE_IMPL
 
-/** @brief The function does not return. Combine with the void return type. */
-#define PBL_NORETURN PBL_NORETURN_IMPL
-
 /** @brief The function has no prologue/epilogue; its body must be pure assembly. */
 #define PBL_NAKED PBL_NAKED_IMPL
-
-/** @brief Warn on every use of the symbol. */
-#define PBL_DEPRECATED PBL_DEPRECATED_IMPL
 
 /** @brief The function's result depends only on its arguments and it has no side effects. */
 #define PBL_CONST_FUNC PBL_CONST_FUNC_IMPL
@@ -94,9 +89,6 @@
 /** @brief Keep the symbol even if it appears unreferenced. */
 #define PBL_USED PBL_USED_IMPL
 
-/** @brief Do not warn if the symbol is unreferenced. */
-#define PBL_UNUSED PBL_UNUSED_IMPL
-
 /** @brief Emit a weak symbol, overridable by a strong definition elsewhere. */
 #define PBL_WEAK PBL_WEAK_IMPL
 
@@ -123,11 +115,12 @@
 /**
  * @brief Place the symbol in a linker section.
  *
- * A no-op in unit tests, whose host object format rejects the firmware's section names.
+ * A no-op in unit tests and in builds linked without the firmware linker script
+ * (@c PBL_NO_LINKER_SCRIPT), where nothing would gather the sections.
  *
  * @param name Section name, as a string.
  */
-#if UNITTEST
+#if UNITTEST || defined(PBL_NO_LINKER_SCRIPT)
 #define PBL_SECTION(name)
 #else
 #define PBL_SECTION(name) PBL_SECTION_IMPL(name)
@@ -145,9 +138,6 @@
  * @param x Condition.
  */
 #define PBL_UNLIKELY(x) PBL_UNLIKELY_IMPL(x)
-
-/** @brief Mark a code path the compiler may assume is never reached. */
-#define PBL_UNREACHABLE() PBL_UNREACHABLE_IMPL()
 
 /**
  * @brief Return address of the current function or of its callers.
@@ -186,6 +176,12 @@
  * @param x Unsigned int.
  */
 #define PBL_POPCOUNT(x) PBL_POPCOUNT_IMPL(x)
+
+/**
+ * @brief Keep AddressSanitizer off the object: no redzones around a global,
+ * e.g. one that must sit next to its neighbours in a section.
+ */
+#define PBL_NO_SANITIZE_ADDRESS PBL_NO_SANITIZE_ADDRESS_IMPL
 
 /**
  * @brief Reverse the bytes of a 16-bit value.

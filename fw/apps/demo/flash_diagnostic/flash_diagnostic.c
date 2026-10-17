@@ -5,21 +5,22 @@
 
 #include <stdio.h>
 
-#include "applib/app.h"
-#include "applib/ui/simple_menu_layer.h"
-#include "applib/ui/ui.h"
-#include "applib/ui/window.h"
 #include <pbl/drivers/flash.h>
-#include "flash_region/flash_region.h"
-#include "kernel/pbl_malloc.h"
-#include "kernel/pebble_tasks.h"
-#include "process_state/app_state/app_state.h"
-#include "resource/resource_ids.auto.h"
-#include "resource/resource_storage_flash.h"
 #include <pbl/logging/logging.h>
-#include "system/passert.h"
-#include "kernel/util/sleep.h"
-#include "pbl/util/size.h"
+#include <pbl/util/size.h>
+
+#include <applib/app.h>
+#include <applib/ui/simple_menu_layer.h>
+#include <applib/ui/ui.h>
+#include <applib/ui/window.h>
+#include <flash_region/flash_region.h>
+#include <kernel/pbl_malloc.h>
+#include <kernel/pebble_tasks.h>
+#include <process_state/app_state/app_state.h>
+#include <resource/resource_ids.auto.h>
+#include <resource/resource_storage_flash.h>
+#include <syscall/syscall.h>
+#include <system/passert.h>
 
 #define NUM_REGIONS ARRAY_LENGTH(s_flash_regions)
 
@@ -137,7 +138,7 @@ static bool check_subsector_bitflip(struct Region region) {
       success = false;
       break;
     }
-    psleep(5);
+    sys_psleep(5);
   }
 
   return (success);
@@ -184,8 +185,8 @@ static void app_timer_cb(void *data) {
     update_text(++stress_data.stress_iteration, num_stress_iters, failed);
 
     if (!failed && (stress_data.stress_iteration < num_stress_iters)) {
-      app_timer_register(1000, app_timer_cb, NULL); // allow for animation to complete
-    } else {                                        // clean up state
+      app_timer_register(1000, app_timer_cb, nullptr); // allow for animation to complete
+    } else {                                           // clean up state
       flash_region_erase_optimal_range(region.begin, region.begin, region.end, region.end);
     }
   }
@@ -203,7 +204,7 @@ static void stress_window_load(Window *data) {
 
   text_layer_set_text(stress_data.text_layer, "Starting Stress Test");
   abort_stress_test = false;
-  app_timer_register(500, app_timer_cb, NULL);
+  app_timer_register(500, app_timer_cb, nullptr);
 };
 
 static void stress_window_unload(Window *data) {
@@ -247,7 +248,7 @@ static void prv_window_load(Window *window) {
   populate_menu(&data->menu_section, data->menu_items);
   Layer *root_layer = window_get_root_layer(window);
   const GRect *bounds = &root_layer->bounds;
-  simple_menu_layer_init(&data->menu_layer, bounds, window, &data->menu_section, 1, NULL);
+  simple_menu_layer_init(&data->menu_layer, bounds, window, &data->menu_section, 1, nullptr);
   layer_add_child(root_layer, simple_menu_layer_get_layer(&data->menu_layer));
 }
 
@@ -266,7 +267,7 @@ static void push_window(FlashDiagAppData *data) {
 // App boilerplate
 static void handle_init(void) {
   FlashDiagAppData *data = (FlashDiagAppData *)app_malloc_check(sizeof(FlashDiagAppData));
-  if (data == NULL) {
+  if (data == nullptr) {
     PBL_CROAK("Out of memory");
   }
   app_state_set_user_data(data);

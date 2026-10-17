@@ -1,16 +1,18 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "transform.h"
 #include "scale_segmented.h"
 
-#include "applib/applib_malloc.auto.h"
-#include "applib/graphics/gdraw_command_transforms.h"
-#include "applib/ui/animation.h"
-#include "applib/ui/animation_interpolate.h"
-#include "applib/ui/animation_timing.h"
-#include "applib/ui/kino/kino_reel.h"
+#include "transform.h"
+
 #include <pbl/logging/logging.h>
+
+#include <applib/applib_malloc.auto.h>
+#include <applib/graphics/gdraw_command_transforms.h>
+#include <applib/ui/animation.h>
+#include <applib/ui/animation_interpolate.h>
+#include <applib/ui/animation_timing.h>
+#include <applib/ui/kino/kino_reel.h>
 
 typedef struct {
   GPoint bounce;
@@ -139,7 +141,7 @@ KinoReel *kino_reel_scale_segmented_create(KinoReel *from_reel, bool take_owners
                                            GRect screen_frame) {
   ScaleSegmentedData *data = applib_malloc(sizeof(ScaleSegmentedData));
   if (!data) {
-    return NULL;
+    return nullptr;
   }
 
   *data = (ScaleSegmentedData){

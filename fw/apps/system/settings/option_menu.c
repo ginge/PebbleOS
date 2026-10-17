@@ -5,8 +5,9 @@
 
 #include "menu.h"
 
-#include "kernel/pbl_malloc.h"
-#include "pbl/services/i18n/i18n.h"
+#include <pbl/services/i18n/i18n.h>
+
+#include <kernel/pbl_malloc.h>
 
 static void prv_menu_unload(OptionMenu *option_menu, void *context) {
   SettingsOptionMenuData *data = context;
@@ -35,7 +36,7 @@ OptionMenu *settings_option_menu_create(const char *i18n_title_key,
                                         bool icons_enabled, const char **rows, void *context) {
   OptionMenu *option_menu = option_menu_create();
   if (!option_menu) {
-    return NULL;
+    return nullptr;
   }
   GColor highlight_bg = shell_prefs_get_theme_highlight_color();
   const OptionMenuConfig config = {

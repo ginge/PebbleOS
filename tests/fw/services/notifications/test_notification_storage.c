@@ -1,33 +1,18 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/notifications/notification_storage.h"
-#include "pbl/services/notifications/notification_storage_private.h"
+#include <pbl/services/filesystem/pfs.h>
+#include <pbl/services/notifications/notification_storage.h>
+#include <pbl/services/notifications/notification_storage_private.h>
+#include <pbl/util/size.h>
 
-#include "flash_region/flash_region.h"
-#include "pbl/services/filesystem/pfs.h"
-#include "pbl/util/size.h"
-
-#include "clar.h"
-
-#include "stdbool.h"
+#include <clar.h>
+#include <flash_region/flash_region.h>
 
 // Stubs
 ////////////////////////////////////
-#include "fake_spi_flash.h"
-#include "fake_rtc.h"
-#include "stubs_analytics.h"
-#include "stubs_hexdump.h"
-#include "stubs_layout_layer.h"
-#include "stubs_logging.h"
-#include "stubs_mutex.h"
-#include "stubs_passert.h"
-#include "stubs_pbl_malloc.h"
-#include "stubs_pebble_tasks.h"
-#include "stubs_rand_ptr.h"
-#include "stubs_serial.h"
-#include "stubs_sleep.h"
-#include "stubs_task_wdt.h"
+#include <fake_rtc.h>
+#include <fake_spi_flash.h>
 
 #define TEST_START FLASH_REGION_FILE_TEST_SPACE_BEGIN
 #define TEST_SIZE  (FLASH_REGION_FILE_TEST_SPACE_END - FLASH_REGION_FILE_TEST_SPACE_BEGIN)
@@ -84,7 +69,7 @@ bool system_task_add_callback(SystemTaskEventCallback cb, void *data) {
 }
 
 PebblePhoneCaller *phone_call_util_create_caller(const char *number, const char *name) {
-  return NULL;
+  return nullptr;
 }
 
 // Setup
@@ -173,10 +158,10 @@ static bool prv_items_iterator_callback(void *data, const CommonTimelineItemHead
   if (item) {
     context->item_count++;
     cl_assert(uuid_equal(&item->header.id, &context->recent_id));
-    cl_assert_equal_s(attribute_get_string(&item->attr_list, AttributeIdTitle, NULL),
+    cl_assert_equal_s(attribute_get_string(&item->attr_list, AttributeIdTitle, nullptr),
                       context->expected_title);
-    cl_assert_equal_s(attribute_get_string(&item->attr_list, AttributeIdSender, NULL), "");
-    cl_assert(attribute_get_string(&item->attr_list, AttributeIdBody, NULL) == NULL);
+    cl_assert_equal_s(attribute_get_string(&item->attr_list, AttributeIdSender, nullptr), "");
+    cl_assert(attribute_get_string(&item->attr_list, AttributeIdBody, nullptr) == nullptr);
   } else {
     context->header_count++;
     cl_assert(uuid_equal(&header->id, &context->older_id));

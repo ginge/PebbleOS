@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include "pbl/kernel/compiler.h"
-#include "pbl/kernel/thread.h"
+#include <pbl/kernel/compiler.h>
+#include <pbl/kernel/thread.h>
 
 /**
  * @defgroup kernel_debug Introspection
@@ -180,6 +180,6 @@ size_t pbl_thread_count(void);
  * @param filename Source file name of the assertion.
  * @param line Line of the assertion.
  */
-PBL_NORETURN void pbl_kernel_assert_failed(const char *filename, int line);
+[[noreturn]] void pbl_kernel_assert_failed(const char *filename, int line);
 
 /** @} */

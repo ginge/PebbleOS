@@ -3,16 +3,17 @@
 
 #include "app_glance.h"
 
-#include "applib/template_string.h"
-#include "apps/system/launcher/default/app_glance_generic.h"
-#include "process_state/app_state/app_state.h"
-#include "resource/resource_ids.auto.h"
-#include "pbl/services/blob_db/app_glance_db_private.h"
-#include "pbl/services/timeline/attribute.h"
-#include "pbl/services/timeline/timeline_resources.h"
-#include "syscall/syscall.h"
-#include "pbl/util/string.h"
-#include "pbl/util/uuid.h"
+#include <pbl/services/blob_db/app_glance_db_private.h>
+#include <pbl/services/timeline/attribute.h>
+#include <pbl/services/timeline/timeline_resources.h>
+#include <pbl/util/string.h>
+#include <pbl/util/uuid.h>
+
+#include <applib/template_string.h>
+#include <apps/system/launcher/default/app_glance_generic.h>
+#include <process_state/app_state/app_state.h>
+#include <resource/resource_ids.auto.h>
+#include <syscall/syscall.h>
 
 AppGlanceResult app_glance_add_slice(AppGlanceReloadSession *session, AppGlanceSlice slice) {
   AppGlanceResult result = APP_GLANCE_RESULT_SUCCESS;
@@ -65,8 +66,8 @@ AppGlanceResult app_glance_add_slice(AppGlanceReloadSession *session, AppGlanceS
     const TemplateStringVars template_string_vars = (TemplateStringVars){
       .current_time = current_time,
     };
-    TemplateStringError template_string_error = {0};
-    if (!template_string_evaluate(slice.layout.subtitle_template_string, NULL, 0, NULL,
+    TemplateStringError template_string_error = {};
+    if (!template_string_evaluate(slice.layout.subtitle_template_string, nullptr, 0, nullptr,
                                   &template_string_vars, &template_string_error)) {
       result |= APP_GLANCE_RESULT_INVALID_TEMPLATE_STRING;
     }

@@ -12,15 +12,15 @@
 //
 // NEW PREFERENCES DO __NOT__ BELONG HERE WITHOUT A VERY GOOD REASON.
 
-#include <stdbool.h>
+#include <pbl/util/uuid.h>
 
-#include "applib/graphics/gtypes.h"
-#include "process_management/app_install_types.h"
-#include "shell/system_theme.h"
-#include "pbl/util/uuid.h"
+#include <applib/graphics/gtypes.h>
+#include <process_management/app_install_types.h>
+#include <shell/system_theme.h>
 
-#if defined(CONFIG_APP_SCALING) && \
-    (defined(CONFIG_BOARD_OBELIX) || defined(CONFIG_BOARD_QEMU_EMERY))
+#if defined(CONFIG_APP_SCALING) &&                                       \
+    (defined(CONFIG_BOARD_OBELIX) || defined(CONFIG_BOARD_QEMU_EMERY) || \
+     defined(CONFIG_BOARD_NATIVE_EMERY))
 #define TIMELINE_PEEK_WATCHFACE_FIT_SUPPORTED 1
 #else
 #define TIMELINE_PEEK_WATCHFACE_FIT_SUPPORTED 0
@@ -61,6 +61,8 @@ typedef enum UnitsWind {
   UnitsWind_FromDistance,
   UnitsWind_KmH,
   UnitsWind_Mph,
+  UnitsWind_MetersPerSecond,
+  UnitsWind_Knots,
   UnitsWindCount
 } UnitsWind;
 

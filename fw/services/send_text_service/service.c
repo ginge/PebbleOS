@@ -1,13 +1,13 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/send_text_service.h"
+#include <pbl/services/blob_db/ios_notif_pref_db.h>
+#include <pbl/services/bluetooth/bluetooth_persistent_storage.h>
+#include <pbl/services/notifications/notification_constants.h>
+#include <pbl/services/send_text_service.h>
 
-#include "applib/event_service_client.h"
-#include "kernel/events.h"
-#include "pbl/services/bluetooth/bluetooth_persistent_storage.h"
-#include "pbl/services/blob_db/ios_notif_pref_db.h"
-#include "pbl/services/notifications/notification_constants.h"
+#include <applib/event_service_client.h>
+#include <kernel/events.h>
 
 static bool s_has_send_text_reply_action = false;
 
@@ -19,7 +19,7 @@ static bool prv_has_send_text_reply_action(void) {
   }
 
   bool has_reply_action =
-      (timeline_item_action_group_find_reply_action(&notif_prefs->action_group) != NULL);
+      (timeline_item_action_group_find_reply_action(&notif_prefs->action_group) != nullptr);
 
   ios_notif_pref_db_free_prefs(notif_prefs);
   return has_reply_action;

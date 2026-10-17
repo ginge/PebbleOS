@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main, '*-branch']
   workflow_call:
+    inputs:
+      sbom:
+        description: Also generate the software bill of materials
+        type: boolean
+        default: false
 
 jobs:
   changes-firmware:
@@ -23,18 +28,25 @@ jobs:
             src:
               - '.github/actions/**'
               - '.github/workflows/build-firmware.yml'
+              - 'apps/**'
               - 'boards/**'
-              - 'platform/**'
+              - 'cmake/**'
+              - 'drivers/**'
+              - 'fw/**'
+              - 'include/**'
+              - 'kernel/**'
+              - 'lib/**'
               - 'resources/**'
               - 'sdk/**'
               - 'soc/**'
-              - 'fw/**'
-              - 'stored_apps/**'
-              - 'tools/**'
+              - 'subsys/**'
               - 'third_party/**'
-              - 'cmake/**'
+              - 'tools/**'
               - 'CMakeLists.txt'
               - 'Kconfig'
+              - 'SDK_VERSION'
+              - 'pbl.yml'
+              - 'requirements.txt'
 
   build-firmware:
     needs: changes-firmware
@@ -42,7 +54,7 @@ jobs:
     runs-on: ubuntu-24.04
 
     container:
-      image: ghcr.io/coredevices/pebbleos-docker:v8
+      image: ghcr.io/coredevices/pebbleos-docker:v10
 
     strategy:
       matrix:
@@ -114,6 +126,10 @@ jobs:
       - name: Bundle
         run: pbl bundle
 
+      - name: SBOM
+        if: inputs.sbom
+        run: pbl build sbom
+
       - name: Copy artifacts
         env:
           BOARD: ${{ steps.artifact_board.outputs.NAME }}
@@ -129,6 +145,9 @@ jobs:
           cp build/pebbleos.elf "artifacts/firmware_${BOARD}_${version}${SLOT_SUFFIX}.elf"
           cp build/pebbleos_loghash_dict.json \
             "artifacts/firmware_${BOARD}_${version}${SLOT_SUFFIX}_loghash_dict.json"
+          if [ -f build/pebbleos.cdx.json ]; then
+            cp build/pebbleos.cdx.json "artifacts/firmware_${BOARD}_${version}${SLOT_SUFFIX}.cdx.json"
+          fi
 
       - name: Copy translation source
         if: matrix.board == 'asterix'

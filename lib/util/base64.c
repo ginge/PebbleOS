@@ -1,12 +1,11 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/util/base64.h"
-
 #include <stdint.h>
 
-static const char s_alphabet[64] =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+#include <pbl/util/base64.h>
+
+static const char s_alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 size_t pbl_base64_encode(char *out, size_t out_len, const void *data, size_t data_len) {
   const uint8_t *in = data;

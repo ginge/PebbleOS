@@ -1,12 +1,12 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/vibes/vibe_score_info.h"
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/services/vibes/vibe_score_info.h>
+#include <pbl/util/size.h>
 
-#include "resource/resource_ids.auto.h"
-#include "pbl/services/i18n/i18n.h"
-#include "system/passert.h"
-#include "pbl/util/size.h"
+#include <resource/resource_ids.auto.h>
+#include <system/passert.h>
 
 typedef enum AlertType {
   AlertType_Notifications = 1 << 0,
@@ -42,7 +42,7 @@ static const VibeScoreInfo *prv_vibe_score_find_info(VibeScoreId id) {
       return &S_VIBE_MAP[x];
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 uint32_t vibe_score_info_get_resource_id(VibeScoreId id) {

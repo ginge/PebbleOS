@@ -6,18 +6,15 @@
 #include "display.h"
 
 #include <stdint.h>
-#include <stdbool.h>
 
-#include "bf0_hal_pinmux.h"
 #include <pbl/drivers/button_id.h>
+#include <pbl/drivers/gpio/sf32lb.h>
+#include <pbl/input/input.h>
 
-#define GPIO_Port_NULL NULL
+#include <bf0_hal_pinmux.h>
+
+#define GPIO_Port_NULL nullptr
 #define GPIO_Pin_NULL  0U
-
-typedef enum {
-  GPIO_OType_PP,
-  GPIO_OType_OD,
-} GPIOOType_TypeDef;
 
 typedef enum {
   GPIO_PuPd_NOPULL,
@@ -30,17 +27,6 @@ typedef struct {
   const uint32_t gpio_pin;        ///< One of GPIO_Pin_X.
   GPIOPuPd_TypeDef pull;          ///< Pull-up / pull-down configuration for the pin
 } ExtiConfig;
-
-typedef struct {
-  void *gpio;
-  uint8_t gpio_pin;
-} InputConfig;
-
-typedef struct {
-  void *gpio;
-  uint8_t gpio_pin;
-  bool active_high;
-} OutputConfig;
 
 typedef struct {
   int pad;
@@ -64,7 +50,7 @@ typedef struct {
 } PwmConfig;
 
 typedef struct {
-  const OutputConfig ctl;
+  const struct pbl_gpio ctl;
 } BoardConfigActuator;
 
 typedef struct {
@@ -72,11 +58,6 @@ typedef struct {
   // ambient light config
   uint32_t ambient_light_dark_threshold;
   uint32_t ambient_k_delta_threshold;
-  // Raw-count -> lux conversion: lux = (level - offset) * num / den.
-  // den == 0 means no conversion available for this board.
-  uint32_t ambient_light_lux_dark_offset;
-  uint32_t ambient_light_lux_num;
-  uint32_t ambient_light_lux_den;
 #ifdef CONFIG_BACKLIGHT_HAS_COLOR
   // Default RGB backlight color (packed 0x00RRGGBB), applied when no app
   // override is set. User-preference overrides this via backlight_set_color().
@@ -86,10 +67,8 @@ typedef struct {
 
 typedef struct {
   const char *name;
-  GPIO_TypeDef *const port;
-  uint8_t pin;
-  GPIOPuPd_TypeDef pull;
-  bool active_high;
+  struct pbl_gpio gpio;
+  uint16_t code;
 } ButtonConfig;
 
 typedef struct {
@@ -99,7 +78,6 @@ typedef struct {
 } BoardConfigButton;
 
 typedef struct {
-  ExtiConfig pmic_int;
   //! Percentage for watch only mode
   const uint8_t low_power_threshold;
   //! Approximate hours of battery life
@@ -110,25 +88,14 @@ typedef struct {
   uint8_t default_motion_sensitivity;
 } BoardConfigAccel;
 
-typedef struct {
-  int axes_offsets[3];
-  bool axes_inverts[3];
-} MagConfig;
-
-typedef struct {
-  const MagConfig mag_config;
-} BoardConfigMag;
-
-#include <pbl/drivers/flash/qspi_flash_definitions.h>
-#include <pbl/drivers/qspi_definitions.h>
-#include <pbl/drivers/uart/sf32lb.h>
 #include <pbl/drivers/display/sf32lb/display_jdi.h>
+#include <pbl/drivers/flash/qspi_flash_definitions.h>
 #include <pbl/drivers/mic/sf32lb52/pdm_definitions.h>
+#include <pbl/drivers/qspi_definitions.h>
 #include <pbl/drivers/speaker/sf32lb52/audio_definitions.h>
+#include <pbl/drivers/uart/sf32lb.h>
 
 typedef const struct UARTDevice UARTDevice;
-typedef const struct I2CBus I2CBus;
-typedef const struct I2CSlavePort I2CSlavePort;
 typedef const struct HRMDevice HRMDevice;
 typedef const struct MicDevice MicDevice;
 typedef const struct QSPIPort QSPIPort;
@@ -136,7 +103,6 @@ typedef const struct QSPIFlash QSPIFlash;
 typedef const struct DisplayJDIDevice DisplayJDIDevice;
 typedef const struct AudioDevice AudioDevice;
 
-#include <pbl/drivers/i2c/definitions.h>
 #include <pbl/drivers/i2c/sf32lb.h>
 
 void board_early_init(void);

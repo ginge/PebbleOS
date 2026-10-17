@@ -1,29 +1,30 @@
 /* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/speaker/speaker_service.h"
+#include <pbl/services/speaker/speaker_service.h>
 
 #ifdef CONFIG_SPEAKER
 
-#include "pbl/services/speaker/note_sequence.h"
 #include "pcm_stream.h"
 #include "track_player.h"
 
+#include <string.h>
+
 #include <pbl/drivers/audio.h>
 #include <pbl/drivers/rtc.h>
-#include "board/board.h"
-#include "kernel/events.h"
-#include "kernel/pbl_malloc.h"
-#include "pbl/kernel/mutex.h"
-#include "pbl/services/analytics/analytics.h"
-#include "pbl/services/notifications/alerts_preferences.h"
-#include "pbl/services/notifications/do_not_disturb.h"
-#include "pbl/util/math.h"
-#include "pbl/util/size.h"
+#include <pbl/kernel/mutex.h>
 #include <pbl/logging/logging.h>
-#include "system/passert.h"
+#include <pbl/services/analytics/analytics.h>
+#include <pbl/services/notifications/alerts_preferences.h>
+#include <pbl/services/notifications/do_not_disturb.h>
+#include <pbl/services/speaker/note_sequence.h>
+#include <pbl/util/math.h>
+#include <pbl/util/size.h>
 
-#include <string.h>
+#include <board/board.h>
+#include <kernel/events.h>
+#include <kernel/pbl_malloc.h>
+#include <system/passert.h>
 
 PBL_LOG_MODULE_DEFINE(service_speaker, CONFIG_SERVICE_SPEAKER_LOG_LEVEL);
 
@@ -224,11 +225,11 @@ static void prv_free_tracks(void) {
     track_deinit(&s_state.tracks[i]);
     if (s_state.track_notes_buf[i]) {
       kernel_free(s_state.track_notes_buf[i]);
-      s_state.track_notes_buf[i] = NULL;
+      s_state.track_notes_buf[i] = nullptr;
     }
     if (s_state.track_sample_data[i]) {
       kernel_free(s_state.track_sample_data[i]);
-      s_state.track_sample_data[i] = NULL;
+      s_state.track_sample_data[i] = nullptr;
     }
   }
   s_state.num_tracks = 0;
@@ -246,6 +247,13 @@ static void prv_post_finish_event(SpeakerFinishReason reason) {
     },
   };
   event_put(&e);
+}
+
+//! Caller must hold s_lock. PebbleTask_Unknown keeps the current owner.
+static void prv_set_owner_locked(PebbleTask owner) {
+  if (owner != PebbleTask_Unknown) {
+    s_state.owner_task = owner;
+  }
 }
 
 //! Caller must hold s_lock.
@@ -270,7 +278,7 @@ static void prv_stop_internal(SpeakerFinishReason reason) {
     note_seq_deinit(&s_state.note_seq);
     if (s_state.note_buf) {
       kernel_free(s_state.note_buf);
-      s_state.note_buf = NULL;
+      s_state.note_buf = nullptr;
     }
   } else if (source_type == SpeakerSourceStream) {
     pcm_stream_deinit(&s_state.pcm_stream);
@@ -408,12 +416,12 @@ static uint32_t prv_read_and_convert_pcm(int16_t *out, uint32_t max_out_samples)
 
   uint32_t tail = MIN(s_state.pcm_tail_samples, input_samples);
   s_state.pcm_tail_samples -= tail;
-  return prv_convert_pcm(out, NULL, tail);
+  return prv_convert_pcm(out, nullptr, tail);
 }
 
 //! Underrun: run silence through the interpolator so the delayed samples play out.
 static uint32_t prv_pcm_silence(int16_t *out, uint32_t max_out_samples) {
-  return prv_convert_pcm(out, NULL, prv_pcm_input_samples(max_out_samples));
+  return prv_convert_pcm(out, nullptr, prv_pcm_input_samples(max_out_samples));
 }
 
 //! Caller must hold s_lock.
@@ -512,13 +520,13 @@ static void prv_refill_realtime_locked(void) {
       prv_pcm_input_samples(SPEAKER_REFILL_SAMPLES) * prv_pcm_bytes_per_sample();
   while (s_state.state == SpeakerStatePlaying &&
          pcm_stream_available(&s_state.pcm_stream) >= bytes_needed &&
-         audio_write((AudioDevice *)AUDIO, NULL, 0) >= sizeof(s_state.refill_buf)) {
+         audio_write((AudioDevice *)AUDIO, nullptr, 0) >= sizeof(s_state.refill_buf)) {
     prv_refill_locked();
   }
 }
 
-bool speaker_service_play_note_seq(const SpeakerNote *notes, uint32_t num_notes,
-                                   SpeakerPriority pri, uint8_t vol) {
+bool speaker_service_play_note_seq_owned(const SpeakerNote *notes, uint32_t num_notes,
+                                         SpeakerPriority pri, uint8_t vol, PebbleTask owner) {
   pbl_mutex_lock(&s_lock, PBL_FOREVER);
 
   if (!s_state.initialized || !notes || num_notes == 0) {
@@ -552,6 +560,7 @@ bool speaker_service_play_note_seq(const SpeakerNote *notes, uint32_t num_notes,
   s_state.source_type = SpeakerSourceNoteSeq;
   s_state.priority = pri;
   s_state.volume = vol;
+  prv_set_owner_locked(owner);
 
   prv_start_audio(vol);
 
@@ -562,9 +571,14 @@ bool speaker_service_play_note_seq(const SpeakerNote *notes, uint32_t num_notes,
   return true;
 }
 
+bool speaker_service_play_note_seq(const SpeakerNote *notes, uint32_t num_notes,
+                                   SpeakerPriority pri, uint8_t vol) {
+  return speaker_service_play_note_seq_owned(notes, num_notes, pri, vol, PebbleTask_Unknown);
+}
+
 static bool prv_play_tone_internal(uint16_t freq_hz, uint16_t duration_ms, uint8_t waveform,
                                    uint8_t velocity, SpeakerPriority pri, uint8_t vol,
-                                   bool volume_absolute) {
+                                   bool volume_absolute, PebbleTask owner) {
   pbl_mutex_lock(&s_lock, PBL_FOREVER);
 
   if (!s_state.initialized || duration_ms == 0) {
@@ -593,6 +607,7 @@ static bool prv_play_tone_internal(uint16_t freq_hz, uint16_t duration_ms, uint8
   s_state.priority = pri;
   s_state.volume = vol;
   s_state.volume_absolute = volume_absolute;
+  prv_set_owner_locked(owner);
 
   prv_start_audio(vol);
   prv_refill_locked();
@@ -604,20 +619,27 @@ static bool prv_play_tone_internal(uint16_t freq_hz, uint16_t duration_ms, uint8
 bool speaker_service_play_tone(uint16_t freq_hz, uint16_t duration_ms, uint8_t waveform,
                                uint8_t velocity, SpeakerPriority pri, uint8_t vol) {
   return prv_play_tone_internal(freq_hz, duration_ms, waveform, velocity, pri, vol,
-                                false /* volume_absolute */);
+                                false /* volume_absolute */, PebbleTask_Unknown);
 }
 
-bool speaker_service_play_volume_preview(uint8_t vol) {
+bool speaker_service_play_tone_owned(uint16_t freq_hz, uint16_t duration_ms, uint8_t waveform,
+                                     uint8_t velocity, SpeakerPriority pri, uint8_t vol,
+                                     PebbleTask owner) {
+  return prv_play_tone_internal(freq_hz, duration_ms, waveform, velocity, pri, vol,
+                                false /* volume_absolute */, owner);
+}
+
+bool speaker_service_play_volume_preview(uint8_t vol, PebbleTask owner) {
   if (vol > 100) {
     vol = 100;
   }
   return prv_play_tone_internal(VOLUME_PREVIEW_FREQ_HZ, VOLUME_PREVIEW_DURATION_MS,
                                 SpeakerWaveformSquare, 0 /* velocity: full */, SpeakerPriorityApp,
-                                vol, true /* volume_absolute */);
+                                vol, true /* volume_absolute */, owner);
 }
 
-bool speaker_service_play_tracks(const SpeakerTrack *tracks, uint32_t num_tracks,
-                                 SpeakerPriority pri, uint8_t vol) {
+bool speaker_service_play_tracks_owned(const SpeakerTrack *tracks, uint32_t num_tracks,
+                                       SpeakerPriority pri, uint8_t vol, PebbleTask owner) {
   pbl_mutex_lock(&s_lock, PBL_FOREVER);
 
   if (!s_state.initialized || !tracks || num_tracks == 0 || num_tracks > SPEAKER_MAX_TRACKS) {
@@ -695,6 +717,7 @@ bool speaker_service_play_tracks(const SpeakerTrack *tracks, uint32_t num_tracks
   s_state.source_type = SpeakerSourceTracks;
   s_state.priority = pri;
   s_state.volume = vol;
+  prv_set_owner_locked(owner);
 
   prv_start_audio(vol);
   prv_refill_locked();
@@ -706,15 +729,20 @@ alloc_fail:
   for (uint32_t i = 0; i < num_tracks; i++) {
     if (s_state.track_notes_buf[i]) {
       kernel_free(s_state.track_notes_buf[i]);
-      s_state.track_notes_buf[i] = NULL;
+      s_state.track_notes_buf[i] = nullptr;
     }
     if (s_state.track_sample_data[i]) {
       kernel_free(s_state.track_sample_data[i]);
-      s_state.track_sample_data[i] = NULL;
+      s_state.track_sample_data[i] = nullptr;
     }
   }
   pbl_mutex_unlock(&s_lock);
   return false;
+}
+
+bool speaker_service_play_tracks(const SpeakerTrack *tracks, uint32_t num_tracks,
+                                 SpeakerPriority pri, uint8_t vol) {
+  return speaker_service_play_tracks_owned(tracks, num_tracks, pri, vol, PebbleTask_Unknown);
 }
 
 bool speaker_service_stream_open(SpeakerPriority pri, uint8_t vol, SpeakerPcmFormat fmt) {
@@ -808,22 +836,33 @@ void speaker_service_stream_close_owned(PebbleTask owner) {
     return;
   }
 
-  bool realtime = s_state.stream_realtime;
   s_state.stream_realtime = false;
-  if (realtime || s_state.pcm_stream.count > 0 || s_state.pcm_tail_samples > 0) {
-    // Data remaining - enter draining state
-    pcm_stream_mark_closing(&s_state.pcm_stream);
-    s_state.state = SpeakerStateDraining;
-  } else {
-    prv_stop_internal(SpeakerFinishReasonDone);
-  }
+  // The driver may still have queued audio even when the PCM ring is empty.
+  pcm_stream_mark_closing(&s_state.pcm_stream);
+  s_state.state = SpeakerStateDraining;
 
   pbl_mutex_unlock(&s_lock);
 }
 
 void speaker_service_stop(void) {
-  pbl_mutex_lock(&s_lock, PBL_FOREVER);
+  speaker_service_stop_owned(PebbleTask_Unknown);
+}
+
+//! Caller must hold s_lock.
+static void prv_stop_owned_locked(PebbleTask owner, bool notify) {
+  if (s_state.state == SpeakerStateIdle ||
+      (owner != PebbleTask_Unknown && owner != s_state.owner_task)) {
+    return;
+  }
+  if (!notify) {
+    s_state.finish_enabled = false;
+  }
   prv_stop_internal(SpeakerFinishReasonStopped);
+}
+
+void speaker_service_stop_owned(PebbleTask owner) {
+  pbl_mutex_lock(&s_lock, PBL_FOREVER);
+  prv_stop_owned_locked(owner, true);
   pbl_mutex_unlock(&s_lock);
 }
 
@@ -868,20 +907,13 @@ SpeakerState speaker_service_get_state(void) {
 
 void speaker_service_stop_for_task(PebbleTask task) {
   pbl_mutex_lock(&s_lock, PBL_FOREVER);
-  if (s_state.state != SpeakerStateIdle && s_state.owner_task == task) {
-    // App is going away — no one to receive the finish event.
-    s_state.finish_enabled = false;
-    prv_stop_internal(SpeakerFinishReasonStopped);
-  }
+  // The task is going away, no one to receive the finish event.
+  prv_stop_owned_locked(task, false);
   if (s_state.finish_task == task) {
     s_state.finish_enabled = false;
     s_state.finish_task = PebbleTask_Unknown;
   }
   pbl_mutex_unlock(&s_lock);
-}
-
-void speaker_service_set_owner_task(PebbleTask task) {
-  s_state.owner_task = task;
 }
 
 void speaker_service_register_finish(PebbleTask task) {
@@ -926,7 +958,23 @@ bool speaker_service_play_tone(uint16_t freq_hz, uint16_t duration_ms, uint8_t w
   return false;
 }
 
-bool speaker_service_play_volume_preview(uint8_t vol) {
+bool speaker_service_play_note_seq_owned(const SpeakerNote *notes, uint32_t num_notes,
+                                         SpeakerPriority pri, uint8_t vol, PebbleTask owner) {
+  return false;
+}
+
+bool speaker_service_play_tone_owned(uint16_t freq_hz, uint16_t duration_ms, uint8_t waveform,
+                                     uint8_t velocity, SpeakerPriority pri, uint8_t vol,
+                                     PebbleTask owner) {
+  return false;
+}
+
+bool speaker_service_play_tracks_owned(const SpeakerTrack *tracks, uint32_t num_tracks,
+                                       SpeakerPriority pri, uint8_t vol, PebbleTask owner) {
+  return false;
+}
+
+bool speaker_service_play_volume_preview(uint8_t vol, PebbleTask owner) {
   return false;
 }
 
@@ -965,7 +1013,11 @@ void speaker_service_stream_close_owned(PebbleTask owner) {
 }
 void speaker_service_stop(void) {
 }
+void speaker_service_stop_owned(PebbleTask owner) {
+}
 void speaker_service_set_volume(uint8_t vol) {
+}
+void speaker_service_set_volume_owned(PebbleTask owner, uint8_t vol) {
 }
 
 SpeakerState speaker_service_get_state(void) {
@@ -973,8 +1025,6 @@ SpeakerState speaker_service_get_state(void) {
 }
 
 void speaker_service_stop_for_task(PebbleTask task) {
-}
-void speaker_service_set_owner_task(PebbleTask task) {
 }
 void speaker_service_register_finish(PebbleTask task) {
 }

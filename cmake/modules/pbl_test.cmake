@@ -18,19 +18,11 @@ define_property(GLOBAL PROPERTY PBL_TEST_OBJECTS
 
 set(PBL_TEST_PLATFORMS default obelix gabbro asterix)
 
-# The tests build for the host with clang, at -O0 with symbols, and
-# promote nothing to an error: they exercise code paths the firmware
-# build never sees.
+# The tests build for the host with clang, at -O0 with symbols.
 set(PBL_TEST_C_FLAGS
-  -std=c11
+  -std=c23
   -Wall
   -Werror
-  -Wno-error=unused-variable
-  -Wno-error=unused-function
-  -Wno-error=missing-braces
-  -Wno-error=unused-const-variable
-  -Wno-error=address-of-packed-member
-  -Wno-enum-conversion
   -g3
   -gdwarf-4
   -O0
@@ -39,16 +31,11 @@ set(PBL_TEST_C_FLAGS
   -fno-common
   -ffp-contract=off
   -fexcess-precision=standard
-  # clang errors on the true == true assertions some tests compile.
-  -Wno-tautological-compare
-  -Wno-error
 )
 
 # Headers every test sees, in the order the compiler must find them:
-# lib/c/include first, since its time.h deliberately shadows the
-# host's, then the overrides, fakes and stubs ahead of the firmware.
+# the overrides, fakes and stubs ahead of the firmware.
 set(PBL_TEST_INCLUDES_HEAD
-  lib/c/include
   include
 )
 set(PBL_TEST_INCLUDES_TAIL
@@ -61,10 +48,12 @@ set(PBL_TEST_INCLUDES_TAIL
   kernel/arch/posix/include
   subsys
   fw
-  fw/applib/vendor/tinflate
-  fw/applib/vendor/uPNG
+  third_party/uzlib/uzlib/src
+  third_party/upng
+  third_party/upng/upng
   third_party/nanopb/nanopb
   third_party/tinymt/TinyMT/tinymt
+  third_party/fff/fff
 )
 
 function(pbl_test_init)
@@ -93,12 +82,14 @@ function(_pbl_test_platform_defines platform out_defines out_bitdepth)
     set(defines CONFIG_FLASH_GD25LQ255E=1 CONFIG_PLATFORM_FLINT=1 CONFIG_BOARD_ASTERIX=1)
   elseif(platform STREQUAL "obelix")
     set(bitdepth 8)
-    set(defines CONFIG_FLASH_GD25Q256E=1 CONFIG_PLATFORM_EMERY=1 CONFIG_BOARD_OBELIX=1)
+    set(defines CONFIG_FLASH_GD25Q256E=1 CONFIG_PBLBOOT=1 CONFIG_FIRMWARE_SLOT=0
+                CONFIG_PLATFORM_EMERY=1 CONFIG_BOARD_OBELIX=1)
   elseif(platform STREQUAL "gabbro")
     # The round-display getafix board is the gabbro platform's closest
     # real-board analog.
     set(bitdepth 8)
-    set(defines CONFIG_FLASH_GD25Q256E=1 CONFIG_PLATFORM_GABBRO=1 CONFIG_BOARD_GETAFIX=1)
+    set(defines CONFIG_FLASH_GD25Q256E=1 CONFIG_PBLBOOT=1 CONFIG_FIRMWARE_SLOT=0
+                CONFIG_PLATFORM_GABBRO=1 CONFIG_BOARD_GETAFIX=1)
   else()
     message(FATAL_ERROR "Unknown test platform '${platform}'")
   endif()
@@ -116,10 +107,46 @@ function(_pbl_test_platform_defines platform out_defines out_bitdepth)
   set(${out_bitdepth} ${bitdepth} PARENT_SCOPE)
 endfunction()
 
+# Declare a named group of sources tests can pull in with MODULES.
+#
+#   SOURCES    as for pbl_clar_test()
+#   REQUIRES   other modules whose sources come along
+function(pbl_test_module name)
+  cmake_parse_arguments(ARG "" "" "SOURCES;REQUIRES" ${ARGN})
+  if(ARG_UNPARSED_ARGUMENTS)
+    message(FATAL_ERROR "pbl_test_module(${name}): unknown arguments ${ARG_UNPARSED_ARGUMENTS}")
+  endif()
+  get_property(defined GLOBAL PROPERTY PBL_TEST_MODULE_${name} DEFINED)
+  if(defined)
+    message(FATAL_ERROR "pbl_test_module(${name}): declared twice")
+  endif()
+  define_property(GLOBAL PROPERTY PBL_TEST_MODULE_${name})
+  set_property(GLOBAL PROPERTY PBL_TEST_MODULE_${name} "${ARG_SOURCES}")
+  set_property(GLOBAL PROPERTY PBL_TEST_MODULE_${name}_REQUIRES "${ARG_REQUIRES}")
+endfunction()
+
+# The sources of <modules> and everything they require, dependencies first.
+function(_pbl_test_module_sources out id)
+  set(sources "")
+  foreach(module ${ARGN})
+    get_property(defined GLOBAL PROPERTY PBL_TEST_MODULE_${module} DEFINED)
+    if(NOT defined)
+      message(FATAL_ERROR "${id}: unknown module '${module}'")
+    endif()
+    get_property(requires GLOBAL PROPERTY PBL_TEST_MODULE_${module}_REQUIRES)
+    _pbl_test_module_sources(required ${id} ${requires})
+    get_property(own GLOBAL PROPERTY PBL_TEST_MODULE_${module})
+    list(APPEND sources ${required} ${own})
+  endforeach()
+  list(REMOVE_DUPLICATES sources)
+  set(${out} ${sources} PARENT_SCOPE)
+endfunction()
+
 # Declare a test. <name> names both the test and, unless SOURCE says
 # otherwise, the file it is built from.
 #
 #   SOURCE     the test's own .c file
+#   MODULES    groups of sources declared with pbl_test_module()
 #   SOURCES    the firmware sources under test, relative to the repository
 #              root; @PLATFORM@ and @BITDEPTH@ expand per platform
 #   PLATFORMS  which platforms to build it for (default: 'default',
@@ -134,7 +161,7 @@ endfunction()
 #   TEST_IMAGES  the test renders against the image fixtures
 function(pbl_clar_test name)
   cmake_parse_arguments(ARG "TEST_IMAGES" "SOURCE"
-    "SOURCES;PLATFORMS;DEFINES;INCLUDES;OVERRIDES;LIBS;DEPENDS" ${ARGN})
+    "MODULES;SOURCES;PLATFORMS;DEFINES;INCLUDES;OVERRIDES;LIBS;DEPENDS" ${ARGN})
   if(ARG_UNPARSED_ARGUMENTS)
     message(FATAL_ERROR "pbl_clar_test(${name}): unknown arguments ${ARG_UNPARSED_ARGUMENTS}")
   endif()
@@ -174,6 +201,7 @@ function(pbl_clar_test name)
     set_property(GLOBAL PROPERTY PBL_TEST_${id}_DIR ${CMAKE_CURRENT_SOURCE_DIR})
     set_property(GLOBAL PROPERTY PBL_TEST_${id}_BINDIR ${CMAKE_CURRENT_BINARY_DIR})
     set_property(GLOBAL PROPERTY PBL_TEST_${id}_SOURCE ${ARG_SOURCE})
+    set_property(GLOBAL PROPERTY PBL_TEST_${id}_MODULES "${ARG_MODULES}")
     set_property(GLOBAL PROPERTY PBL_TEST_${id}_SOURCES "${ARG_SOURCES}")
     set_property(GLOBAL PROPERTY PBL_TEST_${id}_DEFINES "${ARG_DEFINES}")
     set_property(GLOBAL PROPERTY PBL_TEST_${id}_INCLUDES "${ARG_INCLUDES}")
@@ -209,6 +237,31 @@ function(_pbl_test_object out source key flags)
   )
 endfunction()
 
+# The default stubs, archived once per set of compile flags so that they
+# see the same headers as the test. Every symbol in them must be weak, so
+# that a test defining its own copy takes precedence. The assert stubs are
+# linked as an object instead, see _pbl_test_add().
+function(_pbl_test_stubs out key flags)
+  set(lib pbl_test_stubs_${key})
+  set(${out} ${lib} PARENT_SCOPE)
+  if(TARGET ${lib})
+    return()
+  endif()
+
+  file(GLOB sources CONFIGURE_DEPENDS ${PBL_BASE}/tests/stubs/default/*.c)
+  list(REMOVE_ITEM sources ${PBL_BASE}/tests/stubs/default/passert.c)
+  set(objects "")
+  foreach(source ${sources})
+    _pbl_test_object(object ${source} ${key} "${flags}")
+    list(APPEND objects ${object})
+  endforeach()
+  set_source_files_properties(${objects} PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)
+  add_library(${lib} STATIC ${objects})
+  set_target_properties(${lib} PROPERTIES
+    LINKER_LANGUAGE C
+    ARCHIVE_OUTPUT_DIRECTORY ${PBL_TEST_OBJ_DIR}/${key})
+endfunction()
+
 function(pbl_test_finalize)
   get_property(ids GLOBAL PROPERTY PBL_TESTS)
   list(LENGTH ids count)
@@ -221,7 +274,7 @@ function(pbl_test_finalize)
 endfunction()
 
 function(_pbl_test_add id)
-  foreach(field NAME PLATFORM DIR BINDIR SOURCE SOURCES DEFINES INCLUDES OVERRIDES LIBS DEPENDS IMAGES)
+  foreach(field NAME PLATFORM DIR BINDIR SOURCE MODULES SOURCES DEFINES INCLUDES OVERRIDES LIBS DEPENDS IMAGES)
     get_property(${field} GLOBAL PROPERTY PBL_TEST_${id}_${field})
   endforeach()
 
@@ -295,8 +348,14 @@ function(_pbl_test_add id)
   endforeach()
   string(MD5 key "${flags}")
 
+  _pbl_test_stubs(stubs ${key} "${flags}")
+
+  _pbl_test_module_sources(module_sources ${id} ${MODULES})
+  list(APPEND module_sources ${SOURCES})
+  list(REMOVE_DUPLICATES module_sources)
+
   set(objects "")
-  foreach(source ${SOURCES})
+  foreach(source ${module_sources})
     string(REPLACE "@PLATFORM@" "${platform}" source "${source}")
     string(REPLACE "@BITDEPTH@" "${bitdepth}" source "${source}")
     if(NOT IS_ABSOLUTE ${source})
@@ -308,6 +367,10 @@ function(_pbl_test_add id)
     _pbl_test_object(object ${source} ${key} "${flags}")
     list(APPEND objects ${object})
   endforeach()
+  # libutil calls util_assertion_failed() and has a weak copy of its own,
+  # which a single-pass linker would pick over an archive already scanned.
+  _pbl_test_object(object ${PBL_BASE}/tests/stubs/default/passert.c ${key} "${flags}")
+  list(APPEND objects ${object})
 
   # clar turns the test's suite functions into a main().
   add_custom_command(
@@ -331,7 +394,7 @@ function(_pbl_test_add id)
   # DUMA catches memory corruption; a handful of tests trip over it. It
   # has to come before any system library: it overrides malloc, and once
   # the linker has bound that to libc it stops looking.
-  set(libs ${LIBS} libutil libbtutil libcrc)
+  set(libs ${LIBS} ${stubs} libutil libbtutil libcrc)
   if(NOT "DUMA_DISABLED" IN_LIST defines)
     list(APPEND libs duma pthread)
   endif()

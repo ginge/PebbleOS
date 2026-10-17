@@ -1,18 +1,17 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "comm/ble/gap_le_connection.h"
-#include "comm/ble/gap_le_device_name.h"
-#include "comm/bt_lock.h"
-
-#include "pbl/services/bluetooth/bluetooth_persistent_storage.h"
-#include "pbl/services/bluetooth/local_addr.h"
-#include "kernel/event_loop.h"
-#include "kernel/pbl_malloc.h"
-#include <pbl/logging/logging.h>
-
 #include <pbl/bluetooth/bonding_sync.h>
 #include <pbl/bluetooth/types.h>
+#include <pbl/logging/logging.h>
+#include <pbl/services/bluetooth/bluetooth_persistent_storage.h>
+#include <pbl/services/bluetooth/local_addr.h>
+
+#include <comm/ble/gap_le_connection.h>
+#include <comm/ble/gap_le_device_name.h>
+#include <comm/bt_lock.h>
+#include <kernel/event_loop.h>
+#include <kernel/pbl_malloc.h>
 
 PBL_LOG_MODULE_DECLARE(service_bluetooth, CONFIG_SERVICE_BLUETOOTH_LOG_LEVEL);
 
@@ -60,7 +59,7 @@ void pbl_bt_cb_handle_create_bonding(const struct pbl_bt_bonding *bonding,
     PBL_LOG_INFO("flags: 0x02%x", flags);
   }
   pbl_bt_bonding_id_t bonding_id = bt_persistent_storage_store_ble_pairing(
-      &bonding->pairing_info, bonding->is_gateway, NULL, should_pin_address, flags);
+      &bonding->pairing_info, bonding->is_gateway, nullptr, should_pin_address, flags);
   if (bonding_id == PBL_BT_BONDING_ID_INVALID) {
     PBL_LOG_ERR("Failed to persist new bonding");
     return;

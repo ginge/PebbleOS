@@ -1,11 +1,11 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/ui/vibes.h"
-
-#include "syscall/syscall.h"
 #include <pbl/logging/logging.h>
-#include "pbl/util/size.h"
+#include <pbl/util/size.h>
+
+#include <applib/ui/vibes.h>
+#include <syscall/syscall.h>
 
 #define PATTERN_FROM_DURATIONS(pat, array)                      \
   (pat) = (VibePattern) {                                       \
@@ -39,7 +39,7 @@ void vibes_cancel(void) {
 }
 
 void vibes_enqueue_custom_pattern(VibePattern pattern) {
-  if (pattern.durations == NULL) {
+  if (pattern.durations == nullptr) {
     PBL_LOG_ERR("tried to enqueue a null pattern");
     return;
   }
@@ -54,7 +54,7 @@ void vibes_enqueue_custom_pattern(VibePattern pattern) {
 }
 
 void vibes_enqueue_custom_pattern_with_amplitudes(VibePatternWithAmplitudes pattern) {
-  if (pattern.durations == NULL || pattern.amplitudes == NULL) {
+  if (pattern.durations == nullptr || pattern.amplitudes == nullptr) {
     PBL_LOG_ERR("tried to enqueue a null pattern");
     return;
   }

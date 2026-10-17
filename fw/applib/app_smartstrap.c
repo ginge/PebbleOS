@@ -1,7 +1,7 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/app_smartstrap.h"
+#include <applib/app_smartstrap.h>
 
 SmartstrapResult app_smartstrap_subscribe(SmartstrapHandlers handlers) {
   return SmartstrapResultNotPresent;
@@ -16,7 +16,7 @@ void app_smartstrap_set_timeout(uint16_t timeout_ms) {
 SmartstrapAttribute *app_smartstrap_attribute_create(SmartstrapServiceId service_id,
                                                      SmartstrapAttributeId attribute_id,
                                                      size_t buffer_length) {
-  return NULL;
+  return nullptr;
 }
 
 void app_smartstrap_attribute_destroy(SmartstrapAttribute *attribute) {

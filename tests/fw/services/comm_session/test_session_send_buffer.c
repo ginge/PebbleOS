@@ -1,20 +1,19 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/comm_session/default_kernel_sender.h"
-#include "pbl/services/comm_session/session_send_buffer.h"
-#include "pbl/services/comm_session/session_transport.h"
-#include "pbl/services/comm_session/session_internal.h"
-#include "pbl/services/comm_session/session_send_queue.h"
-#include "pbl/services/comm_session/protocol.h"
+#include <pbl/kernel/sem.h>
+#include <pbl/services/comm_session/default_kernel_sender.h>
+#include <pbl/services/comm_session/protocol.h>
+#include <pbl/services/comm_session/session_internal.h>
+#include <pbl/services/comm_session/session_send_buffer.h>
+#include <pbl/services/comm_session/session_send_queue.h>
+#include <pbl/services/comm_session/session_transport.h>
+#include <pbl/util/byteorder.h>
+#include <pbl/util/size.h>
+#include <pbl/util/testing.h>
 
-#include "pbl/util/byteorder.h"
-#include "pbl/util/size.h"
-
-#include "pbl/kernel/sem.h"
-
-#include "clar.h"
-#include "pbl/util/testing.h"
+#include <clar.h>
+#include <fff.h>
 
 extern SendBuffer *comm_session_send_buffer_create(bool is_system);
 extern void comm_session_send_buffer_destroy(SendBuffer *sb);
@@ -26,17 +25,12 @@ extern void comm_session_send_queue_cleanup(CommSession *session);
 // Stubs
 ///////////////////////////////////////////////////////////
 
-#include "stubs_bt_lock.h"
-#include "stubs_logging.h"
-#include "stubs_passert.h"
-#include "stubs_analytics.h"
-
 // Fakes
 ///////////////////////////////////////////////////////////
 
-#include "fake_kernel_malloc.h"
-#include "fake_sem.h"
-#include "fake_rtc.h"
+#include <fake_kernel_malloc.h>
+#include <fake_rtc.h>
+#include <fake_sem.h>
 
 static CommSession s_session;
 
@@ -53,10 +47,7 @@ bool comm_session_is_valid(const CommSession *session) {
   return (s_valid_session == session);
 }
 
-static int s_send_next_count = 0;
-void comm_session_send_next(CommSession *session) {
-  ++s_send_next_count;
-}
+FAKE_VOID_FUNC(comm_session_send_next, CommSession *);
 
 void comm_session_send_next_immediately(CommSession *session) {
   // Pretend to send out all the data:
@@ -81,7 +72,7 @@ void test_session_send_buffer__initialize(void) {
   fake_kernel_malloc_init();
   fake_kernel_malloc_enable_stats(true);
   fake_kernel_malloc_mark();
-  s_send_next_count = 0;
+  RESET_FAKE(comm_session_send_next);
   comm_default_kernel_sender_init();
 }
 
@@ -94,7 +85,8 @@ void test_session_send_buffer__cleanup(void) {
 }
 
 void test_session_send_buffer__null_session(void) {
-  cl_assert_equal_p(NULL, comm_session_send_buffer_begin_write(NULL, ENDPOINT_ID, 1, TIMEOUT_MS));
+  cl_assert_equal_p(nullptr,
+                    comm_session_send_buffer_begin_write(nullptr, ENDPOINT_ID, 1, TIMEOUT_MS));
 }
 
 void test_session_send_buffer__begin_write_with_more_than_max_payload(void) {
@@ -103,13 +95,13 @@ void test_session_send_buffer__begin_write_with_more_than_max_payload(void) {
   size_t max_length = comm_session_send_buffer_get_max_payload_length(&s_session);
   SendBuffer *write_sb =
       comm_session_send_buffer_begin_write(&s_session, ENDPOINT_ID, max_length + 1, TIMEOUT_MS);
-  cl_assert_equal_p(write_sb, NULL);
+  cl_assert_equal_p(write_sb, nullptr);
 }
 
 pbl_tick_t prv_session_closed_yield_cb(struct pbl_sem *handle) {
   if (s_valid_session) {
     comm_session_send_queue_cleanup(s_valid_session);
-    s_valid_session = NULL;
+    s_valid_session = nullptr;
   }
   return 10;
 }
@@ -140,7 +132,7 @@ void test_session_send_buffer__not_enough_space_in_time(void) {
   // Try to begin writing again, requesting only one byte:
   SendBuffer *write_sb2 = comm_session_send_buffer_begin_write(
       &s_session, ENDPOINT_ID, 1 /* required_free_length */, TIMEOUT_MS);
-  cl_assert_equal_p(write_sb2, NULL);
+  cl_assert_equal_p(write_sb2, nullptr);
 
   prv_cleanup_send_buffer(write_sb);
 }
@@ -176,8 +168,8 @@ void test_session_send_buffer__multiple_smaller_messages(void) {
   }
 
   // Can't write another message:
-  cl_assert_equal_p(NULL, comm_session_send_buffer_begin_write(&s_session, ENDPOINT_ID,
-                                                               1 /* length */, TIMEOUT_MS));
+  cl_assert_equal_p(nullptr, comm_session_send_buffer_begin_write(&s_session, ENDPOINT_ID,
+                                                                  1 /* length */, TIMEOUT_MS));
 
   for (int i = 0; i < ARRAY_LENGTH(write_sb); ++i) {
     if (!write_sb[i]) {
@@ -240,7 +232,7 @@ void test_session_send_buffer__writing_but_then_session_closed(void) {
   // Try to begin writing again, requesting only one byte:
   write_sb = comm_session_send_buffer_begin_write(&s_session, ENDPOINT_ID,
                                                   1 /* required_free_length */, TIMEOUT_MS);
-  cl_assert_equal_p(write_sb, NULL);
+  cl_assert_equal_p(write_sb, nullptr);
 
   // ..send_buffer_destroy() is already called in the yield cb
 }
@@ -283,10 +275,10 @@ void test_session_send_buffer__send_queue_interface(void) {
                         write_sb, fake_data_payload + second_write_length, second_write_length),
                     true);
 
-  cl_assert_equal_i(s_send_next_count, 0);
+  cl_assert_equal_i(comm_session_send_next_fake.call_count, 0);
   comm_session_send_buffer_end_write(write_sb);
   // Expect comm_session_send_next to be called to trigger the transport:
-  cl_assert_equal_i(s_send_next_count, 1);
+  cl_assert_equal_i(comm_session_send_next_fake.call_count, 1);
 
   // Exercise the transport interface:
   const SessionSendQueueJob *job = (const SessionSendQueueJob *)write_sb;

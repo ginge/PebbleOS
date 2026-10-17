@@ -1,18 +1,17 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/compositor/default/compositor_modal_transitions.h"
+#include <pbl/services/compositor/compositor_private.h>
+#include <pbl/services/compositor/compositor_transitions.h>
+#include <pbl/services/compositor/default/compositor_modal_transitions.h>
+#include <pbl/util/trig.h>
 
-#include "pbl/services/compositor/compositor_transitions.h"
-#include "pbl/services/compositor/compositor_private.h"
-
-#include "applib/graphics/framebuffer.h"
-#include "pbl/util/trig.h"
-#include "applib/ui/animation_interpolate.h"
-#include "applib/graphics/gdraw_command_sequence.h"
-#include "apps/system/timeline/common.h"
-#include "kernel/ui/kernel_ui.h"
-#include "resource/resource_ids.auto.h"
+#include <applib/graphics/framebuffer.h>
+#include <applib/graphics/gdraw_command_sequence.h>
+#include <applib/ui/animation_interpolate.h>
+#include <apps/system/timeline/common.h>
+#include <kernel/ui/kernel_ui.h>
+#include <resource/resource_ids.auto.h>
 
 // No animations will be shown on the following platforms
 #if defined(CONFIG_RECOVERY_FW)
@@ -37,7 +36,7 @@ static CompositorModalTransitionData s_data;
 static void prv_modal_transition_animation_teardown_rect(Animation *animation);
 
 static void prv_modal_transition_animation_init_sequence(const uint32_t resource_id) {
-  prv_modal_transition_animation_teardown_rect(NULL);
+  prv_modal_transition_animation_teardown_rect(nullptr);
   s_data.animation_sequence = gdraw_command_sequence_create_with_resource(resource_id);
 }
 
@@ -45,9 +44,9 @@ static void prv_modal_transition_fill_update(GContext *ctx, uint32_t distance_no
                                              bool inner) {
   const GColor replace_color = GColorGreen;
   const GColor stroke_color = TIMELINE_DOT_COLOR;
-  compositor_transition_pdcs_animation_update(ctx, s_data.animation_sequence, distance_normalized,
-                                              replace_color, stroke_color,
-                                              s_data.outer_color /* overdraw color */, inner, NULL);
+  compositor_transition_pdcs_animation_update(
+      ctx, s_data.animation_sequence, distance_normalized, replace_color, stroke_color,
+      s_data.outer_color /* overdraw color */, inner, nullptr);
 }
 
 void prv_render_modal_if_necessary(void) {
@@ -160,7 +159,7 @@ static void prv_modal_push_transition_animation_init_round(Animation *animation)
 static void prv_modal_transition_animation_teardown_rect(Animation *animation) {
   if (s_data.animation_sequence) {
     gdraw_command_sequence_destroy(s_data.animation_sequence);
-    s_data.animation_sequence = NULL;
+    s_data.animation_sequence = nullptr;
   }
 }
 

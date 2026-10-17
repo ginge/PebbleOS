@@ -1,18 +1,19 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/preferred_content_size.h"
-#include "apps/system_app_ids.h"
-#include "board/board.h"
-#include "pbl/kernel/mutex.h"
-#include "process_management/app_install_manager.h"
-#include "process_management/process_manager.h"
-#include "pbl/services/activity/activity.h"
-#include "pbl/services/activity/activity_insights.h"
-#include "pbl/services/activity/insights_settings.h"
-#include "pbl/services/settings/settings_file.h"
-#include "shell/prefs.h"
-#include "shell/prefs_private.h"
+#include <pbl/kernel/mutex.h>
+#include <pbl/services/activity/activity.h>
+#include <pbl/services/activity/activity_insights.h>
+#include <pbl/services/activity/insights_settings.h>
+#include <pbl/services/settings/settings_file.h>
+
+#include <applib/preferred_content_size.h>
+#include <apps/system_app_ids.h>
+#include <board/board.h>
+#include <process_management/app_install_manager.h>
+#include <process_management/process_manager.h>
+#include <shell/prefs.h>
+#include <shell/prefs_private.h>
 
 static PBL_MUTEX_DEFINE(s_mutex);
 
@@ -25,8 +26,8 @@ static Uuid s_default_watchface = UUID_INVALID_INIT;
 #define PREF_KEY_CONTENT_SIZE "contentSize"
 static uint8_t s_content_size;
 #if !UNITTEST
-_Static_assert(sizeof(PreferredContentSize) == sizeof(s_content_size),
-               "sizeof(PreferredContentSize) grew, pref needs to be migrated!");
+static_assert(sizeof(PreferredContentSize) == sizeof(s_content_size),
+              "sizeof(PreferredContentSize) grew, pref needs to be migrated!");
 #endif
 
 #ifdef CONFIG_APP_SCALING
@@ -157,7 +158,7 @@ AppInstallId watchface_get_default_install_id(void) {
   AppInstallEntry entry;
   if ((app_id == INSTALL_ID_INVALID) || !app_install_get_entry_for_install_id(app_id, &entry) ||
       !app_install_entry_is_watchface(&entry)) {
-    app_install_enumerate_entries(prv_set_default_any_watchface_enumerate_callback, NULL);
+    app_install_enumerate_entries(prv_set_default_any_watchface_enumerate_callback, nullptr);
     app_id = app_install_get_id_for_uuid(&s_default_watchface);
   }
   return app_id;
@@ -274,7 +275,7 @@ void activity_prefs_set_spo2_measurement_interval(HRMonitoringInterval interval)
 #endif
 
 ActivityInsightSettings *activity_prefs_get_sleep_reward_settings(void) {
-  static ActivityInsightSettings s_settings = {0};
+  static ActivityInsightSettings s_settings = {};
   return &s_settings;
 }
 
@@ -349,6 +350,14 @@ bool shell_prefs_get_vibe_log_info_enabled(void) {
 }
 
 void shell_prefs_set_vibe_log_info_enabled(bool enabled) {
+  // Not used in SDK shell
+}
+
+bool shell_prefs_get_accel_shake_log_info_enabled(void) {
+  return false;
+}
+
+void shell_prefs_set_accel_shake_log_info_enabled(bool enabled) {
   // Not used in SDK shell
 }
 

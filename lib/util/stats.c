@@ -1,13 +1,11 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/util/stats.h"
+#include <stdlib.h>
 
 #include <pbl/util/math.h>
 #include <pbl/util/sort.h>
-
-#include <stdbool.h>
-#include <stdlib.h>
+#include <pbl/util/stats.h>
 
 // ------------------------------------------------------------------------------------------------
 // Returns the median of a given array
@@ -198,7 +196,7 @@ int32_t pbl_stats_weighted_median(const int32_t *vals, const int32_t *weights_x1
 
   // Find the sum of all of the weights
   int32_t S_x100;
-  pbl_stats_calculate(PBL_STATS_OP_SUM, weights_x100, num_data, NULL, NULL, &S_x100);
+  pbl_stats_calculate(PBL_STATS_OP_SUM, weights_x100, num_data, nullptr, nullptr, &S_x100);
 
   if (S_x100 == 0) {
     // All weights are zero

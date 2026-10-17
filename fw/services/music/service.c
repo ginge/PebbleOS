@@ -1,18 +1,18 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/music_internal.h"
-
-#include "applib/graphics/gtypes.h"
-#include "apps/system/music.h"
-#include "pbl/services/imaging.h"
 #include <pbl/drivers/rtc.h>
-#include "kernel/events.h"
-#include "kernel/pbl_malloc.h"
-#include "pbl/kernel/mutex.h"
-#include "pbl/kernel/types.h"
+#include <pbl/kernel/mutex.h>
+#include <pbl/kernel/types.h>
 #include <pbl/logging/logging.h>
-#include "pbl/util/math.h"
+#include <pbl/services/imaging.h>
+#include <pbl/services/music_internal.h>
+#include <pbl/util/math.h>
+
+#include <applib/graphics/gtypes.h>
+#include <apps/system/music.h>
+#include <kernel/events.h>
+#include <kernel/pbl_malloc.h>
 
 PBL_LOG_MODULE_DEFINE(service_music, CONFIG_SERVICE_MUSIC_LOG_LEVEL);
 
@@ -82,6 +82,9 @@ struct MusicServiceContext {
   //! Generation token, bumped whenever the track (title/artist) changes. Used to discard album art
   //! that arrives after a track change. @see music_get_now_playing_generation
   uint8_t now_playing_generation;
+
+  bool now_playing_event_pending;
+  bool pos_event_pending;
 } s_music_ctx;
 
 static void prv_free_album_art_locked(void);
@@ -105,6 +108,8 @@ static void prv_imaging_album_art_transfer_failed(uint8_t token) {
 
 void music_init(void) {
   pbl_mutex_init(&s_music_ctx.mutex);
+  s_music_ctx.now_playing_event_pending = false;
+  s_music_ctx.pos_event_pending = false;
   imaging_register_handler(ImagingImageTypeAlbumArt, prv_imaging_album_art_received);
   imaging_register_transfer_handlers(ImagingImageTypeAlbumArt, prv_imaging_album_art_will_receive,
                                      prv_imaging_album_art_transfer_failed);
@@ -144,13 +149,35 @@ static void prv_free_album_art_locked(void) {
     kernel_free(s_music_ctx.album_art->addr);
     kernel_free(s_music_ctx.album_art->palette);
     kernel_free(s_music_ctx.album_art);
-    s_music_ctx.album_art = NULL;
+    s_music_ctx.album_art = nullptr;
+  }
+}
+
+static void prv_put_coalesced_event(PebbleMediaEventType type, bool *pending) {
+  pbl_mutex_lock(&s_music_ctx.mutex, PBL_FOREVER);
+  const bool was_pending = *pending;
+  *pending = true;
+  pbl_mutex_unlock(&s_music_ctx.mutex);
+
+  if (!was_pending) {
+    PebbleEvent e = {.type = PEBBLE_MEDIA_EVENT, .media.type = type};
+    event_put(&e);
   }
 }
 
 static void prv_put_now_playing_changed_event(void) {
-  PebbleEvent e = {.type = PEBBLE_MEDIA_EVENT, .media.type = PebbleMediaEventTypeNowPlayingChanged};
-  event_put(&e);
+  prv_put_coalesced_event(PebbleMediaEventTypeNowPlayingChanged,
+                          &s_music_ctx.now_playing_event_pending);
+}
+
+void music_handle_media_event(const PebbleMediaEvent *event) {
+  pbl_mutex_lock(&s_music_ctx.mutex, PBL_FOREVER);
+  if (event->type == PebbleMediaEventTypeNowPlayingChanged) {
+    s_music_ctx.now_playing_event_pending = false;
+  } else if (event->type == PebbleMediaEventTypeTrackPosChanged) {
+    s_music_ctx.pos_event_pending = false;
+  }
+  pbl_mutex_unlock(&s_music_ctx.mutex);
 }
 
 bool music_set_connected_server(const MusicServerImplementation *implementation, bool connected) {
@@ -163,7 +190,7 @@ bool music_set_connected_server(const MusicServerImplementation *implementation,
   pbl_mutex_lock(&s_music_ctx.mutex, PBL_FOREVER);
 
   if (connected) {
-    if (s_music_ctx.implementation == NULL) {
+    if (s_music_ctx.implementation == nullptr) {
       change_type = Connected;
       s_music_ctx.implementation = implementation;
       PBL_LOG_INFO("Music server connected: %s", implementation->debug_name);
@@ -176,7 +203,7 @@ bool music_set_connected_server(const MusicServerImplementation *implementation,
     if (s_music_ctx.implementation == implementation) {
       // Previously registered server got disconnected
       change_type = Disconnected;
-      s_music_ctx.implementation = NULL;
+      s_music_ctx.implementation = nullptr;
       PBL_LOG_INFO("Music server disconnected: %s", implementation->debug_name);
     } else {
       PBL_LOG_ERR("Unknown server <%p> disconnected", implementation);
@@ -193,7 +220,7 @@ bool music_set_connected_server(const MusicServerImplementation *implementation,
     // now_playing no longer drops art on a track change (see music_update_now_playing), so clear it
     // explicitly here: a connect/disconnect must not leave the previous session's art on screen.
     prv_free_album_art_locked();
-    music_update_now_playing(NULL, 0, NULL, 0, NULL, 0);
+    music_update_now_playing(nullptr, 0, nullptr, 0, nullptr, 0);
     music_update_track_duration(0);
     const MusicPlayerStateUpdate state = {
       .playback_state = MusicPlayStateUnknown,
@@ -218,7 +245,7 @@ bool music_set_connected_server(const MusicServerImplementation *implementation,
 }
 
 const char *music_get_connected_server_debug_name(void) {
-  const char *debug_name = NULL;
+  const char *debug_name = nullptr;
   pbl_mutex_lock(&s_music_ctx.mutex, PBL_FOREVER);
   if (s_music_ctx.implementation) {
     debug_name = s_music_ctx.implementation->debug_name;
@@ -266,31 +293,27 @@ static void prv_update_string_and_put_event(const char *value, size_t value_leng
 
 void music_update_player_name(const char *player_name, size_t player_name_length) {
   // TODO: actually do something with this
-  off_t o = offsetof(__typeof__(s_music_ctx), player_name);
+  off_t o = offsetof(typeof(s_music_ctx), player_name);
   prv_update_string_and_put_event(player_name, player_name_length, o);
 }
 
 void music_update_track_title(const char *title, size_t title_length) {
-  off_t o = offsetof(__typeof__(s_music_ctx), title);
+  off_t o = offsetof(typeof(s_music_ctx), title);
   prv_update_string_and_put_event(title, title_length, o);
 }
 
 void music_update_track_artist(const char *artist, size_t artist_length) {
-  off_t o = offsetof(__typeof__(s_music_ctx), artist);
+  off_t o = offsetof(typeof(s_music_ctx), artist);
   prv_update_string_and_put_event(artist, artist_length, o);
 }
 
 void music_update_track_album(const char *album, size_t album_length) {
-  off_t o = offsetof(__typeof__(s_music_ctx), album);
+  off_t o = offsetof(typeof(s_music_ctx), album);
   prv_update_string_and_put_event(album, album_length, o);
 }
 
 static void prv_put_pos_changed_event(void) {
-  PebbleEvent e = {
-    .type = PEBBLE_MEDIA_EVENT,
-    .media.type = PebbleMediaEventTypeTrackPosChanged,
-  };
-  event_put(&e);
+  prv_put_coalesced_event(PebbleMediaEventTypeTrackPosChanged, &s_music_ctx.pos_event_pending);
 }
 
 void music_update_track_position(uint32_t track_pos_ms) {
@@ -443,7 +466,7 @@ MusicPlayState music_get_playback_state(void) {
 
 static void *prv_implementation_function_for_offset(off_t offset) {
   typedef void (*FuncPtr)(void);
-  FuncPtr func_ptr = NULL;
+  FuncPtr func_ptr = nullptr;
   pbl_mutex_lock(&s_music_ctx.mutex, PBL_FOREVER);
   if (s_music_ctx.implementation) {
     func_ptr = *(FuncPtr *)(((const uint8_t *)s_music_ctx.implementation) + offset);
@@ -453,7 +476,7 @@ static void *prv_implementation_function_for_offset(off_t offset) {
 }
 
 void music_command_send(MusicCommand command) {
-  const off_t o = offsetof(__typeof__(*s_music_ctx.implementation), command_send);
+  const off_t o = offsetof(typeof(*s_music_ctx.implementation), command_send);
   void (*command_send)(MusicCommand) = prv_implementation_function_for_offset(o);
   if (command_send) {
     command_send(command);
@@ -461,7 +484,7 @@ void music_command_send(MusicCommand command) {
 }
 
 void music_request_reduced_latency(bool reduced_latency) {
-  const off_t o = offsetof(__typeof__(*s_music_ctx.implementation), request_reduced_latency);
+  const off_t o = offsetof(typeof(*s_music_ctx.implementation), request_reduced_latency);
   void (*request_reduced_latency)(bool) = prv_implementation_function_for_offset(o);
   if (request_reduced_latency) {
     request_reduced_latency(reduced_latency);
@@ -469,7 +492,7 @@ void music_request_reduced_latency(bool reduced_latency) {
 }
 
 void music_request_low_latency_for_period(uint32_t period_ms) {
-  const off_t o = offsetof(__typeof__(*s_music_ctx.implementation), request_low_latency_for_period);
+  const off_t o = offsetof(typeof(*s_music_ctx.implementation), request_low_latency_for_period);
   void (*request_low_latency_for_period)(uint32_t) = prv_implementation_function_for_offset(o);
   if (request_low_latency_for_period) {
     request_low_latency_for_period(period_ms);
@@ -484,7 +507,7 @@ bool music_skip_seeks_within_track(void) {
 }
 
 bool music_is_command_supported(MusicCommand command) {
-  const off_t o = offsetof(__typeof__(*s_music_ctx.implementation), is_command_supported);
+  const off_t o = offsetof(typeof(*s_music_ctx.implementation), is_command_supported);
   bool (*func_ptr)(MusicCommand) = prv_implementation_function_for_offset(o);
   if (!func_ptr) {
     return false;
@@ -502,12 +525,12 @@ static bool prv_call_implementation_bool_return_void_args(off_t offset) {
 
 bool music_needs_user_to_start_playback_on_phone(void) {
   const off_t o =
-      offsetof(__typeof__(*s_music_ctx.implementation), needs_user_to_start_playback_on_phone);
+      offsetof(typeof(*s_music_ctx.implementation), needs_user_to_start_playback_on_phone);
   return prv_call_implementation_bool_return_void_args(o);
 }
 
 static bool prv_is_capability_supported(MusicServerCapability capability) {
-  const off_t o = offsetof(__typeof__(*s_music_ctx.implementation), get_capability_bitset);
+  const off_t o = offsetof(typeof(*s_music_ctx.implementation), get_capability_bitset);
   MusicServerCapability (*func_ptr)(void) = prv_implementation_function_for_offset(o);
   if (!func_ptr) {
     return false;
@@ -615,3 +638,35 @@ void command_print_now_playing(void) {
   char buffer[128];
   dbgserial_putstr_fmt(buffer, 128, "title=%s; artist=%s; album=%s", title, artist, album);
 }
+
+#ifdef CONFIG_SHELL
+#include <inttypes.h>
+
+#include <pbl/shell/shell.h>
+
+static int prv_cmd_music(const struct pbl_shell *sh, size_t argc, char **argv) {
+  char title[MUSIC_BUFFER_LENGTH];
+  char artist[MUSIC_BUFFER_LENGTH];
+  char album[MUSIC_BUFFER_LENGTH];
+  char player[MUSIC_BUFFER_LENGTH] = "";
+  uint32_t position_ms;
+  uint32_t length_ms;
+
+  music_get_now_playing(title, artist, album);
+  music_get_player_name(player);
+  music_get_pos(&position_ms, &length_ms);
+
+  const char *server = music_get_connected_server_debug_name();
+  pbl_shell_print(sh, "Server: %s", server ? server : "");
+  pbl_shell_print(sh, "Player: %s", player);
+  pbl_shell_print(sh, "Title: %s", title);
+  pbl_shell_print(sh, "Artist: %s", artist);
+  pbl_shell_print(sh, "Album: %s", album);
+  pbl_shell_print(sh, "State: %d", music_get_playback_state());
+  pbl_shell_print(sh, "Position: %" PRIu32 "/%" PRIu32, position_ms, length_ms);
+  pbl_shell_print(sh, "Volume: %u", music_get_volume_percent());
+  return 0;
+}
+
+PBL_SHELL_CMD_REGISTER(music, nullptr, "Show what the music player plays", prv_cmd_music);
+#endif

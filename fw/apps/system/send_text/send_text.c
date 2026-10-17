@@ -2,28 +2,30 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "send_text.h"
+
 #include "prefs.h"
 
-#include "applib/app.h"
-#include "applib/app_exit_reason.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/ui.h"
-#include "apps/system/timeline/peek_layer.h"
-#include "kernel/pbl_malloc.h"
-#include "process_state/app_state/app_state.h"
-#include "resource/resource_ids.auto.h"
-#include "pbl/services/i18n/i18n.h"
-#include "pbl/services/blob_db/ios_notif_pref_db.h"
-#include "pbl/services/blob_db/watch_app_prefs_db.h"
-#include "pbl/services/contacts/contacts.h"
-#include "pbl/services/notifications/notification_constants.h"
-#include "pbl/services/send_text_service.h"
-#include "pbl/services/timeline/timeline.h"
-#include "pbl/services/timeline/timeline_actions.h"
-#include "shell/prefs.h"
-#include <pbl/logging/logging.h>
-
 #include <string.h>
+
+#include <pbl/logging/logging.h>
+#include <pbl/services/blob_db/ios_notif_pref_db.h>
+#include <pbl/services/blob_db/watch_app_prefs_db.h>
+#include <pbl/services/contacts/contacts.h>
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/services/notifications/notification_constants.h>
+#include <pbl/services/send_text_service.h>
+#include <pbl/services/timeline/timeline.h>
+#include <pbl/services/timeline/timeline_actions.h>
+
+#include <applib/app.h>
+#include <applib/app_exit_reason.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/ui.h>
+#include <apps/system/timeline/peek_layer.h>
+#include <kernel/pbl_malloc.h>
+#include <process_state/app_state/app_state.h>
+#include <resource/resource_ids.auto.h>
+#include <shell/prefs.h>
 
 #define SEND_TEXT_APP_HIGHLIGHT_COLOR PBL_IF_COLOR_ELSE(SMS_REPLY_COLOR, GColorBlack)
 
@@ -66,7 +68,7 @@ static void prv_action_handle_response(PebbleEvent *e, void *context) {
   }
 
   PebbleSysNotificationActionResult *action_result = e->sys_notification.action_result;
-  if (action_result == NULL) {
+  if (action_result == nullptr) {
     return;
   }
 
@@ -85,7 +87,7 @@ static TimelineItem *prv_create_timeline_item(const char *number) {
   iOSNotifPrefs *notif_prefs = ios_notif_pref_db_get_prefs((uint8_t *)SEND_TEXT_NOTIF_PREF_KEY,
                                                            strlen(SEND_TEXT_NOTIF_PREF_KEY));
   if (!notif_prefs) {
-    return NULL;
+    return nullptr;
   }
 
   AttributeList attr_list = {};
@@ -249,7 +251,7 @@ static void prv_contact_list_draw_header_callback(GContext *ctx, const Layer *ce
   box.origin.y -= 2;
   graphics_context_set_text_color(ctx, GColorDarkGray);
   graphics_draw_text(ctx, i18n_get("Select Contact", data), font, box, GTextOverflowModeFill,
-                     GTextAlignmentCenter, NULL);
+                     GTextAlignmentCenter, nullptr);
 }
 #endif
 
@@ -263,7 +265,7 @@ static void prv_contact_list_draw_row_callback(GContext *ctx, const Layer *cell_
     return;
   }
 
-  menu_cell_basic_draw(ctx, cell_layer, node->name, node->display_number, NULL);
+  menu_cell_basic_draw(ctx, cell_layer, node->name, node->display_number, nullptr);
 }
 
 static void prv_contact_list_select_callback(MenuLayer *menu_layer, MenuIndex *cell_index,
@@ -384,5 +386,5 @@ const PebbleProcessMd *send_text_app_get_info(void) {
 
   // If the phone doesn't support this app, we will act as if it's not installed by returning NULL
   const bool app_supported = send_text_service_is_send_text_supported();
-  return app_supported ? (const PebbleProcessMd *)&s_send_text_app_info : NULL;
+  return app_supported ? (const PebbleProcessMd *)&s_send_text_app_info : nullptr;
 }

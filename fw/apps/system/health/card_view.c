@@ -4,17 +4,18 @@
 #include "card_view.h"
 
 #include "activity_summary_card.h"
-#include "sleep_summary_card.h"
 #include "hr_summary_card.h"
+#include "sleep_summary_card.h"
 
-#include "applib/app_launch_button.h"
-#include "applib/app_launch_reason.h"
-#include "applib/ui/action_button.h"
-#include "applib/ui/content_indicator.h"
-#include "applib/ui/content_indicator_private.h"
-#include "kernel/pbl_malloc.h"
-#include "pbl/services/activity/activity_private.h"
-#include "pbl/services/timeline/health_layout.h"
+#include <pbl/services/activity/activity_private.h>
+#include <pbl/services/timeline/health_layout.h>
+
+#include <applib/app_launch_button.h>
+#include <applib/app_launch_reason.h>
+#include <applib/ui/action_button.h>
+#include <applib/ui/content_indicator.h>
+#include <applib/ui/content_indicator_private.h>
+#include <kernel/pbl_malloc.h>
 
 #define BACK_TO_WATCHFACE (-1)
 
@@ -241,7 +242,7 @@ static Animation *prv_create_slide_animation(Layer *layer, GRect *from_frame, GR
 static void prv_schedule_slide_animation(HealthCardView *health_card_view, Card next_card_index,
                                          bool slide_up) {
   animation_unschedule(health_card_view->slide_animation);
-  health_card_view->slide_animation = NULL;
+  health_card_view->slide_animation = nullptr;
 
   GRect window_bounds = window_get_root_layer(&health_card_view->window)->bounds;
 
@@ -266,7 +267,7 @@ static void prv_schedule_slide_animation(HealthCardView *health_card_view, Card 
                          health_card_view);
   animation_set_implementation(bg_anim, &prv_bg_animation_implementation);
 
-  health_card_view->slide_animation = animation_spawn_create(curr_out, next_in, bg_anim, NULL);
+  health_card_view->slide_animation = animation_spawn_create(curr_out, next_in, bg_anim, nullptr);
   animation_schedule(health_card_view->slide_animation);
 
   health_card_view->current_card_index = next_card_index;

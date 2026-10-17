@@ -1,19 +1,18 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/timeline/timeline_resources.h"
+#include <pbl/services/timeline/timeline_resources.h>
+#include <pbl/util/byteorder.h>
+#include <pbl/util/testing.h>
+#include <pbl/util/uuid.h>
 
-#include "applib/graphics/gdraw_command_private.h"
-#include "applib/ui/kino/kino_reel.h"
-#include "kernel/pbl_malloc.h"
-#include "process_management/app_install_manager.h"
-#include "resource/resource_ids.auto.h"
-#include "syscall/syscall.h"
-#include "syscall/syscall_internal.h"
-#include "system/passert.h"
-#include "pbl/util/byteorder.h"
-#include "pbl/util/uuid.h"
-#include "pbl/util/testing.h"
+#include <applib/graphics/gdraw_command_private.h>
+#include <applib/ui/kino/kino_reel.h>
+#include <process_management/app_install_manager.h>
+#include <resource/resource_ids.auto.h>
+#include <syscall/syscall.h>
+#include <syscall/syscall_define.h>
+#include <system/passert.h>
 
 #define RESOURCE_MAX_SIZE (700)
 
@@ -160,12 +159,11 @@ void timeline_resources_get_id(const TimelineResourceInfo *timeline_res, Timelin
 
     const ResAppNum res_app_num = app_install_get_app_icon_bank(&entry);
     if (!timeline_resources_get_id_system(timeline_res->res_id, size, res_app_num, res_info_out)) {
-      char *uuid_str_buffer = task_zalloc_check(UUID_STRING_BUFFER_LENGTH);
+      char uuid_str_buffer[UUID_STRING_BUFFER_LENGTH];
       uuid_to_string(timeline_res->app_id, uuid_str_buffer);
       APP_LOG(APP_LOG_LEVEL_ERROR,
               "Failed to convert published id %d to resource id for app with uuid %s",
               timeline_res->res_id, uuid_str_buffer);
-      task_free(uuid_str_buffer);
       goto fail;
     }
   }
@@ -174,19 +172,25 @@ void timeline_resources_get_id(const TimelineResourceInfo *timeline_res, Timelin
 
 fail:
   if (!prv_get_sys_resource(timeline_res->fallback_id, size, res_info_out)) {
-    *res_info_out = (AppResourceInfo){0};
+    *res_info_out = (AppResourceInfo){};
   }
 }
 
-DEFINE_SYSCALL(void, sys_timeline_resources_get_id, const TimelineResourceInfo *timeline_res,
-               TimelineResourceSize size, AppResourceInfo *res_info) {
-  if (PRIVILEGE_WAS_ELEVATED) {
-    syscall_assert_userspace_buffer(timeline_res, sizeof(*timeline_res));
-    syscall_assert_userspace_buffer(res_info, sizeof(*res_info));
+PBL_SYSCALL(void, sys_timeline_resources_get_id, (IN, const TimelineResourceInfo *, timeline_res),
+            (VAL, TimelineResourceSize, size), (OUT, AppResourceInfo *, res_info)) {
+  TimelineResourceInfo user_timeline_res;
+  Uuid user_app_id;
+
+  if (from_user && timeline_res->app_id) {
+    syscall_assert_userspace_buffer(timeline_res->app_id, sizeof(Uuid));
+    user_app_id = *timeline_res->app_id;
+    user_timeline_res = *timeline_res;
+    user_timeline_res.app_id = &user_app_id;
+    timeline_res = &user_timeline_res;
   }
   if (!timeline_res || !res_info || (size >= TimelineResourceSizeCount)) {
     if (res_info) {
-      *res_info = (AppResourceInfo){0};
+      *res_info = (AppResourceInfo){};
     }
     return;
   }

@@ -1,29 +1,18 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "clar.h"
-#include "pebble_asserts.h"
-
-#include "applib/unobstructed_area_service_private.h"
+#include <applib/unobstructed_area_service_private.h>
+#include <clar.h>
+#include <pebble_asserts.h>
 
 // Stubs
 /////////////////////
-#include "stubs_app.h"
-#include "stubs_app_manager.h"
-#include "stubs_app_state.h"
-#include "stubs_events.h"
-#include "stubs_framebuffer.h"
-#include "stubs_graphics.h"
-#include "stubs_logging.h"
-#include "stubs_passert.h"
-#include "stubs_pbl_malloc.h"
-#include "stubs_pebble_tasks.h"
-#include "stubs_process_manager.h"
-#include "stubs_ui_window.h"
+#include <stubs_app_state.h>
 
 // Fakes
 /////////////////////
-#include "fake_event_service.h"
+#include <applib/graphics/framebuffer.h>
+#include <fake_event_service.h>
 
 // Statics
 /////////////////////
@@ -137,6 +126,7 @@ void test_unobstructed_area_service__will_change(void) {
 void test_unobstructed_area_service__will_change_twice(void) {
   UnobstructedAreaHandlers handlers = {
     .will_change = prv_will_change,
+    .did_change = prv_did_change,
   };
   app_unobstructed_area_service_subscribe(handlers, s_data.context);
   cl_assert(fake_event_service_get_info(PEBBLE_UNOBSTRUCTED_AREA_EVENT)->handler);
@@ -146,9 +136,20 @@ void test_unobstructed_area_service__will_change_twice(void) {
   const GRect to_area = GRect(0, 0, DISP_COLS, 200);
   unobstructed_area_service_will_change(from_area.size.h, to_area.size.h);
   fake_event_service_handle_last();
+  cl_assert_equal_i(s_data.num_will_change_calls, 1);
+  cl_assert_equal_i(s_data.num_did_change_calls, 0);
 
-  unobstructed_area_service_will_change(from_area.size.h, to_area.size.h);
-  cl_assert_passert(fake_event_service_handle_last());
+  unobstructed_area_service_will_change(to_area.size.h, from_area.size.h);
+  fake_event_service_handle_last();
+  cl_assert_equal_i(s_data.num_did_change_calls, 1);
+  cl_assert_equal_i(s_data.num_will_change_calls, 2);
+  const GRect from_area_expected = GRect(0, 0, DISP_COLS, MIN(400, DISP_ROWS));
+  cl_assert_equal_grect(s_data.last_will_change_final_area, from_area_expected);
+
+  unobstructed_area_service_did_change(from_area.size.h);
+  fake_event_service_handle_last();
+  cl_assert_equal_i(s_data.num_will_change_calls, 2);
+  cl_assert_equal_i(s_data.num_did_change_calls, 2);
 }
 
 void test_unobstructed_area_service__change(void) {

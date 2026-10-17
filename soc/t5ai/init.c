@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <stdint.h>
+#include <pbl/soc/t5ai/delay.h>
 #include <pbl/soc/t5ai/reboot_trace.h>
 #include <pbl/soc/t5ai/reset.h>
 #include <cmsis_core.h>
@@ -56,5 +57,6 @@ void pbl_soc_early_init(void) {
   while ((uint32_t)(*rtc_low - settle_start) < 3200u) {
   }
 
+  delay_init();
   __enable_irq();
 }

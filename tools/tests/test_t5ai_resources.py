@@ -204,7 +204,7 @@ class T5ResourcesTest(unittest.TestCase):
             harness.write_text(HARNESS)
             binary = directory / 'test'
             subprocess.run([
-                'cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
+                'cc', '-std=gnu2x', '-Wall', '-Wextra', '-Werror',
                 '-Wno-unused-parameter', '-DCONFIG_SOC_T5AI=1', '-Dmemcpy=tracked_memcpy',
                 '-DTEST_BANK_SIZE=0x100000u', *defines,
                 '-I', str(directory), '-I', str(ROOT / 'fw'),

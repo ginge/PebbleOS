@@ -1,15 +1,14 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/bluetooth/local_addr.h"
-
-#include "comm/bt_lock.h"
-#include <pbl/logging/logging.h>
-#include "system/passert.h"
-
-#include <pbl/bluetooth/types.h>
 #include <pbl/bluetooth/id.h>
+#include <pbl/bluetooth/types.h>
 #include <pbl/btutil/bt_device.h>
+#include <pbl/logging/logging.h>
+#include <pbl/services/bluetooth/local_addr.h>
+
+#include <comm/bt_lock.h>
+#include <system/passert.h>
 
 PBL_LOG_MODULE_DECLARE(service_bluetooth, CONFIG_SERVICE_BLUETOOTH_LOG_LEVEL);
 
@@ -18,7 +17,7 @@ static struct pbl_bt_addr s_pinned_addr;
 static bool s_cycling_paused_due_to_dependent_bondings;
 
 static void prv_allow_cycling(bool allow_cycling) {
-  pbl_bt_set_local_address(allow_cycling, allow_cycling ? NULL : &s_pinned_addr);
+  pbl_bt_set_local_address(allow_cycling, allow_cycling ? nullptr : &s_pinned_addr);
 }
 
 void bt_local_addr_pause_cycling(void) {
@@ -108,7 +107,7 @@ void bt_local_addr_init(void) {
     bt_local_addr_pause_cycling();
 #else
     PBL_LOG_INFO("No bondings found that require address pinning!");
-    pbl_bt_set_local_address(true /* allow_cycling */, NULL);
+    pbl_bt_set_local_address(true /* allow_cycling */, nullptr);
 #endif
   }
 }

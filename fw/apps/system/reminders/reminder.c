@@ -2,26 +2,29 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "reminder.h"
+
 #include "reminder_prefs.h"
 
-#include "applib/app.h"
-#include "applib/ui/dialogs/simple_dialog.h"
-#include "applib/ui/ui.h"
-#include "applib/voice/transcription_dialog.h"
-#include "applib/voice/voice_window.h"
-#include "kernel/events.h"
-#include "kernel/pbl_malloc.h"
-#include "process_state/app_state/app_state.h"
-#include "resource/resource_ids.auto.h"
-#include "resource/timeline_resource_ids.auto.h"
-#include "pbl/services/bluetooth/bluetooth_persistent_storage.h"
-#include "pbl/services/clock.h"
-#include "pbl/services/comm_session/session_remote_version.h"
-#include "pbl/services/i18n/i18n.h"
-#include "pbl/services/timeline/timeline.h"
-#include "pbl/services/blob_db/watch_app_prefs_db.h"
-#include "pbl/util/units.h"
 #include <time.h>
+
+#include <pbl/services/blob_db/watch_app_prefs_db.h>
+#include <pbl/services/bluetooth/bluetooth_persistent_storage.h>
+#include <pbl/services/clock.h>
+#include <pbl/services/comm_session/session_remote_version.h>
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/services/timeline/timeline.h>
+#include <pbl/util/units.h>
+
+#include <applib/app.h>
+#include <applib/ui/dialogs/simple_dialog.h>
+#include <applib/ui/ui.h>
+#include <applib/voice/transcription_dialog.h>
+#include <applib/voice/voice_window.h>
+#include <kernel/events.h>
+#include <kernel/pbl_malloc.h>
+#include <process_state/app_state/app_state.h>
+#include <resource/resource_ids.auto.h>
+#include <resource/timeline_resource_ids.auto.h>
 
 #ifdef CONFIG_MIC
 
@@ -43,21 +46,21 @@ typedef struct ReminderAppData {
 } ReminderAppData;
 
 static void prv_create_reminder(ReminderAppData *data) {
-  AttributeList pin_attr_list = {0};
+  AttributeList pin_attr_list = {};
   attribute_list_add_uint32(&pin_attr_list, AttributeIdIconTiny,
                             TIMELINE_RESOURCE_NOTIFICATION_REMINDER);
   attribute_list_add_cstring(&pin_attr_list, AttributeIdTitle, data->reminder_str);
   attribute_list_add_uint8(&pin_attr_list, AttributeIdBgColor, GColorChromeYellowARGB8);
 
-  AttributeList completed_attr_list = {0};
+  AttributeList completed_attr_list = {};
   attribute_list_add_cstring(&completed_attr_list, AttributeIdTitle,
                              i18n_get("Completed", &pin_attr_list));
 
-  AttributeList postpone_attr_list = {0};
+  AttributeList postpone_attr_list = {};
   attribute_list_add_cstring(&postpone_attr_list, AttributeIdTitle,
                              i18n_get("Postpone", &pin_attr_list));
 
-  AttributeList remove_attr_list = {0};
+  AttributeList remove_attr_list = {};
   attribute_list_add_cstring(&remove_attr_list, AttributeIdTitle,
                              i18n_get("Remove", &pin_attr_list));
 
@@ -193,11 +196,11 @@ static void prv_handle_dictation_event(PebbleEvent *e, void *context) {
       // rounded up to the nearest 15 min.
       // Ex: a reminder created at 10:08 AM with no specified time is due at 11:15 AM
       time_t utc_sec = rtc_get_time() + PBL_SEC_PER_HOUR + (15 * PBL_SEC_PER_MIN);
-      struct tm local_tm;
-      localtime_r(&utc_sec, &local_tm);
+      struct pbl_tm local_tm;
+      pbl_localtime_r(&utc_sec, &local_tm);
       local_tm.tm_min -= (local_tm.tm_min % 15);
       local_tm.tm_sec = 0;
-      data->timestamp = mktime(&local_tm);
+      data->timestamp = pbl_mktime(&local_tm);
     }
 
     // If the user doesn't accept the transcription, try again.
@@ -257,7 +260,7 @@ static PBL_NOINLINE void prv_init(void) {
   };
   event_service_client_subscribe(&data->event_service_info);
 
-  data->voice_window = voice_window_create(NULL, 0, VoiceEndpointSessionTypeNLP);
+  data->voice_window = voice_window_create(nullptr, 0, VoiceEndpointSessionTypeNLP);
   voice_window_set_confirmation_enabled(data->voice_window, false);
 
   // Let the main window manage the voice window
@@ -299,7 +302,7 @@ const PebbleProcessMd *reminder_app_get_info(void) {
     .icon_resource_id = RESOURCE_ID_GENERIC_REMINDER_TINY,
   };
 
-  return is_visible_in_launcher ? (const PebbleProcessMd *)&s_reminder_app_info : NULL;
+  return is_visible_in_launcher ? (const PebbleProcessMd *)&s_reminder_app_info : nullptr;
 }
 
 #else

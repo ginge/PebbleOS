@@ -1,54 +1,30 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/ui/option_menu_window.h"
-#include "shell/system_theme.h"
-#include "resource/resource.h"
-#include "resource/resource_ids.auto.h"
-#include "pbl/services/timeline/timeline_resources.h"
+#include <pbl/services/timeline/timeline_resources.h>
 
-#include "clar.h"
+#include <applib/ui/option_menu_window.h>
+#include <clar.h>
+#include <resource/resource.h>
+#include <resource/resource_ids.auto.h>
+#include <shell/system_theme.h>
 
 // Fakes
 /////////////////////
 
-#include "fake_app_state.h"
-#include "fake_content_indicator.h"
-#include "fake_graphics_context.h"
-#include "fixtures/load_test_resources.h"
+#include <fake_app_state.h>
+#include <fake_content_indicator.h>
+#include <fake_graphics_context.h>
+#include <fake_rtc.h>
+#include <fixtures/load_test_resources.h>
+#include <fixtures/screen_grid.h>
 
 // Stubs
 /////////////////////
 
-#include "stubs_analytics.h"
-#include "stubs_animation_timing.h"
-#include "stubs_app_install_manager.h"
-#include "stubs_app_state.h"
-#include "stubs_app_timer.h"
-#include "stubs_bootbits.h"
-#include "stubs_buffer.h"
-#include "stubs_click.h"
-#include "stubs_compiled_with_legacy2_sdk.h"
-#include "stubs_event_service_client.h"
-#include "stubs_heap.h"
-#include "stubs_logging.h"
-#include "stubs_memory_layout.h"
-#include "stubs_mutex.h"
-#include "stubs_passert.h"
-#include "stubs_pbl_malloc.h"
-#include "stubs_pebble_tasks.h"
-#include "stubs_print.h"
-#include "stubs_process_manager.h"
-#include "stubs_serial.h"
-#include "stubs_shell_prefs.h"
-#include "stubs_sleep.h"
-#include "stubs_syscalls.h"
-#include "stubs_task_wdt.h"
-#include "stubs_unobstructed_area.h"
-#include "stubs_vibes.h"
-#include "stubs_window_manager.h"
-#include "stubs_window_stack.h"
-#include "pbl/util/units.h"
+#include <pbl/util/units.h>
+
+#include <stubs_buffer.h>
 
 // Setup and Teardown
 ////////////////////////////////////
@@ -114,7 +90,7 @@ static void prv_create_menu_and_render(MenuConfig *config) {
   const OptionMenuCallbacks callbacks = {
     .draw_row = config->callbacks.draw_row ?: prv_menu_draw_row,
     .get_num_rows = config->callbacks.get_num_rows ?: prv_menu_get_num_rows,
-    .get_cell_height = config->callbacks.get_cell_height ?: NULL,
+    .get_cell_height = config->callbacks.get_cell_height ?: nullptr,
   };
   option_menu_set_callbacks(&s_data.option_menu, &callbacks, config);
 
@@ -152,26 +128,8 @@ void prv_create_menu_and_render_long_title(bool icons_enabled, const char *title
   });
 }
 
-void test_option_menu_window__long_title_default_height(void) {
-  prv_create_menu_and_render_long_title(false /* icons_enabled */, "Default Height",
-                                        false /* special_height */);
-  FAKE_GRAPHICS_CONTEXT_CHECK_DEST_BITMAP_FILE();
-}
-
-void test_option_menu_window__long_title_default_height_icons(void) {
-  prv_create_menu_and_render_long_title(true /* icons_enabled */, "Default Height",
-                                        false /* special_height */);
-  FAKE_GRAPHICS_CONTEXT_CHECK_DEST_BITMAP_FILE();
-}
-
 void test_option_menu_window__long_title_special_height(void) {
   prv_create_menu_and_render_long_title(false /* icons_enabled */, "Special Height",
-                                        true /* special_height */);
-  FAKE_GRAPHICS_CONTEXT_CHECK_DEST_BITMAP_FILE();
-}
-
-void test_option_menu_window__long_title_special_height_icons(void) {
-  prv_create_menu_and_render_long_title(true /* icons_enabled */, "Special Height",
                                         true /* special_height */);
   FAKE_GRAPHICS_CONTEXT_CHECK_DEST_BITMAP_FILE();
 }
@@ -205,74 +163,24 @@ void test_option_menu_window__short_title_default_height(void) {
   FAKE_GRAPHICS_CONTEXT_CHECK_DEST_BITMAP_FILE();
 }
 
-void test_option_menu_window__short_title_default_height_icons(void) {
-  prv_create_menu_and_render_short_title(true /* icons_enabled */, "Default Height",
-                                         false /* special_height */);
-  FAKE_GRAPHICS_CONTEXT_CHECK_DEST_BITMAP_FILE();
-}
-
 void test_option_menu_window__short_title_special_height(void) {
   prv_create_menu_and_render_short_title(false /* icons_enabled */, "Special Height",
                                          true /* special_height */);
   FAKE_GRAPHICS_CONTEXT_CHECK_DEST_BITMAP_FILE();
 }
 
-void test_option_menu_window__short_title_special_height_icons(void) {
-  prv_create_menu_and_render_short_title(true /* icons_enabled */, "Special Height",
-                                         true /* special_height */);
-  FAKE_GRAPHICS_CONTEXT_CHECK_DEST_BITMAP_FILE();
-}
-
-void test_option_menu_window__short_title_default_height_icons_medium(void) {
-  system_theme_set_content_size(PreferredContentSizeMedium);
-  prv_create_menu_and_render_short_title(true /* icons_enabled */, "Default Height",
-                                         false /* special_height */);
-  FAKE_GRAPHICS_CONTEXT_CHECK_DEST_BITMAP_FILE();
-}
-
-void test_option_menu_window__short_title_default_height_icons_extra_large(void) {
-  system_theme_set_content_size(PreferredContentSizeExtraLarge);
-  prv_create_menu_and_render_short_title(true /* icons_enabled */, "Default Height",
-                                         false /* special_height */);
-  FAKE_GRAPHICS_CONTEXT_CHECK_DEST_BITMAP_FILE();
-}
-
-void test_option_menu_window__long_title_special_height_icons_extra_large(void) {
-  system_theme_set_content_size(PreferredContentSizeExtraLarge);
-  prv_create_menu_and_render_long_title(true /* icons_enabled */, "Special Height",
-                                        true /* special_height */);
-  FAKE_GRAPHICS_CONTEXT_CHECK_DEST_BITMAP_FILE();
-}
-
-#define GRID_CELL_PADDING 5
-
-//! Renders once per content size and checks the screens side by side, Small to Extra Large
+//! Renders once per content size and checks the screens side by side, from Small
 static void prv_render_for_each_size(void (*render)(void), const char *pbi_file) {
-  const GSize grid_size = GSize(
-      GRID_CELL_PADDING + NumPreferredContentSizes * (DISP_COLS + GRID_CELL_PADDING), DISP_ROWS);
-  GBitmap *grid = gbitmap_create_blank(grid_size, GBitmapFormat8Bit);
-  // Fill with pink so it's easier to see anything drawn outside of a screen
-  memset(grid->addr, GColorShockingPinkARGB8, grid->row_size_bytes * grid_size.h);
-
-  for (PreferredContentSize size = PreferredContentSizeSmall; size < NumPreferredContentSizes;
-       size++) {
+  ScreenGrid grid;
+  screen_grid_init(&grid, 1);
+  for (PreferredContentSize size = grid.first_size; size <= grid.last_size; size++) {
     system_theme_set_content_size(size);
     s_data = (OptionMenuTestData){};
     render();
-
-    const GBitmap *screen = &fake_graphics_context_get_context()->dest_bitmap;
-    uint8_t *column =
-        (uint8_t *)grid->addr + GRID_CELL_PADDING + size * (DISP_COLS + GRID_CELL_PADDING);
-    for (int16_t y = 0; y < DISP_ROWS; y++) {
-      const GBitmapDataRowInfo row = gbitmap_get_data_row_info(screen, y);
-      for (int16_t x = row.min_x; x <= row.max_x; x++) {
-        column[y * grid->row_size_bytes + x] = row.data[x];
-      }
-    }
+    screen_grid_add(&grid, fake_graphics_context_get_context(), size, 0);
   }
 
-  cl_check(gbitmap_pbi_eq(grid, pbi_file));
-  gbitmap_destroy(grid);
+  screen_grid_check(&grid, pbi_file);
 }
 
 static void prv_render_long_title_default_height(void) {
@@ -288,6 +196,11 @@ static void prv_render_long_title_default_height_icons(void) {
 static void prv_render_long_title_special_height_icons(void) {
   prv_create_menu_and_render_long_title(true /* icons_enabled */, "Special Height",
                                         true /* special_height */);
+}
+
+static void prv_render_short_title_default_height_icons(void) {
+  prv_create_menu_and_render_short_title(true /* icons_enabled */, "Default Height",
+                                         false /* special_height */);
 }
 
 static void prv_render_short_title_special_height_icons(void) {
@@ -307,6 +220,40 @@ void test_option_menu_window__content_sizes_long_title_special_height_icons(void
   prv_render_for_each_size(prv_render_long_title_special_height_icons, TEST_PBI_FILE);
 }
 
+void test_option_menu_window__content_sizes_short_title_default_height_icons(void) {
+  prv_render_for_each_size(prv_render_short_title_default_height_icons, TEST_PBI_FILE);
+}
+
 void test_option_menu_window__content_sizes_short_title_special_height_icons(void) {
   prv_render_for_each_size(prv_render_short_title_special_height_icons, TEST_PBI_FILE);
+}
+
+//! The selected single line row at rest, then after the pause once its overlong title scrolls
+//! sideways. Sizes where the title fits and doesn't scroll are blank in the second row.
+void test_option_menu_window__long_title_single_line_scrolled(void) {
+  MenuConfig config = {
+    .title = "Single Line",
+    .content_type = OptionMenuContentType_SingleLine,
+    .num_items = 3,
+    .items = (MenuItemConfig[]){
+      {.title = "Allow Notifications From Every App"},
+      {.title = "Allow Phone Calls Only"},
+      {.title = "Mute All Notifications"},
+    },
+  };
+  GContext *ctx = fake_graphics_context_get_context();
+  ScreenGrid grid;
+  screen_grid_init_frames(&grid);
+  for (PreferredContentSize size = grid.first_size; size <= grid.last_size; size++) {
+    system_theme_set_content_size(size);
+    s_data = (OptionMenuTestData){};
+    prv_create_menu_and_render(&config);
+    screen_grid_add(&grid, ctx, size, 0);
+    fake_rtc_increment_ticks(RTC_TICKS_HZ * 3 / 2);
+    window_render(&s_data.option_menu.window, ctx);
+    screen_grid_add(&grid, ctx, size, 1);
+    // Ends the scroll so the next size starts from the beginning
+    option_menu_deinit(&s_data.option_menu);
+  }
+  screen_grid_check(&grid, TEST_PBI_FILE);
 }

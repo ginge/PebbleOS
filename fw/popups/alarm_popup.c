@@ -3,36 +3,38 @@
 
 #include "alarm_popup.h"
 
-#include "applib/ui/dialogs/dialog.h"
-#include "applib/ui/dialogs/simple_dialog.h"
-#include "applib/ui/dialogs/actionable_dialog.h"
-#include "applib/ui/vibes.h"
-#include "kernel/event_loop.h"
-#include "kernel/low_power.h"
-#include "kernel/pbl_malloc.h"
-#include "kernel/ui/modals/modal_manager.h"
-#include "resource/resource_ids.auto.h"
-#include <pbl/logging/logging.h>
-#include "pbl/services/clock.h"
-#include "pbl/services/i18n/i18n.h"
-#include "pbl/services/light.h"
-#include "pbl/services/new_timer/new_timer.h"
-#include "pbl/services/alarms/alarm.h"
-#include "pbl/util/units.h"
-
 #include <stdio.h>
 
-#include "pbl/services/vibes/vibe_client.h"
-#include "pbl/services/vibes/vibe_score.h"
+#include <pbl/logging/logging.h>
+#include <pbl/services/alarms/alarm.h>
+#include <pbl/services/clock.h>
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/services/light.h>
+#include <pbl/services/new_timer/new_timer.h>
+#include <pbl/services/vibes/vibe_client.h>
+#include <pbl/services/vibes/vibe_score.h>
+#include <pbl/util/units.h>
+
+#include <applib/ui/dialogs/actionable_dialog.h>
+#include <applib/ui/dialogs/dialog.h>
+#include <applib/ui/dialogs/simple_dialog.h>
+#include <applib/ui/vibes.h>
+#include <kernel/event_loop.h>
+#include <kernel/low_power.h>
+#include <kernel/pbl_malloc.h>
+#include <kernel/ui/modals/modal_manager.h>
+#include <resource/resource_ids.auto.h>
 
 #ifdef CONFIG_SPEAKER
-#include "applib/event_service_client.h"
-#include "kernel/events.h"
-#include "pbl/services/notifications/alerts_preferences_private.h"
-#include "pbl/services/speaker/speaker_finish_reason.h"
-#include "pbl/services/speaker/speaker_service.h"
-#include "services/alarms/alarm_tones.h"
 #include <time.h>
+
+#include <pbl/services/notifications/alerts_preferences_private.h>
+#include <pbl/services/speaker/speaker_finish_reason.h>
+#include <pbl/services/speaker/speaker_service.h>
+
+#include <applib/event_service_client.h>
+#include <kernel/events.h>
+#include <services/alarms/alarm_tones.h>
 #endif
 
 PBL_LOG_MODULE_DECLARE(service_alerts, CONFIG_SERVICE_ALERTS_LOG_LEVEL);
@@ -107,7 +109,7 @@ typedef struct {
 #endif
 } AlarmPopupData;
 
-AlarmPopupData *s_alarm_popup_data = NULL;
+AlarmPopupData *s_alarm_popup_data = nullptr;
 
 static void prv_stop_animation_kernel_main_cb(void *callback_context) {
   if (s_alarm_popup_data) {
@@ -125,7 +127,7 @@ static void prv_stop_vibes(void) {
     s_alarm_popup_data->vibe_timer = TIMER_INVALID_ID;
     if (s_alarm_popup_data->vibe_score) {
       vibe_score_destroy(s_alarm_popup_data->vibe_score);
-      s_alarm_popup_data->vibe_score = NULL;
+      s_alarm_popup_data->vibe_score = nullptr;
     }
   }
   vibes_cancel();
@@ -217,7 +219,7 @@ static void prv_vibe_kernel_main_cb(void *callback_context) {
     if (s_alarm_popup_data->vibe_count < s_alarm_popup_data->max_vibes) {
       s_alarm_popup_data->vibe_count++;
       PBL_LOG_DBG("Alarm vibe: play %d/%d, fixed_pulse=%d", s_alarm_popup_data->vibe_count,
-                  s_alarm_popup_data->max_vibes, s_alarm_popup_data->vibe_score == NULL);
+                  s_alarm_popup_data->max_vibes, s_alarm_popup_data->vibe_score == nullptr);
       vibes_cancel();
       if (s_alarm_popup_data->vibe_score) {
         vibe_score_do_vibe(s_alarm_popup_data->vibe_score);
@@ -231,7 +233,7 @@ static void prv_vibe_kernel_main_cb(void *callback_context) {
 #endif
     } else {
       prv_stop_vibes();
-      launcher_task_add_callback(prv_stop_animation_kernel_main_cb, NULL);
+      launcher_task_add_callback(prv_stop_animation_kernel_main_cb, nullptr);
       // Auto-dismiss the alarm after the vibration period ends
       alarm_dismiss_alarm();
       if (s_alarm_popup_data && s_alarm_popup_data->alarm_popup) {
@@ -242,7 +244,7 @@ static void prv_vibe_kernel_main_cb(void *callback_context) {
 }
 
 static void prv_vibe(void *unused) {
-  launcher_task_add_callback(prv_vibe_kernel_main_cb, NULL);
+  launcher_task_add_callback(prv_vibe_kernel_main_cb, nullptr);
 }
 
 static void prv_start_vibes(void) {
@@ -263,7 +265,7 @@ static void prv_start_vibes(void) {
     PBL_LOG_WRN("No usable alarm vibe score; falling back to fixed pulse");
     if (s_alarm_popup_data->vibe_score) {
       vibe_score_destroy(s_alarm_popup_data->vibe_score);
-      s_alarm_popup_data->vibe_score = NULL;
+      s_alarm_popup_data->vibe_score = nullptr;
     }
     vibe_repeat_interval_ms =
         low_power_is_active() ? (PBL_SEC_PER_MIN * PBL_MSEC_PER_SEC / TINTIN_LPM_VIBES_PER_MINUTE)
@@ -273,8 +275,8 @@ static void prv_start_vibes(void) {
   PBL_LOG_DBG("Alarm vibe: start, low_power=%d, interval=%ums, max=%d", low_power_is_active(),
               vibe_repeat_interval_ms, s_alarm_popup_data->max_vibes);
   s_alarm_popup_data->vibe_timer = new_timer_create();
-  prv_vibe(NULL);
-  new_timer_start(s_alarm_popup_data->vibe_timer, vibe_repeat_interval_ms, prv_vibe, NULL,
+  prv_vibe(nullptr);
+  new_timer_start(s_alarm_popup_data->vibe_timer, vibe_repeat_interval_ms, prv_vibe, nullptr,
                   TIMER_START_FLAG_REPEATING);
 }
 
@@ -329,7 +331,7 @@ static void prv_cleanup_alarm_popup(void *callback_context) {
     gbitmap_destroy(s_alarm_popup_data->action_bar_snooze);
     gbitmap_destroy(s_alarm_popup_data->action_bar_dismiss);
     task_free(s_alarm_popup_data);
-    s_alarm_popup_data = NULL;
+    s_alarm_popup_data = nullptr;
   }
 }
 
@@ -353,12 +355,13 @@ void alarm_popup_push_window(PebbleAlarmClockEvent *event) {
 
   Dialog *dialog = actionable_dialog_get_dialog(s_alarm_popup_data->alarm_popup);
   char display_time[16];
-  struct tm alarm_tm;
-  localtime_r(&event->alarm_time, &alarm_tm);
+  struct pbl_tm alarm_tm;
+  const time_t alarm_time = event->alarm_time;
+  pbl_localtime_r(&alarm_time, &alarm_tm);
   if (clock_is_24h_style()) {
-    strftime(display_time, 16, "%H:%M", &alarm_tm);
+    pbl_strftime_r(display_time, 16, "%H:%M", &alarm_tm);
   } else {
-    strftime(display_time, 16, "%I:%M %p", &alarm_tm);
+    pbl_strftime_r(display_time, 16, "%I:%M %p", &alarm_tm);
   }
   dialog_set_text(dialog, display_time);
   dialog_set_icon(dialog, RESOURCE_ID_ALARM_CLOCK_LARGE);
@@ -366,11 +369,11 @@ void alarm_popup_push_window(PebbleAlarmClockEvent *event) {
   DialogCallbacks callback = {
     .unload = prv_cleanup_alarm_popup,
   };
-  dialog_set_callbacks(dialog, &callback, NULL);
+  dialog_set_callbacks(dialog, &callback, nullptr);
   actionable_dialog_push(s_alarm_popup_data->alarm_popup, prv_get_window_stack());
 
   // The alarm id isn't carried in the event (PebbleEvent must stay <= 12 bytes
-  // — see _Static_assert in events.c). Fall back to the most-recently-fired
+  // — see static_assert in events.c). Fall back to the most-recently-fired
   // alarm tracked in the alarm service. Synthetic events (trigger_alarm demo)
   // get ALARM_INVALID_ID and skip the per-alarm config lookup.
   const AlarmId alarm_id = alarm_get_most_recent_id();
@@ -385,7 +388,7 @@ void alarm_popup_push_window(PebbleAlarmClockEvent *event) {
     // The paired-tone piggyback assumes the timer runs at the score's cycle
     // length; in fallback-pulse mode (score == NULL) it doesn't, so let the
     // sound loop on its own.
-    prv_start_sound(alarm_id, vibe_on && (s_alarm_popup_data->vibe_score != NULL));
+    prv_start_sound(alarm_id, vibe_on && (s_alarm_popup_data->vibe_score != nullptr));
   }
 #endif
 

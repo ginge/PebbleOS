@@ -11,6 +11,7 @@ threaded, so the public methods block.
 """
 
 import asyncio
+import dataclasses
 import logging
 import os
 import threading
@@ -50,11 +51,17 @@ REQUESTED_MTU = 339
 TICK_S = 0.5
 SCAN_TIMEOUT_S = 15.0
 CONNECT_TIMEOUT_S = 15.0
-CONNECT_ATTEMPTS = 3
-# The link's parameters (ms), kept for the whole connection.
-CONNECTION_INTERVAL_MS = 15
+# Right after it boots, the watch fails to establish links for a moment.
+CONNECT_ATTEMPTS = 5
+CONNECT_BACKOFF_S = 0.5
+ATTACH_ATTEMPTS = 3
+# The link's parameters (ms), kept for the whole connection. At 15 ms, the
+# lab's getafix often fails to establish the link (0x3e).
+CONNECTION_INTERVAL_MS = 30
 SUPERVISION_TIMEOUT_MS = 6000
 ESTABLISH_S = 0.3
+ESTABLISH_TIMEOUT_S = 5.0
+MTU_EXCHANGE_TIMEOUT_S = 10.0
 PAIRING_TIMEOUT_S = 40.0
 SESSION_TIMEOUT_S = 15.0
 
@@ -92,9 +99,14 @@ class BleLink:
     ``Pebble 24F0``), or ``auto`` for the first watch bonded or advertising.
     ``confirm_pairing()``, when given, is called when the watch asks its user
     to confirm a pairing, and should confirm it (press Up); without it the
-    confirmation has to be done by hand. ``address`` and ``name`` are the
+    confirmation has to be done by hand. ``compare_numbers(number)``, run
+    in a thread of its own, answers the phone's side of a pairing instead:
+    whether the number matches. ``address`` and ``name`` are the
     host's identity: another one is another phone to the watch. ``ppogatt``
-    is :data:`REVERSED` or :data:`FORWARD`."""
+    is :data:`REVERSED` or :data:`FORWARD`. ``mtu`` is the ATT MTU asked for,
+    ``accept_parameters`` whether the watch's connection parameter updates
+    are granted (they are declined by default), and ``forward_meta`` the
+    value of the phone's PPoGATT meta characteristic."""
 
     def __init__(
         self,
@@ -105,6 +117,10 @@ class BleLink:
         address=HOST_ADDRESS,
         name=HOST_NAME,
         ppogatt=REVERSED,
+        mtu=REQUESTED_MTU,
+        accept_parameters=False,
+        forward_meta=PPOG_FORWARD_META,
+        snoop=None,
     ):
         if ppogatt not in (REVERSED, FORWARD):
             raise HarnessError(f"no PPoGATT mode {ppogatt!r}")
@@ -117,9 +133,22 @@ class BleLink:
             os.path.expanduser("~"), ".cache", "pbl-itest", "ble-keys.json"
         )
         self.confirm_pairing = confirm_pairing
+        self.compare_numbers = self._confirm_on_watch
         self.on_data = None
         self.on_disconnect = None
         self.connectivity = None
+        #: The address the watch was found at.
+        self.watch_address = None
+        self.mtu = mtu
+        self.accept_parameters = accept_parameters
+        self.forward_meta = forward_meta
+        #: Where to write the HCI traffic as btsnoop logs, one per power-on;
+        #: ``{instance}`` numbers them.
+        self.snoop = snoop
+        #: The watch's connection parameter update requests, granted or not.
+        self.parameter_requests = []
+        self.on_reset = None
+        self._disconnected = threading.Event()
         self._loop = None
         self._thread = None
         self._transport = None
@@ -165,6 +194,11 @@ class BleLink:
             self._thread.join(timeout=5)
             self._loop = None
 
+    def drop(self):
+        """Drop the link, as a phone going out of range would."""
+        if self._connection is not None:
+            self._run(self._connection.disconnect(), 10)
+
     def forget(self):
         """Drop the bond the host keeps for the watch."""
         if os.path.exists(self.keystore):
@@ -178,6 +212,13 @@ class BleLink:
         from bumble.transport import open_transport
 
         self._transport = await open_transport(self.controller)
+        if self.snoop:
+            from bumble.snoop import create_snooper
+            from bumble.transport.common import SnoopingTransport
+
+            self._transport = SnoopingTransport.create_with(
+                self._transport, create_snooper(f"btsnoop:file:{self.snoop}")
+            )
         config = DeviceConfiguration(name=self.name, address=Address(self.address))
         device = Device.from_config_with_hci(
             config, self._transport.source, self._transport.sink
@@ -194,14 +235,10 @@ class BleLink:
                 )
 
             async def compare_numbers(self, number, digits):
-                logger.info("pairing: confirm %0*d on the watch", digits, number)
-                if link.confirm_pairing is not None:
-                    # Let the watch show its prompt before confirming it.
-                    await asyncio.sleep(1.0)
-                    await asyncio.get_running_loop().run_in_executor(
-                        None, link.confirm_pairing
-                    )
-                return True
+                logger.info("pairing: comparing %0*d", digits, number)
+                return await asyncio.get_running_loop().run_in_executor(
+                    None, link.compare_numbers, number
+                )
 
             async def confirm(self, auto=False):
                 return True
@@ -209,11 +246,18 @@ class BleLink:
         device.pairing_config_factory = lambda connection: PairingConfig(
             sc=True, mitm=True, bonding=True, delegate=Delegate()
         )
-        self._keep_connection_parameters(device)
+        if not self.accept_parameters:
+            self._keep_connection_parameters(device)
+        self._record_parameter_requests(device)
         if self.ppogatt == FORWARD:
             device.add_service(self._forward_service())
         await device.power_on()
         self._device = device
+
+    def _confirm_on_watch(self, number):
+        if self.confirm_pairing is not None:
+            self.confirm_pairing()
+        return True
 
     @staticmethod
     def _keep_connection_parameters(device):
@@ -248,6 +292,39 @@ class BleLink:
 
         host.on_hci_le_remote_connection_parameter_request_event = on_ll_request
         manager.on_l2cap_connection_parameter_update_request = on_l2cap_request
+
+    def _record_parameter_requests(self, device):
+        """Keep the watch's requests in :attr:`parameter_requests`, then
+        answer them as installed."""
+        host = device.host
+        manager = device.l2cap_channel_manager
+        on_ll_request = host.on_hci_le_remote_connection_parameter_request_event
+        on_l2cap_request = manager.on_l2cap_connection_parameter_update_request
+
+        def record_ll(event):
+            self.parameter_requests.append(
+                ParameterRequest.from_units(
+                    event.interval_min,
+                    event.interval_max,
+                    event.max_latency,
+                    event.timeout,
+                )
+            )
+            on_ll_request(event)
+
+        def record_l2cap(connection, cid, request):
+            self.parameter_requests.append(
+                ParameterRequest.from_units(
+                    request.interval_min,
+                    request.interval_max,
+                    request.latency,
+                    request.timeout,
+                )
+            )
+            on_l2cap_request(connection, cid, request)
+
+        host.on_hci_le_remote_connection_parameter_request_event = record_ll
+        manager.on_l2cap_connection_parameter_update_request = record_l2cap
 
     def _matches(self, adv, bonded):
         from bumble.core import UUID, AdvertisingData
@@ -307,7 +384,7 @@ class BleLink:
             PPOG_FORWARD_META_CHARACTERISTIC,
             Characteristic.READ,
             Characteristic.READABLE,
-            PPOG_FORWARD_META,
+            self.forward_meta,
         )
         return Service(PPOG_FORWARD_SERVICE, [self._data_characteristic, meta])
 
@@ -315,6 +392,7 @@ class BleLink:
         if self._device is None:
             await self._power_on()
         address = await self._resolve_address()
+        self.watch_address = str(address).split("/")[0]
         await self._attach(address)
         self.connectivity = await self._read_connectivity()
         logger.info("BLE: %s", self.connectivity)
@@ -338,12 +416,35 @@ class BleLink:
         the watch starts it as soon as the link is encrypted."""
         from bumble.device import Peer
 
-        self._connection = await self._connect(address)
-        self._connection.on("disconnection", self._on_disconnection)
-        self._peer = Peer(self._connection)
-        mtu = await self._peer.request_mtu(REQUESTED_MTU)
+        for attempt in range(1, ATTACH_ATTEMPTS + 1):
+            self._connection = await self._connect(address)
+            self._disconnected.clear()
+            self._connection.on("disconnection", self._on_disconnection)
+            self._peer = Peer(self._connection)
+            try:
+                mtu = await asyncio.wait_for(
+                    self._peer.request_mtu(self.mtu), MTU_EXCHANGE_TIMEOUT_S
+                )
+                break
+            except TimeoutError:
+                # The watch never saw the link, e.g. it stopped advertising
+                # as the connection was made.
+                logger.info("BLE: no answer on the link (attempt %d)", attempt)
+                if attempt == ATTACH_ATTEMPTS:
+                    raise WatchTimeout(
+                        f"no answer from {address} on the link"
+                    ) from None
+                await self._drop_unanswered()
         await self._peer.discover_services()
         self._new_session(mtu)
+
+    async def _drop_unanswered(self):
+        connection, self._connection = self._connection, None
+        connection.remove_listener("disconnection", self._on_disconnection)
+        try:
+            await asyncio.wait_for(connection.disconnect(), ESTABLISH_TIMEOUT_S)
+        except Exception:
+            logger.debug("BLE: disconnect failed", exc_info=True)
 
     async def _connect(self, address):
         from bumble.core import ConnectionError as BumbleConnectionError
@@ -352,6 +453,8 @@ class BleLink:
         from bumble.hci import Phy
 
         for attempt in range(1, CONNECT_ATTEMPTS + 1):
+            if attempt > 1:
+                await asyncio.sleep(CONNECT_BACKOFF_S * (attempt - 1))
             logger.info("BLE: connecting to %s (attempt %d)", address, attempt)
             try:
                 connection = await self._device.connect(
@@ -419,6 +522,7 @@ class BleLink:
             on_open=lambda: (
                 self._session_open.done() or self._session_open.set_result(True)
             ),
+            on_reset=self._on_session_reset,
         )
         self._ppog.mtu = mtu
         self._ticker = asyncio.ensure_future(self._tick())
@@ -467,8 +571,13 @@ class BleLink:
         if self.on_data is not None:
             self.on_data(data)
 
+    def _on_session_reset(self):
+        if self.on_reset is not None:
+            self.on_reset()
+
     def _on_disconnection(self, reason):
         logger.info("BLE: disconnected (reason %#x)", reason)
+        self._disconnected.set()
         self._connection = None
         if self._ticker is not None:
             self._ticker.cancel()
@@ -503,3 +612,94 @@ class BleLink:
             and self._ppog is not None
             and self._ppog.is_open
         )
+
+    # --- inspection ---------------------------------------------------------
+
+    def wait_disconnected(self, timeout=10.0):
+        """Wait until the link to the watch drops."""
+        if not self._disconnected.wait(timeout):
+            raise WatchTimeout(f"the watch kept the link for {timeout}s")
+
+    @property
+    def att_mtu(self):
+        """The ATT MTU the link agreed on."""
+        return self._ppog.mtu
+
+    @property
+    def connection_parameters(self):
+        """The link's current parameters (Bumble's ``Connection.Parameters``:
+        interval and timeout in ms)."""
+        return self._connection.parameters
+
+    def read_connectivity(self, timeout=10.0):
+        """The Connectivity Status characteristic, read now."""
+        return self._run(self._read_connectivity(), timeout)
+
+    def read_value(self, service, characteristic, timeout=10.0):
+        """The value of a characteristic of the watch's GATT server, by UUID
+        (e.g. ``"180A"``, ``"2A26"``); None when the watch has none."""
+        return self._run(self._read_value(service, characteristic), timeout)
+
+    async def _read_value(self, service, characteristic):
+        from bumble.core import UUID
+
+        services = self._peer.get_services_by_uuid(UUID(service))
+        if not services:
+            return None
+        await services[0].discover_characteristics()
+        characteristics = services[0].get_characteristics_by_uuid(UUID(characteristic))
+        if not characteristics:
+            return None
+        return bytes(await characteristics[0].read_value())
+
+    def reset_session(self, timeout=SESSION_TIMEOUT_S):
+        """Restart the PPoGATT session from the phone, as the app does after
+        losing track of it, and wait until the watch completes it."""
+
+        async def reset():
+            self._on_session_reset()
+            self._session_open = asyncio.get_running_loop().create_future()
+            self._ppog.reset()
+            await asyncio.wait_for(self._session_open, timeout)
+
+        self._run(reset(), timeout + 1)
+
+    def wait_session_reopened(self, timeout=SESSION_TIMEOUT_S):
+        """Wait until a session the watch reset is open again."""
+
+        async def wait():
+            while not self._ppog.is_open:
+                await asyncio.sleep(0.05)
+
+        try:
+            self._run(wait(), timeout)
+        except WatchTimeout:
+            raise WatchTimeout("the PPoGATT session did not reopen") from None
+
+    def write_packet(self, packet):
+        """Write a raw PPoGATT packet to the watch, bypassing the session."""
+        self._loop.call_soon_threadsafe(self._write, bytes(packet))
+
+    @property
+    def expected_sn(self):
+        """The sequence number of the watch's next data packet."""
+        return self._ppog.expected_sn
+
+    def ignore_data(self, count):
+        """Let the next ``count`` data packets from the watch go
+        unacknowledged, as if lost."""
+        self._loop.call_soon_threadsafe(self._ppog.ignore_data, count)
+
+
+@dataclasses.dataclass
+class ParameterRequest:
+    """Connection parameters the watch asked for (ms)."""
+
+    interval_min_ms: float
+    interval_max_ms: float
+    latency: int
+    timeout_ms: float
+
+    @classmethod
+    def from_units(cls, interval_min, interval_max, latency, timeout):
+        return cls(interval_min * 1.25, interval_max * 1.25, latency, timeout * 10)

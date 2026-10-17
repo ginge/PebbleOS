@@ -3,9 +3,9 @@
 
 #pragma once
 
-#include <stdbool.h>
 #include <stdint.h>
-#include "pbl/kernel/compiler.h"
+
+#include <pbl/kernel/compiler.h>
 
 void dbgserial_init(void);
 

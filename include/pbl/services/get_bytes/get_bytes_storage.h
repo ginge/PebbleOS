@@ -4,9 +4,8 @@
 #pragma once
 
 #include <inttypes.h>
-#include <stdbool.h>
 
-#include "pbl/services/get_bytes/get_bytes.h"
+#include <pbl/services/get_bytes/get_bytes.h>
 
 /**
  * @defgroup services_get_bytes_get_bytes_storage Get bytes storage

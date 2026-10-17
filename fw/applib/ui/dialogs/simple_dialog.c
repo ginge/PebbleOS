@@ -3,15 +3,15 @@
 
 #include "simple_dialog.h"
 
-#include "applib/applib_malloc.auto.h"
-#include "applib/fonts/fonts.h"
-#include "applib/ui/dialogs/dialog.h"
-#include "applib/ui/dialogs/dialog_private.h"
-#include "applib/ui/layer.h"
-#include "applib/ui/text_layer.h"
-#include "applib/ui/window.h"
-#include "kernel/ui/kernel_ui.h"
-#include "system/passert.h"
+#include <applib/applib_malloc.auto.h>
+#include <applib/fonts/fonts.h>
+#include <applib/ui/dialogs/dialog.h>
+#include <applib/ui/dialogs/dialog_private.h>
+#include <applib/ui/layer.h>
+#include <applib/ui/text_layer.h>
+#include <applib/ui/window.h>
+#include <kernel/ui/kernel_ui.h>
+#include <system/passert.h>
 
 #if defined(CONFIG_RECOVERY_FW) || defined(UNITTEST)
 #define SIMPLE_DIALOG_ANIMATED false
@@ -43,7 +43,7 @@
 
 static int prv_get_rendered_text_height(const char *text, const GRect *text_box) {
   GContext *ctx = graphics_context_get_current_context();
-  TextLayoutExtended layout = {0};
+  TextLayoutExtended layout = {};
   graphics_text_attributes_enable_screen_text_flow((GTextLayoutCacheRef)&layout,
                                                    TEXT_FLOW_INSET_PX);
   return graphics_text_layout_get_max_used_size(ctx, text, TEXT_FONT, *text_box, TEXT_OVERFLOW,

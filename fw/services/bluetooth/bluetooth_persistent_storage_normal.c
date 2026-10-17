@@ -1,36 +1,35 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/bluetooth/bluetooth_persistent_storage.h"
-#include "pbl/services/bluetooth/bluetooth_persistent_storage_debug.h"
-
-#include "comm/ble/gap_le_connect.h"
-#include "comm/ble/gap_le_connection.h"
-#include "comm/ble/kernel_le_client/kernel_le_client.h"
-#include "kernel/event_loop.h"
-#include "kernel/pbl_malloc.h"
-#include "pbl/kernel/mutex.h"
-#include "pbl/services/bluetooth/pairability.h"
-#include "pbl/services/bluetooth/local_addr.h"
-#include "pbl/services/shared_prf_storage/shared_prf_storage.h"
-#include "pbl/services/settings/settings_file.h"
-#include <pbl/logging/logging.h>
-#include "system/passert.h"
-#include "pbl/kernel/compiler.h"
-#include "pbl/util/math.h"
-#include "pbl/util/string.h"
-
 #include <pbl/bluetooth/bonding_sync.h>
 #include <pbl/btutil/bt_device.h>
 #include <pbl/btutil/sm_util.h>
+#include <pbl/kernel/compiler.h>
+#include <pbl/kernel/mutex.h>
+#include <pbl/logging/logging.h>
+#include <pbl/services/bluetooth/bluetooth_persistent_storage.h>
+#include <pbl/services/bluetooth/bluetooth_persistent_storage_debug.h>
+#include <pbl/services/bluetooth/local_addr.h>
+#include <pbl/services/bluetooth/pairability.h>
+#include <pbl/services/settings/settings_file.h>
+#include <pbl/services/shared_prf_storage/shared_prf_storage.h>
+#include <pbl/util/math.h>
+#include <pbl/util/string.h>
+
+#include <comm/ble/gap_le_connect.h>
+#include <comm/ble/gap_le_connection.h>
+#include <comm/ble/kernel_le_client/kernel_le_client.h>
+#include <kernel/event_loop.h>
+#include <kernel/pbl_malloc.h>
+#include <system/passert.h>
 
 PBL_LOG_MODULE_DECLARE(service_bluetooth, CONFIG_SERVICE_BLUETOOTH_LOG_LEVEL);
 
 #ifdef UNITTEST
 // Let the unittest define this using a header override:
-#include "pbl/services/bluetooth/bluetooth_persistent_storage_unittest_impl.h"
+#include <pbl/services/bluetooth/bluetooth_persistent_storage_unittest_impl.h>
 #else
-#include "pbl/services/bluetooth/bluetooth_persistent_storage_v2_impl.h"
+#include <pbl/services/bluetooth/bluetooth_persistent_storage_v2_impl.h>
 #endif
 
 //! The BtPersistBonding*Data structs can never shrink, only grow
@@ -136,7 +135,7 @@ static void prv_update_bondings(pbl_bt_bonding_id_t id, BtPersistBondingType typ
     if (prv_bt_persistent_storage_get_ble_smpairinginfo_by_id(id, &pairing_info, ble_name,
                                                               &requires_address_pinning, &flags)) {
       // only send the ble_name if we have a name to send!
-      char *ble_name_ptr = (strlen(ble_name) == 0) ? NULL : &ble_name[0];
+      char *ble_name_ptr = (strlen(ble_name) == 0) ? nullptr : &ble_name[0];
       shared_prf_storage_store_ble_pairing_data(&pairing_info, ble_name_ptr,
                                                 requires_address_pinning, flags);
     }
@@ -438,7 +437,7 @@ bool prv_delete_pairing_with_type_by_id(pbl_bt_bonding_id_t bonding, BtPersistBo
     return false;
   }
 
-  if (prv_file_set(&bonding, sizeof(bonding), NULL, 0) == GapBondingFileSetFail) {
+  if (prv_file_set(&bonding, sizeof(bonding), nullptr, 0) == GapBondingFileSetFail) {
     return false;
   }
 
@@ -467,7 +466,7 @@ static void prv_update_active_gateway_if_needed(pbl_bt_bonding_id_t bonding,
     // get_active_gateway leaves the out param untouched when there is no active
     // gateway, so only compare when it reports success.
     pbl_bt_bonding_id_t current_active_gateway;
-    if (bt_persistent_storage_get_active_gateway(&current_active_gateway, NULL) &&
+    if (bt_persistent_storage_get_active_gateway(&current_active_gateway, nullptr) &&
         current_active_gateway == bonding) {
       bt_persistent_storage_set_active_gateway(PBL_BT_BONDING_ID_INVALID);
     }
@@ -531,7 +530,7 @@ typedef struct {
 static bool prv_is_pairing_info_equal_identity(const BtPersistLEPairingInfo *a,
                                                const struct pbl_bt_sm_pairing_info *b) {
   return (a->is_remote_identity_info_valid && b->is_remote_identity_info_valid &&
-          bt_device_equal(&a->identity.opaque, &b->identity.opaque) &&
+          bt_device_internal_equal(&a->identity, &b->identity) &&
           memcmp(&a->irk, &b->irk, sizeof(struct pbl_bt_sm_key)) == 0);
 }
 
@@ -905,8 +904,7 @@ static bool prv_find_by_addr_itr(SettingsFile *file, SettingsRecordInfo *info, v
   info->get_val(file, (uint8_t *)&stored_data, MIN((unsigned)info->val_len, sizeof(stored_data)));
 
   if (stored_data.type == BtPersistBondingTypeBLE &&
-      bt_device_equal(&itr_data->device.opaque,
-                      &stored_data.ble_data.pairing_info.identity.opaque)) {
+      bt_device_internal_equal(&itr_data->device, &stored_data.ble_data.pairing_info.identity)) {
     itr_data->irk_out = stored_data.ble_data.pairing_info.irk;
     strncpy(itr_data->name_out, stored_data.ble_data.name, PBL_BT_DEVICE_NAME_BUFFER_SIZE);
     itr_data->id_out = key;
@@ -988,7 +986,7 @@ static bool prv_bt_persistent_storage_get_ble_smpairinginfo_by_id(
   *requires_address_pinning = data.ble_data.requires_address_pinning;
   *flags = data.ble_data.flags;
 
-  prv_fill_ble_data(NULL, NULL, data.ble_data.name, NULL, NULL, name_out);
+  prv_fill_ble_data(nullptr, nullptr, data.ble_data.name, nullptr, nullptr, name_out);
   return true;
 }
 
@@ -1005,7 +1003,7 @@ bool bt_persistent_storage_get_ble_pairing_by_addr(const struct pbl_bt_device_in
     return false;
   }
 
-  prv_fill_ble_data(&itr_data.irk_out, NULL, itr_data.name_out, irk_out, NULL, name_out);
+  prv_fill_ble_data(&itr_data.irk_out, nullptr, itr_data.name_out, irk_out, nullptr, name_out);
 
   return true;
 }
@@ -1217,7 +1215,7 @@ static bool prv_find_cccd_itr(SettingsFile *file, SettingsRecordInfo *info, void
 }
 
 pbl_bt_cccd_id_t bt_persistent_storage_store_cccd(const struct pbl_bt_cccd *cccd) {
-  PBL_ASSERTN(cccd != NULL);
+  PBL_ASSERTN(cccd != nullptr);
 
   FindCCCDItrData itr_data = {
     .peer = &cccd->peer,
@@ -1271,7 +1269,7 @@ bool bt_persistent_storage_delete_cccd(const struct pbl_bt_device_internal *peer
   }
 
   cccd_id = itr_data.id;
-  if (prv_file_set(&cccd_id, sizeof(cccd_id), NULL, 0) == GapBondingFileSetFail) {
+  if (prv_file_set(&cccd_id, sizeof(cccd_id), nullptr, 0) == GapBondingFileSetFail) {
     return false;
   }
 
@@ -1289,7 +1287,7 @@ void bt_persistent_storage_set_active_gateway(pbl_bt_bonding_id_t bonding) {
   if (!read_size || old_active_gateway != bonding) {
     prv_file_set(&ACTIVE_GATEWAY_KEY, sizeof(ACTIVE_GATEWAY_KEY), &bonding, sizeof(bonding));
     bt_persistent_storage_set_unfaithful(true);
-    bt_persistent_storage_set_cached_system_capabilities(NULL);
+    bt_persistent_storage_set_cached_system_capabilities(nullptr);
   }
 }
 
@@ -1475,13 +1473,16 @@ static void prv_delete_all_pairings_itr(SettingsFile *old_file, SettingsFile *ne
 }
 
 void bt_persistent_storage_delete_all_pairings(void) {
+  // BLE bondings go one by one, so that the host and the pairability follow.
+  prv_delete_other_ble_bondings(PBL_BT_BONDING_ID_INVALID);
+
   prv_lock();
   {
     SettingsFile fd;
     status_t rv =
         settings_file_open(&fd, BT_PERSISTENT_STORAGE_FILE_NAME, BT_PERSISTENT_STORAGE_FILE_SIZE);
     if (rv == S_SUCCESS) {
-      settings_file_rewrite(&fd, prv_delete_all_pairings_itr, NULL);
+      settings_file_rewrite(&fd, prv_delete_all_pairings_itr, nullptr);
       settings_file_close(&fd);
     }
   }
@@ -1514,7 +1515,7 @@ static void prv_dump_bonding_db_data(const struct pbl_shell *sh, pbl_bt_bonding_
     struct pbl_bt_sm_pairing_info sprf_info = {};
     bool requires_address_pinning;
     uint8_t flags;
-    shared_prf_storage_get_ble_pairing_data(&sprf_info, NULL, &requires_address_pinning, &flags);
+    shared_prf_storage_get_ble_pairing_data(&sprf_info, nullptr, &requires_address_pinning, &flags);
     matches_prf = (memcmp(&sprf_info, &info, sizeof(sprf_info)) == 0);
     matches_prf &= (requires_address_pinning == data->ble_data.requires_address_pinning);
     matches_prf &= (flags == data->ble_data.flags);

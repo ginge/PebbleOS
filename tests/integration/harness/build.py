@@ -5,10 +5,12 @@
 
 import os
 import re
+import shutil
 
 from harness.errors import HarnessError
 
 _PLATFORMS = ("emery", "flint", "gabbro")
+_TOPDIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 
 def _read_dotconfig(path):
@@ -65,9 +67,12 @@ class Build:
 
     @property
     def topdir(self):
-        return self.cache.get("CMAKE_HOME_DIRECTORY") or self.cache.get(
-            "pebbleos_SOURCE_DIR", os.getcwd()
+        """The source tree, or the harness's own for a build configured on
+        another host."""
+        topdir = self.cache.get("CMAKE_HOME_DIRECTORY") or self.cache.get(
+            "pebbleos_SOURCE_DIR"
         )
+        return topdir if topdir and os.path.isdir(topdir) else _TOPDIR
 
     @property
     def board_target(self):
@@ -91,12 +96,21 @@ class Build:
         return bool(self.config.get("CONFIG_QEMU"))
 
     @property
+    def native(self):
+        return bool(self.config.get("CONFIG_SOC_POSIX"))
+
+    @property
     def variant(self):
         return self.cache.get("VARIANT", "normal")
 
     @property
     def elf(self):
         return self.join(f"{self.cache.get('CMAKE_PROJECT_NAME', 'pebbleos')}.elf")
+
+    @property
+    def executable(self):
+        """The native build's program."""
+        return self.join(self.cache.get("CMAKE_PROJECT_NAME", "pebbleos"))
 
     @property
     def loghash_dict(self):
@@ -131,8 +145,9 @@ class Build:
         raise HarnessError(f"no {name} flash region for board {self.board}")
 
     def tool(self, name):
-        """An SDK tool CMake located (PBL_<NAME>), or None."""
+        """An SDK tool CMake located (PBL_<NAME>), else the one on PATH, or
+        None."""
         value = self.cache.get(f"PBL_{name.upper()}")
-        if not value or value.endswith("-NOTFOUND"):
-            return None
-        return value
+        if value and os.path.isfile(value):
+            return value
+        return shutil.which(name)

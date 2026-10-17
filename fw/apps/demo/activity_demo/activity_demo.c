@@ -1,30 +1,31 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/health_service.h"
-#include "applib/app.h"
-#include "applib/app_logging.h"
-#include "applib/fonts/fonts.h"
-#include "applib/persist.h"
-#include "applib/ui/ui.h"
-#include "applib/ui/dialogs/expandable_dialog.h"
-#include "apps/system_app_ids.h"
-#include "kernel/pbl_malloc.h"
-#include "process_state/app_state/app_state.h"
-#include "pbl/services/activity/activity_algorithm.h"
-#include "pbl/services/activity/activity_insights.h"
-#include "pbl/services/data_logging/data_logging_service.h"
-#include "shell/prefs.h"
-#include <pbl/logging/logging.h>
-#include "pbl/util/size.h"
-#include "pbl/util/string.h"
-#include "pbl/util/trig.h"
-
 #include "activity_demo.h"
 
 #include <stdio.h>
-#include "pbl/util/time.h"
-#include "pbl/util/units.h"
+
+#include <pbl/logging/logging.h>
+#include <pbl/services/activity/activity_algorithm.h>
+#include <pbl/services/activity/activity_insights.h>
+#include <pbl/services/data_logging/data_logging_service.h>
+#include <pbl/util/size.h>
+#include <pbl/util/string.h>
+#include <pbl/util/time.h>
+#include <pbl/util/trig.h>
+#include <pbl/util/units.h>
+
+#include <applib/app.h>
+#include <applib/app_logging.h>
+#include <applib/fonts/fonts.h>
+#include <applib/health_service.h>
+#include <applib/persist.h>
+#include <applib/ui/dialogs/expandable_dialog.h>
+#include <applib/ui/ui.h>
+#include <apps/system_app_ids.h>
+#include <kernel/pbl_malloc.h>
+#include <process_state/app_state/app_state.h>
+#include <shell/prefs.h>
 
 #define CURRENT_STEP_AVG 500
 #define DAILY_STEP_AVG   1000
@@ -58,7 +59,6 @@ static void prv_convert_seconds_to_time(uint32_t secs_after_midnight, char *text
   uint32_t minutes_after_midnight = secs_after_midnight / PBL_SEC_PER_MIN;
   uint32_t hour = minutes_after_midnight / PBL_MIN_PER_HOUR;
   uint32_t minute = minutes_after_midnight % PBL_MIN_PER_HOUR;
-#pragma GCC diagnostic ignored "-Wformat-truncation"
   snprintf(text, text_len, "%d:%02d", (int)hour, (int)minute);
 }
 
@@ -120,7 +120,7 @@ static void prv_display_seconds_history_alert(ActivityDemoAppData *data, const c
   int32_t values[7];
   activity_get_metric(metric, ARRAY_LENGTH(values), values);
   for (int i = 0; i < 7; i++) {
-    char elapsed[8];
+    char elapsed[16];
     prv_convert_seconds_to_time(values[i], elapsed, sizeof(elapsed));
     char temp[32];
     snprintf(temp, sizeof(temp), "\n%d: %s", i, elapsed);
@@ -346,10 +346,10 @@ static void prv_debug_cmd_sleep_sessions(int index, void *context) {
     safe_strcat(data->debug_card.dialog_text, prefix, sizeof(data->debug_card.dialog_text));
 
     // Write start time
-    struct tm local_tm;
+    struct pbl_tm local_tm;
     char temp[32];
-    localtime_r(&session->start_utc, &local_tm);
-    strftime(temp, sizeof(temp), "%H:%M", &local_tm);
+    pbl_localtime_r(&session->start_utc, &local_tm);
+    pbl_strftime_r(temp, sizeof(temp), "%H:%M", &local_tm);
     safe_strcat(data->debug_card.dialog_text, temp, sizeof(data->debug_card.dialog_text));
 
     // Write end time/elapsed
@@ -357,8 +357,8 @@ static void prv_debug_cmd_sleep_sessions(int index, void *context) {
       snprintf(temp, sizeof(temp), " %dm\n", (int)(session->length_min));
     } else {
       time_t end_time = session->start_utc + (session->length_min * PBL_SEC_PER_MIN);
-      localtime_r(&end_time, &local_tm);
-      strftime(temp, sizeof(temp), "-%H:%M\n", &local_tm);
+      pbl_localtime_r(&end_time, &local_tm);
+      pbl_strftime_r(temp, sizeof(temp), "-%H:%M\n", &local_tm);
     }
     safe_strcat(data->debug_card.dialog_text, temp, sizeof(data->debug_card.dialog_text));
   }
@@ -415,10 +415,10 @@ static void prv_debug_cmd_step_sessions(int index, void *context) {
     safe_strcat(data->debug_card.dialog_text, prefix, sizeof(data->debug_card.dialog_text));
 
     // Write start time
-    struct tm local_tm;
+    struct pbl_tm local_tm;
     char temp[64];
-    localtime_r(&session->start_utc, &local_tm);
-    strftime(temp, sizeof(temp), "%H:%M", &local_tm);
+    pbl_localtime_r(&session->start_utc, &local_tm);
+    pbl_strftime_r(temp, sizeof(temp), "%H:%M", &local_tm);
     safe_strcat(data->debug_card.dialog_text, temp, sizeof(data->debug_card.dialog_text));
 
     // Write length

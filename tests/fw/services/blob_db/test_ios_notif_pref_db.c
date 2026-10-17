@@ -1,30 +1,25 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "clar.h"
+#include <string.h>
 
-#include "pbl/services/blob_db/ios_notif_pref_db.h"
-#include "pbl/util/size.h"
+#include <pbl/services/blob_db/ios_notif_pref_db.h>
+#include <pbl/services/settings/settings_file.h>
+#include <pbl/util/size.h>
+
+#include <clar.h>
+#include <kernel/pbl_malloc.h>
 
 // Fixture
 ////////////////////////////////////////////////////////////////
 
 // Fakes
 ////////////////////////////////////////////////////////////////
-#include "fake_system_task.h"
-#include "fake_settings_file.h"
+#include <fake_settings_file.h>
+#include <fake_system_task.h>
 
 // Stubs
 ////////////////////////////////////////////////////////////////
-#include "stubs_analytics.h"
-#include "stubs_layout_layer.h"
-#include "stubs_logging.h"
-#include "stubs_mutex.h"
-#include "stubs_passert.h"
-#include "stubs_pbl_malloc.h"
-#include "stubs_rand_ptr.h"
-#include "stubs_pfs.h"
-#include "stubs_blob_db_sync.h"
 
 extern const char *iOS_NOTIF_PREF_DB_FILE_NAME;
 extern const int iOS_NOTIF_PREF_MAX_SIZE;
@@ -53,6 +48,16 @@ static const uint8_t s_ios_pref_db_insert_dict[] = {
 };
 
 const uint8_t key[] = {0x01, 0x02, 0x03};
+
+typedef union {
+  struct pbl_string_list list;
+  uint8_t storage[PBL_STRING_LIST_SIZE(1, 16)];
+} FilteringRules;
+
+static void prv_set_rules(FilteringRules *rules, const char *data, uint16_t length) {
+  rules->list.serialized_byte_length = length;
+  memcpy(rules->list.data, data, length);
+}
 
 void test_ios_notif_pref_db__initialize(void) {
 }
@@ -95,16 +100,9 @@ void test_ios_notif_pref_db__read_flags(void) {
 
 void test_ios_notif_pref_db__store_prefs(void) {
   // Create an attribute list and action group
-  struct {
-    struct pbl_string_list list;
-    char data[9];
-  } filtering_rules = {
-    .list =
-        {
-          .serialized_byte_length = 9,
-        },
-    .data = {0x01, 0x00, 0x00, 0x00, 's', 'p', 'a', 'm', '\0'},
-  };
+  FilteringRules filtering_rules;
+  prv_set_rules(&filtering_rules, (const char[]){0x01, 0x00, 0x00, 0x00, 's', 'p', 'a', 'm', '\0'},
+                9);
 
   AttributeList attr_list;
   attribute_list_init_list(0, &attr_list);
@@ -138,7 +136,8 @@ void test_ios_notif_pref_db__store_prefs(void) {
       attribute_get_string_list(&notif_prefs->attr_list, AttributeIdNotificationFilteringRules);
   cl_assert(rules);
   cl_assert_equal_i(rules->serialized_byte_length, filtering_rules.list.serialized_byte_length);
-  cl_assert_equal_m(rules->data, filtering_rules.data, filtering_rules.list.serialized_byte_length);
+  cl_assert_equal_m(rules->data, filtering_rules.list.data,
+                    filtering_rules.list.serialized_byte_length);
 
   // Update the current entry with a new attribute
   attribute_list_add_uint32(&attr_list, AttributeIdLastUpdated, 123456);
@@ -161,7 +160,8 @@ void test_ios_notif_pref_db__store_prefs(void) {
   rules = attribute_get_string_list(&notif_prefs->attr_list, AttributeIdNotificationFilteringRules);
   cl_assert(rules);
   cl_assert_equal_i(rules->serialized_byte_length, filtering_rules.list.serialized_byte_length);
-  cl_assert_equal_m(rules->data, filtering_rules.data, filtering_rules.list.serialized_byte_length);
+  cl_assert_equal_m(rules->data, filtering_rules.list.data,
+                    filtering_rules.list.serialized_byte_length);
   Attribute *updated = attribute_find(&notif_prefs->attr_list, AttributeIdLastUpdated);
   cl_assert(updated);
   cl_assert_equal_i(updated->uint32, 123456);
@@ -177,7 +177,7 @@ void test_ios_notif_pref_db__store_empty_prefs(void) {
   // Store empty prefs
   char *key = "key1";
   int key_len = strlen(key);
-  ios_notif_pref_db_store_prefs((uint8_t *)key, key_len, NULL, NULL);
+  ios_notif_pref_db_store_prefs((uint8_t *)key, key_len, nullptr, nullptr);
 
   // Read them back
   iOSNotifPrefs *notif_prefs = ios_notif_pref_db_get_prefs((uint8_t *)key, key_len);
@@ -215,7 +215,7 @@ void test_ios_notif_pref_db__is_dirty_insert_locally(void) {
   // Insert a bunch of known apps "from the watch"
   // These should be dirty (the phone is the source of truth)
   for (int i = 0; i < ARRAY_LENGTH(keys); ++i) {
-    ios_notif_pref_db_store_prefs((uint8_t *)keys[i], key_len, NULL, NULL);
+    ios_notif_pref_db_store_prefs((uint8_t *)keys[i], key_len, nullptr, nullptr);
   }
 
   bool is_dirty = false;

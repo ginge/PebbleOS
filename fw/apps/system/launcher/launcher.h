@@ -3,9 +3,8 @@
 
 #pragma once
 
-#include "default/launcher.h"
-
-#include "process_management/pebble_process_md.h"
+#include <apps/system/launcher/default/launcher.h>
+#include <process_management/pebble_process_md.h>
 
 #define RETURN_TIMEOUT_TICKS (5 * RTC_TICKS_HZ)
 

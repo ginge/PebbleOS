@@ -2,19 +2,21 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "sleep_summary_card.h"
-#include "sleep_summary_card_segments.h"
-#include "sleep_detail_card.h"
-#include "progress.h"
-#include "ui.h"
-#include "pbl/services/activity/health_util.h"
 
-#include "applib/pbl_std/pbl_std.h"
-#include "applib/ui/kino/kino_layer.h"
-#include "board/display.h"
-#include "resource/resource_ids.auto.h"
-#include "pbl/services/i18n/i18n.h"
-#include "pbl/util/size.h"
-#include "pbl/util/units.h"
+#include "progress.h"
+#include "sleep_detail_card.h"
+#include "sleep_summary_card_segments.h"
+#include "ui.h"
+
+#include <pbl/services/activity/health_util.h>
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/util/size.h>
+#include <pbl/util/units.h>
+
+#include <applib/pbl_std/pbl_std.h>
+#include <applib/ui/kino/kino_layer.h>
+#include <board/display.h>
+#include <resource/resource_ids.auto.h>
 
 // Compile-time display offset calculations
 #define HEALTH_X_OFFSET ((DISP_COLS - LEGACY_2X_DISP_COLS) / 2)
@@ -61,8 +63,9 @@ static void prv_render_sleep_sessions(GContext *ctx, HealthSleepSummaryCardData 
       continue;
     }
 
-    struct tm local_tm;
-    localtime_r(&session->start_utc, &local_tm);
+    struct pbl_tm local_tm;
+    const time_t start_utc = session->start_utc;
+    pbl_localtime_r(&start_utc, &local_tm);
 
     const int session_start_24h =
         (local_tm.tm_sec + local_tm.tm_min * PBL_SEC_PER_MIN + local_tm.tm_hour * PBL_SEC_PER_HOUR);
@@ -174,14 +177,15 @@ static void prv_render_current_sleep_text(GContext *ctx, Layer *base_layer) {
     health_util_duration_to_hours_and_minutes_text_node(current_sleep, base_layer,
                                                         data->number_font, data->unit_font,
                                                         CURRENT_TEXT_COLOR, container);
-    graphics_text_node_draw(&container->node, ctx, &rect, NULL, NULL);
+    graphics_text_node_draw(&container->node, ctx, &rect, nullptr, nullptr);
     graphics_text_node_destroy(&container->node);
   } else {
     char buffer[16];
     const GFont font = data->em_dash_font;
     snprintf(buffer, sizeof(buffer), EM_DASH);
     graphics_context_set_text_color(ctx, CURRENT_TEXT_COLOR);
-    graphics_draw_text(ctx, buffer, font, rect, GTextOverflowModeFill, GTextAlignmentCenter, NULL);
+    graphics_draw_text(ctx, buffer, font, rect, GTextOverflowModeFill, GTextAlignmentCenter,
+                       nullptr);
   }
 }
 
@@ -211,7 +215,7 @@ static void prv_render_no_sleep_data_text(GContext *ctx, Layer *base_layer) {
 
   graphics_context_set_text_color(ctx, NO_DATA_TEXT_COLOR);
   graphics_draw_text(ctx, text, data->typical_font, rect, GTextOverflowModeWordWrap,
-                     GTextAlignmentCenter, NULL);
+                     GTextAlignmentCenter, nullptr);
 }
 
 static bool prv_has_sleep_data(HealthData *health_data) {

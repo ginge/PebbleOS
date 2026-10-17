@@ -1,9 +1,9 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/util/string_list.h"
+#include <pbl/util/string_list.h>
 
-#include "clar.h"
+#include <clar.h>
 
 // Setup
 ////////////////////////////////////////////////////////////////
@@ -76,7 +76,7 @@ void test_string_list__test(void) {
   cl_assert_equal_s("ab", pbl_string_list_get_at(list, 0));
   cl_assert_equal_s("", pbl_string_list_get_at(list, 1));
   cl_assert_equal_s("", pbl_string_list_get_at(list, 2));
-  cl_assert_equal_s(NULL, pbl_string_list_get_at(list, 3));
+  cl_assert_equal_s(nullptr, pbl_string_list_get_at(list, 3));
 
   // 4 strings (first and last two are empty)
   list->serialized_byte_length = 4;

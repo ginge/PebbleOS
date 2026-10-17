@@ -1,20 +1,19 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/util/iterator.h"
 #include "utf8_test_data.h"
-#include "applib/graphics/utf8.h"
-
-#include "clar.h"
 
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <pbl/util/iterator.h>
+
+#include <applib/graphics/utf8.h>
+#include <clar.h>
+
 // Stubs
 ///////////////////////////////////////////////////////////
-#include "stubs_logging.h"
-#include "stubs_passert.h"
 
 ///////////////////////////////////////////////////////////
 // Tests
@@ -119,7 +118,7 @@ void test_utf8_iterator__decode_valid_string_backwards(void) {
   utf8_iter_init(&utf8_iter, &utf8_iter_state, &utf8_bounds, utf8_bounds.end);
 
   // Tests
-  int i = sizeof(s_valid_test_codepoints) / sizeof(s_valid_test_codepoints[0]);
+  int i = NUM_VALID_CODEPOINTS;
   while (iter_prev(&utf8_iter)) {
     cl_assert(utf8_iter_state.current >= utf8_bounds.start);
     cl_assert(i > 0);

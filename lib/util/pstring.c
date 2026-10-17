@@ -1,10 +1,10 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/util/pstring.h"
-
 #include <stddef.h>
 #include <string.h>
+
+#include <pbl/util/pstring.h>
 
 void pbl_pstring16_to_cstring(const struct pbl_pstring16 *pstring, char *string_out) {
   memcpy(string_out, pstring->str_value, pstring->str_length);
@@ -57,15 +57,15 @@ void pbl_pstring16_list_init(struct pbl_pstring16_list *list,
 struct pbl_pstring16 *pbl_pstring16_list_get(const struct pbl_pstring16_list *list,
                                              uint16_t index) {
   if (index >= list->count) {
-    return NULL;
+    return nullptr;
   }
 
   uint8_t *cursor = list->pstrings->data;
   for (uint16_t i = 0; i < index; i++) {
     if (!prv_has_entry(list->pstrings, cursor)) {
-      return NULL;
+      return nullptr;
     }
     cursor += sizeof(uint16_t) + prv_entry_length(cursor);
   }
-  return prv_has_entry(list->pstrings, cursor) ? (struct pbl_pstring16 *)cursor : NULL;
+  return prv_has_entry(list->pstrings, cursor) ? (struct pbl_pstring16 *)cursor : nullptr;
 }

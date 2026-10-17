@@ -3,16 +3,16 @@
 
 #include "fake_fonts.h"
 
-#include "resource/resource_ids.auto.h"
-#include "font_resource_keys.auto.h"
-#include "applib/fonts/fonts_private.h"
-#include "applib/graphics/text_resources.h"
-#include "pbl/util/math.h"
-#include "pbl/util/size.h"
-
 #include <string.h>
 
-#include "clar_asserts.h"
+#include <pbl/util/math.h>
+#include <pbl/util/size.h>
+
+#include <applib/fonts/fonts_private.h>
+#include <applib/graphics/text_resources.h>
+#include <clar_asserts.h>
+#include <font_resource_keys.auto.h>
+#include <resource/resource_ids.auto.h>
 
 typedef struct {
   const char *key;
@@ -61,7 +61,7 @@ static FontHelper *prv_font_helper_from_font_key(const char *font_key) {
       return &s_font_helpers[i];
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 static GFont prv_get_font(const char *font_key) {
@@ -94,7 +94,7 @@ FontInfo *fonts_get_system_emoji_font_for_size(unsigned int font_height) {
     }
   }
   // Didn't find a suitable emoji font
-  return NULL;
+  return nullptr;
 }
 
 GFont fonts_get_system_font(const char *font_key) {

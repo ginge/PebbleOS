@@ -1,69 +1,51 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/data_logging.h"
-#include "pbl/util/uuid.h"
-
-#include "process_management/pebble_process_md.h"
-
-#include "pbl/services/filesystem/pfs.h"
-#include "pbl/services/filesystem/flash_translation.h"
-
-#include "pbl/services/comm_session/protocol.h"
-#include "pbl/services/comm_session/session.h"
-#include "pbl/services/comm_session/session_send_buffer.h"
-#include "pbl/services/comm_session/session_transport.h"
-
-#include "pbl/services/data_logging/data_logging_service.h"
-#include "pbl/services/data_logging/dls_private.h"
-#include "pbl/services/data_logging/dls_list.h"
-#include "pbl/services/data_logging/dls_storage.h"
-
-#include "pbl/services/regular_timer.h"
+#include <pbl/crc/crc.h>
 #include <pbl/logging/logging.h>
-#include "system/passert.h"
+#include <pbl/services/comm_session/protocol.h>
+#include <pbl/services/comm_session/session.h>
+#include <pbl/services/comm_session/session_send_buffer.h>
+#include <pbl/services/comm_session/session_transport.h>
+#include <pbl/services/data_logging/data_logging_service.h>
+#include <pbl/services/data_logging/dls_list.h>
+#include <pbl/services/data_logging/dls_private.h>
+#include <pbl/services/data_logging/dls_storage.h>
+#include <pbl/services/filesystem/flash_translation.h>
+#include <pbl/services/filesystem/pfs.h>
+#include <pbl/services/regular_timer.h>
+#include <pbl/util/list.h>
+#include <pbl/util/math.h>
+#include <pbl/util/size.h>
+#include <pbl/util/string.h>
+#include <pbl/util/uuid.h>
 
-#include "pbl/crc/crc.h"
-#include "pbl/util/list.h"
-#include "pbl/util/math.h"
-#include "pbl/util/size.h"
-#include "pbl/util/string.h"
-
-#include "clar.h"
+#include <applib/data_logging.h>
+#include <clar.h>
+#include <process_management/pebble_process_md.h>
+#include <system/passert.h>
 
 // Stubs
-#include "fake_app_manager.h"
-#include "fake_pebble_tasks.h"
-#include "fake_system_task.h"
-#include "fake_spi_flash.h"
-#include "fake_session.h"
-#include "fake_new_timer.h"
-#include "fake_pbl_malloc.h"
-#include "fake_rtc.h"
-#include "stubs_analytics.h"
-#include "stubs_bt_lock.h"
-#include "stubs_hexdump.h"
-#include "stubs_logging.h"
-#include "stubs_mutex.h"
-#include "stubs_passert.h"
-#include "stubs_rand_ptr.h"
-#include "stubs_serial.h"
-#include "stubs_sleep.h"
-#include "stubs_syscall_internal.h"
-#include "stubs_task_wdt.h"
-#include "stubs_reboot_reason.h"
-
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 
-#include "pbl/kernel/sched.h"
-pbl_tick_t pbl_uptime_ticks(void) {
+#include <pbl/kernel/time.h>
+
+#include <fake_app_manager.h>
+#include <fake_new_timer.h>
+#include <fake_pbl_malloc.h>
+#include <fake_pebble_tasks.h>
+#include <fake_rtc.h>
+#include <fake_session.h>
+#include <fake_spi_flash.h>
+#include <fake_system_task.h>
+uint64_t pbl_uptime_ticks(void) {
   return 1337;
 }
 
-#include "kernel/memory_layout.h"
+#include <kernel/memory_layout.h>
 const MpuRegion *memory_layout_get_app_region(void) {
-  return NULL;
+  return nullptr;
 }
 bool memory_layout_is_buffer_in_region(const MpuRegion *region, const void *buf, size_t length) {
   return true;
@@ -195,7 +177,7 @@ void test_data_logging__initialize(void) {
   //                                         TransportDestinationSystem);
   fake_comm_session_init();
   Transport *transport =
-      fake_transport_create(TransportDestinationSystem, NULL, prv_transport_sent_data_cb);
+      fake_transport_create(TransportDestinationSystem, nullptr, prv_transport_sent_data_cb);
   s_session = fake_transport_set_connected(transport, true /* connected */);
 }
 
@@ -417,8 +399,8 @@ static void prv_do_recovery_test(int num_sessions) {
 
   // Clear the logging sessions from RAM
   dls_list_remove_all();
-  DataLoggingSessionRef logging_session = dls_list_get_next(NULL);
-  cl_assert(logging_session == NULL);
+  DataLoggingSessionRef logging_session = dls_list_get_next(nullptr);
+  cl_assert(logging_session == nullptr);
 
   // Reset regular timer. dls_init() will add the same timer info again
   regular_timer_deinit();
@@ -431,13 +413,13 @@ static void prv_do_recovery_test(int num_sessions) {
   // Check the sessions
   for (int i = 0; i < num_sessions; i++) {
     logging_session = dls_list_get_next(logging_session);
-    cl_assert(logging_session != NULL);
+    cl_assert(logging_session != nullptr);
 
     uint32_t tag = dls_test_get_tag(logging_session);
     prv_check_session_data(logging_session, crcs[tag], num_bytes[tag]);
   }
   logging_session = dls_list_get_next(logging_session);
-  cl_assert(logging_session == NULL);
+  cl_assert(logging_session == nullptr);
 }
 
 void test_data_logging__recover_one(void) {
@@ -492,8 +474,9 @@ void test_data_logging__invalid_params(void) {
   fake_system_task_callbacks_invoke_pending();
 
   // Log to the session after it's closed.
-  cl_assert_equal_i(data_logging_log(session, NULL, 4), DATA_LOGGING_INVALID_PARAMS);
-  cl_assert_equal_i(data_logging_log(NULL, data, ARRAY_LENGTH(data)), DATA_LOGGING_INVALID_PARAMS);
+  cl_assert_equal_i(data_logging_log(session, nullptr, 4), DATA_LOGGING_INVALID_PARAMS);
+  cl_assert_equal_i(data_logging_log(nullptr, data, ARRAY_LENGTH(data)),
+                    DATA_LOGGING_INVALID_PARAMS);
 
   // Finish the session without a crash
   data_logging_finish(0);

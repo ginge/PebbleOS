@@ -1,15 +1,15 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/graphics/gtypes.h"
-#include "upng.h"
+#include <applib/graphics/gtypes.h>
+#include <upng.h>
 
 bool gbitmap_png_data_is_png(uint8_t *data, size_t data_size) {
   return false;
 }
 
 GBitmap *gbitmap_create_from_png_data(const uint8_t *png_data, size_t png_data_size) {
-  return NULL;
+  return nullptr;
 }
 
 bool gbitmap_init_with_png_data(GBitmap *bitmap, const uint8_t *data, size_t data_size) {

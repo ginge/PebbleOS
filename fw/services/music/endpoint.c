@@ -1,16 +1,16 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/music_endpoint.h"
-#include "pbl/services/music_endpoint_types.h"
-
-#include "comm/ble/kernel_le_client/ams/ams.h"
-#include "pbl/services/comm_session/session.h"
-#include "pbl/services/comm_session/session_remote_os.h"
-#include "pbl/services/music_internal.h"
 #include <pbl/logging/logging.h>
-#include "pbl/util/math.h"
-#include "pbl/util/units.h"
+#include <pbl/services/comm_session/session.h>
+#include <pbl/services/comm_session/session_remote_os.h>
+#include <pbl/services/music_endpoint.h>
+#include <pbl/services/music_endpoint_types.h>
+#include <pbl/services/music_internal.h>
+#include <pbl/util/math.h>
+#include <pbl/util/units.h>
+
+#include <comm/ble/kernel_le_client/ams/ams.h>
 
 PBL_LOG_MODULE_DECLARE(service_music, CONFIG_SERVICE_MUSIC_LOG_LEVEL);
 
@@ -34,7 +34,7 @@ static const uint8_t *prv_read_ptr_and_length_from_buffer(const uint8_t *iter,
                                                           const char **out_str,
                                                           size_t *out_length) {
   if (!out_str || !out_length) {
-    return NULL;
+    return nullptr;
   }
 
   *out_length = *iter;
@@ -43,7 +43,7 @@ static const uint8_t *prv_read_ptr_and_length_from_buffer(const uint8_t *iter,
   iter += 1 + *out_length;
   if (iter > iter_end) {
     PBL_LOG_WRN("Invalid music message");
-    return NULL;
+    return nullptr;
   }
   return iter;
 }

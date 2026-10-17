@@ -1,26 +1,24 @@
 /* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "clar.h"
-
-#include "pbl/kernel/kernel.h"
-#include "system/reboot_reason.h"
-#include <pbl/drivers/watchdog.h>
-#include <pbl/task_wdt/task_wdt.h>
-
-#include "kernel_test.h"
-
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "stubs_passert.h"
+#include <pbl/drivers/watchdog.h>
+#include <pbl/kernel/kernel.h>
+#include <pbl/task_wdt/task_wdt.h>
+
+#include <clar.h>
+#include <fff.h>
+#include <kernel_test.h>
+#include <system/reboot_reason.h>
 
 // The subsystem on the POSIX kernel: time only moves when every thread is
 // blocked, so the watchdog thread's periodic sleep drives the clock.
 
-PBL_NORETURN void pbl_kernel_assert_failed(const char *filename, int line) {
+[[noreturn]] void pbl_kernel_assert_failed(const char *filename, int line) {
   fprintf(stderr, "kernel assert at %s:%d\n", filename, line);
   abort();
 }
@@ -35,7 +33,6 @@ static struct pbl_thread s_threads[4];
 #define GRACE_MS   CONFIG_TASK_WDT_GRACE_MS
 #define TIMEOUT_MS 2000
 
-static int s_hw_feeds;
 static RebootReason s_reason;
 
 static int s_callbacks;
@@ -60,9 +57,7 @@ void pbl_log(uint8_t log_level, const char *src_filename, int src_line_number, c
              ...) {
 }
 
-void watchdog_feed(void) {
-  s_hw_feeds++;
-}
+FAKE_VOID_FUNC(watchdog_feed);
 
 void reboot_reason_set(RebootReason *reason) {
   if (s_reason.code == RebootReasonCode_Unknown) {
@@ -78,7 +73,7 @@ void reboot_reason_clear(void) {
   memset(&s_reason, 0, sizeof(s_reason));
 }
 
-PBL_NORETURN void reset_due_to_software_failure(void) {
+[[noreturn]] void reset_due_to_software_failure(void) {
   s_reset = true;
   s_reset_ms = prv_now_ms();
   pbl_test_kernel_stop();
@@ -117,11 +112,11 @@ static void prv_sleep_ms(uint32_t ms) {
 void test_task_wdt__initialize(void) {
   memset(s_threads, 0, sizeof(s_threads));
   memset(&s_reason, 0, sizeof(s_reason));
-  s_hw_feeds = 0;
+  RESET_FAKE(watchdog_feed);
   s_callbacks = 0;
   s_callback_channel = -1;
   s_first_callback_ms = 0;
-  s_callback_work = NULL;
+  s_callback_work = nullptr;
   s_reset = false;
   s_reset_ms = 0;
   pbl_task_wdt_reset_for_test();
@@ -134,7 +129,7 @@ void test_task_wdt__cleanup(void) {
 // ---- tests ------------------------------------------------------------------
 
 static void prv_feeding_entry(void *arg) {
-  int ch = pbl_task_wdt_add(NULL, TIMEOUT_MS, prv_callback, NULL);
+  int ch = pbl_task_wdt_add(nullptr, TIMEOUT_MS, prv_callback, nullptr);
   cl_assert(ch >= 0);
   for (int i = 0; i < 10; i++) {
     prv_sleep_ms(TIMEOUT_MS / 2);
@@ -144,26 +139,26 @@ static void prv_feeding_entry(void *arg) {
 }
 
 void test_task_wdt__fed_channel_never_expires(void) {
-  prv_spawn(0, "fed", prv_feeding_entry, NULL);
+  prv_spawn(0, "fed", prv_feeding_entry, nullptr);
   pbl_test_kernel_run();
   cl_assert_equal_i(s_callbacks, 0);
   cl_assert(!s_reset);
   // Ten half-timeouts of feeding is 10 s: the hardware watchdog got fed
   // once per check period throughout.
-  cl_assert(s_hw_feeds >= 10 * (TIMEOUT_MS / 2) / PERIOD_MS - 1);
+  cl_assert(watchdog_feed_fake.call_count >= 10 * (TIMEOUT_MS / 2) / PERIOD_MS - 1);
 }
 
 static int s_work;
 
 static void prv_stuck_entry(void *arg) {
-  cl_assert(pbl_task_wdt_add(NULL, TIMEOUT_MS, prv_callback, &s_work) >= 0);
+  cl_assert(pbl_task_wdt_add(nullptr, TIMEOUT_MS, prv_callback, &s_work) >= 0);
   // Blocked forever from the kernel's point of view; only the watchdog runs.
   prv_sleep_ms(60 * 1000);
   cl_fail("the stuck thread outlived the watchdog");
 }
 
 void test_task_wdt__unfed_channel_calls_back_then_resets(void) {
-  prv_spawn(0, "stuck", prv_stuck_entry, NULL);
+  prv_spawn(0, "stuck", prv_stuck_entry, nullptr);
   pbl_test_kernel_run();
 
   cl_assert(s_callbacks >= 1);
@@ -187,11 +182,11 @@ void test_task_wdt__unfed_channel_calls_back_then_resets(void) {
 static void *prv_recovering_callback(int channel_id, void *user_data) {
   s_callbacks++;
   pbl_task_wdt_feed(channel_id);
-  return NULL;
+  return nullptr;
 }
 
 static void prv_recovered_entry(void *arg) {
-  cl_assert(pbl_task_wdt_add(NULL, TIMEOUT_MS, prv_recovering_callback, NULL) >= 0);
+  cl_assert(pbl_task_wdt_add(nullptr, TIMEOUT_MS, prv_recovering_callback, nullptr) >= 0);
   prv_sleep_ms(TIMEOUT_MS + PERIOD_MS + GRACE_MS);
   pbl_test_kernel_stop();
 }
@@ -199,7 +194,7 @@ static void prv_recovered_entry(void *arg) {
 void test_task_wdt__callback_recovers_overdue_channel(void) {
   // Already more than the grace period overdue when first found expired.
   cl_assert(PERIOD_MS - TIMEOUT_MS >= GRACE_MS);
-  prv_spawn(0, "recovered", prv_recovered_entry, NULL);
+  prv_spawn(0, "recovered", prv_recovered_entry, nullptr);
   pbl_test_kernel_run();
   cl_assert(!s_reset);
   cl_assert_equal_i(s_callbacks, 1);
@@ -207,7 +202,7 @@ void test_task_wdt__callback_recovers_overdue_channel(void) {
 }
 
 static void prv_late_feed_entry(void *arg) {
-  int ch = pbl_task_wdt_add(NULL, TIMEOUT_MS, prv_callback, NULL);
+  int ch = pbl_task_wdt_add(nullptr, TIMEOUT_MS, prv_callback, nullptr);
   // Expire, then recover inside the grace period.
   prv_sleep_ms(TIMEOUT_MS + PERIOD_MS / 2);
   cl_assert(s_callbacks >= 1);
@@ -218,14 +213,14 @@ static void prv_late_feed_entry(void *arg) {
 }
 
 void test_task_wdt__feed_inside_grace_recovers(void) {
-  prv_spawn(0, "late", prv_late_feed_entry, NULL);
+  prv_spawn(0, "late", prv_late_feed_entry, nullptr);
   pbl_test_kernel_run();
   cl_assert(!s_reset);
   cl_assert_equal_i(s_reason.code, RebootReasonCode_Unknown);
 }
 
 static void prv_suspended_entry(void *arg) {
-  pbl_task_wdt_add(NULL, TIMEOUT_MS, prv_callback, NULL);
+  pbl_task_wdt_add(nullptr, TIMEOUT_MS, prv_callback, nullptr);
   pbl_task_wdt_suspend(3 * TIMEOUT_MS);
   prv_sleep_ms(2 * TIMEOUT_MS);
   cl_assert_equal_i(s_callbacks, 0);
@@ -237,12 +232,12 @@ static void prv_suspended_entry(void *arg) {
 }
 
 void test_task_wdt__timed_suspend_defers_expiry(void) {
-  prv_spawn(0, "suspended", prv_suspended_entry, NULL);
+  prv_spawn(0, "suspended", prv_suspended_entry, nullptr);
   pbl_test_kernel_run();
 }
 
 static void prv_resume_entry(void *arg) {
-  pbl_task_wdt_add(NULL, TIMEOUT_MS, prv_callback, NULL);
+  pbl_task_wdt_add(nullptr, TIMEOUT_MS, prv_callback, nullptr);
   pbl_task_wdt_suspend(0);
   prv_sleep_ms(5 * TIMEOUT_MS);
   cl_assert_equal_i(s_callbacks, 0);
@@ -255,12 +250,12 @@ static void prv_resume_entry(void *arg) {
 }
 
 void test_task_wdt__resume_restarts_timeouts(void) {
-  prv_spawn(0, "resumed", prv_resume_entry, NULL);
+  prv_spawn(0, "resumed", prv_resume_entry, nullptr);
   pbl_test_kernel_run();
 }
 
 static void prv_self_feeder_entry(void *arg) {
-  cl_assert(pbl_task_wdt_add(NULL, TIMEOUT_MS, prv_callback, NULL) >= 0);
+  cl_assert(pbl_task_wdt_add(nullptr, TIMEOUT_MS, prv_callback, nullptr) >= 0);
   for (;;) {
     prv_sleep_ms(TIMEOUT_MS / 2);
     pbl_task_wdt_feed_self();
@@ -268,13 +263,13 @@ static void prv_self_feeder_entry(void *arg) {
 }
 
 static void prv_bystander_entry(void *arg) {
-  cl_assert(pbl_task_wdt_add(NULL, TIMEOUT_MS, prv_callback, NULL) >= 0);
+  cl_assert(pbl_task_wdt_add(nullptr, TIMEOUT_MS, prv_callback, nullptr) >= 0);
   prv_sleep_ms(60 * 1000);
 }
 
 void test_task_wdt__feed_self_leaves_other_channels_alone(void) {
-  prv_spawn(0, "feeder", prv_self_feeder_entry, NULL);
-  prv_spawn(1, "bystander", prv_bystander_entry, NULL);
+  prv_spawn(0, "feeder", prv_self_feeder_entry, nullptr);
+  prv_spawn(1, "bystander", prv_bystander_entry, nullptr);
   pbl_test_kernel_run();
   cl_assert(s_reset);
   cl_assert_equal_i(s_callback_channel, 1);
@@ -291,8 +286,8 @@ static void prv_all_feeder_entry(void *arg) {
 }
 
 void test_task_wdt__feed_all_covers_every_channel(void) {
-  prv_spawn(0, "feeder", prv_all_feeder_entry, NULL);
-  prv_spawn(1, "bystander", prv_bystander_entry, NULL);
+  prv_spawn(0, "feeder", prv_all_feeder_entry, nullptr);
+  prv_spawn(1, "bystander", prv_bystander_entry, nullptr);
   pbl_test_kernel_run();
   cl_assert(!s_reset);
   cl_assert_equal_i(s_callbacks, 0);
@@ -308,7 +303,7 @@ static void prv_thread_feeder_entry(void *arg) {
 }
 
 void test_task_wdt__feed_thread_feeds_on_behalf(void) {
-  struct pbl_thread *bystander = prv_spawn(1, "bystander", prv_bystander_entry, NULL);
+  struct pbl_thread *bystander = prv_spawn(1, "bystander", prv_bystander_entry, nullptr);
   prv_spawn(0, "feeder", prv_thread_feeder_entry, bystander);
   pbl_test_kernel_run();
   cl_assert(!s_reset);
@@ -316,7 +311,7 @@ void test_task_wdt__feed_thread_feeds_on_behalf(void) {
 }
 
 static void prv_delete_entry(void *arg) {
-  int ch = pbl_task_wdt_add(NULL, TIMEOUT_MS, prv_callback, NULL);
+  int ch = pbl_task_wdt_add(nullptr, TIMEOUT_MS, prv_callback, nullptr);
   cl_assert_equal_i(pbl_task_wdt_delete(ch), 0);
   cl_assert_equal_i(pbl_task_wdt_delete(ch), -EINVAL);
   cl_assert_equal_i(pbl_task_wdt_feed(ch), -EINVAL);
@@ -325,7 +320,7 @@ static void prv_delete_entry(void *arg) {
 }
 
 void test_task_wdt__deleted_channel_is_forgotten(void) {
-  prv_spawn(0, "deleter", prv_delete_entry, NULL);
+  prv_spawn(0, "deleter", prv_delete_entry, nullptr);
   pbl_test_kernel_run();
   cl_assert(!s_reset);
   cl_assert_equal_i(s_callbacks, 0);
@@ -334,24 +329,24 @@ void test_task_wdt__deleted_channel_is_forgotten(void) {
 static void prv_exhaust_entry(void *arg) {
   int ids[CONFIG_TASK_WDT_CHANNELS];
   for (int i = 0; i < CONFIG_TASK_WDT_CHANNELS; i++) {
-    ids[i] = pbl_task_wdt_add(NULL, TIMEOUT_MS, NULL, NULL);
+    ids[i] = pbl_task_wdt_add(nullptr, TIMEOUT_MS, nullptr, nullptr);
     cl_assert_equal_i(ids[i], i);
   }
-  cl_assert_equal_i(pbl_task_wdt_add(NULL, TIMEOUT_MS, NULL, NULL), -ENOMEM);
+  cl_assert_equal_i(pbl_task_wdt_add(nullptr, TIMEOUT_MS, nullptr, nullptr), -ENOMEM);
   cl_assert_equal_i(pbl_task_wdt_delete(ids[1]), 0);
-  cl_assert_equal_i(pbl_task_wdt_add(NULL, TIMEOUT_MS, NULL, NULL), 1);
+  cl_assert_equal_i(pbl_task_wdt_add(nullptr, TIMEOUT_MS, nullptr, nullptr), 1);
   pbl_test_kernel_stop();
 }
 
 void test_task_wdt__channel_pool_is_bounded(void) {
-  prv_spawn(0, "exhaust", prv_exhaust_entry, NULL);
+  prv_spawn(0, "exhaust", prv_exhaust_entry, nullptr);
   pbl_test_kernel_run();
 }
 
 static uint32_t s_wait_end_ms;
 
 static void prv_waiting_entry(void *arg) {
-  cl_assert(pbl_task_wdt_add(NULL, TIMEOUT_MS, prv_callback, NULL) >= 0);
+  cl_assert(pbl_task_wdt_add(nullptr, TIMEOUT_MS, prv_callback, nullptr) >= 0);
   pbl_task_wdt_set_waiting(true);
   prv_sleep_ms(10 * TIMEOUT_MS);
   cl_assert_equal_i(s_callbacks, 0);
@@ -361,7 +356,7 @@ static void prv_waiting_entry(void *arg) {
 }
 
 void test_task_wdt__waiting_channel_does_not_expire(void) {
-  prv_spawn(0, "waiting", prv_waiting_entry, NULL);
+  prv_spawn(0, "waiting", prv_waiting_entry, nullptr);
   pbl_test_kernel_run();
   // Busy since the wait ended without feeding: the timeout restarted there.
   cl_assert(s_callbacks >= 1);
@@ -371,14 +366,14 @@ void test_task_wdt__waiting_channel_does_not_expire(void) {
 }
 
 static void prv_waiting_bystander_entry(void *arg) {
-  cl_assert(pbl_task_wdt_add(NULL, TIMEOUT_MS, prv_callback, NULL) >= 0);
+  cl_assert(pbl_task_wdt_add(nullptr, TIMEOUT_MS, prv_callback, nullptr) >= 0);
   pbl_task_wdt_set_waiting(true);
   prv_sleep_ms(60 * 1000);
 }
 
 void test_task_wdt__waiting_is_per_thread(void) {
-  prv_spawn(0, "waiting", prv_waiting_bystander_entry, NULL);
-  prv_spawn(1, "stuck", prv_bystander_entry, NULL);
+  prv_spawn(0, "waiting", prv_waiting_bystander_entry, nullptr);
+  prv_spawn(1, "stuck", prv_bystander_entry, nullptr);
   pbl_test_kernel_run();
   cl_assert(s_reset);
   cl_assert_equal_i(s_callback_channel, 1);

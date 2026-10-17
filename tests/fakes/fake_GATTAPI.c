@@ -3,9 +3,9 @@
 
 #include "fake_GATTAPI.h"
 
-#include "clar_asserts.h"
-
 #include <string.h>
+
+#include <clar_asserts.h>
 
 static GATT_Connection_Event_Callback_t s_connection_event_callback;
 static unsigned int s_stack_id;
@@ -99,7 +99,7 @@ void fake_gatt_init(void) {
   memset(&s_service_discovery_ctx, 0, sizeof(struct FakeGATTServiceDiscoveryContext));
   s_stack_id = 0;
   s_connection_callback_param = 0;
-  s_connection_event_callback = NULL;
+  s_connection_event_callback = nullptr;
   s_start_count = 0;
   s_stop_count = 0;
   s_start_ret_val = 0;
@@ -166,5 +166,5 @@ void fake_gatt_put_write_response_for_last_write(void) {
     .Event_Data.GATT_Write_Response_Data = &data,
   };
   s_write_cb(s_write_stack_id, &event, s_write_cb_param);
-  s_write_cb = NULL;
+  s_write_cb = nullptr;
 }

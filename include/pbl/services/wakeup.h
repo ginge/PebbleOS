@@ -3,10 +3,9 @@
 
 #pragma once
 
-#include <stdbool.h>
 #include <stdint.h>
 
-#include "pbl/services/new_timer/new_timer.h"
+#include <pbl/services/new_timer/new_timer.h>
 
 /**
  * @defgroup services_wakeup Wakeup

@@ -3,7 +3,8 @@
 
 #pragma once
 #include "animation.h"
-#include "applib/graphics/gtypes.h"
+
+#include <applib/graphics/gtypes.h>
 
 //////////////////////
 // Property Animations

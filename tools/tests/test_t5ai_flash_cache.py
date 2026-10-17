@@ -12,7 +12,7 @@ HARNESS = r'''
 #include "stub.h"
 #include <assert.h>
 #include <string.h>
-#include "fw/drivers/flash/t5ai.c"
+#include "drivers/flash/t5ai.c"
 
 static uint8_t storage[BOARD_NOR_FLASH_SIZE];
 static unsigned reads, writes, erases;

@@ -1,36 +1,36 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/timeline/timeline.h"
-
-#include "pbl/util/uuid.h"
-#include "applib/ui/status_bar_layer.h"
-#include "apps/system/timeline/timeline.h"
-#include "apps/system/timeline/pin_window.h"
-#include "comm/ble/kernel_le_client/ancs/ancs.h"
-#include "comm/ble/kernel_le_client/ancs/ancs_types.h"
 #include <pbl/drivers/rtc.h>
-#include "kernel/event_loop.h"
-#include "kernel/pbl_malloc.h"
-#include "kernel/ui/modals/modal_manager.h"
-#include "process_management/app_install_manager.h"
-#include "process_management/app_manager.h"
-#include "pbl/services/i18n/i18n.h"
-#include "pbl/services/activity/activity_insights.h"
-#include "pbl/services/blob_db/api.h"
-#include "pbl/services/blob_db/pin_db.h"
-#include "pbl/services/blob_db/reminder_db.h"
-#include "pbl/services/notifications/notification_storage.h"
-#include "pbl/services/notifications/notifications.h"
-#include "pbl/services/phone_call_util.h"
-#include "pbl/services/timeline/actions_endpoint.h"
 #include <pbl/logging/logging.h>
-#include "system/passert.h"
-#include "pbl/util/list.h"
-#include "pbl/util/math.h"
-#include "pbl/util/size.h"
-#include "pbl/services/time.h"
-#include "pbl/util/units.h"
+#include <pbl/services/activity/activity_insights.h>
+#include <pbl/services/blob_db/api.h>
+#include <pbl/services/blob_db/pin_db.h>
+#include <pbl/services/blob_db/reminder_db.h>
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/services/notifications/notification_storage.h>
+#include <pbl/services/notifications/notifications.h>
+#include <pbl/services/phone_call_util.h>
+#include <pbl/services/time.h>
+#include <pbl/services/timeline/actions_endpoint.h>
+#include <pbl/services/timeline/timeline.h>
+#include <pbl/util/list.h>
+#include <pbl/util/math.h>
+#include <pbl/util/size.h>
+#include <pbl/util/units.h>
+#include <pbl/util/uuid.h>
+
+#include <applib/ui/status_bar_layer.h>
+#include <apps/system/timeline/pin_window.h>
+#include <apps/system/timeline/timeline.h>
+#include <comm/ble/kernel_le_client/ancs/ancs.h>
+#include <comm/ble/kernel_le_client/ancs/ancs_types.h>
+#include <kernel/event_loop.h>
+#include <kernel/pbl_malloc.h>
+#include <kernel/ui/modals/modal_manager.h>
+#include <process_management/app_install_manager.h>
+#include <process_management/app_manager.h>
+#include <system/passert.h>
 
 PBL_LOG_MODULE_DEFINE(service_timeline, CONFIG_SERVICE_TIMELINE_LOG_LEVEL);
 
@@ -174,7 +174,7 @@ static TimelineNode *prv_find_first(TimelineNode *head, TimelineIterDirection di
 }
 
 static void prv_remove_node(TimelineNode **head, TimelineNode *node) {
-  list_remove((ListNode *)node, (ListNode **)head, NULL);
+  list_remove((ListNode *)node, (ListNode **)head, nullptr);
   task_free(node);
 }
 
@@ -367,14 +367,14 @@ static bool prv_iter_dummy(IteratorState state) {
 
 static bool prv_iter_next(IteratorState state) {
   TimelineIterState *timeline_iter_state = (TimelineIterState *)state;
-  if (timeline_iter_state->node == NULL) {
+  if (timeline_iter_state->node == nullptr) {
     return false;
   }
   // keep a copy of the original node in case we go to the end without finding a new valid node
   TimelineNode *orig = timeline_iter_state->node;
   do {
     timeline_iter_state->node = (TimelineNode *)timeline_iter_state->node->node.next;
-    if (timeline_iter_state->node == NULL) {
+    if (timeline_iter_state->node == nullptr) {
       timeline_iter_state->node = orig;
       return false;
     }
@@ -399,13 +399,13 @@ static bool prv_iter_next(IteratorState state) {
 static bool prv_iter_prev(IteratorState state) {
   TimelineIterState *timeline_iter_state = (TimelineIterState *)state;
   // at the past-most item
-  if (timeline_iter_state->node == NULL) {
+  if (timeline_iter_state->node == nullptr) {
     return false;
   }
   TimelineNode *orig = timeline_iter_state->node;
   do {
     timeline_iter_state->node = (TimelineNode *)timeline_iter_state->node->node.prev;
-    if (timeline_iter_state->node == NULL) {
+    if (timeline_iter_state->node == nullptr) {
       timeline_iter_state->node = orig;
       return false;
     }
@@ -453,7 +453,7 @@ static void prv_put_outgoing_call_event(uint32_t call_identifier, const char *ca
       .type = PhoneEventType_Outgoing,
       .source = PhoneCallSource_ANCS_Legacy,
       .call_identifier = call_identifier,
-      .caller = phone_call_util_create_caller(caller_id, NULL),
+      .caller = phone_call_util_create_caller(caller_id, nullptr),
     }
   };
 
@@ -507,7 +507,7 @@ TimelineIterDirection timeline_direction_for_item(TimelineItem *item, TimelineNo
 }
 
 bool timeline_nodes_equal(TimelineNode *a, TimelineNode *b) {
-  if (a == NULL || b == NULL) {
+  if (a == nullptr || b == nullptr) {
     return (a == b);
   }
   return (uuid_equal(&a->id, &b->id) && (a->timestamp == b->timestamp));
@@ -580,7 +580,7 @@ status_t timeline_iter_init(Iterator *iter, TimelineIterState *iter_state, Timel
       prv_should_show_all_day_events(*head, timestamp, iter_state->midnight, direction);
   TimelineNode *node = prv_find_first(*head, direction, timestamp, iter_state->midnight,
                                       iter_state->show_all_day_events);
-  if (node == NULL) {
+  if (node == nullptr) {
     iter_init(iter, prv_iter_dummy, prv_iter_dummy, iter_state);
     return S_NO_MORE_ITEMS;
   }
@@ -624,7 +624,7 @@ void timeline_iter_deinit(Iterator *iter, TimelineIterState *iter_state, Timelin
     node = (TimelineNode *)node->node.next;
     prv_remove_node(head, old);
   }
-  *head = NULL;
+  *head = nullptr;
 
   // free the currently allocated item in the iterator
   timeline_item_free_allocated_buffer(&iter_state->pin);
@@ -859,7 +859,7 @@ void timeline_invoke_action(const TimelineItem *item, const TimelineItemAction *
     case TimelineItemActionTypeAncsDial: {
       const char *caller_id = attribute_get_string(&item->attr_list, AttributeIdTitle, "Unknown");
       prv_put_outgoing_call_event(item->header.ancs_uid, caller_id);
-      notifications_handle_notification_action_result(NULL);
+      notifications_handle_notification_action_result(nullptr);
       ancs_perform_action(item->header.ancs_uid, ActionIDPositive);
       break;
     }
@@ -882,7 +882,7 @@ void timeline_invoke_action(const TimelineItem *item, const TimelineItemAction *
         return;
       }
 
-      // FALLTHROUGH
+      [[fallthrough]];
     case TimelineItemActionTypeGeneric:
     case TimelineItemActionTypeResponse:
     case TimelineItemActionTypeAncsResponse:
@@ -954,5 +954,5 @@ const char *timeline_get_private_data_source(Uuid *parent_id) {
       return s_data_sources[i].name;
     }
   }
-  return NULL;
+  return nullptr;
 }

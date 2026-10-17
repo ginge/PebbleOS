@@ -79,7 +79,7 @@ class FlashPhaseTraceTest(unittest.TestCase):
             for header in (
                 "pbl/kernel/irq.h",
                 "pbl/kernel/mutex.h",
-                "pbl/kernel/sched.h",
+                "pbl/kernel/time.h", "pbl/kernel/sched.h",
                 "pbl/kernel/thread.h",
                 "pbl/logging/logging.h",
                 "pbl/services/filesystem/pfs.h",

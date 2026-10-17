@@ -5,15 +5,16 @@
 
 #include "app_install_manager_private.h"
 
-#include "apps/system_app_ids.h"
-#include "kernel/pbl_malloc.h"
-#include "pbl/services/comm_session/session.h"
-#include <pbl/logging/logging.h>
-#include "pbl/kernel/compiler.h"
-#include "pbl/util/math.h"
-
-#include <string.h>
 #include <stddef.h>
+#include <string.h>
+
+#include <pbl/kernel/compiler.h>
+#include <pbl/logging/logging.h>
+#include <pbl/services/comm_session/session.h>
+#include <pbl/util/math.h>
+
+#include <apps/system_app_ids.h>
+#include <kernel/pbl_malloc.h>
 
 // We no longer have icons in the launcher, so we don't really need this anymore.
 // However, we may decide to put it back in, so let's keep the code around just in case.
@@ -65,7 +66,7 @@ static void do_callbacks(const CustomizableAppType app_type) {
   }
 
   AppInstallId app_id = (app_type == SPORTS) ? APP_ID_SPORTS : APP_ID_GOLF;
-  app_install_do_callbacks(APP_ICON_NAME_UPDATED, app_id, NULL, NULL, NULL);
+  app_install_do_callbacks(APP_ICON_NAME_UPDATED, app_id, nullptr, nullptr, nullptr);
 }
 
 #if ALLOW_SET_ICON
@@ -149,11 +150,11 @@ static CustomizableAppType get_app_type_for_app_id(AppInstallId app_id) {
 const char *app_custom_get_title(AppInstallId app_id) {
   CustomizableAppType app_type = get_app_type_for_app_id(app_id);
 
-  const char *name = NULL;
-  if (app_type != UNKNOWN_APP_TYPE && s_info[app_type].name != NULL) {
+  const char *name = nullptr;
+  if (app_type != UNKNOWN_APP_TYPE && s_info[app_type].name != nullptr) {
     name = s_info[app_type].name;
   } else {
-    return NULL;
+    return nullptr;
   }
 
   return name;
@@ -162,8 +163,8 @@ const char *app_custom_get_title(AppInstallId app_id) {
 const GBitmap *app_custom_get_icon(AppInstallId app_id) {
   CustomizableAppType app_type = get_app_type_for_app_id(app_id);
 
-  if (app_type != UNKNOWN_APP_TYPE && s_info[app_type].image_data != NULL) {
+  if (app_type != UNKNOWN_APP_TYPE && s_info[app_type].image_data != nullptr) {
     return &s_info[app_type].icon;
   }
-  return NULL;
+  return nullptr;
 }

@@ -1,22 +1,22 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/app_watch_info.h"
-#include <pbl/drivers/flash.h>
-#include "flash_region/flash_region.h"
-#include "system/firmware_storage.h"
-#include "system/passert.h"
-#include "pbl/kernel/compiler.h"
-#include "pbl/util/build_id.h"
-#include "pbl/util/string.h"
+#include "version.h"
 
 #include <ctype.h>
 #include <stddef.h>
 #include <string.h>
 
-#include "version.h"
+#include <pbl/drivers/flash.h>
+#include <pbl/kernel/compiler.h>
+#include <pbl/util/build_id.h>
+#include <pbl/util/string.h>
+#include <pbl/version.h>
 
-#include "pbl/version.h"
+#include <applib/app_watch_info.h>
+#include <flash_region/flash_region.h>
+#include <system/firmware_storage.h>
+#include <system/passert.h>
 
 //! This symbol and its contents are provided by the linker script, see the
 //! .note.gnu.build-id section in fw/fw_common.ld
@@ -47,7 +47,7 @@ const FirmwareMetadata TINTIN_METADATA PBL_SECTION(".pbl_fw_version") = {
 };
 
 bool version_copy_running_fw_metadata(FirmwareMetadata *out_metadata) {
-  if (out_metadata == NULL) {
+  if (out_metadata == nullptr) {
     return false;
   }
   memcpy(out_metadata, &TINTIN_METADATA, sizeof(FirmwareMetadata));
@@ -84,9 +84,9 @@ static bool prv_version_copy_flash_fw_metadata(FirmwareMetadata *out_metadata,
 }
 
 bool version_copy_recovery_fw_metadata(FirmwareMetadata *out_metadata) {
-#ifdef CONFIG_QEMU
-  // QEMU has no recovery firmware. Report the running one, so the phone app
-  // does not treat the emulator as a watch without PRF.
+#if defined(CONFIG_QEMU) || defined(CONFIG_SOC_POSIX)
+  // QEMU and native builds have no recovery firmware. Report the running one,
+  // so the phone app does not treat the emulator as a watch without PRF.
   version_copy_running_fw_metadata(out_metadata);
   out_metadata->is_recovery_firmware = true;
   return true;

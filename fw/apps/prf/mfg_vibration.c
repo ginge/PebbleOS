@@ -1,19 +1,20 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/app.h"
-#include "applib/tick_timer_service.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/dialogs/confirmation_dialog.h"
-#include "applib/ui/text_layer.h"
-#include "applib/ui/vibes.h"
-#include "applib/ui/window.h"
-#include "apps/prf/mfg_test_result.h"
 #include <pbl/drivers/vibe.h>
-#include "kernel/pbl_malloc.h"
-#include "mfg/mfg_info.h"
-#include "process_management/pebble_process_md.h"
-#include "process_state/app_state/app_state.h"
+
+#include <applib/app.h>
+#include <applib/tick_timer_service.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/dialogs/confirmation_dialog.h>
+#include <applib/ui/text_layer.h>
+#include <applib/ui/vibes.h>
+#include <applib/ui/window.h>
+#include <apps/prf/mfg_test_result.h>
+#include <kernel/pbl_malloc.h>
+#include <mfg/mfg_info.h>
+#include <process_management/pebble_process_md.h>
+#include <process_state/app_state/app_state.h>
 
 #define VIBE_COUNT               5
 #define FAIL_DISPLAY_S           3
@@ -67,7 +68,7 @@ static void prv_show_result_dialog(void) {
   app_confirmation_dialog_push(confirmation_dialog);
 }
 
-static void prv_handle_second_tick(struct tm *tick_time, TimeUnits units_changed) {
+static void prv_handle_second_tick(struct pbl_tm *tick_time, TimeUnits units_changed) {
   AppData *data = app_state_get_user_data();
 
   const int WAIT_AFTER_CALIBRATION_S = 3;

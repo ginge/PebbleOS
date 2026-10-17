@@ -3,12 +3,13 @@
 
 #include "crumbs_layer.h"
 
-#include "applib/applib_malloc.auto.h"
-#include "shell/system_theme.h"
-#include "applib/ui/property_animation.h"
-#include "process_management/process_manager.h"
 #include <pbl/logging/logging.h>
-#include "pbl/util/trig.h"
+#include <pbl/util/trig.h>
+
+#include <applib/applib_malloc.auto.h>
+#include <applib/ui/property_animation.h>
+#include <process_management/process_manager.h>
+#include <shell/system_theme.h>
 
 typedef struct CrumbsLayerSizeConfig {
   int layer_width;
@@ -154,7 +155,7 @@ CrumbsLayer *crumbs_layer_create(GRect frame, GColor bg_color, GColor fg_color) 
 }
 
 void crumbs_layer_deinit(CrumbsLayer *crumbs_layer) {
-  if (crumbs_layer == NULL) {
+  if (crumbs_layer == nullptr) {
     return;
   }
 

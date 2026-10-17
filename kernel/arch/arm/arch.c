@@ -4,14 +4,13 @@
 #include <stddef.h>
 #include <string.h>
 
+#include <pbl/kernel/compiler.h>
+#include <pbl/kernel/idle.h>
+#include <pbl/mcu/interrupts.h>
+#include <pbl/mcu/mpu.h>
+
 #include <cmsis_core.h>
-
-#include "pbl/drivers/mpu.h"
-#include "pbl/kernel/idle.h"
-#include "pbl/mcu/interrupts.h"
-
-#include "kernel.h"
-#include "pbl/kernel/compiler.h"
+#include <kernel.h>
 
 #ifdef CONFIG_CPU_HAS_FPU
 #define HAS_FPU 1
@@ -108,9 +107,9 @@ const struct pbl_kernel_debug_layout pbl_kernel_debug_layout PBL_USED = {
   .ctx_fp_extra = NUM_EXTRA_FP_REGS * sizeof(uint32_t),
 };
 
-_Static_assert(offsetof(struct pbl_thread, backend.sp) == 0, "saved SP must be first");
-_Static_assert(offsetof(struct pbl_thread, backend.arch.mpu) == 4, "MPU words must follow the SP");
-_Static_assert(NUM_MPU_REGIONS == PBL_THREAD_MAX_MEM_REGIONS, "region count mismatch");
+static_assert(offsetof(struct pbl_thread, backend.sp) == 0, "saved SP must be first");
+static_assert(offsetof(struct pbl_thread, backend.arch.mpu) == 4, "MPU words must follow the SP");
+static_assert(NUM_MPU_REGIONS == PBL_THREAD_MAX_MEM_REGIONS, "region count mismatch");
 
 static inline bool prv_fp_active(uint32_t exc_return) {
   return (exc_return & EXC_RETURN_FP_INACTIVE) == 0;
@@ -119,7 +118,7 @@ static inline bool prv_fp_active(uint32_t exc_return) {
 // ---- threads ----------------------------------------------------------------
 
 static void prv_thread_return(void) {
-  pbl_thread_abort(NULL);
+  pbl_thread_abort(nullptr);
 }
 
 void arch_thread_init(struct pbl_thread *t, void (*entry)(void *), void *arg) {
@@ -145,17 +144,17 @@ void arch_thread_init(struct pbl_thread *t, void (*entry)(void *), void *arg) {
 // i.e. it would wipe the slot programmed just before it.
 void arch_thread_regions_set(struct pbl_thread *t, const MpuRegion *const *regions) {
   for (unsigned int i = 0; i < NUM_MPU_REGIONS; i++) {
-    const MpuRegion *r = regions ? regions[i] : NULL;
+    const MpuRegion *r = regions ? regions[i] : nullptr;
     uint32_t rbar = 0;
     uint32_t attr = 0;
-#ifndef CONFIG_MPU_TYPE_ARMV8M
+#ifndef CONFIG_ARMV8_M_MAINLINE
     rbar = MPU_RBAR_VALID_Msk | (FIRST_MPU_REGION + i);
 #endif
-    if (r != NULL) {
+    if (r != nullptr) {
       KERNEL_ASSERT(r->region_num == FIRST_MPU_REGION + i);
       uint32_t base_reg;
       mpu_get_register_settings(r, &base_reg, &attr);
-#ifdef CONFIG_MPU_TYPE_ARMV8M
+#ifdef CONFIG_ARMV8_M_MAINLINE
       rbar = base_reg;
 #else
       rbar |= base_reg & ~(MPU_RBAR_VALID_Msk | MPU_RBAR_REGION_Msk);
@@ -184,6 +183,15 @@ void arch_thread_exit(void) {
 
 bool arch_in_isr(void) {
   return mcu_state_is_isr();
+}
+
+void arch_cycle_enable(void) {
+  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+}
+
+uint32_t arch_cycles_per_sec(void) {
+  return SystemCoreClock;
 }
 
 void arch_irq_disable(void) {
@@ -319,9 +327,12 @@ static uintptr_t prv_original_sp(const uint32_t *frame, uint32_t exc_return) {
 #define SYSCALL_STACK_ARG_WORDS 16u
 
 // Boards without a dedicated syscall stack run syscalls on the caller's.
-PBL_WEAK uint32_t *pbl_kernel_syscall_stack(uintptr_t *base_out) {
+PBL_WEAK uint32_t *pbl_kernel_syscall_stack(uintptr_t *base_out, uintptr_t *caller_start_out,
+                                            uintptr_t *caller_end_out) {
   (void)base_out;
-  return NULL;
+  (void)caller_start_out;
+  (void)caller_end_out;
+  return nullptr;
 }
 
 // Moves the exception frame onto the thread's syscall stack, if it has one,
@@ -329,13 +340,23 @@ PBL_WEAK uint32_t *pbl_kernel_syscall_stack(uintptr_t *base_out) {
 static uint32_t *prv_relocate_to_syscall_stack(uint32_t *frame, uint32_t exc_return,
                                                uintptr_t orig_sp) {
   uintptr_t base = 0;
-  uint32_t *top = pbl_kernel_syscall_stack(&base);
-  if (top == NULL) {
+  uintptr_t caller_start = 0;
+  uintptr_t caller_end = 0;
+  uint32_t *top = pbl_kernel_syscall_stack(&base, &caller_start, &caller_end);
+  if (top == nullptr) {
     return &frame[5];
   }
 
   uint32_t *args = top - SYSCALL_STACK_ARG_WORDS;
-  memcpy(args, (const void *)orig_sp, SYSCALL_STACK_ARG_WORDS * sizeof(uint32_t));
+  size_t args_size = 0;
+  if (orig_sp >= caller_start && orig_sp < caller_end) {
+    args_size = SYSCALL_STACK_ARG_WORDS * sizeof(uint32_t);
+    if (caller_end - orig_sp < args_size) {
+      args_size = caller_end - orig_sp;
+    }
+  }
+  memset(args, 0, SYSCALL_STACK_ARG_WORDS * sizeof(uint32_t));
+  memcpy(args, (const void *)orig_sp, args_size);
 
   uint32_t frame_words = prv_fp_active(exc_return) ? 8u + NUM_BASIC_FP_REGS : 8u;
   uint32_t *dst = args - frame_words;

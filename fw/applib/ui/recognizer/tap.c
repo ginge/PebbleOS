@@ -6,12 +6,13 @@
 #include "recognizer.h"
 #include "recognizer_impl.h"
 
-#include "pbl/drivers/rtc.h"
-#include "pbl/util/math.h"
-#include "syscall/syscall.h"
-
 #include <string.h>
-#include "pbl/util/units.h"
+
+#include <pbl/drivers/rtc.h>
+#include <pbl/util/math.h>
+#include <pbl/util/units.h>
+
+#include <syscall/syscall.h>
 
 // Maximum touchdown-to-liftoff duration for a press to count as a tap; a longer
 // contact is treated as a hold, not a tap. Value from the reference PT2 touch-nav
@@ -118,8 +119,8 @@ Recognizer *tap_recognizer_create(RecognizerEventCb event_cb, void *user_data) {
 }
 
 Recognizer *tap_recognizer_init_static(void *storage, RecognizerEventCb event_cb, void *user_data) {
-  _Static_assert(RECOGNIZER_INSTANCE_SIZE + sizeof(TapRecognizerData) <= TAP_RECOGNIZER_STATIC_SIZE,
-                 "TAP_RECOGNIZER_STATIC_SIZE too small for a static tap recognizer");
+  static_assert(RECOGNIZER_INSTANCE_SIZE + sizeof(TapRecognizerData) <= TAP_RECOGNIZER_STATIC_SIZE,
+                "TAP_RECOGNIZER_STATIC_SIZE too small for a static tap recognizer");
   TapRecognizerData data = {
     .config = {
       .taps_required = 1,

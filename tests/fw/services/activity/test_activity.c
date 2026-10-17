@@ -1,79 +1,59 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/kernel/types.h"
-#include "applib/accel_service.h"
-#include "applib/data_logging.h"
-#include "applib/health_service.h"
-#include "applib/health_service_private.h"
+#include <errno.h>
+
 #include <pbl/drivers/rtc.h>
 #include <pbl/drivers/vibe.h>
-#include "kernel/events.h"
-#include "pbl/services/hrm/hrm_manager_private.h"
-#include "pbl/services/activity/activity.h"
-#include "pbl/services/activity/activity_algorithm.h"
-#include "pbl/services/activity/activity_private.h"
-#include "pbl/services/activity/kraepelin/activity_algorithm_kraepelin.h"
-#include "pbl/services/data_logging/data_logging_service.h"
-#include "pbl/services/filesystem/pfs.h"
-#include "pbl/services/protobuf_log/protobuf_log.h"
-#include "shell/prefs.h"
+#include <pbl/kernel/compiler.h>
+#include <pbl/kernel/types.h>
 #include <pbl/logging/logging.h>
-#include "system/passert.h"
-#include "pbl/util/math.h"
-#include "pbl/util/size.h"
+#include <pbl/services/activity/activity.h>
+#include <pbl/services/activity/activity_algorithm.h>
+#include <pbl/services/activity/activity_private.h>
+#include <pbl/services/activity/kraepelin/activity_algorithm_kraepelin.h>
+#include <pbl/services/data_logging/data_logging_service.h>
+#include <pbl/services/filesystem/pfs.h>
+#include <pbl/services/hrm/hrm_manager_private.h>
+#include <pbl/services/protobuf_log/protobuf_log.h>
+#include <pbl/services/time.h>
+#include <pbl/util/math.h>
+#include <pbl/util/size.h>
+#include <pbl/util/time.h>
+#include <pbl/util/units.h>
 
+#include <applib/accel_service.h>
+#include <applib/data_logging.h>
+#include <applib/health_service.h>
+#include <applib/health_service_private.h>
+#include <clar.h>
+#include <kernel/events.h>
+#include <shell/prefs.h>
 #include <sys/stat.h>
-
-#include "clar.h"
-#include "pbl/services/time.h"
-#include "pbl/util/time.h"
-#include "pbl/util/units.h"
+#include <system/passert.h>
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
 #endif
 
 // Stubs
-#include "stubs_activity_insights.h"
-#include "stubs_alarm.h"
-#include "stubs_app_manager.h"
-#include "stubs_analytics.h"
-#include "stubs_app_install_manager.h"
-#include "stubs_battery.h"
-#include "stubs_event_loop.h"
-#include "stubs_irq.h"
-#include "stubs_health_db.h"
-#include "stubs_hexdump.h"
-#include "stubs_i18n.h"
-#include "stubs_logging.h"
-#include "stubs_mutex.h"
-#include "stubs_passert.h"
-#include "stubs_pebble_process_info.h"
-#include "stubs_sleep.h"
-#include "stubs_system_theme.h"
-#include "stubs_task_wdt.h"
-#include "stubs_timeline_peek.h"
-#include "stubs_worker_manager.h"
-#include "stubs_workout_service.h"
-#include "stubs_ambient_light.h"
-#include "pbl/util/testing.h"
+#include <pbl/util/testing.h>
 
 void prefs_sync_init(void) {
 }
 
 // Fakes
-#include "fake_accel_service.h"
-#include "fake_cron.h"
-#include "fake_events.h"
-#include "fake_new_timer.h"
-#include "fake_pbl_std.h"
-#include "fake_rtc.h"
-#include "fake_spi_flash.h"
-#include "fake_system_task.h"
+#include <fake_accel_service.h>
+#include <fake_cron.h>
+#include <fake_events.h>
+#include <fake_new_timer.h>
+#include <fake_pbl_std.h>
+#include <fake_rtc.h>
+#include <fake_spi_flash.h>
+#include <fake_system_task.h>
 
 // We start time out at 5pm on Jan 1, 2015 for all of these tests
-static const struct tm s_init_time_tm = {
+static const struct pbl_tm s_init_time_tm = {
   // Thursday, Jan 1, 2015, 5:pm
   .tm_hour = 17,
   .tm_mday = 1,
@@ -112,7 +92,7 @@ HealthServiceState *app_state_get_health_service_state(void) {
 
 HealthServiceState *worker_state_get_health_service_state(void) {
   cl_fail("should never be called");
-  return NULL;
+  return nullptr;
 }
 
 void event_service_client_subscribe(EventServiceInfo *service_info) {
@@ -200,11 +180,16 @@ AppInstallId app_get_app_id(void) {
 // ======================================================================================
 // Queue stubs, to support the semaphore that activity.c uses to block on a kernel BG callback
 int s_queue_value = 0;
+static bool s_system_task_stalled;
 
 void pbl_sem_init(struct pbl_sem *s, uint32_t initial, uint32_t limit) {
 }
 
 int pbl_sem_take(struct pbl_sem *s, pbl_timeout_t timeout) {
+  if (s_system_task_stalled) {
+    fake_rtc_increment_ticks(PBL_TICK_HZ);
+    return -EAGAIN;
+  }
   while (s_queue_value <= 0) {
     fake_system_task_callbacks_invoke_pending();
   }
@@ -280,7 +265,7 @@ DataLoggingSession *dls_create(uint32_t tag, DataLoggingItemType item_type, uint
     return (DataLoggingSession *)DataLoggingSession_ActivitySessions;
 
   } else {
-    return NULL;
+    return nullptr;
   }
 }
 
@@ -324,30 +309,6 @@ static void prv_assert_equal_metric_history(ActivityMetric metric,
 
 #define ASSERT_EQUAL_METRIC_HISTORY(metric, expected) \
   prv_assert_equal_metric_history((metric), (expected), __FILE__, __LINE__)
-
-static void prv_assert_dls_activity_record_present(ActivitySessionDataLoggingRecord *record,
-                                                   char *file, int line) {
-  for (int i = 0; i < s_num_dls_activity_records; i++) {
-    if (!memcmp(record, &s_dls_activity_records[i], sizeof(*record))) {
-      return;
-    }
-  }
-  printf("\nFound records:");
-  for (int i = 0; i < s_num_dls_activity_records; i++) {
-    printf("\ntype: %d, start_utc: %" PRIu32 ", elapsed: %" PRIu32 ", utc_to_local: %" PRIu32 " ",
-           (int)s_dls_activity_records[i].activity, (uint32_t)s_dls_activity_records[i].start_utc,
-           s_dls_activity_records[i].elapsed_sec, s_dls_activity_records[i].utc_to_local);
-  }
-  printf("\nLooking for: type: %d, start_utc: %" PRIu32 ", elapsed: %" PRIu32
-         ", "
-         "utc_to_local: %" PRIu32 " ",
-         (int)record->activity, (uint32_t)record->start_utc, record->elapsed_sec,
-         record->utc_to_local);
-  clar__assert(false, file, line, "Missing activity record", "", true);
-}
-
-#define ASSERT_ACTIVITY_DLS_RECORD_PRESENT(record) \
-  prv_assert_dls_activity_record_present((record), __FILE__, __LINE__)
 
 // Assert that given number of activity sessions are present
 static void prv_assert_num_activities(uint32_t num_expected, char *file, int line) {
@@ -393,32 +354,8 @@ static void prv_assert_step_activity_present(ActivitySession *exp_session, char 
   clar__assert(false, file, line, "Missing activity record", "", true);
 }
 
-// Assert that a particular sleep activity session is present in the sessions list
-static void prv_assert_sleep_activity_present(ActivitySession *exp_session, char *file, int line) {
-  ActivitySession sessions[ACTIVITY_MAX_ACTIVITY_SESSIONS_COUNT];
-  uint32_t num_sessions = ACTIVITY_MAX_ACTIVITY_SESSIONS_COUNT;
-  activity_get_sessions(&num_sessions, sessions);
-  for (int i = 0; i < num_sessions; i++) {
-    if (sessions[i].type == exp_session->type && sessions[i].start_utc == exp_session->start_utc &&
-        sessions[i].length_min == exp_session->length_min) {
-      return;
-    }
-  }
-  printf("\nFound activities:");
-  for (int i = 0; i < num_sessions; i++) {
-    printf("\nFound:       type: %d, start_utc: %d, len: %" PRIu16 " ", (int)sessions[i].type,
-           (int)sessions[i].start_utc, sessions[i].length_min);
-  }
-  printf("\nLooking for: type: %d, start_utc: %d, len: %" PRIu16 " ", (int)exp_session->type,
-         (int)exp_session->start_utc, exp_session->length_min);
-  clar__assert(false, file, line, "Missing sleep activity record", "", true);
-}
-
 #define ASSERT_STEP_ACTIVITY_SESSION_PRESENT(session) \
   prv_assert_step_activity_present((session), __FILE__, __LINE__)
-
-#define ASSERT_SLEEP_ACTIVITY_SESSION_PRESENT(session) \
-  prv_assert_sleep_activity_present((session), __FILE__, __LINE__)
 
 #define ASSERT_NUM_ACTIVITY_SESSIONS(num_sessions) \
   prv_assert_num_activities((num_sessions), __FILE__, __LINE__)
@@ -922,12 +859,12 @@ static bool prv_activity_iterate_cb(HealthActivity activity, time_t time_start, 
   }
 
   char time_start_text[64];
-  struct tm *local_tm = localtime(&time_start);
-  strftime(time_start_text, sizeof(time_start_text), "%F %r", local_tm);
+  struct pbl_tm *local_tm = pbl_override_localtime(&time_start);
+  pbl_strftime_r(time_start_text, sizeof(time_start_text), "%F %r", local_tm);
 
   char time_end_text[64];
-  local_tm = localtime(&time_end);
-  strftime(time_end_text, sizeof(time_end_text), "%F %r", local_tm);
+  local_tm = pbl_override_localtime(&time_end);
+  pbl_strftime_r(time_end_text, sizeof(time_end_text), "%F %r", local_tm);
 
   PBL_LOG_DBG("Got activity: %d %s to %s (%d min)", (int)activity, time_start_text, time_end_text,
               (int)((time_end - time_start) / PBL_SEC_PER_MIN));
@@ -962,7 +899,7 @@ static void prv_sleep_sessions_using_health_service(uint32_t *session_entries,
   s_health_sessions_awake_time = 0;
   s_health_sessions_sleep_time = 0;
   health_service_activities_iterate(HealthActivityMaskAll, now - (2 * PBL_SEC_PER_DAY), now,
-                                    direction, prv_activity_iterate_cb, NULL);
+                                    direction, prv_activity_iterate_cb, nullptr);
   PBL_LOG_DBG("Found %" PRIu32 " activities", s_health_sessions_count);
   *session_entries = s_health_sessions_count;
 }
@@ -998,8 +935,8 @@ void test_activity__initialize(void) {
   };
   time_util_update_timezone(&tz_info);
 
-  struct tm time_tm = s_init_time_tm;
-  time_t utc_sec = mktime(&time_tm);
+  struct pbl_tm time_tm = s_init_time_tm;
+  time_t utc_sec = pbl_mktime(&time_tm);
   fake_rtc_init(100 /*initial_ticks*/, utc_sec);
   fake_spi_flash_init(0, 0x1000000);
   pfs_init(false);
@@ -1017,6 +954,7 @@ void test_activity__initialize(void) {
 
 // ---------------------------------------------------------------------------------------
 void test_activity__cleanup(void) {
+  s_system_task_stalled = false;
   activity_stop_tracking();
   fake_system_task_callbacks_invoke_pending();
 }
@@ -1148,9 +1086,9 @@ void test_activity__init_history(void) {
 
   // Pretend that 24 hours has elapsed since we saved prefs. This should put both the step and
   // sleep history 1 day behind
-  struct tm time_tm = s_init_time_tm;
+  struct pbl_tm time_tm = s_init_time_tm;
   time_tm.tm_mday += 1;
-  time_t utc_sec = mktime(&time_tm);
+  time_t utc_sec = pbl_mktime(&time_tm);
   rtc_set_time(utc_sec);
   prv_activity_init_and_set_enabled(true);
   ASSERT_EQUAL_METRIC_HISTORY(ActivityMetricStepCount,
@@ -1359,9 +1297,9 @@ void test_activity__step_derived_metrics(void) {
   stub_pebble_tasks_set_current(PebbleTask_App);
 
   // Advance to a new day to give a chance for the new resting metabolism to be incorporated
-  struct tm time_tm = s_init_time_tm;
+  struct pbl_tm time_tm = s_init_time_tm;
   time_tm.tm_mday += 1;
-  time_t utc_sec = mktime(&time_tm);
+  time_t utc_sec = pbl_mktime(&time_tm);
   rtc_set_time(utc_sec);
   prv_activity_init_and_set_enabled(true);
 
@@ -1550,6 +1488,34 @@ void test_activity__sleep_state_without_session(void) {
   activity_get_metric(ActivityMetricSleepStateSeconds, 1, &value);
   cl_assert_equal_i(value, 0);
   cl_assert_equal_i(health_service_peek_current_activities(), HealthActivityNone);
+}
+
+// ---------------------------------------------------------------------------------------
+// Deleting the only (ongoing) sleep session must clear the sleep totals
+void test_activity__sleep_totals_cleared_on_session_delete(void) {
+  int32_t value;
+
+  activity_start_tracking(false /*test_mode*/);
+  fake_system_task_callbacks_invoke_pending();
+
+  prv_feed_canned_accel_data(150 * PBL_SEC_PER_MIN, 0, ActivitySleepStateLightSleep);
+  activity_get_metric(ActivityMetricSleepTotalSeconds, 1, &value);
+  cl_assert(value > 0);
+
+  // The algorithm rejects the ongoing session, e.g. because the watch was not worn
+  ActivitySession session = s_test_alg_state.minute_data.sessions[0];
+  prv_activity_algorithm_erase_minute_data();
+  activity_sessions_prv_delete_activity_session(&session);
+
+  prv_feed_canned_accel_data(PBL_SEC_PER_MIN * ACTIVITY_SESSION_UPDATE_MIN, 0,
+                             ActivitySleepStateAwake);
+
+  activity_get_metric(ActivityMetricSleepTotalSeconds, 1, &value);
+  cl_assert_equal_i(value, 0);
+  activity_get_metric(ActivityMetricSleepEnterAtSeconds, 1, &value);
+  cl_assert_equal_i(value, 0);
+  activity_get_metric(ActivityMetricSleepExitAtSeconds, 1, &value);
+  cl_assert_equal_i(value, 0);
 }
 
 // ---------------------------------------------------------------------------------------
@@ -1743,14 +1709,14 @@ void test_activity__get_minute_history(void) {
 
   // Start on a ALG_MINUTES_PER_RECORD minute boundary so that we know we have
   // ALG_MINUTES_PER_RECORD records available up to the current time
-  struct tm start_tm = {
+  struct pbl_tm start_tm = {
     // Jan 1, 2015, 5am
     .tm_hour = 5,
     .tm_mday = 1,
     .tm_mon = 0,
     .tm_year = 115
   };
-  time_t utc_sec = mktime(&start_tm);
+  time_t utc_sec = pbl_mktime(&start_tm);
   rtc_set_time(utc_sec);
 
   time_t oldest_to_fetch = rtc_get_time() - (ALG_MINUTES_PER_FILE_RECORD * PBL_SEC_PER_MIN);
@@ -1782,10 +1748,53 @@ void test_activity__get_minute_history(void) {
 }
 
 // ---------------------------------------------------------------------------------------
-// Return the index of the step averages slot that contains the given minute
-static uint16_t prv_step_avg_slot(int hour, int min) {
-  int minutes = hour * PBL_MIN_PER_HOUR + min;
-  return minutes / (PBL_MIN_PER_DAY / ACTIVITY_NUM_METRIC_AVERAGES);
+// Requests larger than one kernel chunk are returned in full and in order
+void test_activity__get_minute_history_chunked(void) {
+  activity_start_tracking(false /*test_mode*/);
+  fake_system_task_callbacks_invoke_pending();
+
+  const uint32_t exp_num_records = 150;
+  HealthMinuteData minutes[exp_num_records];
+
+  time_t utc_start =
+      rtc_get_time() - (exp_num_records + ALG_MINUTES_PER_FILE_RECORD * 2) * PBL_SEC_PER_MIN;
+  utc_start -= utc_start % PBL_SEC_PER_MIN;
+  const time_t exp_utc_start = utc_start;
+
+  stub_pebble_tasks_set_current(PebbleTask_App);
+  uint32_t num_records = exp_num_records;
+  cl_assert(activity_get_minute_history(minutes, &num_records, &utc_start));
+  cl_assert_equal_i(num_records, exp_num_records);
+  cl_assert_equal_i(utc_start, exp_utc_start);
+  for (uint32_t i = 0; i < num_records; i++) {
+    cl_assert_equal_i(minutes[i].steps, (exp_utc_start + i * PBL_SEC_PER_MIN) % 255);
+  }
+}
+
+// ---------------------------------------------------------------------------------------
+// KernelBG must not write into the caller's buffers after the caller timed out
+void test_activity__get_minute_history_timeout(void) {
+  activity_start_tracking(false /*test_mode*/);
+  fake_system_task_callbacks_invoke_pending();
+
+  HealthMinuteData minutes[10];
+  memset(minutes, 0xA5, sizeof(minutes));
+  HealthMinuteData exp_minutes[10];
+  memset(exp_minutes, 0xA5, sizeof(exp_minutes));
+
+  time_t utc_start = rtc_get_time() - ((ALG_MINUTES_PER_FILE_RECORD * 2) * PBL_SEC_PER_MIN);
+
+  stub_pebble_tasks_set_current(PebbleTask_App);
+  s_system_task_stalled = true;
+  uint32_t num_records = ARRAY_LENGTH(minutes);
+  cl_assert(!activity_get_minute_history(minutes, &num_records, &utc_start));
+  cl_assert_equal_i(num_records, 0);
+  cl_assert_equal_i(utc_start, 0);
+  cl_assert_equal_i(fake_system_task_count_callbacks(), 1);
+
+  s_system_task_stalled = false;
+  fake_system_task_callbacks_invoke_pending();
+  cl_assert_equal_m(minutes, exp_minutes, sizeof(minutes));
 }
 
 // Used by the test_activity__step_averages() method to figure out what steps/min we should
@@ -1806,8 +1815,8 @@ int prv_expected_steps_per_min(int slot, int multiplier) {
 // ------------------------------------------------------------------------------------
 // Verify that the settings are what we expected from prv_save_known_settings()
 void prv_assert_known_settings(void) {
-  struct tm time_tm = s_init_time_tm;
-  time_t utc_sec = mktime(&time_tm);
+  struct pbl_tm time_tm = s_init_time_tm;
+  time_t utc_sec = pbl_mktime(&time_tm);
   rtc_set_time(utc_sec);
 
   prv_activity_init_and_set_enabled(true);
@@ -1828,10 +1837,10 @@ void prv_assert_known_settings(void) {
 // --------------------------------------------------------------------------------------
 // Save the current settings file format with known data to the local file system so that it can
 // be checked in and used for migration tests.
-static void prv_save_known_settings_file(const char *filename) {
+[[maybe_unused]] static void prv_save_known_settings_file(const char *filename) {
   // Let's include 3 days of history by start at s_init_time_tm - 3 days
-  struct tm time_tm = s_init_time_tm;
-  time_t utc_sec = mktime(&time_tm);
+  struct pbl_tm time_tm = s_init_time_tm;
+  time_t utc_sec = pbl_mktime(&time_tm);
   utc_sec -= 2 * PBL_SEC_PER_DAY;
   rtc_set_time(utc_sec);
 
@@ -1885,13 +1894,13 @@ static void prv_save_known_settings_file(const char *filename) {
   cl_assert(fd >= S_SUCCESS);
   size_t size = pfs_get_file_size(fd);
   uint8_t *buf = malloc(size);
-  cl_assert(buf != NULL);
+  cl_assert(buf != nullptr);
   cl_assert(pfs_read(fd, buf, size) == size);
   pfs_close(fd);
 
   // Save it to the local file system
   FILE *file = fopen(out_path, "wb");
-  cl_assert(file != NULL);
+  cl_assert(file != nullptr);
   cl_assert_equal_i(fwrite(buf, size, 1, file), 1);
   fclose(file);
   free(buf);
@@ -2285,9 +2294,9 @@ void test_activity__distance(void) {
   };
 
   // Init the time
-  struct tm time_tm = s_init_time_tm;
+  struct pbl_tm time_tm = s_init_time_tm;
   time_tm.tm_mday += 1;
-  time_t utc_sec = mktime(&time_tm);
+  time_t utc_sec = pbl_mktime(&time_tm);
   rtc_set_time(utc_sec);
   fake_system_task_callbacks_invoke_pending();
 
@@ -2383,11 +2392,11 @@ static void prv_advance_time_hr(uint32_t num_sec, uint8_t bpm, HRMQuality qualit
         .bpm.bpm = bpm,
         .bpm.quality = quality,
       };
-      prv_hrm_subscription_cb(&hrm_event, NULL);
+      prv_hrm_subscription_cb(&hrm_event, nullptr);
       s_num_hrm_callbacks++;
     }
     if ((rtc_get_time() % PBL_SEC_PER_MIN) == 0) {
-      prv_minute_system_task_cb(NULL);
+      prv_minute_system_task_cb(nullptr);
     }
   }
 }
@@ -2487,7 +2496,7 @@ void test_activity__hrm_median(void) {
   prv_advance_time_hr(3 /*sec*/, 100 /*hr*/, HRMQuality_Good, true /*force_continuous*/);
   prv_advance_time_hr(1 /*sec*/, 51 /*hr*/, HRMQuality_Good, true /*force_continuous*/);
   prv_advance_time_hr(8 /*sec*/, 120 /*hr*/, HRMQuality_Worst, true /*force_continuous*/);
-  prv_minute_system_task_cb(NULL);
+  prv_minute_system_task_cb(nullptr);
   activity_metrics_prv_get_median_hr_bpm(&median, &total_weight);
   cl_assert_equal_i(median, 51);
 
@@ -2521,8 +2530,6 @@ static void prv_fake_hr_event_handler(PebbleEvent *e) {
 // ---------------------------------------------------------------------------------------
 // Test that some HRM events aren't passed on from activity service
 void test_activity__hrm_ignore(void) {
-  int32_t median, total_weight;
-
   s_num_hr_events = 0;
 
   // Start activity tracking. This method assumes it can be called from any task, so we must
@@ -2570,7 +2577,7 @@ void test_activity__prv_set_metric(void) {
   activity_start_tracking(false /*test_mode*/);
   fake_system_task_callbacks_invoke_pending();
 
-  int32_t metric_values[ACTIVITY_HISTORY_DAYS] = {0};
+  int32_t metric_values[ACTIVITY_HISTORY_DAYS] = {};
 
   // Set today's value
   activity_metrics_prv_set_metric(ActivityMetricStepCount, PBL_THURSDAY, 1111);
@@ -2668,14 +2675,14 @@ void test_activity__activity_sessions_run_ongoing_then_end(void) {
   cl_assert_equal_i(0, health_service_peek_current_activities());
 
   // Start on known boundary
-  struct tm start_tm = {
+  struct pbl_tm start_tm = {
     // Jan 1, 2015, 5am
     .tm_hour = 5,
     .tm_mday = 1,
     .tm_mon = 0,
     .tm_year = 115
   };
-  time_t utc_sec = mktime(&start_tm);
+  time_t utc_sec = pbl_mktime(&start_tm);
   rtc_set_time(utc_sec);
 
   // Add a run session
@@ -2718,14 +2725,14 @@ void test_activity__activity_sessions_sleep_ongoing_then_delete(void) {
   cl_assert_equal_i(0, health_service_peek_current_activities());
 
   // Start on known boundary
-  struct tm start_tm = {
+  struct pbl_tm start_tm = {
     // Jan 1, 2015, 5am
     .tm_hour = 5,
     .tm_mday = 1,
     .tm_mon = 0,
     .tm_year = 115
   };
-  time_t utc_sec = mktime(&start_tm);
+  time_t utc_sec = pbl_mktime(&start_tm);
   rtc_set_time(utc_sec);
 
   // Add a Sleep session
@@ -2771,14 +2778,14 @@ void test_activity__activity_sessions_ongoing_multiple(void) {
   cl_assert_equal_i(0, health_service_peek_current_activities());
 
   // Start on known boundary
-  struct tm start_tm = {
+  struct pbl_tm start_tm = {
     // Jan 1, 2015, 5am
     .tm_hour = 5,
     .tm_mday = 1,
     .tm_mon = 0,
     .tm_year = 115
   };
-  time_t utc_sec = mktime(&start_tm);
+  time_t utc_sec = pbl_mktime(&start_tm);
   rtc_set_time(utc_sec);
 
   const time_t time_elapsed = (20 * PBL_SEC_PER_MIN);
@@ -2828,7 +2835,7 @@ static void prv_set_median_hr_for_minutes(int bpm, int num_minutes) {
   memset(activity_private_state()->hr.weights, 100, num_samples);
 
   for (int i = 0; i < num_minutes; i++) {
-    prv_minute_system_task_cb(NULL);
+    prv_minute_system_task_cb(nullptr);
   }
 }
 
@@ -2921,7 +2928,7 @@ void test_activity__update_time_in_hr_zones(void) {
   time_t utc_sec = rtc_get_time();
   utc_sec += PBL_SEC_PER_DAY;
   rtc_set_time(utc_sec);
-  prv_minute_system_task_cb(NULL);
+  prv_minute_system_task_cb(nullptr);
   cl_assert_equal_b(prv_is_hr_elevated(), true); // stays elevated
   activity_get_metric(ActivityMetricHeartRateZone1Minutes, 1, &zone1_minutes);
   cl_assert_equal_i(zone1_minutes, 0);

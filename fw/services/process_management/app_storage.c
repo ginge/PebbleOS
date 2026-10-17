@@ -1,31 +1,32 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/process_management/app_storage.h"
-
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
 #include <pbl/drivers/flash.h>
-#include "process_management/pebble_process_md.h"
-#include "resource/resource_storage.h"
-#include "pbl/services/filesystem/pfs.h"
-#include "pbl/services/filesystem/app_file.h"
 #include <pbl/logging/logging.h>
-#include "system/passert.h"
-#include "pbl/util/build_id.h"
+#include <pbl/services/filesystem/app_file.h>
+#include <pbl/services/filesystem/pfs.h>
+#include <pbl/services/process_management/app_storage.h>
+#include <pbl/util/build_id.h>
+#include <pbl/util/math.h>
+
+#include <process_management/pebble_process_md.h>
+#include <resource/resource_storage.h>
+#include <system/passert.h>
 
 PBL_LOG_MODULE_DECLARE(service_process_management, CONFIG_SERVICE_PROCESS_MANAGEMENT_LOG_LEVEL);
 
 bool app_storage_get_process_load_size(const PebbleProcessInfo *info, size_t *load_size_out) {
-  if (info->num_reloc_entries > (SIZE_MAX / sizeof(uint32_t))) {
+  size_t reloc_size;
+  if (pbl_size_mul_overflow(info->num_reloc_entries, sizeof(uint32_t), &reloc_size)) {
     PBL_LOG_WRN("App relocation table size overflows: entries=%" PRIu32, info->num_reloc_entries);
     return false;
   }
 
-  const size_t reloc_size = info->num_reloc_entries * sizeof(uint32_t);
   const uint32_t image_size = process_info_get_load_size(info);
   if (image_size > (SIZE_MAX - reloc_size)) {
     PBL_LOG_WRN("App load size overflows: load=%" PRIu32 " reloc=%zu", image_size, reloc_size);
@@ -111,7 +112,7 @@ bool app_storage_app_exists(AppInstallId id) {
   pfs_close(fd);
 
   // now check resource bank
-  return resource_storage_check((ResAppNum)id, 0, NULL);
+  return resource_storage_check((ResAppNum)id, 0, nullptr);
 }
 
 void app_storage_get_file_name(char *name, size_t buf_length, AppInstallId app_id,

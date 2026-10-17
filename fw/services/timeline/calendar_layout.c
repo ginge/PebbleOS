@@ -1,23 +1,24 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/timeline/calendar_layout.h"
-#include "pbl/services/timeline/calendar_layout_resources.h"
-#include "pbl/services/timeline/timeline_layout.h"
+#include <pbl/services/clock.h>
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/services/timeline/calendar_layout.h>
+#include <pbl/services/timeline/calendar_layout_resources.h>
+#include <pbl/services/timeline/timeline_layout.h>
+#include <pbl/util/math.h>
+#include <pbl/util/size.h>
+#include <pbl/util/string.h>
+#include <pbl/util/units.h>
 
-#include "applib/fonts/fonts.h"
-#include "applib/graphics/gtypes.h"
-#include "applib/graphics/text.h"
-#include "applib/preferred_content_size.h"
-#include "applib/ui/ui.h"
-#include "kernel/pbl_malloc.h"
-#include "process_state/app_state/app_state.h"
-#include "pbl/services/clock.h"
-#include "pbl/services/i18n/i18n.h"
-#include "pbl/util/math.h"
-#include "pbl/util/size.h"
-#include "pbl/util/string.h"
-#include "pbl/util/units.h"
+#include <applib/fonts/fonts.h>
+#include <applib/graphics/gtypes.h>
+#include <applib/graphics/text.h>
+#include <applib/preferred_content_size.h>
+#include <applib/ui/ui.h>
+#include <kernel/pbl_malloc.h>
+#include <process_state/app_state/app_state.h>
+#include <shell/system_theme_style.h>
 
 //////////////////////////////////////////
 //  Card Mode
@@ -90,7 +91,9 @@ static GTextNode *prv_icon_node_constructor(const LayoutLayer *layout_ref,
       prv_get_icon_resource_with_layout(&layout->timeline_layout);
   if (icon_resource == TIMELINE_RESOURCE_TIMELINE_CALENDAR ||
       icon_resource == TIMELINE_RESOURCE_TIMELINE_EMPTY_CALENDAR) {
+    // The calendar icon is drawn left of its slot, so give back the space it leaves
     text_node->offset.x += CARD_ICON_CALENDAR_OFFSET_X;
+    text_node->margin.w += CARD_ICON_CALENDAR_OFFSET_X;
   }
   return text_node;
 }
@@ -117,7 +120,7 @@ static GTextNode *prv_day_node_constructor(const LayoutLayer *layout_ref,
   CalendarLayout *layout = (CalendarLayout *)layout_ref;
   if (prv_get_icon_resource_with_layout(&layout->timeline_layout) !=
       TIMELINE_RESOURCE_TIMELINE_EMPTY_CALENDAR) {
-    return NULL;
+    return nullptr;
   }
   const LayoutColors *colors = &layout->timeline_layout.impl->default_colors;
   text_layer_init_with_parameters(&layout->date_layer, &GRectZero, layout->day_date_buffer,
@@ -244,7 +247,7 @@ static GTextNode *prv_construct_if_recurring(const LayoutLayer *layout,
   if (prv_should_draw_recurring((const TimelineLayout *)layout)) {
     return layout_create_text_node_from_config(layout, config->context);
   }
-  return NULL;
+  return nullptr;
 }
 
 #if PBL_ROUND
@@ -283,15 +286,16 @@ static void prv_not_recurring_spacer_callback(GContext *ctx, const GRect *box,
 static GTextNode *prv_construct_if_not_recurring(const LayoutLayer *layout,
                                                  const LayoutNodeConstructorConfig *config) {
   if (prv_should_draw_recurring((const TimelineLayout *)layout)) {
-    return NULL;
+    return nullptr;
   }
-  return &graphics_text_node_create_custom(prv_not_recurring_spacer_callback, NULL)->node;
+  return &graphics_text_node_create_custom(prv_not_recurring_spacer_callback, nullptr)->node;
 }
 
 typedef struct {
   GDrawCommandImage *image;
   CalendarLayoutBufferCallback callback;
   size_t buffer_size;
+  bool one_line;
 } IconLabelContext;
 
 static GTextNode *prv_create_icon_label_node_rect(const LayoutLayer *layout,
@@ -304,7 +308,7 @@ static GTextNode *prv_create_icon_label_node_rect(const LayoutLayer *layout,
   const LayoutNodeTextBufferConfig time_config = {
     .text.extent.node.type = LayoutNodeType_TextBuffer,
     .str = buffer,
-    .text.style = LayoutContentSizeDefault,
+    .text.style = LayoutContentSize_Auto,
     .text.style_font = TextStyleFont_Header,
     .text.extent.margin.h = time_margin_h,
   };
@@ -312,6 +316,10 @@ static GTextNode *prv_create_icon_label_node_rect(const LayoutLayer *layout,
   if (PBL_IF_RECT_ELSE(!node, true)) {
     // Don't append the icon if there is no node or if on round
     return node;
+  }
+  if (ctx->one_line) {
+    // Keep the time on one line; what doesn't fit is cut off at the screen edge
+    node->margin.w = -DISP_COLS;
   }
   GTextNodeHorizontal *horizontal_node = graphics_text_node_create_horizontal(2);
   GTextNodeCustom *image_node = prv_create_image_node(ctx->image);
@@ -331,7 +339,7 @@ static GTextNode *prv_construct_all_day_or_node(const LayoutLayer *layout_ref,
     .text.extent.node.type = LayoutNodeType_TextBuffer,
     .str = i18n_noop("All Day"),
     .use_i18n = true,
-    .text.style = LayoutContentSizeDefault,
+    .text.style = LayoutContentSize_Auto,
     .text.style_font = TextStyleFont_Header,
   };
   return layout_create_text_node_from_config(
@@ -344,9 +352,10 @@ static GTextNode *prv_card_view_constructor(TimelineLayout *timeline_layout) {
     .constructor = prv_icon_node_constructor,
   };
   static const IconLabelContext s_glance_start_icon_label_context = {
-    .image = &g_calendar_start_icon.image,
+    .image = (GDrawCommandImage *)&g_calendar_start_icon,
     .callback = PBL_IF_RECT_ELSE(prv_format_glance_start_time, prv_set_glance_time_line_round),
     .buffer_size = PBL_IF_RECT_ELSE(TIME_STRING_TIME_LENGTH, CALENDAR_TIME_LINE_LENGTH),
+    .one_line = true,
   };
   static const LayoutNodeConstructorConfig s_glance_start_time_with_icon_config = {
     .extent.node.type = LayoutNodeType_Constructor,
@@ -360,11 +369,12 @@ static GTextNode *prv_card_view_constructor(TimelineLayout *timeline_layout) {
     .extent.margin.h = PBL_IF_ROUND_ELSE(-2, 0), // glance start time margin height
   };
   static const IconLabelContext s_glance_end_icon_label_context = {
-    .image = &g_calendar_end_icon.image,
+    .image = (GDrawCommandImage *)&g_calendar_end_icon,
     .callback = prv_format_glance_end_time,
     .buffer_size = MAX(TIME_STRING_TIME_LENGTH, TIME_STRING_DATE_LENGTH),
+    .one_line = true,
   };
-  PBL_UNUSED static const LayoutNodeConstructorConfig s_glance_end_time_with_icon_config = {
+  [[maybe_unused]] static const LayoutNodeConstructorConfig s_glance_end_time_with_icon_config = {
     .extent.node.type = LayoutNodeType_Constructor,
     .constructor = prv_create_icon_label_node_rect,
     .context = (void *)&s_glance_end_icon_label_context,
@@ -373,27 +383,22 @@ static GTextNode *prv_card_view_constructor(TimelineLayout *timeline_layout) {
     .text.extent.node.type = LayoutNodeType_TextBuffer,
     .str = i18n_noop("Recurring"),
     .use_i18n = true,
-    .text.font_key = PREFERRED_CONTENT_SIZE_SWITCH(
-        PreferredContentSizeDefault,
-        /* small */ PBL_IF_RECT_ELSE(FONT_KEY_GOTHIC_14, FONT_KEY_GOTHIC_14_BOLD),
-        /* medium */ PBL_IF_RECT_ELSE(FONT_KEY_GOTHIC_14, FONT_KEY_GOTHIC_14_BOLD),
-        /* large */ FONT_KEY_GOTHIC_18_BOLD,
-        /* extralarge */ FONT_KEY_GOTHIC_18_BOLD),
+    .text.font_key = SYSTEM_THEME_FONT_KEY_CALENDAR_RECURRING,
     .text.extent.offset.y = PBL_IF_RECT_ELSE(4, 1), // recurring offset y
     .text.extent.margin.h = PBL_IF_RECT_ELSE(4, 1), // recurring margin height
   };
-  PBL_UNUSED static const LayoutNodeConstructorConfig s_if_recurring_config = {
+  [[maybe_unused]] static const LayoutNodeConstructorConfig s_if_recurring_config = {
     .extent.node.type = LayoutNodeType_Constructor,
     .constructor = prv_construct_if_recurring,
     .context = (void *)&s_recurring_config,
   };
-  PBL_UNUSED static const LayoutNodeConstructorConfig s_if_not_recurring_spacer_config = {
+  [[maybe_unused]] static const LayoutNodeConstructorConfig s_if_not_recurring_spacer_config = {
     .extent.node.type = LayoutNodeType_Constructor,
     .constructor = prv_construct_if_not_recurring,
   };
   static const LayoutNodeTextAttributeConfig s_glance_title_config = {
     .attr_id = AttributeIdTitle,
-    .text.style = LayoutContentSizeDefault,
+    .text.style = LayoutContentSize_Auto,
     .text.style_font = TextStyleFont_Title,
     .text.fixed_lines = 2, // glance title fixed lines
     .text.line_spacing_delta = CARD_LINE_DELTA,
@@ -408,7 +413,7 @@ static GTextNode *prv_card_view_constructor(TimelineLayout *timeline_layout) {
 #endif
   static const LayoutNodeTextAttributeConfig s_glance_location_config = {
     .attr_id = AttributeIdLocationName,
-    .text.style = LayoutContentSizeDefault,
+    .text.style = LayoutContentSize_Auto,
     .text.style_font = TextStyleFont_Header,
     .text.fixed_lines = 1, // glance location fixed lines
   };
@@ -421,33 +426,33 @@ static GTextNode *prv_card_view_constructor(TimelineLayout *timeline_layout) {
   };
   static const LayoutNodeTextAttributeConfig s_title_config = {
     .attr_id = AttributeIdTitle,
-    .text.style = LayoutContentSizeDefault,
+    .text.style = LayoutContentSize_Auto,
     .text.style_font = TextStyleFont_Title,
     .text.line_spacing_delta = CARD_LINE_DELTA,
     .text.extent.margin.h = 7, // title margin height
   };
   static const LayoutNodeTextAttributeConfig s_location_config = {
     .attr_id = AttributeIdLocationName,
-    .text.style = LayoutContentSizeDefault,
+    .text.style = LayoutContentSize_Auto,
     .text.style_font = TextStyleFont_Header,
     .text.extent.margin.h = 15, // location margin height
   };
   static const IconLabelContext s_start_icon_label_context = {
-    .image = &g_calendar_start_icon.image,
+    .image = (GDrawCommandImage *)&g_calendar_start_icon,
     .callback = prv_format_start_time,
     .buffer_size = CALENDAR_TIME_LINE_LENGTH,
   };
-  PBL_UNUSED static const LayoutNodeConstructorConfig s_start_time_with_icon_config = {
+  [[maybe_unused]] static const LayoutNodeConstructorConfig s_start_time_with_icon_config = {
     .extent.node.type = LayoutNodeType_Constructor,
     .constructor = prv_create_icon_label_node_rect,
     .context = (void *)&s_start_icon_label_context,
   };
   static const IconLabelContext s_end_icon_label_context = {
-    .image = &g_calendar_end_icon.image,
+    .image = (GDrawCommandImage *)&g_calendar_end_icon,
     .callback = prv_format_end_time,
     .buffer_size = CALENDAR_TIME_LINE_LENGTH,
   };
-  PBL_UNUSED static const LayoutNodeConstructorConfig s_end_time_with_icon_config = {
+  [[maybe_unused]] static const LayoutNodeConstructorConfig s_end_time_with_icon_config = {
     .extent.node.type = LayoutNodeType_Constructor,
     .constructor = prv_create_icon_label_node_rect,
     .context = (void *)&s_end_icon_label_context,
@@ -455,14 +460,14 @@ static GTextNode *prv_card_view_constructor(TimelineLayout *timeline_layout) {
   };
   static const LayoutNodeTextAttributeConfig s_body_config = {
     .attr_id = AttributeIdBody,
-    .text.style = LayoutContentSizeDefault,
+    .text.style = LayoutContentSize_Auto,
     .text.style_font = TextStyleFont_Body,
     .text.line_spacing_delta = CARD_LINE_DELTA,
     .text.extent.margin.h = 17, // body margin height
   };
   static const LayoutNodeTextAttributeConfig s_sender_config = {
     .attr_id = AttributeIdSender,
-    .text.style = LayoutContentSizeDefault,
+    .text.style = LayoutContentSize_Auto,
     .text.style_font = TextStyleFont_PinSubtitle,
     .text.line_spacing_delta = CARD_LINE_DELTA,
     .text.extent.margin.h = 17, // sender margin height

@@ -4,13 +4,17 @@
 #include "text_render.h"
 
 #include "gcontext.h"
-#include "process_state/app_state/app_state.h"
-#include "syscall/syscall.h"
-#include "system/passert.h"
 #include "text_resources.h"
-#include "pbl/util/bitops.h"
-#include "pbl/util/math.h"
-#include "pbl/util/testing.h"
+
+#include <pbl/util/bitops.h>
+#include <pbl/util/math.h>
+#include <pbl/util/testing.h>
+
+#include <process_state/app_state/app_state.h>
+#include <syscall/syscall.h>
+#include <system/passert.h>
+
+typedef uint32_t GlyphBlock PBL_ALIGNED(1);
 
 #if !defined(__clang__)
 #pragma GCC optimize("O2")
@@ -43,7 +47,7 @@ PBL_T_STATIC int32_t prv_convert_1bit_addr_to_8bit_x(GBitmap *dest_bitmap, uint3
   // no padding on each row of the 8-bit frame buffer.
   const int32_t padding = (32 - (dest_bitmap->bounds.size.w % 32)) % 32;
   // Calculate the overall offset in the 8-bit bitmap
-  const int32_t bitmap_offset_8bit = ((uint32_t)block_addr * 8) - (padding * y_offset);
+  const int32_t bitmap_offset_8bit = ((uintptr_t)block_addr * 8) - (padding * y_offset);
   // Calculate just the offset from the start of the target row in the 8-bit bitmap (i.e. "x")
   return bitmap_offset_8bit - (dest_bitmap->bounds.size.w * y_offset);
 }
@@ -162,7 +166,7 @@ static void prv_render_color_glyph(GContext *ctx, const GlyphData *glyph,
     }
     const bool row_visible = (dest_y >= clipped->origin.y);
     const GBitmapDataRowInfo row =
-        row_visible ? gbitmap_get_data_row_info(dest_bitmap, dest_y) : (GBitmapDataRowInfo){0};
+        row_visible ? gbitmap_get_data_row_info(dest_bitmap, dest_y) : (GBitmapDataRowInfo){};
 
     // Raw rows are byte-aligned
     d.bits_left = 0;
@@ -290,7 +294,7 @@ void render_glyph(GContext *const ctx, const uint32_t codepoint, FontInfo *const
   uint8_t dest_shift = dest_shift_at_line_begin;
 
   // The glyph bitmap starts the block after the metrics data:
-  uint32_t const *glyph_block = glyph->data;
+  const GlyphBlock *glyph_block = glyph->data;
 
   // Set up the first piece of source glyph bitmap:
   int8_t glyph_block_bits_left = 32;
@@ -369,7 +373,8 @@ void render_glyph(GContext *const ctx, const uint32_t codepoint, FontInfo *const
       // bitblt part of glyph_block:
       const uint8_t number_of_bits =
           MIN(32 - dest_shift, MIN(glyph_line_bits_left, glyph_block_bits_left));
-      const uint32_t mask = (((1 << number_of_bits) - 1) << dest_shift);
+      // number_of_bits may be 32: shifting a 32-bit 1 that far is undefined.
+      const uint32_t mask = (uint32_t)((((uint64_t)1 << number_of_bits) - 1) << dest_shift);
 
 #if CONFIG_SCREEN_COLOR_DEPTH_BITS == 8
       // dest_block points to the block if the dest image was a 1-bit buffer
@@ -394,7 +399,7 @@ void render_glyph(GContext *const ctx, const uint32_t codepoint, FontInfo *const
           }
           // Find position in dest_bitmap that corresponds to the bit index
           // Write to that position if mask for that bit is 1
-          if ((mask & src) & (1 << bitindex)) {
+          if ((mask & src) & (1u << bitindex)) {
             GColor dest_color;
             if (ctx->draw_state.compositing_mode == GCompOpSet) {
               // Blend (i.e. for transparency) if GCompOpSet

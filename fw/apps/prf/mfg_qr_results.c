@@ -1,24 +1,25 @@
 /* SPDX-FileCopyrightText: 2025 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/app.h"
-#include "applib/app_watch_info.h"
-#include "applib/battery_state_service.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/qr_code.h"
-#include "applib/ui/window.h"
-#include "apps/prf/mfg_test_menu.h"
-#include "apps/prf/mfg_test_result.h"
-#include "pbl/bluetooth/types.h"
-#include "kernel/pbl_malloc.h"
-#include "process_state/app_state/app_state.h"
-#include "process_management/pebble_process_md.h"
-#include "mfg/mfg_serials.h"
-#include "services/bluetooth/local_id.h"
-#include "system/version.h"
-
 #include <stdio.h>
 #include <string.h>
+
+#include <pbl/bluetooth/types.h>
+
+#include <applib/app.h>
+#include <applib/app_watch_info.h>
+#include <applib/battery_state_service.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/qr_code.h>
+#include <applib/ui/window.h>
+#include <apps/prf/mfg_test_menu.h>
+#include <apps/prf/mfg_test_result.h>
+#include <kernel/pbl_malloc.h>
+#include <mfg/mfg_serials.h>
+#include <process_management/pebble_process_md.h>
+#include <process_state/app_state/app_state.h>
+#include <services/bluetooth/local_id.h>
+#include <system/version.h>
 
 static const char *prv_color_short_name(WatchInfoColor color) {
   switch (color) {
@@ -27,7 +28,7 @@ static const char *prv_color_short_name(WatchInfoColor color) {
       return "BK";
     case WATCH_INFO_COLOR_COREDEVICES_P2D_WHITE:
       return "WH";
-#elif defined(CONFIG_BOARD_OBELIX)
+#elifdef CONFIG_BOARD_OBELIX
     case WATCH_INFO_COLOR_COREDEVICES_PT2_BLACK_GREY:
       return "BG";
     case WATCH_INFO_COLOR_COREDEVICES_PT2_BLACK_RED:
@@ -36,7 +37,7 @@ static const char *prv_color_short_name(WatchInfoColor color) {
       return "SB";
     case WATCH_INFO_COLOR_COREDEVICES_PT2_SILVER_GREY:
       return "SG";
-#elif defined(CONFIG_BOARD_GETAFIX)
+#elifdef CONFIG_BOARD_GETAFIX
     case WATCH_INFO_COLOR_COREDEVICES_PR2_BLACK_20:
       return "BK20";
     case WATCH_INFO_COLOR_COREDEVICES_PR2_SILVER_14:

@@ -1,22 +1,23 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/app.h"
-#include "applib/fonts/fonts.h"
-#include "applib/graphics/graphics.h"
-#include "applib/graphics/text.h"
-#include "applib/ui/window_private.h"
-#include "applib/ui/app_window_stack.h"
-#include "board/board.h"
-#include "kernel/event_loop.h"
-#include "kernel/panic.h"
-#include "kernel/pbl_malloc.h"
-#include "process_management/pebble_process_md.h"
-#include "process_state/app_state/app_state.h"
-#include "pbl/services/runlevel.h"
-#include "system/reset.h"
-
 #include <stdio.h>
+
+#include <pbl/services/runlevel.h>
+
+#include <applib/app.h>
+#include <applib/fonts/fonts.h>
+#include <applib/graphics/graphics.h>
+#include <applib/graphics/text.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/window_private.h>
+#include <board/board.h>
+#include <kernel/event_loop.h>
+#include <kernel/panic.h>
+#include <kernel/pbl_malloc.h>
+#include <process_management/pebble_process_md.h>
+#include <process_state/app_state/app_state.h>
+#include <system/reset.h>
 
 static const uint8_t sad_watch[] = {
   0x04, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x20, 0x00,
@@ -59,7 +60,7 @@ static void prv_update_proc(Layer *layer, GContext *ctx) {
   snprintf(text_buffer, sizeof(text_buffer), "0x%" PRIx32, launcher_panic_get_current_error());
 
   graphics_draw_text(ctx, text_buffer, error_code_face, text_dest_rect, GTextOverflowModeWordWrap,
-                     GTextAlignmentCenter, NULL);
+                     GTextAlignmentCenter, nullptr);
 }
 
 static void prv_panic_reset_callback(void *data) {
@@ -73,7 +74,7 @@ static void prv_panic_reset_callback(void *data) {
 }
 
 static void prv_panic_button_click_handler(ClickRecognizerRef recognizer, void *context) {
-  launcher_task_add_callback(prv_panic_reset_callback, NULL);
+  launcher_task_add_callback(prv_panic_reset_callback, nullptr);
 }
 
 static void prv_panic_click_config_provider(void *context) {

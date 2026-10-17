@@ -16,48 +16,43 @@
 #include <string.h>
 
 // itoa is a Pebble/newlib extension; newlib hides it under strict-ANSI
-// (-std=c11), so declare it explicitly for non-Pebble libcs.
+// (-std=c23), so declare it explicitly for non-Pebble libcs.
 extern char *itoa(int value, char *str, int base);
 
-#include "kernel/core_dump.h"
-#include "kernel/core_dump_private.h"
-
-#include "console/dbgserial.h"
-#include "logging/logging_private.h"
-#include "logging/pulse_logging.h"
-
 #include <pbl/drivers/flash.h>
-#include <pbl/drivers/mpu.h>
-#include <pbl/drivers/watchdog.h>
 #include <pbl/drivers/rtc.h>
-
-#include "flash_region/flash_region.h"
-#include "kernel/pbl_malloc.h"
-#include "mfg/mfg_serials.h"
-
-#include "pebbleos/chip_id.h"
-#include "pbl/services/comm_session/session.h"
-
-#include "system/bootbits.h"
-#include "system/passert.h"
-#include "system/reset.h"
+#include <pbl/drivers/watchdog.h>
+#include <pbl/kernel/compiler.h>
 #include <pbl/logging/logging.h>
-#include "system/version.h"
+#include <pbl/mcu/mpu.h>
+#include <pbl/services/comm_session/session.h>
+#include <pbl/util/build_id.h>
+#include <pbl/util/math.h>
+#include <pbl/util/size.h>
 
-#include "pbl/kernel/compiler.h"
-#include "pbl/util/build_id.h"
-#include "pbl/util/math.h"
-#include "pbl/util/size.h"
+#include <console/dbgserial.h>
+#include <flash_region/flash_region.h>
+#include <kernel/core_dump.h>
+#include <kernel/core_dump_private.h>
+#include <kernel/pbl_malloc.h>
+#include <logging/logging_private.h>
+#include <logging/pulse_logging.h>
+#include <mfg/mfg_serials.h>
+#include <pebbleos/chip_id.h>
+#include <system/bootbits.h>
+#include <system/passert.h>
+#include <system/reset.h>
+#include <system/version.h>
 
 #ifdef CONFIG_SOC_NRF52
 #include <nrf52840.h>
 #endif
 
-#include "pbl/kernel/debug.h"
+#include <stdint.h>
+
+#include <pbl/kernel/debug.h>
 
 #include <cmsis_core.h>
-
-#include <stdint.h>
 
 //! Evaluates to 1 iff execution will use the process stack when returning from
 //! the exception.
@@ -203,7 +198,7 @@ static void prv_debug_str_int(const char *msg, uint32_t i, int base) {
 #endif
 }
 
-static PBL_NORETURN void prv_reset(void) {
+[[noreturn]] static void prv_reset(void) {
   dbgserial_flush();
   system_hard_reset();
 }
@@ -306,7 +301,7 @@ static uint32_t prv_flash_start_address(bool new) {
 }
 
 // -------------------------------------------------------------------------------------------------
-_Static_assert(CORE_DUMP_NUM_REGISTERS == PBL_THREAD_REG_COUNT, "register layout mismatch");
+static_assert(CORE_DUMP_NUM_REGISTERS == PBL_THREAD_REG_COUNT, "register layout mismatch");
 
 // Called for each thread during the pbl_thread_foreach() walk.
 static void prv_thread_info_cb(const struct pbl_thread_info *task_info, void *data) {
@@ -467,7 +462,7 @@ static uint32_t prv_write_image_header(uint32_t flash_addr, uint8_t core_number,
 
 // -----------------------------------------------------------------------------------------------
 // Trigger a core dump
-PBL_NORETURN void core_dump_reset(bool is_forced) {
+[[noreturn]] void core_dump_reset(bool is_forced) {
 #ifdef CONFIG_SOC_T5AI
   (void)is_forced;
   prv_debug_str("Persistent core dumps unavailable on T5AI");
@@ -648,7 +643,7 @@ PBL_EXTERNALLY_VISIBLE void core_dump_handler_c(void) {
   // structures. In that case, the core dump will at least contain the RAM and registers info and
   // perhaps some of the threads. The format of the binary core dump is streamable and is read until
   // we reach a chunk key of 0xFFFFFFFF (what gets placed into flash after an erase).
-  pbl_thread_foreach(prv_thread_info_cb, NULL);
+  pbl_thread_foreach(prv_thread_info_cb, nullptr);
 
   // If we core dumped from an ISR, we make up a special "ISR" thread to hold the registers
   if (!RETURNS_TO_PSP(s_saved_registers.core_reg[PBL_THREAD_REG_LR])) {
@@ -662,7 +657,7 @@ PBL_EXTERNALLY_VISIBLE void core_dump_handler_c(void) {
       // registers [r0-r12, sp, lr, pc, sr]
       task_info.regs[i] = s_saved_registers.core_reg[i];
     }
-    prv_thread_info_cb(&task_info, NULL);
+    prv_thread_info_cb(&task_info, nullptr);
   }
 
 #if defined(CONFIG_SOC_SF32LB52)

@@ -3,11 +3,10 @@
 
 #pragma once
 
-#include "event_service_client.h"
 #include "battery_state_service.h"
-#include "pbl/kernel/compiler.h"
+#include "event_service_client.h"
 
-typedef struct PBL_PACKED BatteryStateServiceState {
+typedef struct BatteryStateServiceState {
   BatteryStateHandler handler;
 
   EventServiceInfo bss_info;

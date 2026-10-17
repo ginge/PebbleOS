@@ -7,27 +7,28 @@
 //! to exist because systems that were common to both PRF and normal firmware wouldn't try to
 //! use something that only exists in normal, but we're not quite there yet.
 
-#include "pbl/util/uuid.h"
-#include "board/board.h"
-#include "kernel/events.h"
-#include "popups/crashed_ui.h"
-#include "popups/notifications/notification_window.h"
-#include "process_management/app_install_manager.h"
-#include "process_management/pebble_process_md.h"
-#include "resource/resource_ids.auto.h"
-#include "resource/resource_storage_file.h"
-#include "pbl/services/light.h"
-#include "pbl/services/notifications/do_not_disturb.h"
-#include "pbl/services/notifications/alerts_private.h"
-#include "pbl/services/persist.h"
-#include "shell/prefs.h"
-#include "shell/system_theme.h"
+#include <pbl/services/light.h>
+#include <pbl/services/notifications/alerts_private.h>
+#include <pbl/services/notifications/do_not_disturb.h>
+#include <pbl/services/persist.h>
+#include <pbl/util/uuid.h>
+
+#include <board/board.h>
+#include <kernel/events.h>
+#include <popups/crashed_ui.h>
+#include <popups/notifications/notification_window.h>
+#include <process_management/app_install_manager.h>
+#include <process_management/pebble_process_md.h>
+#include <resource/resource_ids.auto.h>
+#include <resource/resource_storage_file.h>
+#include <shell/prefs.h>
+#include <shell/system_theme.h>
 
 void app_fetch_binaries(const Uuid *uuid, AppInstallId app_id, bool has_worker) {
 }
 
 const char *app_custom_get_title(AppInstallId app_id) {
-  return NULL;
+  return nullptr;
 }
 
 void crashed_ui_show_worker_crash(AppInstallId install_id) {
@@ -58,7 +59,7 @@ void app_idle_timeout_touch_up(void) {
 }
 
 PebblePhoneCaller *phone_call_util_create_caller(const char *number, const char *name) {
-  return NULL;
+  return nullptr;
 }
 
 void alarm_set_snooze_delay(int delay_ms) {
@@ -76,7 +77,7 @@ void persist_service_client_close(const Uuid *uuid) {
 }
 
 SettingsFile *persist_service_lock_and_get_store(const Uuid *uuid) {
-  return NULL;
+  return nullptr;
 }
 
 status_t persist_service_delete_file(const Uuid *uuid) {
@@ -90,9 +91,9 @@ bool phone_call_is_using_ANCS(void) {
   return true;
 }
 
-#include "pbl/services/blob_db/app_db.h"
-#include "pbl/services/app_cache.h"
-#include "pbl/services/blob_db/pin_db.h"
+#include <pbl/services/app_cache.h>
+#include <pbl/services/blob_db/app_db.h>
+#include <pbl/services/blob_db/pin_db.h>
 
 status_t pin_db_delete_with_parent(const TimelineItemId *parent_id) {
   return E_INVALID_OPERATION;
@@ -140,13 +141,13 @@ AppInstallId worker_preferences_get_default_worker(void) {
   return INSTALL_ID_INVALID;
 }
 
-#include "process_management/process_loader.h"
+#include <process_management/process_loader.h>
 void *process_loader_load(const PebbleProcessMd *app_md, PebbleTask task,
                           MemorySegment *destination) {
   return app_md->main_func;
 }
 
-#include "pbl/services/process_management/app_storage.h"
+#include <pbl/services/process_management/app_storage.h>
 AppStorageGetAppInfoResult app_storage_get_process_info(PebbleProcessInfo *app_info,
                                                         uint8_t *build_id_out, AppInstallId app_id,
                                                         PebbleTask task) {
@@ -279,7 +280,7 @@ void shell_prefs_set_language(ShellLanguage language) {
 }
 
 FontInfo *fonts_get_system_emoji_font_for_size(unsigned int font_height) {
-  return NULL;
+  return nullptr;
 }
 
 int16_t timeline_peek_get_origin_y(void) {

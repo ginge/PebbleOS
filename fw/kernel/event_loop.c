@@ -2,70 +2,74 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "event_loop.h"
+
 #include "events.h"
 
+#include <inttypes.h>
+#include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <stdint.h>
-#include <inttypes.h>
-#include <stdbool.h>
 
-#include "applib/app_launch_reason.h"
-#include "applib/graphics/graphics.h"
-#include "applib/ui/ui.h"
-#include "comm/ble/kernel_le_client/kernel_le_client.h"
-#include "console/serial_console.h"
-#include <pbl/drivers/button.h>
-#include <pbl/task_wdt/task_wdt.h>
-#include "kernel/core_dump.h"
-#include "kernel/kernel_applib_state.h"
-#include "kernel/low_power.h"
-#include "kernel/panic.h"
-#include "kernel/ui/modals/modal_manager.h"
-#include "kernel/util/factory_reset.h"
-#include "pbl/mcu/fpu.h"
-#include "process_management/app_install_manager.h"
-#include "process_management/app_manager.h"
-#include "process_management/app_run_state.h"
-#include "process_management/process_manager.h"
-#include "process_management/worker_manager.h"
-#include "pbl/services/analytics/analytics.h"
-#include "pbl/services/battery/battery_state.h"
-#include "pbl/services/battery/battery_monitor.h"
-#include "pbl/services/clock.h"
-#include "pbl/services/compositor/compositor.h"
 #include <pbl/cron/cron.h>
-#include "pbl/services/debounced_connection_service.h"
-#include "pbl/services/ecompass.h"
-#include "pbl/services/event_service.h"
-#include "pbl/services/evented_timer.h"
-#include "pbl/services/firmware_update.h"
-#include "pbl/services/i18n/i18n.h"
-#include "pbl/services/light.h"
-#include "pbl/services/new_timer/new_timer.h"
-#include "pbl/services/put_bytes/put_bytes.h"
+#include <pbl/drivers/button.h>
+#include <pbl/mcu/fpu.h>
+#include <pbl/services/analytics/analytics.h>
+#include <pbl/services/battery/battery_monitor.h>
+#include <pbl/services/battery/battery_state.h>
+#include <pbl/services/clock.h>
+#include <pbl/services/compositor/compositor.h>
+#include <pbl/services/debounced_connection_service.h>
+#include <pbl/services/ecompass.h>
+#include <pbl/services/event_service.h>
+#include <pbl/services/evented_timer.h>
+#include <pbl/services/firmware_update.h>
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/services/light.h>
+#include <pbl/services/music_internal.h>
+#include <pbl/services/new_timer/new_timer.h>
+#include <pbl/services/put_bytes/put_bytes.h>
+#include <pbl/task_wdt/task_wdt.h>
+
+#include <applib/app_launch_reason.h>
+#include <applib/graphics/graphics.h>
+#include <applib/ui/ui.h>
+#include <comm/ble/kernel_le_client/kernel_le_client.h>
+#include <console/serial_console.h>
+#include <kernel/core_dump.h>
+#include <kernel/kernel_applib_state.h>
+#include <kernel/low_power.h>
+#include <kernel/panic.h>
+#include <kernel/ui/modals/modal_manager.h>
+#include <kernel/util/factory_reset.h>
+#include <process_management/app_install_manager.h>
+#include <process_management/app_manager.h>
+#include <process_management/app_run_state.h>
+#include <process_management/process_manager.h>
+#include <process_management/worker_manager.h>
 #ifdef CONFIG_TOUCH
-#include "pbl/services/touch/touch.h"
-#include "pbl/services/touch/touch_session.h"
+#include <pbl/services/touch/touch.h>
+#include <pbl/services/touch/touch_session.h>
 #endif
-#include "pbl/services/vibe_pattern.h"
-#include "pbl/services/alarms/alarm.h"
-#include "pbl/services/app_fetch_endpoint.h"
-#include "pbl/services/notifications/alerts_preferences.h"
-#include "pbl/services/notifications/do_not_disturb.h"
-#include "pbl/services/stationary.h"
-#include "pbl/services/wakeup.h"
-#include "pbl/services/runlevel.h"
-#include "shell/normal/app_idle_timeout.h"
-#include "shell/normal/watchface.h"
-#include "shell/prefs.h"
-#include "shell/shell_event_loop.h"
-#include "system/bootbits.h"
+#include <pbl/kernel/compiler.h>
 #include <pbl/logging/logging.h>
-#include "system/passert.h"
-#include "system/testinfra.h"
-#include "pbl/util/struct.h"
-#include "pbl/kernel/compiler.h"
+#include <pbl/services/alarms/alarm.h>
+#include <pbl/services/app_fetch_endpoint.h>
+#include <pbl/services/notifications/alerts_preferences.h>
+#include <pbl/services/notifications/do_not_disturb.h>
+#include <pbl/services/runlevel.h>
+#include <pbl/services/stationary.h>
+#include <pbl/services/vibe_pattern.h>
+#include <pbl/services/wakeup.h>
+#include <pbl/util/struct.h>
+
+#include <shell/normal/app_idle_timeout.h>
+#include <shell/normal/watchface.h>
+#include <shell/prefs.h>
+#include <shell/shell_event_loop.h>
+#include <system/bootbits.h>
+#include <system/passert.h>
+#include <system/testinfra.h>
 
 static const uint32_t FORCE_QUIT_HOLD_MS = 1500;
 static int s_back_hold_timer = TIMER_INVALID_ID;
@@ -160,7 +164,7 @@ static void back_button_force_quit_handler(void *data) {
   // Happens on NewTimer thread -- the launcher task may still be "behind"
   // on servicing events, so do check again later once *this* event gets
   // serviced to see if this is still relevant!
-  launcher_task_add_callback(launcher_force_quit_app, NULL);
+  launcher_task_add_callback(launcher_force_quit_app, nullptr);
 }
 
 static void launcher_handle_button_event(PebbleEvent *e) {
@@ -177,7 +181,7 @@ static void launcher_handle_button_event(PebbleEvent *e) {
       // Start timer for force-quitting app
       s_force_quit_was_cancelled = false;
       bool success = new_timer_start(s_back_hold_timer, FORCE_QUIT_HOLD_MS,
-                                     back_button_force_quit_handler, NULL, 0 /*flags*/);
+                                     back_button_force_quit_handler, nullptr, 0 /*flags*/);
       PBL_ASSERTN(success);
     }
 
@@ -267,6 +271,12 @@ static PBL_NOINLINE void prv_minimal_event_handler(PebbleEvent *e) {
       compositor_app_render_ready();
       return;
 
+#ifdef CONFIG_SERVICE_MUSIC
+    case PEBBLE_MEDIA_EVENT:
+      music_handle_media_event(&e->media);
+      return;
+#endif
+
     case PEBBLE_ACCEL_SHAKE_EVENT:
       if (backlight_is_motion_enabled()) {
 #ifndef CONFIG_RECOVERY_FW
@@ -286,7 +296,7 @@ static PBL_NOINLINE void prv_minimal_event_handler(PebbleEvent *e) {
       // interaction session is active; unarmed contact on the idle watchface
       // stays fully inert. Release on liftoff ungated so the refcount can't
       // leak if the session expired or touch was disabled mid-touch.
-      TouchWakeGateResult gate = {0};
+      TouchWakeGateResult gate = {};
       const bool is_modal_focused = (modal_manager_get_enabled() &&
                                      !(modal_manager_get_properties() & ModalProperty_Unfocused));
       if (e->touch.event.type == TouchEvent_Touchdown) {
@@ -342,13 +352,22 @@ static PBL_NOINLINE void prv_minimal_event_handler(PebbleEvent *e) {
         e->task_mask |= 1 << PebbleTask_App;
       }
       // Stamp on every event so the whole gesture carries the Touchdown latch.
-      touch_wake_gate_stamp(&e->touch.event, gate);
+      TouchEvent touch = e->touch.event;
+      touch_wake_gate_stamp(&touch, gate);
+      e->touch.event = touch;
       return;
     }
 #endif
 
     case PEBBLE_GESTURE_EVENT: {
 #ifdef CONFIG_TOUCH
+      if (e->gesture.event.type == GestureEvent_Palm) {
+        // palm gesture turns off the backlight
+        light_touch_up();
+        light_enable(false);
+        touch_session_reset();
+        return;
+      }
       s_touch_contact_engaged = true;
 #endif
       bool wake_on_gesture = false;
@@ -503,7 +522,6 @@ static PBL_NOINLINE void prv_extended_event_handler(PebbleEvent *e) {
 #endif
       return;
     }
-    case PEBBLE_BLE_SCAN_EVENT:
     case PEBBLE_BLE_CONNECTION_EVENT:
     case PEBBLE_BLE_GATT_CLIENT_EVENT:
       kernel_le_client_handle_event(e);
@@ -517,7 +535,7 @@ static PBL_NOINLINE void prv_extended_event_handler(PebbleEvent *e) {
       if (comm_session_event->is_system) {
         // tell the phone which app is running
         const Uuid *running_uuid = &app_manager_get_current_app_md()->uuid;
-        if (running_uuid != NULL) {
+        if (running_uuid != nullptr) {
           app_run_state_send_update(running_uuid, RUNNING);
         }
       }
@@ -649,5 +667,5 @@ void launcher_main_loop(void) {
     }
   }
 
-  PBL_UNREACHABLE();
+  unreachable();
 }

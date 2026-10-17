@@ -3,10 +3,11 @@
 #include <pbl/soc/t5ai/reboot_trace.h>
 #include "board/board.h"
 #include <cmsis_core.h>
-#include <pbl/drivers/mpu.h>
+#include <pbl/device.h>
+#include <pbl/mcu/mpu.h>
 #include <pbl/drivers/watchdog.h>
-#include <pbl/drivers/i2c.h>
-#include <pbl/drivers/gpio.h>
+#include <pbl/drivers/i2c/t5ai_legacy.h>
+#include <pbl/drivers/gpio/t5ai_legacy.h>
 #include <pbl/drivers/mic/t5ai/definitions.h>
 #include <pbl/soc/t5ai/state_trace.h>
 #include <pbl/soc/t5ai/memory.h>
@@ -188,8 +189,16 @@ void board_early_init(void) {
   watchdog_init();
   t5ai_state_trace_start();
 }
-void board_init(void) {
+static int prv_i2c_device_init(const struct pbl_device *dev) {
   i2c_init(I2C0_BUS);
+  return 0;
+}
+PBL_DEVICE_STATE_DEFINE(t5ai_i2c0_device);
+const struct pbl_device t5ai_i2c0_device =
+    PBL_DEVICE_INIT(t5ai_i2c0_device, "i2c0", prv_i2c_device_init, nullptr, nullptr);
+PBL_DEVICE_REGISTER(t5ai_i2c0_device, &t5ai_i2c0_device);
+
+void board_init(void) {
 
   // Keep CP awake until the AP implements the low-voltage suspend/resume contract.
   const status_t status = t5ai_cp_mailbox_vote_app_sleep(false);

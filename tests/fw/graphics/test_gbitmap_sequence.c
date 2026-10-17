@@ -1,17 +1,19 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/graphics/gbitmap_sequence.h"
-#include "applib/graphics/graphics.h"
-
-#include "clar.h"
 #include "util.h"
 
-#include <pbl/util/size.h>
-
-#include <string.h>
 #include <stdio.h>
+#include <string.h>
 #include <time.h>
+
+#include <pbl/util/size.h>
+#include <pbl/util/string.h>
+
+#include <applib/app_logging.h>
+#include <applib/graphics/gbitmap_sequence.h>
+#include <applib/graphics/graphics.h>
+#include <clar.h>
 
 // Test files are Creative Commons 0 (ie. Public Domain) from
 // http://opengameart.org/content/game-character-blue-flappy-bird-sprite-sheets
@@ -24,29 +26,31 @@
 // http://opengameart.org/content/open-pixel-platformer-tiles-sprites
 
 #if CONFIG_SCREEN_COLOR_DEPTH_BITS == 8
-#include "applib/graphics/8_bit/framebuffer.c"
+#include <applib/graphics/8_bit/framebuffer.c>
 #elif CONFIG_SCREEN_COLOR_DEPTH_BITS == 1
-#include "applib/graphics/1_bit/framebuffer.c"
+#include <applib/graphics/1_bit/framebuffer.c>
 #endif
 
 // Fakes
 ////////////////////////////////////
-#include "fake_resource_syscalls.h"
-#include "fake_app_timer.h"
+#include <fake_app_timer.h>
+#include <fake_resource_syscalls.h>
 
 // Stubs
 ////////////////////////////////////
-#include "stubs_applib_resource.h"
-#include "stubs_app_state.h"
-#include "stubs_logging.h"
-#include "stubs_heap.h"
-#include "stubs_passert.h"
-#include "stubs_pbl_malloc.h"
-#include "stubs_pebble_tasks.h"
-#include "stubs_print.h"
-#include "stubs_resources.h"
-#include "stubs_serial.h"
-#include "stubs_ui_window.h"
+#include <stubs_logging.h>
+
+static int s_dispose_previous_warnings;
+
+void stub_log_internal(uint8_t log_level, const char *src_filename, int src_line_number,
+                       const char *fmt, va_list args) {
+  if ((log_level == APP_LOG_LEVEL_WARNING) && strstr(fmt, "PREVIOUS")) {
+    s_dispose_previous_warnings++;
+  }
+  printf("%s:%d> ", GET_FILE_NAME(src_filename), src_line_number);
+  vprintf(fmt, args);
+  printf("\n");
+}
 
 #define GET_PBI_NAME(x) prv_get_image_name(__func__, x, "pbi")
 #define GET_APNG_NAME   prv_get_image_name(__func__, 0, "apng")
@@ -85,26 +89,26 @@ void test_gbitmap_sequence__color_2bit_bouncing_ball(void) {
       gbitmap_create_blank(gbitmap_sequence_get_bitmap_size(bitmap_sequence), GBitmapFormat8Bit);
   cl_assert(bitmap);
 
-  gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, NULL);
+  gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, nullptr);
   cl_check(gbitmap_pbi_eq(bitmap, GET_PBI_NAME(1)));
 
-  gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, NULL);
+  gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, nullptr);
   cl_check(gbitmap_pbi_eq(bitmap, GET_PBI_NAME(2)));
 
-  gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, NULL);
+  gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, nullptr);
   cl_check(gbitmap_pbi_eq(bitmap, GET_PBI_NAME(3)));
 
-  gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, NULL);
+  gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, nullptr);
   cl_check(gbitmap_pbi_eq(bitmap, GET_PBI_NAME(4)));
 
-  gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, NULL);
+  gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, nullptr);
   cl_check(gbitmap_pbi_eq(bitmap, GET_PBI_NAME(5)));
 
-  gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, NULL);
+  gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, nullptr);
   cl_check(gbitmap_pbi_eq(bitmap, GET_PBI_NAME(6)));
 
   // Test loop around
-  gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, NULL);
+  gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, nullptr);
   cl_check(gbitmap_pbi_eq(bitmap, GET_PBI_NAME(1)));
 #endif
 }
@@ -246,28 +250,28 @@ void test_gbitmap_sequence__color_8bit_bounds(void) {
 
   // Shift the bounds when updating
   gbitmap_set_bounds(bitmap, shift_bounds);
-  gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, NULL);
+  gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, nullptr);
   // set the original bounds to do whole-image comparison
   gbitmap_set_bounds(bitmap, orig_bounds);
   cl_check(gbitmap_pbi_eq(bitmap, GET_PBI_NAME(1)));
 
   gbitmap_set_bounds(bitmap, shift_bounds);
-  gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, NULL);
+  gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, nullptr);
   gbitmap_set_bounds(bitmap, orig_bounds);
   cl_check(gbitmap_pbi_eq(bitmap, GET_PBI_NAME(2)));
 
   gbitmap_set_bounds(bitmap, shift_bounds);
-  gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, NULL);
+  gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, nullptr);
   gbitmap_set_bounds(bitmap, orig_bounds);
   cl_check(gbitmap_pbi_eq(bitmap, GET_PBI_NAME(3)));
 
   gbitmap_set_bounds(bitmap, shift_bounds);
-  gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, NULL);
+  gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, nullptr);
   gbitmap_set_bounds(bitmap, orig_bounds);
   cl_check(gbitmap_pbi_eq(bitmap, GET_PBI_NAME(4)));
 
   gbitmap_set_bounds(bitmap, shift_bounds);
-  gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, NULL);
+  gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, nullptr);
   gbitmap_set_bounds(bitmap, orig_bounds);
   cl_check(gbitmap_pbi_eq(bitmap, GET_PBI_NAME(5)));
 #endif
@@ -285,15 +289,15 @@ void test_gbitmap_sequence__color_8bit_yoshi(void) {
   GBitmap *bitmap =
       gbitmap_create_blank(gbitmap_sequence_get_bitmap_size(bitmap_sequence), GBitmapFormat8Bit);
 
-  status = gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, NULL);
+  status = gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, nullptr);
   cl_assert_equal_b(status, true);
   cl_check(gbitmap_pbi_eq(bitmap, GET_PBI_NAME(1)));
 
-  status = gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, NULL);
+  status = gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, nullptr);
   cl_assert_equal_b(status, true);
   cl_check(gbitmap_pbi_eq(bitmap, GET_PBI_NAME(2)));
 
-  status = gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, NULL);
+  status = gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, nullptr);
   cl_assert_equal_b(status, true);
   cl_check(gbitmap_pbi_eq(bitmap, GET_PBI_NAME(3)));
 #endif
@@ -313,7 +317,7 @@ void test_gbitmap_sequence__1bit_to_1bit_notification(void) {
   for (int i = 0; i < ARRAY_LENGTH(check_frames); ++i) {
     // Advance to the next frame we're interested in.
     for (; current_frame < check_frames[i]; ++current_frame) {
-      bool status = gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, NULL);
+      bool status = gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, nullptr);
       cl_assert_equal_b(status, true);
     }
 
@@ -324,4 +328,62 @@ void test_gbitmap_sequence__1bit_to_1bit_notification(void) {
     snprintf(filename_buffer, sizeof(filename_buffer), "%s_%u.pbi", __func__, current_frame);
     cl_check(gbitmap_pbi_eq(bitmap, filename_buffer));
   }
+}
+
+static void prv_check_pixels(GBitmap *bitmap, const char *expected) {
+  for (int y = 0; y < 4; y++) {
+    const GBitmapDataRowInfo row_info = gbitmap_get_data_row_info(bitmap, y);
+    for (int x = 0; x < 4; x++) {
+      const uint8_t argb = (expected[y * 4 + x] == 'B') ? GColorBlackARGB8 : GColorWhiteARGB8;
+      cl_assert_equal_i(row_info.data[x], argb);
+    }
+  }
+}
+
+// Tests 4x4 APNG with 3 frames: full white (dispose PREVIOUS), 2x2 black at 0,0
+// (dispose PREVIOUS) and 1x1 black at 3,3 (dispose NONE)
+// Result:
+//   - dispose op PREVIOUS behaves as NONE
+//   - the unsupported dispose op warning is logged once per sequence
+void test_gbitmap_sequence__dispose_op_previous(void) {
+  s_dispose_previous_warnings = 0;
+
+  uint32_t resource_id = sys_resource_load_file_as_resource(TEST_IMAGES_PATH, GET_APNG_NAME);
+  cl_assert(resource_id != UINT32_MAX);
+  GBitmapSequence *bitmap_sequence = gbitmap_sequence_create_with_resource(resource_id);
+  cl_assert(bitmap_sequence);
+  GBitmap *bitmap =
+      gbitmap_create_blank(gbitmap_sequence_get_bitmap_size(bitmap_sequence), GBitmapFormat8Bit);
+  cl_assert(bitmap);
+
+  const char *frames[] = {
+    "WWWW"
+    "WWWW"
+    "WWWW"
+    "WWWW",
+    "BBWW"
+    "BBWW"
+    "WWWW"
+    "WWWW",
+    "BBWW"
+    "BBWW"
+    "WWWW"
+    "WWWB",
+  };
+
+  for (int loop = 0; loop < 2; loop++) {
+    for (int i = 0; i < ARRAY_LENGTH(frames); i++) {
+      cl_assert(gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, nullptr));
+      prv_check_pixels(bitmap, frames[i]);
+    }
+  }
+
+  cl_assert(gbitmap_sequence_restart(bitmap_sequence));
+  cl_assert(gbitmap_sequence_update_bitmap_next_frame(bitmap_sequence, bitmap, nullptr));
+  prv_check_pixels(bitmap, frames[0]);
+
+  cl_assert_equal_i(s_dispose_previous_warnings, 1);
+
+  gbitmap_destroy(bitmap);
+  gbitmap_sequence_destroy(bitmap_sequence);
 }

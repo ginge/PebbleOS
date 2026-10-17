@@ -1,22 +1,20 @@
 /* SPDX-FileCopyrightText: 2025 Joshua Jun */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/voice/voice_speex.h"
-
-#include "board/board.h"
-#include <pbl/logging/logging.h>
-#include "system/passert.h"
-#include "kernel/pbl_malloc.h"
-#include <pbl/logging/logging.h>
-#include <pbl/drivers/mic.h>
-
-#include "speex/speex.h"
-#include "speex/speex_bits.h"
-#include "speex/speex_header.h"
-#include "speex/speex_stereo.h"
-
-#include <string.h>
 #include <inttypes.h>
+#include <string.h>
+
+#include <pbl/drivers/mic.h>
+#include <pbl/logging/logging.h>
+#include <pbl/services/voice/voice_speex.h>
+
+#include <board/board.h>
+#include <kernel/pbl_malloc.h>
+#include <speex/speex.h>
+#include <speex/speex_bits.h>
+#include <speex/speex_header.h>
+#include <speex/speex_stereo.h>
+#include <system/passert.h>
 
 PBL_LOG_MODULE_DECLARE(service_voice, CONFIG_SERVICE_VOICE_LOG_LEVEL);
 
@@ -43,7 +41,7 @@ typedef struct {
   size_t encoded_buffer_size;
 } VoiceSpeexEncoder;
 
-static VoiceSpeexEncoder s_encoder = {0};
+static VoiceSpeexEncoder s_encoder = {};
 
 // Speex configuration
 #define SPEEX_SAMPLE_RATE         16000 // 16 kHz wideband
@@ -144,19 +142,19 @@ void voice_speex_deinit(void) {
 
   if (s_encoder.enc_state) {
     speex_encoder_destroy(s_encoder.enc_state);
-    s_encoder.enc_state = NULL;
+    s_encoder.enc_state = nullptr;
   }
 
   speex_bits_destroy(&s_encoder.bits);
 
   if (s_encoder.frame_buffer) {
     kernel_free(s_encoder.frame_buffer);
-    s_encoder.frame_buffer = NULL;
+    s_encoder.frame_buffer = nullptr;
   }
 
   if (s_encoder.encoded_buffer) {
     kernel_free(s_encoder.encoded_buffer);
-    s_encoder.encoded_buffer = NULL;
+    s_encoder.encoded_buffer = nullptr;
   }
 
   memset(&s_encoder, 0, sizeof(s_encoder));
@@ -189,7 +187,7 @@ int voice_speex_get_frame_size(void) {
 }
 
 int16_t *voice_speex_get_frame_buffer(void) {
-  return s_encoder.initialized ? (int16_t *)s_encoder.frame_buffer : NULL;
+  return s_encoder.initialized ? (int16_t *)s_encoder.frame_buffer : nullptr;
 }
 
 size_t voice_speex_get_frame_buffer_size(void) {

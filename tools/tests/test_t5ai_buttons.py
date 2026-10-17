@@ -65,7 +65,7 @@ static jmp_buf done;
 static unsigned now, bits, events, configured, bootbit, resetcode;
 static bool inject_edge;
 static PebbleEvent output[16];
-#include "fw/drivers/t5ai/debounced_button.c"
+#include "drivers/t5ai/debounced_button.c"
 void button_init(void) {}
 bool button_is_pressed(ButtonId id) { return (bits >> id) & 1; }
 uint32_t button_get_state_bits(void) { return bits; }
@@ -141,7 +141,7 @@ class ButtonsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)
             (directory / "stub.h").write_text(STUB)
-            source = ROOT / "fw/drivers/t5ai/debounced_button.c"
+            source = ROOT / "drivers/t5ai/debounced_button.c"
             import re
             for name in re.findall(r'#include [<"]([^>"]+)[>"]', source.read_text()):
                 if name in ("stdint.h", "stdlib.h"):

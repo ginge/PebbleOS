@@ -81,7 +81,7 @@ class RecoveryTraceTest(unittest.TestCase):
     def test_delegation_and_snapshots(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
-            for header in ("pbl/kernel/irq.h", "pbl/kernel/sched.h", "pbl/kernel/thread.h", "pbl/logging/logging.h",
+            for header in ("pbl/kernel/irq.h", "pbl/kernel/time.h", "pbl/kernel/sched.h", "pbl/kernel/thread.h", "pbl/logging/logging.h",
                            "pbl/services/system_task.h", "pbl/task_wdt/task_wdt.h", "pbl/soc/t5ai/flash_ipc.h", "pbl/soc/t5ai/io_trace.h"):
                 path = directory / header
                 path.parent.mkdir(parents=True, exist_ok=True)

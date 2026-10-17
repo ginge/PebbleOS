@@ -4,18 +4,18 @@
 #include "stroke_width.h"
 
 #include <inttypes.h>
-#include <stdbool.h>
 
-#include "applib/app.h"
-#include "applib/pbl_std/pbl_std.h"
-#include "applib/graphics/graphics.h"
-#include "applib/graphics/gtypes.h"
-#include "pbl/util/trig.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/window.h"
-#include "kernel/pbl_malloc.h"
-#include "process_state/app_state/app_state.h"
 #include <pbl/logging/logging.h>
+#include <pbl/util/trig.h>
+
+#include <applib/app.h>
+#include <applib/graphics/graphics.h>
+#include <applib/graphics/gtypes.h>
+#include <applib/pbl_std/pbl_std.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/window.h>
+#include <kernel/pbl_malloc.h>
+#include <process_state/app_state/app_state.h>
 
 #define STEP_ROTATION_ANGLE (TRIG_MAX_ANGLE / 360) // 1 degree
 #define MIN_OPS             0
@@ -266,7 +266,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
   if (data->operation == OP_ROTATE2) {
     int line_length = 60;
     time_t now;
-    uint16_t now_ms = time_ms(&now, NULL);
+    uint16_t now_ms = time_ms(&now, nullptr);
 
     uint32_t seconds = pbl_override_localtime(&now)->tm_sec;
     uint32_t miliseconds = seconds * 1000 + now_ms;
@@ -299,7 +299,7 @@ static void canvas_update_proc(Layer *layer, GContext *ctx) {
   if (data->operation == OP_ROTATE3) {
     int line_length = 60;
     time_t now;
-    uint16_t now_ms = time_ms(&now, NULL);
+    uint16_t now_ms = time_ms(&now, nullptr);
 
     uint32_t seconds = pbl_override_localtime(&now)->tm_sec;
     uint32_t miliseconds = seconds * 1000 + now_ms;
@@ -377,7 +377,7 @@ void timer_callback(void *d) {
 
   layer_mark_dirty(data->canvas_layer);
 
-  timer = app_timer_register(30, timer_callback, NULL);
+  timer = app_timer_register(30, timer_callback, nullptr);
 }
 
 static void main_window_unload(Window *window) {
@@ -412,7 +412,7 @@ static void init(void) {
   const bool animated = true;
   app_window_stack_push(s_window, animated);
 
-  timer = app_timer_register(30, timer_callback, NULL);
+  timer = app_timer_register(30, timer_callback, nullptr);
 }
 
 static void deinit(void) {

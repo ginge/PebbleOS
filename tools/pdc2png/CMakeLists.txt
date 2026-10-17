@@ -8,8 +8,10 @@ file(GLOB pdc2png_sources CONFIGURE_DEPENDS src/*.c)
 
 add_executable(pdc2png
   ${pdc2png_sources}
-  ${PBL_BASE}/fw/applib/vendor/uPNG/upng.c
-  ${PBL_BASE}/fw/applib/vendor/tinflate/tinflate.c
+  ${PBL_BASE}/third_party/upng/upng/upng.c
+  ${PBL_BASE}/third_party/uzlib/uzlib/src/tinflate.c
+  ${PBL_BASE}/third_party/uzlib/uzlib/src/adler32.c
+  ${PBL_BASE}/third_party/uzlib/uzlib/src/crc32.c
   ${PBL_BASE}/fw/applib/graphics/8_bit/bitblt_private.c
   ${PBL_BASE}/fw/applib/graphics/8_bit/framebuffer.c
   ${PBL_BASE}/fw/applib/graphics/bitblt.c
@@ -29,19 +31,28 @@ add_executable(pdc2png
   ${PBL_BASE}/fw/applib/graphics/graphics_private.c
   ${PBL_BASE}/fw/applib/graphics/graphics_private_raw.c
   ${PBL_BASE}/fw/applib/graphics/gtypes.c
+  ${PBL_BASE}/lib/util/gmtime.c
   ${PBL_BASE}/lib/util/keyed_circular_cache.c
   ${PBL_BASE}/lib/util/math.c
   ${PBL_BASE}/lib/util/platform.c
+  ${PBL_BASE}/lib/util/time.c
   ${PBL_BASE}/lib/util/trig.c
+  ${PBL_BASE}/tests/stubs/default/app_state.c
+  ${PBL_BASE}/tests/stubs/default/applib_resource.c
+  ${PBL_BASE}/tests/stubs/default/heap.c
+  ${PBL_BASE}/tests/stubs/default/logging.c
+  ${PBL_BASE}/tests/stubs/default/memory_layout.c
+  ${PBL_BASE}/tests/stubs/default/pbl_malloc.c
+  ${PBL_BASE}/tests/stubs/default/resources.c
+  ${PBL_BASE}/tests/stubs/default/syscalls.c
 )
 
 target_include_directories(pdc2png PRIVATE
-  # Ahead of the rest: this time.h deliberately shadows the host's.
-  ${PBL_BASE}/lib/c/include
   ${PBL_BASE}/tests/stubs
   ${PBL_BASE}/tests/fw/graphics
-  ${PBL_BASE}/fw/applib/vendor/uPNG
-  ${PBL_BASE}/fw/applib/vendor/tinflate
+  ${PBL_BASE}/third_party/upng
+  ${PBL_BASE}/third_party/upng/upng
+  ${PBL_BASE}/third_party/uzlib/uzlib/src
   ${PBL_BASE}/tests/overrides/default
   ${PBL_BASE}/include
   ${PBL_BASE}/kernel/arch/posix/include
@@ -67,8 +78,8 @@ target_compile_definitions(pdc2png PRIVATE
   CONFIG_BOARD_OBELIX=1
   CONFIG_PLATFORM_EMERY=1
   CONFIG_FLASH_GD25Q256E=1
-  # Check that our <time.h> is the one that got included.
-  _TIME_H_
   "PBI2PNG_EXE=\"pbi2png.py\""
+  "UPNG_CONFIG_FILE=\"upng_config.h\""
+  UZLIB_CONF_PARANOID_CHECKS=1
+  UZLIB_CONF_LENGTHS_IN_STATE=1
 )
-target_compile_options(pdc2png PRIVATE -Wno-gnu-variable-sized-type-not-at-end)

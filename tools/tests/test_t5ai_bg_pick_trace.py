@@ -64,7 +64,7 @@ class BgPickTraceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
             for header in (
-                "pbl/kernel/sched.h", "pbl/kernel/irq.h", "pbl/kernel/thread.h",
+                "pbl/kernel/time.h", "pbl/kernel/sched.h", "pbl/kernel/irq.h", "pbl/kernel/thread.h",
                 "pbl/logging/logging.h", "pbl/services/new_timer/new_timer.h",
                 "pbl/services/system_task.h", "pbl/soc/t5ai/rtc.h",
             ):

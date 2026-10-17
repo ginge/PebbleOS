@@ -50,6 +50,35 @@ MODAL_DISCREET = 0
 _APP = re.compile(r"^(-?\d+): (.*) (\S+)$")
 
 
+def protocol_screenshot(pebble, timeout=SCREENSHOT_TIMEOUT_S):
+    """The screenshot endpoint's image over ``pebble`` as RGB rows;
+    libpebble2's own client waits forever on a watch that stops answering."""
+    from libpebble2.exceptions import TimeoutError as PebbleTimeoutError
+    from libpebble2.protocol.screenshots import (
+        ScreenshotHeader,
+        ScreenshotRequest,
+        ScreenshotResponse,
+    )
+    from libpebble2.services.screenshot import Screenshot
+
+    responses = pebble.get_endpoint_queue(ScreenshotResponse)
+    try:
+        pebble.send_packet(ScreenshotRequest())
+        try:
+            header = ScreenshotHeader.parse(responses.get(timeout=timeout).data)[0]
+            if header.response_code != ScreenshotHeader.ResponseCode.OK:
+                raise HarnessError(f"screenshot failed: {header.response_code!s}")
+            data = header.data
+            expected = Screenshot._get_expected_bytes(header)
+            while len(data) < expected:
+                data += responses.get(timeout=timeout).data
+        except PebbleTimeoutError:
+            raise WatchTimeout(f"no screenshot after {timeout}s") from None
+    finally:
+        responses.close()
+    return Screenshot._decode_image(header, data)
+
+
 class Ui:
     """Input and screen helpers over a launched ``dut``.
 
@@ -84,10 +113,11 @@ class Ui:
         deadline = time.monotonic() + BUSY_TIMEOUT_S
         while True:
             response = self.dut.prompt(command)
-            status = response[0] if response else ""
+            # The shell says nothing when it is done, the prompt says OK.
+            status = response[0] if response else "OK"
             if status.startswith("OK"):
                 return
-            if not status.startswith("BUSY"):
+            if "busy" not in status.lower():
                 raise PromptError(f"{command!r}: {response}")
             if time.monotonic() > deadline:
                 raise WatchTimeout(f"{command!r} stayed busy")
@@ -162,34 +192,8 @@ class Ui:
             raise Unsupported("no connection or device can capture the screen")
         return image
 
-    def _protocol_screenshot(self, timeout=SCREENSHOT_TIMEOUT_S):
-        """The screenshot endpoint's image as RGB rows; libpebble2's own
-        client waits forever on a watch that stops answering."""
-        from libpebble2.exceptions import TimeoutError as PebbleTimeoutError
-        from libpebble2.protocol.screenshots import (
-            ScreenshotHeader,
-            ScreenshotRequest,
-            ScreenshotResponse,
-        )
-        from libpebble2.services.screenshot import Screenshot
-
-        pebble = self.dut.protocol
-        responses = pebble.get_endpoint_queue(ScreenshotResponse)
-        try:
-            pebble.send_packet(ScreenshotRequest())
-            try:
-                header = ScreenshotHeader.parse(responses.get(timeout=timeout).data)[0]
-                if header.response_code != ScreenshotHeader.ResponseCode.OK:
-                    raise HarnessError(f"screenshot failed: {header.response_code!s}")
-                data = header.data
-                expected = Screenshot._get_expected_bytes(header)
-                while len(data) < expected:
-                    data += responses.get(timeout=timeout).data
-            except PebbleTimeoutError:
-                raise WatchTimeout(f"no screenshot after {timeout}s") from None
-        finally:
-            responses.close()
-        return Screenshot._decode_image(header, data)
+    def _protocol_screenshot(self, timeout=SCREENSHOT_TIMEOUT_S, pebble=None):
+        return protocol_screenshot(pebble or self.dut.protocol, timeout)
 
     def wait_idle(self, timeout=10.0, interval=0.25, stable=2):
         """Wait until the screen stops changing; returns the settled image.
@@ -300,10 +304,24 @@ class Ui:
             time.sleep(STACK_POLL_S)
         return stack
 
+    def _close_modals(self, deadline):
+        """Press Back until no modal covers the app; discreet ones stay."""
+        closed = False
+        while modals := self.modal_stack():
+            if time.monotonic() > deadline:
+                raise WatchTimeout(f"modals still up: {modals}")
+            self.press(Button.BACK)
+            closed = True
+            time.sleep(TRANSITION_S)
+        if closed:
+            # The last one leaves the stack before its transition ends.
+            time.sleep(TRANSITION_S)
+
     def go_home(self, timeout=15.0):
         """Bring up the TicToc watchface: launched over the Pebble protocol
         when a connection carries it, else by pressing Back until the window
-        stack stops changing (which leaves the default watchface up)."""
+        stack stops changing (which leaves the default watchface up). Modals
+        left over, such as a dialog, are closed."""
         if self.dut.has(Capability.PROTOCOL):
             self.launch_app(TICTOC_UUID)
             if not self.dut.has(Capability.PROMPT):
@@ -315,6 +333,7 @@ class Ui:
                     raise WatchTimeout(f"TicToc did not come up: {self.window_stack()}")
                 time.sleep(STACK_POLL_S)
             time.sleep(TRANSITION_S)
+            self._close_modals(deadline)
             return
 
         deadline = time.monotonic() + timeout
@@ -325,6 +344,7 @@ class Ui:
             self.press(Button.BACK)
             after = self._stack_after(stack, BACK_SETTLE_S)
             if after == stack:
+                self._close_modals(deadline)
                 return
             if time.monotonic() > deadline:
                 raise WatchTimeout(f"still not home after {timeout}s: {after}")

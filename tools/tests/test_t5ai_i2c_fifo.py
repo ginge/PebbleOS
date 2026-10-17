@@ -130,12 +130,12 @@ class T5AII2CFifoTest(unittest.TestCase):
                 path = Path(temporary)
                 (path / "api.h").write_text(API)
                 for name in (
-                    "pbl/drivers/i2c/hal.h",
-                    "pbl/drivers/i2c/definitions.h",
+                    "pbl/drivers/i2c/t5ai_legacy_hal.h",
+                    "pbl/drivers/i2c/t5ai_legacy_definitions.h",
                     "pbl/drivers/i2c/t5ai.h",
-                    "pbl/drivers/gpio.h",
+                    "pbl/drivers/gpio/t5ai_legacy.h",
                     "pbl/soc/t5ai/kernel.h",
-                    "kernel/util/delay.h",
+                    "pbl/soc/t5ai/delay.h",
                     "system/passert.h",
                     "cmsis_core.h",
                 ):
@@ -143,11 +143,11 @@ class T5AII2CFifoTest(unittest.TestCase):
                     header.parent.mkdir(parents=True, exist_ok=True)
                     header.write_text('#include "api.h"\n')
                 # Intercept only the MMIO data pop; execute the real ISR logic.
-                source = (ROOT / "fw/drivers/i2c/t5ai.c").read_text()
+                source = (ROOT / "drivers/i2c/t5ai.c").read_text()
                 source = source.replace("(uint8_t)regs->data", "test_pop()")
                 (path / "driver.c").write_text(source)
                 prefix = HARNESS.split("int main(void)")[0].replace(
-                    '#include "fw/drivers/i2c/t5ai.c"',
+                    '#include "drivers/i2c/t5ai.c"',
                     'static uint8_t test_pop(void);\n#include "driver.c"',
                 )
                 (path / "test.c").write_text(prefix + FIFO_HARNESS)

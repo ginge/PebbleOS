@@ -6,44 +6,44 @@
 //! instead of <pebble.h>. Over-inclusive on purpose; the linker drops unused.
 #pragma once
 
-#include <stdint.h>
 #include <stddef.h>
-#include <string.h>
+#include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 // --- UI framework (umbrella: window, layer, text/bitmap/menu/scroll layers,
 //     animation, click, app_window_stack, vibes, ...) ---
-#include "applib/ui/ui.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/window_stack.h"
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/ui.h>
+#include <applib/ui/window_stack.h>
 
 // --- Graphics ---
-#include "applib/graphics/graphics.h"
-#include "applib/graphics/gbitmap_png.h"
-#include "applib/graphics/gdraw_command_image.h"
-#include "applib/graphics/gdraw_command_frame.h"
-#include "applib/graphics/text.h"
+#include <applib/graphics/gbitmap_png.h>
+#include <applib/graphics/gdraw_command_frame.h>
+#include <applib/graphics/gdraw_command_image.h>
+#include <applib/graphics/graphics.h>
+#include <applib/graphics/text.h>
 
 // --- Fonts ---
 
 // --- App services / timers / events ---
-#include "applib/app.h"
-#include "applib/pbl_std/pbl_std.h" // pbl_override_localtime
-#include "applib/preferred_content_size.h"
+#include <applib/app.h>
+#include <applib/pbl_std/pbl_std.h> // pbl_override_localtime
+#include <applib/preferred_content_size.h>
 
 // --- Touch (firmware applib app-facing touch service: TouchEvent{type,x,y}) ---
-#include "applib/touch_service.h"
+#include <applib/touch_service.h>
 
 // --- Persistent storage ---
-#include "applib/persist.h"
+#include <applib/persist.h>
 
 // --- Process / app state / heap ---
-#include "process_state/app_state/app_state.h"
-#include "kernel/pbl_malloc.h"
+#include <kernel/pbl_malloc.h>
+#include <process_state/app_state/app_state.h>
 
 // --- Resources (real generated ids; replaces the stored-app pinned header) ---
-#include "resource/resource_ids.auto.h"
-#include "applib/applib_resource.h" // app-facing ResHandle resource API
+#include <applib/applib_resource.h> // app-facing ResHandle resource API
+#include <resource/resource_ids.auto.h>
 
 // NOTE: the firmware weather headers (weather_service.h / weather_types.h /
 // weather_db.h) are intentionally NOT included here — they define WeatherType
@@ -53,9 +53,10 @@
 // weather.c use the app's types + the neutral WxDsForecast struct.
 
 // --- Misc utils the ported code uses ---
-#include "pbl/services/clock.h"
-#include "pbl/util/trig.h" // sin_lookup / cos_lookup / TRIG_MAX_ANGLE / TRIG_MAX_RATIO
 #include <time.h>
+
+#include <pbl/services/clock.h>
+#include <pbl/util/trig.h> // sin_lookup / cos_lookup / TRIG_MAX_ANGLE / TRIG_MAX_RATIO
 
 // --- Window-stack call-site shims: the SDK names map 1:1 to the app-window
 //     variants firmware apps must use. ---
@@ -74,7 +75,7 @@
 // after all firmware headers are included (their declarations are processed
 // before these function-like macros become active).
 // ===========================================================================
-#include "pbl/drivers/rtc.h" // rtc_get_time
+#include <pbl/drivers/rtc.h> // rtc_get_time
 
 #define layer_get_bounds(layer)     layer_get_bounds_by_value(layer)
 #define layer_get_frame(layer)      layer_get_frame_by_value(layer)
@@ -104,6 +105,9 @@
 // CROAK (kill the app) on OOM and never return NULL — any `if (!p)` after these is
 // unreachable. Sites with a real fallback path (skip-the-effect scratch buffers,
 // optional resource loads) must use malloc_try instead.
+#undef calloc
+#undef malloc
+#undef free
 #define calloc(n, sz)  app_calloc_check((n), (sz))
 #define malloc(sz)     app_malloc_check(sz)
 #define malloc_try(sz) app_malloc(sz)

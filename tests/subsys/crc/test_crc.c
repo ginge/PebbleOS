@@ -1,13 +1,13 @@
 /* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "clar.h"
-
-#include <pbl/crc/crc.h>
-
 #include "crc_reference.h"
 
 #include <string.h>
+
+#include <pbl/crc/crc.h>
+
+#include <clar.h>
 
 static const char s_check[] = "123456789";
 static uint8_t s_data[1031];
@@ -45,7 +45,7 @@ void test_crc__crc8_reversed_is_crc8_of_reversed_bytes(void) {
 
 void test_crc__crc32_check(void) {
   cl_assert_equal_i(pbl_crc32(0, s_check, strlen(s_check)), 0xcbf43926);
-  cl_assert_equal_i(pbl_crc32(0, NULL, 0), 0);
+  cl_assert_equal_i(pbl_crc32(0, nullptr, 0), 0);
   cl_assert_equal_i(pbl_crc32(0, s_check, 0), 0);
   cl_assert_equal_i(pbl_crc32(0, s_data, sizeof(s_data)), ref_crc32(0, s_data, sizeof(s_data)));
 }

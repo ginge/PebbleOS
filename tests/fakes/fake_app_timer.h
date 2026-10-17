@@ -3,10 +3,11 @@
 
 #pragma once
 
-#include "applib/app_timer.h"
+#include <string.h>
+
 #include <pbl/logging/logging.h>
 
-#include <string.h>
+#include <applib/app_timer.h>
 
 typedef struct FakeAppTimer {
   uint32_t timeout_ms;
@@ -21,16 +22,16 @@ static FakeAppTimer *s_fake_app_timer_head;
 static uint32_t s_fake_app_timer_next_id;
 
 static FakeAppTimer *prv_find_fake_app_timer_by_timer_id(uint32_t timer_id) {
-  for (FakeAppTimer *node = s_fake_app_timer_head; node != NULL; node = node->next) {
+  for (FakeAppTimer *node = s_fake_app_timer_head; node != nullptr; node = node->next) {
     if (node->timer_id == timer_id) {
       return node;
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 void fake_app_timer_init(void) {
-  s_fake_app_timer_head = NULL;
+  s_fake_app_timer_head = nullptr;
   s_fake_app_timer_next_id = 0;
 }
 
@@ -53,7 +54,7 @@ uint32_t fake_app_timer_get_timeout(AppTimer *timer) {
 }
 
 bool fake_app_timer_is_scheduled(AppTimer *timer) {
-  return (prv_find_fake_app_timer_by_timer_id((uintptr_t)timer) != NULL);
+  return (prv_find_fake_app_timer_by_timer_id((uintptr_t)timer) != nullptr);
 }
 
 AppTimer *app_timer_register(uint32_t timeout_ms, AppTimerCallback callback, void *callback_data) {
@@ -140,6 +141,6 @@ void *app_timer_get_data(AppTimer *timer) {
   if (fake_timer) {
     return fake_timer->callback_data;
   } else {
-    return NULL;
+    return nullptr;
   }
 }

@@ -5,11 +5,11 @@
 
 #include <stdio.h>
 
-#include "applib/ui/dialogs/simple_dialog.h"
-#include "kernel/event_loop.h"
-#include "kernel/ui/modals/modal_manager.h"
-#include "resource/resource_ids.auto.h"
-#include "shell/normal/watchface.h"
+#include <applib/ui/dialogs/simple_dialog.h>
+#include <kernel/event_loop.h>
+#include <kernel/ui/modals/modal_manager.h>
+#include <resource/resource_ids.auto.h>
+#include <shell/normal/watchface.h>
 
 static void prv_push_language_changed_dialog(void *data) {
   const char *lang_name = (const char *)data;
@@ -21,7 +21,7 @@ static void prv_push_language_changed_dialog(void *data) {
   dialog_set_timeout(dialog, DIALOG_TIMEOUT_DEFAULT);
   simple_dialog_push(simple_dialog, modal_manager_get_window_stack(ModalPriorityAlert));
   // after dialog closes, launch the watchface
-  watchface_launch_default(NULL);
+  watchface_launch_default(nullptr);
 }
 
 void language_ui_display_changed(const char *lang_name) {

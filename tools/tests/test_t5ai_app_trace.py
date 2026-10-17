@@ -119,7 +119,7 @@ T5APP long id=42 event=27 cb=02123457 wall_ms=300 cpu_ticks=250 queued=2
             d = Path(tmp)
             (d / "stub.h").write_text(STUB)
             for name in ["pbl/kernel/irq.h", "pbl/kernel/msgq.h", "pbl/kernel/thread.h",
-                         "pbl/kernel/sched.h", "pbl/logging/logging.h", "kernel/pebble_tasks.h",
+                         "pbl/kernel/time.h", "pbl/kernel/sched.h", "pbl/logging/logging.h", "kernel/pebble_tasks.h",
                          "process_management/app_manager.h"]:
                 target = d / name
                 target.parent.mkdir(parents=True, exist_ok=True)

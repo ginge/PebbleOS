@@ -160,7 +160,7 @@ class ReminderProfileTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)
             (directory / "stub.h").write_text(STUB)
-            for header in ("kernel/mutex", "drivers/flash/flash_impl", "services/analytics/analytics", "drivers/rtc", "drivers/flash", "kernel/irq", "kernel/sched", "kernel/thread",
+            for header in ("kernel/mutex", "drivers/flash/flash_impl", "services/analytics/analytics", "drivers/rtc", "drivers/flash", "kernel/irq", "kernel/time", "kernel/sched", "kernel/thread",
                            "logging/logging", "services/filesystem/pfs",
                            "services/settings/settings_file", "services/blob_db/timeline_item_storage"):
                 path = directory / "pbl" / (header + ".h")

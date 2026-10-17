@@ -1,26 +1,15 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/ui/layer.h"
-#include "applib/ui/layer_private.h"
-#include "pbl/util/size.h"
+#include <pbl/util/size.h>
 
-#include "clar.h"
+#include <applib/ui/layer.h>
+#include <applib/ui/layer_private.h>
+#include <clar.h>
 
 // Stubs
 ////////////////////////////////////
-#include "stubs_app_state.h"
-#include "stubs_bitblt.h"
-#include "stubs_compiled_with_legacy2_sdk.h"
-#include "stubs_gbitmap.h"
-#include "stubs_heap.h"
-#include "stubs_logging.h"
-#include "stubs_passert.h"
-#include "stubs_pbl_malloc.h"
-#include "stubs_pebble_tasks.h"
-#include "stubs_resources.h"
-#include "stubs_syscalls.h"
-#include "stubs_unobstructed_area.h"
+#include <stubs_app_state.h>
 
 // Setup
 ////////////////////////////////////
@@ -32,7 +21,7 @@ void test_layer__cleanup(void) {
 }
 
 GDrawState graphics_context_get_drawing_state(GContext *ctx) {
-  return (GDrawState){0};
+  return (GDrawState){};
 }
 
 bool graphics_release_frame_buffer(GContext *ctx, GBitmap *buffer) {
@@ -55,7 +44,7 @@ void recognizer_remove_from_list(Recognizer *recognizer, RecognizerList *list) {
 }
 
 RecognizerManager *window_get_recognizer_manager(Window *window) {
-  return NULL;
+  return nullptr;
 }
 
 void recognizer_manager_cancel_and_reset(RecognizerManager *manager) {
@@ -89,7 +78,7 @@ void test_layer__add_child_and_remove_from_parent(void) {
   //           |
   //           '->grand_child_a
   //
-  cl_assert(parent.first_child == NULL);
+  cl_assert(parent.first_child == nullptr);
   layer_add_child(&parent, &child_a);
   cl_assert(parent.first_child == &child_a);
   layer_add_child(&parent, &child_b);
@@ -114,8 +103,8 @@ void test_layer__add_child_and_remove_from_parent(void) {
   // +-child_b
   //
   layer_remove_from_parent(&child_b);
-  cl_assert(child_b.parent == NULL);
-  cl_assert(child_b.next_sibling == NULL);
+  cl_assert(child_b.parent == nullptr);
+  cl_assert(child_b.next_sibling == nullptr);
   cl_assert(parent.first_child == &child_a);
   cl_assert(child_a.next_sibling == &child_c);
   cl_assert(grand_child_a.parent == &child_a);
@@ -134,8 +123,8 @@ void test_layer__add_child_and_remove_from_parent(void) {
   layer_remove_from_parent(&child_a);
   cl_assert(parent.first_child == &child_c);
   cl_assert(child_c.parent == &parent);
-  cl_assert(child_a.parent == NULL);
-  cl_assert(child_a.next_sibling == NULL);
+  cl_assert(child_a.parent == nullptr);
+  cl_assert(child_a.next_sibling == nullptr);
   cl_assert(grand_child_a.parent == &child_a);
 
   // Return early when (parent->paren == NULL):
@@ -157,10 +146,10 @@ void test_layer__remove_child_layers(void) {
   layer_add_child(&parent, &child_a);
   layer_add_child(&parent, &child_b);
   layer_remove_child_layers(&parent);
-  cl_assert(child_a.parent == NULL);
-  cl_assert(child_a.next_sibling == NULL);
-  cl_assert(child_b.parent == NULL);
-  cl_assert(parent.first_child == NULL);
+  cl_assert(child_a.parent == nullptr);
+  cl_assert(child_a.next_sibling == nullptr);
+  cl_assert(child_b.parent == nullptr);
+  cl_assert(parent.first_child == nullptr);
 }
 
 void test_layer__insert_below(void) {
@@ -186,7 +175,7 @@ void test_layer__insert_below(void) {
   layer_insert_below_sibling(&child_b, &child_a);
   cl_assert(child_b.parent == &parent);
   cl_assert(child_b.next_sibling == &child_a);
-  cl_assert(child_a.next_sibling == NULL);
+  cl_assert(child_a.next_sibling == nullptr);
 
   // Insert child_c below child_a (next_sibling code path):
   //
@@ -199,7 +188,7 @@ void test_layer__insert_below(void) {
   cl_assert(child_b.next_sibling == &child_c);
   cl_assert(child_c.parent == &parent);
   cl_assert(child_c.next_sibling == &child_a);
-  cl_assert(child_a.next_sibling == NULL);
+  cl_assert(child_a.next_sibling == nullptr);
 }
 
 void test_layer__insert_above(void) {
@@ -225,7 +214,7 @@ void test_layer__insert_above(void) {
   layer_insert_above_sibling(&child_a, &child_b);
   cl_assert(child_b.parent == &parent);
   cl_assert(child_b.next_sibling == &child_a);
-  cl_assert(child_a.next_sibling == NULL);
+  cl_assert(child_a.next_sibling == nullptr);
 
   // Insert child_c above child_b (next_sibling code path):
   //
@@ -238,7 +227,7 @@ void test_layer__insert_above(void) {
   cl_assert(child_b.next_sibling == &child_c);
   cl_assert(child_c.parent == &parent);
   cl_assert(child_c.next_sibling == &child_a);
-  cl_assert(child_a.next_sibling == NULL);
+  cl_assert(child_a.next_sibling == nullptr);
 }
 
 void test_layer__traverse(void) {
@@ -305,7 +294,7 @@ void test_layer__traverse(void) {
   // no more siblings on root level
   actual =
       __layer_tree_traverse_next__test_accessor(stack, ARRAY_LENGTH(stack), &current_stack, true);
-  cl_assert_equal_p(NULL, actual);
+  cl_assert_equal_p(nullptr, actual);
   cl_assert_equal_i(0, current_stack);
 
   // do not descend
@@ -377,8 +366,8 @@ void test_layer__find_layer_contains_point(void) {
   layer_set_frame(&child_f, &GRect(-10, -10, 40, 40));
   layer_add_child(&parent, &child_a);
 
-  cl_assert_equal_p(layer_find_layer_containing_point(&child_a, &GPoint(11, 11)), NULL);
-  cl_assert_equal_p(layer_find_layer_containing_point(&child_a, &GPoint(10, 10)), NULL);
+  cl_assert_equal_p(layer_find_layer_containing_point(&child_a, &GPoint(11, 11)), nullptr);
+  cl_assert_equal_p(layer_find_layer_containing_point(&child_a, &GPoint(10, 10)), nullptr);
   cl_assert_equal_p(layer_find_layer_containing_point(&child_a, &GPoint(9, 9)), &child_a);
   cl_assert_equal_p(layer_find_layer_containing_point(&child_a, &GPoint(0, 0)), &child_a);
 
@@ -392,8 +381,8 @@ void test_layer__find_layer_contains_point(void) {
   // child layers are subject to their parents' bounds as well as their own (parent layers clip the
   // bounds of child layers)
   cl_assert_equal_p(layer_find_layer_containing_point(&parent, &GPoint(15, 15)), &parent);
-  cl_assert_equal_p(layer_find_layer_containing_point(&parent, &GPoint(-5, -5)), NULL);
-  cl_assert_equal_p(layer_find_layer_containing_point(&parent, &GPoint(21, 21)), NULL);
+  cl_assert_equal_p(layer_find_layer_containing_point(&parent, &GPoint(-5, -5)), nullptr);
+  cl_assert_equal_p(layer_find_layer_containing_point(&parent, &GPoint(21, 21)), nullptr);
   layer_remove_from_parent(&child_f);
 
   layer_add_child(&parent, &child_b);

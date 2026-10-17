@@ -1,25 +1,19 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/comm_session/meta_endpoint.h"
+#include <pbl/services/comm_session/meta_endpoint.h>
 
-#include "clar.h"
+#include <clar.h>
 
 // Stubs
 ///////////////////////////////////////////////////////////
 
-#include "stubs_bt_lock.h"
-#include "stubs_hexdump.h"
-#include "stubs_logging.h"
-#include "stubs_passert.h"
-#include "stubs_print.h"
-
 // Fakes
 ///////////////////////////////////////////////////////////
 
-#include "fake_kernel_malloc.h"
-#include "fake_session.h"
-#include "fake_system_task.h"
+#include <fake_kernel_malloc.h>
+#include <fake_session.h>
+#include <fake_system_task.h>
 
 static Transport *s_transport;
 static CommSession *s_session;
@@ -42,7 +36,7 @@ void test_meta_endpoint__initialize(void) {
   fake_kernel_malloc_mark();
   fake_comm_session_init();
 
-  s_transport = fake_transport_create(TransportDestinationSystem, NULL, NULL);
+  s_transport = fake_transport_create(TransportDestinationSystem, nullptr, nullptr);
   s_session = fake_transport_set_connected(s_transport, true);
 }
 

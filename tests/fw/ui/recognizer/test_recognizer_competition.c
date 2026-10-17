@@ -5,40 +5,29 @@
 // single layer. Verifies that a vertical drag starts the (vertical) pan while the swipe and tap
 // fail, and that a fast horizontal flick completes the swipe while the pan and tap fail.
 
-#include "clar.h"
-
-#include "applib/ui/layer.h"
-#include "applib/ui/window.h"
-#include "applib/ui/recognizer/recognizer.h"
-#include "applib/ui/recognizer/recognizer_impl.h"
-#include "applib/ui/recognizer/recognizer_list.h"
-#include "applib/ui/recognizer/recognizer_manager.h"
-#include "applib/ui/recognizer/recognizer_private.h"
-#include "applib/ui/recognizer/pan.h"
-#include "applib/ui/recognizer/swipe.h"
-#include "applib/ui/recognizer/tap.h"
-
-#include "pbl/drivers/rtc.h"
-
 #include <stdint.h>
 
+#include <pbl/drivers/rtc.h>
+
+#include <applib/ui/layer.h>
+#include <applib/ui/recognizer/pan.h>
+#include <applib/ui/recognizer/recognizer.h>
+#include <applib/ui/recognizer/recognizer_impl.h>
+#include <applib/ui/recognizer/recognizer_list.h>
+#include <applib/ui/recognizer/recognizer_manager.h>
+#include <applib/ui/recognizer/recognizer_private.h>
+#include <applib/ui/recognizer/swipe.h>
+#include <applib/ui/recognizer/tap.h>
+#include <applib/ui/window.h>
+#include <clar.h>
+
 // Fakes
-#include "fake_rtc.h"
+#include <fake_rtc.h>
 
 // Stubs
-#include "stubs_app_state.h"
-#include "stubs_gbitmap.h"
-#include "stubs_graphics.h"
-#include "stubs_heap.h"
-#include "stubs_logging.h"
-#include "stubs_passert.h"
-#include "stubs_pbl_malloc.h"
-#include "stubs_pebble_tasks.h"
-#include "stubs_process_manager.h"
-#include "stubs_ui_window.h"
-#include "stubs_unobstructed_area.h"
 #include "test_recognizer_impl.h"
-#include "pbl/util/units.h"
+
+#include <pbl/util/units.h>
 
 static RecognizerList *s_app_list;
 static Layer *s_active_layer;
@@ -50,7 +39,7 @@ RecognizerList *app_state_get_recognizer_list(void) {
 
 RecognizerList *window_get_recognizer_list(Window *window) {
   if (!window) {
-    return NULL;
+    return nullptr;
   }
   return layer_get_recognizer_list(&window->layer);
 }
@@ -61,7 +50,7 @@ RecognizerManager *window_get_recognizer_manager(Window *window) {
 
 struct Layer *window_get_root_layer(const Window *window) {
   if (!window) {
-    return NULL;
+    return nullptr;
   }
   return &((Window *)window)->layer;
 }
@@ -96,9 +85,9 @@ static void prv_sub_event_handler(const Recognizer *recognizer, RecognizerEvent 
 
 // setup and teardown
 void test_recognizer_competition__initialize(void) {
-  s_app_list = NULL;
-  s_active_layer = NULL;
-  s_manager = NULL;
+  s_app_list = nullptr;
+  s_active_layer = nullptr;
+  s_manager = nullptr;
   for (int i = 0; i < RecIdCount; i++) {
     s_last_event[i] = -1;
   }

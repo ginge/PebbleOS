@@ -1,22 +1,24 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "settings.h"
-#include "system.h"
-#include "bluetooth.h"
-#include "menu.h"
 #include "window.h"
 
-#include "applib/event_service_client.h"
-#include "applib/ui/menu_layer.h"
-#include "applib/ui/option_menu_window.h"
-#include "applib/ui/ui.h"
-#include "kernel/events.h"
-#include "kernel/pbl_malloc.h"
-#include "process_state/app_state/app_state.h"
-#include "pbl/services/i18n/i18n.h"
-#include "system/passert.h"
-#include "shell/prefs.h"
+#include "bluetooth.h"
+#include "menu.h"
+#include "settings.h"
+#include "system.h"
+
+#include <pbl/services/i18n/i18n.h>
+
+#include <applib/event_service_client.h>
+#include <applib/ui/menu_layer.h>
+#include <applib/ui/option_menu_window.h>
+#include <applib/ui/ui.h>
+#include <kernel/events.h>
+#include <kernel/pbl_malloc.h>
+#include <process_state/app_state/app_state.h>
+#include <shell/prefs.h>
+#include <system/passert.h>
 
 typedef struct SettingsData {
   Window window;
@@ -275,7 +277,7 @@ static Window *prv_create(SettingsMenuItem category, const char *title_override,
 }
 
 Window *settings_window_create(SettingsMenuItem category, SettingsCallbacks *callbacks) {
-  return prv_create(category, NULL, callbacks);
+  return prv_create(category, nullptr, callbacks);
 }
 
 Window *settings_window_create_with_title(SettingsMenuItem category, const char *title,

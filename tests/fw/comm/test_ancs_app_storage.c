@@ -1,39 +1,32 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "clar.h"
-
-#include "applib/persist_map.h"
-#include "applib/persist_private.h"
-#include "comm/ble/app_profiles/ancs_app_storage.h"
-#include <pbl/drivers/crc.h>
-#include "kernel/services/file.h"
-#include "system/filesystem.h"
-#include <pbl/logging/logging.h>
-#include "pbl/util/size.h"
-
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 
+#include <pbl/drivers/crc.h>
+#include <pbl/logging/logging.h>
+#include <pbl/util/size.h>
+
+#include <applib/persist_map.h>
+#include <applib/persist_private.h>
+#include <clar.h>
+#include <comm/ble/app_profiles/ancs_app_storage.h>
+#include <kernel/services/file.h>
+#include <system/filesystem.h>
+
 // Stubs
 ////////////////////////////////////
-
-#include "stubs_passert.h"
-#include "stubs_serial.h"
-#include "stubs_logging.h"
-#include "stubs_mutex.h"
-#include "stubs_system_reset.h"
-#include "stubs_task_wdt.h"
 
 // Fakes
 ////////////////////////////////////
 
-#include "fake_session.h"
-#include "fake_spi_flash.h"
-#include "fake_system_task.h"
-#include "fake_new_timer.h"
-#include "fake_pbl_malloc.h"
+#include <fake_new_timer.h>
+#include <fake_pbl_malloc.h>
+#include <fake_session.h>
+#include <fake_spi_flash.h>
+#include <fake_system_task.h>
 
 // Tests
 ////////////////////////////////////
@@ -61,7 +54,7 @@ void test_ancs_app_storage__one_app(void) {
   app_data.is_meta_changed = true;
   ancs_app_storage_save(&app_data);
 
-  ANCSAppData app_data_out = {0};
+  ANCSAppData app_data_out = {};
   ancs_app_storage_load(app_data.bundle_id, &app_data_out);
 
   cl_assert_equal_s(app_data.bundle_id, app_data_out.bundle_id);
@@ -84,7 +77,7 @@ void test_ancs_app_storage__overwrite(void) {
   app_data.is_meta_changed = true;
   ancs_app_storage_save(&app_data);
 
-  ANCSAppData app_data_out = {0};
+  ANCSAppData app_data_out = {};
   ancs_app_storage_load(app_data.bundle_id, &app_data_out);
 
   cl_assert_equal_s(app_data.bundle_id, app_data_out.bundle_id);
@@ -122,7 +115,7 @@ void test_ancs_app_storage__hash_collisions(void) {
     }
   }
 
-  ANCSAppData app_data_out = {0};
+  ANCSAppData app_data_out = {};
   for (unsigned int i = 0; i < ARRAY_LENGTH(collide_pairs); ++i) {
     for (unsigned int j = 0; j < 2; ++j) {
       char *name = collide_pairs[i][j];
@@ -162,7 +155,7 @@ void test_ancs_app_storage__iter(void) {
     ancs_app_storage_save(&apps[i]);
   }
 
-  ANCSAppData app_data_out = {0};
+  ANCSAppData app_data_out = {};
   for (unsigned int i = 0; i < ARRAY_LENGTH(apps); ++i) {
     PBL_LOG_DBG("i: %d, name: %s", i, apps[i].bundle_id);
     ancs_app_storage_load(apps[i].bundle_id, &app_data_out);

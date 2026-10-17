@@ -3,17 +3,17 @@
 
 #include "pulse_bulkio_domain_handler.h"
 
-#include "console/pulse_protocol_impl.h"
-#include "flash_region/flash_region.h"
-#include <pbl/drivers/flash.h>
-#include "kernel/core_dump.h"
-#include "kernel/core_dump_private.h"
-#include "system/status_codes.h"
-#include "pbl/kernel/compiler.h"
-
-#include <stdbool.h>
+#include <console/pulse_protocol_impl.h>
+#include <flash_region/flash_region.h>
 #include <stdint.h>
 #include <string.h>
+
+#include <pbl/drivers/flash.h>
+#include <pbl/kernel/compiler.h>
+
+#include <kernel/core_dump.h>
+#include <kernel/core_dump_private.h>
+#include <system/status_codes.h>
 
 typedef struct PBL_PACKED CoredumpStatResp {
   uint8_t flags;
@@ -67,7 +67,9 @@ static int coredump_domain_stat(uint8_t *resp, size_t resp_max_len, void *contex
   };
 
   if (stat_resp->unread == 1) {
-    status_t ret = core_dump_size(addr, &stat_resp->size);
+    uint32_t size = 0;
+    status_t ret = core_dump_size(addr, &size);
+    stat_resp->size = size;
 
     if (FAILED(ret)) {
       return ret;

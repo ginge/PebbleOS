@@ -4,9 +4,9 @@
 #include <pbl/shell/backend.h>
 #include <pbl/shell/shell.h>
 
-#include "console/console_internal.h"
-#include "console/dbgserial.h"
-#include "console/shell_dbgserial.h"
+#include <console/console_internal.h>
+#include <console/dbgserial.h>
+#include <console/shell_dbgserial.h>
 
 static void prv_write(const struct pbl_shell *sh, const char *data, size_t len) {
   if (serial_console_get_state() == SERIAL_CONSOLE_STATE_PULSE) {
@@ -22,7 +22,7 @@ static const struct pbl_shell_backend_api s_api = {
   .write = prv_write,
 };
 
-PBL_SHELL_DEFINE(shell_dbgserial, "pebble> ", &s_api, NULL);
+PBL_SHELL_DEFINE(shell_dbgserial, "pebble> ", &s_api, nullptr);
 
 void shell_dbgserial_start_from_isr(void) {
   serial_console_set_state(SERIAL_CONSOLE_STATE_PROMPT);

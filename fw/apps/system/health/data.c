@@ -2,19 +2,22 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "data.h"
+
 #include "data_private.h"
 
-#include "applib/health_service_private.h"
-#include <pbl/drivers/rtc.h>
-#include "kernel/pbl_malloc.h"
-#include "syscall/syscall.h"
-#include <pbl/logging/logging.h>
-#include "pbl/util/units.h"
-#include "pbl/util/testing.h"
 #include <time.h>
 
+#include <pbl/drivers/rtc.h>
+#include <pbl/logging/logging.h>
+#include <pbl/util/testing.h>
+#include <pbl/util/units.h>
+
+#include <applib/health_service_private.h>
+#include <kernel/pbl_malloc.h>
+#include <syscall/syscall.h>
+
 PBL_T_STATIC void prv_merge_adjacent_sessions(ActivitySession *current, ActivitySession *previous) {
-  if (previous == NULL || current == NULL) {
+  if (previous == nullptr || current == nullptr) {
     return;
   }
 
@@ -51,8 +54,8 @@ void health_data_destroy(HealthData *health_data) {
 
 void health_data_update_quick(HealthData *health_data) {
   const time_t now = rtc_get_time();
-  struct tm local_tm;
-  localtime_r(&now, &local_tm);
+  struct pbl_tm local_tm;
+  pbl_localtime_r(&now, &local_tm);
 
   // Get the current steps
   health_service_private_get_metric_history(HealthMetricStepCount, 1, health_data->step_data);
@@ -68,8 +71,8 @@ void health_data_update_quick(HealthData *health_data) {
 
 void health_data_update(HealthData *health_data) {
   const time_t now = rtc_get_time();
-  struct tm local_tm;
-  localtime_r(&now, &local_tm);
+  struct pbl_tm local_tm;
+  pbl_localtime_r(&now, &local_tm);
 
   //! Step / activity related data
   // Get the step totals for today and the past 6 days
@@ -119,7 +122,7 @@ void health_data_update(HealthData *health_data) {
   if (!activity_get_sessions(&health_data->num_activity_sessions, health_data->activity_sessions)) {
     PBL_LOG_ERR("Fetching activity sessions failed");
   } else {
-    ActivitySession *previous_session = NULL;
+    ActivitySession *previous_session = nullptr;
     for (unsigned int i = 0; i < health_data->num_activity_sessions; i++) {
       ActivitySession *session = &health_data->activity_sessions[i];
       prv_merge_adjacent_sessions(session, previous_session);
@@ -206,8 +209,8 @@ static int32_t prv_health_data_get_n_average_chunks(HealthData *health_data, int
 int32_t health_data_steps_get_current_average(HealthData *health_data) {
   // get the current minutes into today
   time_t utc_sec = rtc_get_time();
-  struct tm local_tm;
-  localtime_r(&utc_sec, &local_tm);
+  struct pbl_tm local_tm;
+  pbl_localtime_r(&utc_sec, &local_tm);
   int32_t today_min = local_tm.tm_hour * PBL_MIN_PER_HOUR + local_tm.tm_min;
   const int k_minutes_per_step_avg = PBL_MIN_PER_DAY / ACTIVITY_NUM_METRIC_AVERAGES;
 

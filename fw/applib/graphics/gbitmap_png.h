@@ -5,9 +5,9 @@
 
 #include "gtypes.h"
 
-#include "upng.h"
 #include <stdint.h>
-#include <stdbool.h>
+
+#include <upng.h>
 
 //! @addtogroup Foundation
 //! @{

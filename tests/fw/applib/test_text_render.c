@@ -1,22 +1,13 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/graphics/gcontext.h"
-#include "applib/graphics/gtypes.h"
-#include "applib/graphics/text_render.h"
-#include "applib/graphics/text_resources.h"
-
 #include <string.h>
 
-#include "clar.h"
-
-#include "stubs_applib_resource.h"
-#include "stubs_app_state.h"
-#include "stubs_compiled_with_legacy2_sdk.h"
-#include "stubs_heap.h"
-#include "stubs_logging.h"
-#include "stubs_passert.h"
-#include "stubs_syscalls.h"
+#include <applib/graphics/gcontext.h>
+#include <applib/graphics/gtypes.h>
+#include <applib/graphics/text_render.h>
+#include <applib/graphics/text_resources.h>
+#include <clar.h>
 
 ResAppNum app_get_resource_num(void) {
   return 0;
@@ -75,11 +66,10 @@ void test_text_render__convert_1bit_to_8bit_144x168(void) {
   const int row_1bit_size_words = 1 + (size.w - 1) / 32;
 
   GBitmap *bitmap = gbitmap_create_blank(size, GBitmapFormat8Bit);
-  uintptr_t base = (uintptr_t)bitmap->addr;
 
   int dest_x = 0;
   int dest_y = 0;
-  uint32_t *block_addr = NULL;
+  uint32_t *block_addr = nullptr;
 
   block_addr = (uint32_t *)(uintptr_t)(((dest_y * row_1bit_size_words) + (dest_x / 32)) * 4);
   cl_assert_equal_i(prv_convert_1bit_addr_to_8bit_x(bitmap, block_addr, dest_y),
@@ -111,11 +101,10 @@ void test_text_render__convert_1bit_to_8bit_180x180(void) {
   const int row_1bit_size_words = 1 + (size.w - 1) / 32;
 
   GBitmap *bitmap = gbitmap_create_blank(size, GBitmapFormat8Bit);
-  uintptr_t base = (uintptr_t)bitmap->addr;
 
   int dest_x = 0;
   int dest_y = 0;
-  uint32_t *block_addr = NULL;
+  uint32_t *block_addr = nullptr;
 
   block_addr = (uint32_t *)(uintptr_t)(((dest_y * row_1bit_size_words) + (dest_x / 32)) * 4);
   cl_assert_equal_i(prv_convert_1bit_addr_to_8bit_x(bitmap, block_addr, dest_y),
@@ -170,7 +159,7 @@ static void prv_render(GRect clip) {
   GContext ctx = {
     .draw_state = {.clip_box = clip, .text_color = GColorGreen, .compositing_mode = GCompOpAssign},
   };
-  render_glyph(&ctx, 0x1F600, NULL, GRect(0, 0, 10, 10));
+  render_glyph(&ctx, 0x1F600, nullptr, GRect(0, 0, 10, 10));
 }
 
 static uint8_t prv_pixel(int x, int y) {

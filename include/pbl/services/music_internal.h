@@ -5,7 +5,7 @@
 
 #include "music.h"
 
-#include <stdbool.h>
+#include <kernel/events.h>
 
 /**
  * @addtogroup services_music
@@ -14,6 +14,17 @@
 
 /** @brief Initialize the music service. */
 void music_init(void);
+
+/**
+ * @brief Mark a media event as taken by KernelMain.
+ *
+ * Now-playing and track position events are coalesced: a new one is only posted once the previous
+ * one has been taken. Consumers must read the current state through the music_get_*() functions.
+ * Must be called before the event is dispatched.
+ *
+ * @param event Media event taken from the KernelMain queue.
+ */
+void music_handle_media_event(const PebbleMediaEvent *event);
 
 /** @brief Optional features of a music backend, as a bitset. */
 typedef enum {

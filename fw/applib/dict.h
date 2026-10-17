@@ -3,10 +3,10 @@
 
 #pragma once
 
-#include <stdint.h>
 #include <stdarg.h>
-#include <stdbool.h>
-#include "pbl/kernel/compiler.h"
+#include <stdint.h>
+
+#include <pbl/kernel/compiler.h>
 
 //! @file dict.h Generic key/value serializer and parser.
 
@@ -207,9 +207,9 @@ typedef struct {
 //! The size of the header for each Tuple is 7 bytes.
 //! @param tuple_count The total number of key/value pairs in the dictionary.
 //! @param ... The sizes of each of the values that need to be
-//! stored in the dictionary.
+//! stored in the dictionary, as size_t (e.g. sizeof expressions).
 //! @return The total number of bytes of storage needed.
-uint32_t dict_calc_buffer_size(const uint8_t tuple_count, ...);
+uint32_t dict_calc_buffer_size(uint32_t tuple_count, ...);
 
 //! Calculates the size of data that has been written to the dictionary.
 //! AKA, the "dictionary size". Note that this is most likely different

@@ -2,13 +2,15 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "selection.h"
+
 #include "utils.h"
 
-#include "applib/ui/ui.h"
-#include "kernel/pbl_malloc.h"
-#include "resource/resource_ids.auto.h"
-#include "pbl/services/i18n/i18n.h"
-#include "shell/prefs.h"
+#include <pbl/services/i18n/i18n.h>
+
+#include <applib/ui/ui.h>
+#include <kernel/pbl_malloc.h>
+#include <resource/resource_ids.auto.h>
+#include <shell/prefs.h>
 
 typedef enum {
   WorkoutType_Run,
@@ -118,7 +120,7 @@ static void prv_draw_row_callback(GContext *ctx, const Layer *cell_layer, MenuIn
   title_bounds.size.h = title_height;
 
   graphics_draw_text(ctx, i18n_get(title, selection_window), title_font, title_bounds,
-                     GTextOverflowModeFill, title_alignment, NULL);
+                     GTextOverflowModeFill, title_alignment, nullptr);
 }
 
 static void prv_select_callback(MenuLayer *menu_layer, MenuIndex *cell_index, void *context) {

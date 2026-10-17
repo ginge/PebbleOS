@@ -1,27 +1,18 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "clar.h"
-#include "kernel/events.h"
-#include "pbl/services/comm_session/meta_endpoint.h"
-#include "pbl/services/comm_session/session_receive_router.h"
-#include "pbl/services/comm_session/session_remote_version.h"
-#include "pbl/services/comm_session/session_transport.h"
-#include "pbl/services/comm_session/test_endpoint_ids.h"
 #include <pbl/logging/logging.h>
+#include <pbl/services/comm_session/meta_endpoint.h>
+#include <pbl/services/comm_session/session_receive_router.h>
+#include <pbl/services/comm_session/session_remote_version.h>
+#include <pbl/services/comm_session/session_transport.h>
+#include <pbl/services/comm_session/test_endpoint_ids.h>
+
+#include <clar.h>
+#include <kernel/events.h>
 
 // Stubs
 ///////////////////////////////////////////////////////////
-
-#include "stubs_analytics.h"
-#include "stubs_bt_lock.h"
-#include "stubs_bt_stack.h"
-#include "stubs_events.h"
-#include "stubs_hexdump.h"
-#include "stubs_logging.h"
-#include "stubs_passert.h"
-#include "stubs_rand_ptr.h"
-#include "stubs_syscall_internal.h"
 
 void app_launch_trigger(void) {
 }
@@ -60,10 +51,10 @@ void bt_persistent_storage_set_cached_system_capabilities(
 // Fakes
 ///////////////////////////////////////////////////////////
 
-#include "fake_kernel_malloc.h"
-#include "fake_session_send_buffer.h"
-#include "fake_system_task.h"
-#include "fake_app_manager.h"
+#include <fake_app_manager.h>
+#include <fake_kernel_malloc.h>
+#include <fake_session_send_buffer.h>
+#include <fake_system_task.h>
 
 MetaResponseInfo s_last_meta_response_info;
 
@@ -157,7 +148,7 @@ static Receiver *prv_system_test_receiver_prepare(CommSession *session,
                                                   size_t total_msg_length) {
   ++s_prepare_count;
   if (s_prepare_return_null) {
-    return NULL;
+    return nullptr;
   }
   return (Receiver *)&s_test_receiver_ctx;
 }
@@ -203,7 +194,7 @@ void test_session_receive_router__initialize(void) {
 void test_session_receive_router__cleanup(void) {
   if (s_session) {
     comm_session_close(s_session, CommSessionCloseReason_UnderlyingDisconnection);
-    s_session = NULL;
+    s_session = nullptr;
   }
 }
 
@@ -317,7 +308,7 @@ void test_session_receive_router__cleanup_receiver_if_session_is_closed(void) {
   cl_assert_equal_i(s_prepare_count, 1);
 
   comm_session_close(s_session, CommSessionCloseReason_UnderlyingDisconnection);
-  s_session = NULL;
+  s_session = nullptr;
 
   cl_assert_equal_i(s_cleanup_count, 1);
 }

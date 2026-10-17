@@ -1,21 +1,22 @@
 /* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "services/light/als_screen_compensation.h"
+#include <services/light/als_screen_compensation.h>
 
 #if defined(CONFIG_ALS_SCREEN_COMPENSATION)
 
-#include "applib/graphics/gtypes.h"
-#include "pbl/util/math.h"
-
 #include <stddef.h>
+
+#include <pbl/util/math.h>
+
+#include <applib/graphics/gtypes.h>
 
 // gcolor_get_luminance() returns a 2-bit value (0..3); scale to 0..255.
 #define ALS_COMP_LUM_TO_255(l) ((uint32_t)(l) * 85u)
 
 uint16_t als_compensation_region_luminance(const GBitmap *fb, int16_t rx, int16_t ry, int16_t rw,
                                            int16_t rh) {
-  if (fb == NULL || rw <= 0 || rh <= 0) {
+  if (fb == nullptr || rw <= 0 || rh <= 0) {
     return 256; // empty/unmeasured region -> unity gain
   }
 

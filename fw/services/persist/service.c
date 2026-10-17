@@ -1,24 +1,24 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/persist.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "kernel/pbl_malloc.h"
-#include "pbl/kernel/mutex.h"
-#include "process_management/app_install_manager.h"
-#include "pbl/services/filesystem/app_file.h"
-#include "pbl/services/filesystem/pfs.h"
-#include "pbl/services/settings/settings_file.h"
+#include <pbl/kernel/compiler.h>
+#include <pbl/kernel/mutex.h>
 #include <pbl/logging/logging.h>
-#include "system/passert.h"
-#include "pbl/kernel/compiler.h"
-#include "pbl/util/list.h"
-#include "pbl/util/math.h"
-#include "pbl/util/units.h"
+#include <pbl/services/filesystem/app_file.h>
+#include <pbl/services/filesystem/pfs.h>
+#include <pbl/services/persist.h>
+#include <pbl/services/settings/settings_file.h>
+#include <pbl/util/list.h>
+#include <pbl/util/math.h>
+#include <pbl/util/units.h>
+
+#include <kernel/pbl_malloc.h>
+#include <process_management/app_install_manager.h>
+#include <system/passert.h>
 
 PBL_LOG_MODULE_DEFINE(service_persist, CONFIG_SERVICE_PERSIST_LOG_LEVEL);
 
@@ -126,7 +126,7 @@ static status_t prv_copy_file(const char *from, const char *to) {
   status_t rv = S_SUCCESS;
   const size_t chunk_size = 128;
   uint8_t *buf = kernel_malloc(chunk_size);
-  if (buf == NULL) {
+  if (buf == nullptr) {
     rv = E_OUT_OF_MEMORY;
   } else {
     size_t remaining = size;
@@ -267,7 +267,7 @@ void persist_service_client_close(const Uuid *uuid) {
       if (store->file_open) {
         settings_file_close(&store->file);
       }
-      list_remove(&store->list_node, &s_client_stores /* &head */, NULL /* &tail */);
+      list_remove(&store->list_node, &s_client_stores /* &head */, nullptr /* &tail */);
       kernel_free(store);
     }
   }

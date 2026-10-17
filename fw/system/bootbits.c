@@ -1,25 +1,26 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "system/bootbits.h"
-
+#include <pbl/crc/crc.h>
 #include <pbl/drivers/flash.h>
 #include <pbl/drivers/rtc.h>
-#include "flash_region/flash_region.h"
 #include <pbl/logging/logging.h>
-#include "system/version.h"
-#include "pbl/crc/crc.h"
+
+#include <flash_region/flash_region.h>
+#include <system/bootbits.h>
+#include <system/version.h>
 
 #ifdef CONFIG_SOC_SF32LB52
 #include <bf0_hal.h>
 #endif
 
 #if MICRO_FAMILY_STM32F4
+#include <pbl/kernel/compiler.h>
+
 #include <stm32f4xx.h>
-#include "pbl/kernel/compiler.h"
 #endif
 
-#ifdef CONFIG_QEMU
+#if defined(CONFIG_QEMU) || defined(CONFIG_SOC_POSIX)
 // Provided by the QEMU RTC driver
 extern void RTC_WriteBackupRegister(uint32_t reg_id, uint32_t value);
 extern uint32_t RTC_ReadBackupRegister(uint32_t reg_id);
@@ -86,7 +87,7 @@ uint32_t boot_version_read(void) {
   return retained_read(BOOTLOADER_VERSION_REGISTER);
 }
 
-#elif defined(CONFIG_SOC_SF32LB52)
+#elifdef CONFIG_SOC_SF32LB52
 void boot_bit_init(void) {
   if (!boot_bit_test(BOOT_BIT_INITIALIZED)) {
     HAL_Set_backup(RTC_BKP_BOOTBIT_DR, BOOT_BIT_INITIALIZED);
@@ -128,7 +129,7 @@ struct pb_version {
   uint8_t tweak;
 } PBL_PACKED;
 
-_Static_assert(sizeof(struct pb_version) == 8, "pb_version struct must be 8 bytes");
+static_assert(sizeof(struct pb_version) == 8, "pb_version struct must be 8 bytes");
 
 uint32_t boot_version_read(void) {
   struct pb_version version_data;

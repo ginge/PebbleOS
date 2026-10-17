@@ -1,17 +1,13 @@
 /* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "clar.h"
+#include <pbl/services/touch/touch_session.h>
 
-#include "kernel/ui/modals/modal_manager.h"
-#include "pbl/services/touch/touch_session.h"
-
-#include <stdbool.h>
-
-#include "fake_rtc.h"
+#include <clar.h>
+#include <fake_rtc.h>
+#include <kernel/ui/modals/modal_manager.h>
 
 // Stubs
-#include "stubs_logging.h"
 
 // The session's environmental overrides; each test drives them directly.
 static bool s_watchface_running;

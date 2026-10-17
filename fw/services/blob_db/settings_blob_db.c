@@ -1,23 +1,23 @@
 /* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/blob_db/settings_blob_db.h"
-#include "pbl/services/blob_db/sync.h"
-#include "pbl/services/blob_db/api.h"
-
-#include "kernel/pbl_malloc.h"
-#include "pbl/services/bluetooth/bluetooth_persistent_storage.h"
-#include "pbl/services/comm_session/session.h"
-#include "pbl/services/notifications/alerts_preferences_private.h"
-#include "pbl/services/settings/settings_file.h"
-#include "shell/prefs.h"
-#include "shell/prefs_private.h"
-#include <pbl/logging/logging.h>
-#include "pbl/services/system_task.h"
-#include "pbl/util/list.h"
-#include "pbl/util/size.h"
-
 #include <string.h>
+
+#include <pbl/logging/logging.h>
+#include <pbl/services/blob_db/api.h>
+#include <pbl/services/blob_db/settings_blob_db.h>
+#include <pbl/services/blob_db/sync.h>
+#include <pbl/services/bluetooth/bluetooth_persistent_storage.h>
+#include <pbl/services/comm_session/session.h>
+#include <pbl/services/notifications/alerts_preferences_private.h>
+#include <pbl/services/settings/settings_file.h>
+#include <pbl/services/system_task.h>
+#include <pbl/util/list.h>
+#include <pbl/util/size.h>
+
+#include <kernel/pbl_malloc.h>
+#include <shell/prefs.h>
+#include <shell/prefs_private.h>
 
 PBL_LOG_MODULE_DECLARE(service_blob_db, CONFIG_SERVICE_BLOB_DB_LOG_LEVEL);
 
@@ -149,6 +149,7 @@ static const char *s_syncable_notif_prefs[] = {
   "notifBacklight",
   "dndMotionBacklight",
   "dndTouchBacklight",
+  "dndNotificationBacklight",
   "dndAutoDismiss",
 };
 
@@ -177,13 +178,13 @@ static const char *prv_find_in_list(const uint8_t *key, int key_len, const char 
       return list_key;
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 //! Check if a key matches an entry in a given list
 static bool prv_is_key_in_list(const uint8_t *key, int key_len, const char **list,
                                size_t list_len) {
-  return prv_find_in_list(key, key_len, list, list_len) != NULL;
+  return prv_find_in_list(key, key_len, list, list_len) != nullptr;
 }
 
 //! Canonicalize a whitelisted shell-pref key to the form the backing store uses: shell-pref keys
@@ -298,7 +299,7 @@ static void prv_settings_change_callback(SettingsFile *file, const void *key, in
   }
 
   s_sync_callback_pending = true;
-  system_task_add_callback(prv_deferred_sync_callback, NULL);
+  system_task_add_callback(prv_deferred_sync_callback, nullptr);
 }
 
 // BlobDB Interface Implementation
@@ -526,7 +527,7 @@ static bool prv_build_dirty_list_callback(SettingsFile *file, SettingsRecordInfo
   memcpy(item->key, key_buf, info->key_len);
 
   // Add to list
-  if (ctx->dirty_list == NULL) {
+  if (ctx->dirty_list == nullptr) {
     ctx->dirty_list = item;
     ctx->dirty_list_tail = item;
   } else {
@@ -539,10 +540,10 @@ static bool prv_build_dirty_list_callback(SettingsFile *file, SettingsRecordInfo
 
 BlobDBDirtyItem *settings_blob_db_get_dirty_list(void) {
   if (!s_initialized) {
-    return NULL;
+    return nullptr;
   }
 
-  BuildDirtyListContext ctx = {.dirty_list = NULL, .dirty_list_tail = NULL};
+  BuildDirtyListContext ctx = {.dirty_list = nullptr, .dirty_list_tail = nullptr};
 
   // Iterate shell prefs file
   prefs_private_lock();
@@ -599,35 +600,35 @@ status_t settings_blob_db_mark_synced(const uint8_t *key, int key_len) {
   return status;
 }
 
+typedef struct {
+  bool found_dirty;
+} IsDirtyContext;
+
+static bool prv_is_dirty_callback(SettingsFile *file, SettingsRecordInfo *info, void *context) {
+  IsDirtyContext *ctx = (IsDirtyContext *)context;
+
+  if (!info->dirty) {
+    return true; // Continue
+  }
+
+  // Check if whitelisted
+  uint8_t key_buf[SETTINGS_KEY_MAX_LEN];
+  info->get_key(file, key_buf, info->key_len);
+
+  if (prv_is_syncable(key_buf, info->key_len)) {
+    ctx->found_dirty = true;
+    return false; // Stop iteration
+  }
+
+  return true; // Continue
+}
+
 status_t settings_blob_db_is_dirty(bool *is_dirty_out) {
   if (!s_initialized) {
     return E_INTERNAL;
   }
 
   // Quick check: iterate and return true on first dirty whitelisted setting
-  typedef struct {
-    bool found_dirty;
-  } IsDirtyContext;
-
-  bool is_dirty_callback(SettingsFile * file, SettingsRecordInfo * info, void *context) {
-    IsDirtyContext *ctx = (IsDirtyContext *)context;
-
-    if (!info->dirty) {
-      return true; // Continue
-    }
-
-    // Check if whitelisted
-    uint8_t key_buf[SETTINGS_KEY_MAX_LEN];
-    info->get_key(file, key_buf, info->key_len);
-
-    if (prv_is_syncable(key_buf, info->key_len)) {
-      ctx->found_dirty = true;
-      return false; // Stop iteration
-    }
-
-    return true; // Continue
-  }
-
   IsDirtyContext ctx = {.found_dirty = false};
 
   // Check shell prefs file
@@ -635,7 +636,7 @@ status_t settings_blob_db_is_dirty(bool *is_dirty_out) {
   SettingsFile file;
   status_t status = settings_file_open(&file, SHELL_PREFS_FILE_NAME, SHELL_PREFS_FILE_LEN);
   if (PASSED(status)) {
-    settings_file_each(&file, is_dirty_callback, &ctx);
+    settings_file_each(&file, prv_is_dirty_callback, &ctx);
     settings_file_close(&file);
   }
   prefs_private_unlock();
@@ -645,7 +646,7 @@ status_t settings_blob_db_is_dirty(bool *is_dirty_out) {
     alerts_preferences_lock();
     status = settings_file_open(&file, NOTIF_PREFS_FILE_NAME, NOTIF_PREFS_FILE_LEN);
     if (PASSED(status)) {
-      settings_file_each(&file, is_dirty_callback, &ctx);
+      settings_file_each(&file, prv_is_dirty_callback, &ctx);
       settings_file_close(&file);
     }
     alerts_preferences_unlock();

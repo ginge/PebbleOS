@@ -41,7 +41,7 @@ int main(void){
 
 class FlashPriorityTest(unittest.TestCase):
     def test_scope_preserves_external_priority_changes(self):
-        source = (ROOT / "fw/drivers/flash/t5ai_flash_ipc.c").read_text()
+        source = (ROOT / "drivers/flash/t5ai_flash_ipc.c").read_text()
         start = source.index("static pbl_prio_t prv_boost_client_priority(void)")
         end = source.index("#if UINTPTR_MAX", start)
         with tempfile.TemporaryDirectory() as tmp:

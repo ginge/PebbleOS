@@ -86,7 +86,7 @@ static unsigned votes, stage;
 #define FAILED(s) ((s) < 0)
 #define PBL_ASSERTN(s) assert(s)
 #define I2C0_BUS 0
-static void i2c_init(int bus) { assert(bus == 0 && stage == 0); stage = 1; }
+
 static status_t t5ai_cp_mailbox_vote_app_sleep(bool allow) {
   assert(!allow && stage == 1); stage = 2; return S_SUCCESS;
 }
@@ -111,6 +111,7 @@ int main(void) {
   *(volatile uint32_t *)0x44010014u = 16u;
   SystemCoreClock = 60000000u;
   SysTick->CTRL = 1u; SysTick->LOAD = 59999u; SysTick->VAL = 17u;
+  stage = 1; // Device registry has initialized the I2C parent.
   board_init();
   assert(votes == 1 && stage == 3 && s_initialized);
   return 0;

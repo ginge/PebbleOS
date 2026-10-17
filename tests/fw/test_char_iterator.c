@@ -1,34 +1,20 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/util/iterator.h"
-#include "applib/graphics/framebuffer.h"
-#include "applib/graphics/utf8.h"
-#include "applib/graphics/text_layout_private.h"
-
-#include "clar.h"
-
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 
+#include <pbl/util/iterator.h>
+
+#include <applib/graphics/framebuffer.h>
+#include <applib/graphics/text_layout_private.h>
+#include <applib/graphics/utf8.h>
+#include <clar.h>
+
 ///////////////////////////////////////////////////////////
 // Stubs
-#include "stubs_logging.h"
-#include "stubs_passert.h"
-
-#include "stubs_app_state.h"
-#include "stubs_fonts.h"
-#include "stubs_graphics_context.h"
-#include "stubs_gbitmap.h"
-#include "stubs_heap.h"
-#include "stubs_text_resources.h"
-#include "stubs_text_render.h"
-#include "stubs_pbl_malloc.h"
-#include "stubs_reboot_reason.h"
-#include "stubs_resources.h"
-#include "stubs_syscalls.h"
-#include "stubs_compiled_with_legacy2_sdk.h"
+#include <stubs_app_state.h>
 
 ///////////////////////////////////////////////////////////
 // Fakes
@@ -62,6 +48,7 @@ void test_char_iterator__test_string_empty(void) {
   char_iter_init(&char_iter, &char_iter_state, &text_box_params, utf8_bounds.start);
   Utf8IterState *utf8_iter_state = (Utf8IterState *)&char_iter_state.utf8_iter_state;
 
+  cl_assert(utf8_iter_state->codepoint == 0);
   cl_assert(!iter_next(&char_iter));
   cl_assert(!iter_next(&char_iter));
   cl_assert(!iter_next(&char_iter));
@@ -84,6 +71,7 @@ void test_char_iterator__decode_test_string_length_one(void) {
   char_iter_init(&char_iter, &char_iter_state, &text_box_params_single_byte,
                  utf8_bounds_single_byte.start);
 
+  cl_assert(utf8_iter_state->codepoint == 'A');
   cl_assert(!iter_next(&char_iter));
   cl_assert(!iter_next(&char_iter));
   cl_assert(!iter_next(&char_iter));
@@ -100,6 +88,7 @@ void test_char_iterator__decode_test_string_length_one(void) {
   char_iter_init(&char_iter, &char_iter_state, &text_box_params_multi_byte,
                  utf8_bounds_multi_byte.start);
 
+  cl_assert(utf8_iter_state->codepoint == 0xf0);
   cl_assert(!iter_next(&char_iter));
   cl_assert(!iter_next(&char_iter));
   cl_assert(!iter_next(&char_iter));

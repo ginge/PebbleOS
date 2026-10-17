@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "applib/ui/ui.h"
+#include <applib/ui/ui.h>
 
 #define OPTION_MENU_CHOICE_NONE (-1)
 
@@ -59,10 +59,10 @@ struct OptionMenu {
   const char *title;
   GFont title_font;
   OptionMenuContentType content_type;
+  bool icons_enabled;
 
   GBitmap chosen_image;
   GBitmap not_chosen_image;
-  bool icons_enabled;
 
   OptionMenuCallbacks callbacks;
   void *context;

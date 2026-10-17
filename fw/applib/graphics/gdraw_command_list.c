@@ -2,11 +2,13 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "gdraw_command_list.h"
+
 #include "gdraw_command_private.h"
 
-#include "applib/applib_malloc.auto.h"
-#include "system/passert.h"
-#include "pbl/util/testing.h"
+#include <pbl/util/testing.h>
+
+#include <applib/applib_malloc.auto.h>
+#include <system/passert.h>
 
 bool gdraw_command_list_copy(void *buffer, size_t buffer_length, GDrawCommandList *src) {
   size_t src_size = gdraw_command_list_get_data_size(src);
@@ -20,7 +22,7 @@ bool gdraw_command_list_copy(void *buffer, size_t buffer_length, GDrawCommandLis
 
 GDrawCommandList *gdraw_command_list_clone(GDrawCommandList *list) {
   if (!list) {
-    return NULL;
+    return nullptr;
   }
 
   size_t size = gdraw_command_list_get_data_size(list);
@@ -63,7 +65,7 @@ void *gdraw_command_list_iterate_private(GDrawCommandList *command_list,
                                          GDrawCommandListIteratorCb handle_command,
                                          void *callback_context) {
   if (!command_list) {
-    return NULL;
+    return nullptr;
   }
 
   GDrawCommand *command = command_list->commands;
@@ -83,7 +85,7 @@ void gdraw_command_list_iterate(GDrawCommandList *command_list,
 
 GDrawCommand *gdraw_command_list_get_command(GDrawCommandList *command_list, uint16_t command_idx) {
   if (!command_list || (command_idx >= command_list->num_commands)) {
-    return NULL;
+    return nullptr;
   }
 
   GDrawCommand *command = command_list->commands;
@@ -121,7 +123,7 @@ static bool prv_draw_command_processed(GDrawCommand *draw_command, uint32_t idx,
 }
 
 void gdraw_command_list_draw(GContext *ctx, GDrawCommandList *command_list) {
-  gdraw_command_list_draw_processed(ctx, command_list, NULL);
+  gdraw_command_list_draw_processed(ctx, command_list, nullptr);
 }
 
 static bool prv_iterate_max_command_size(GDrawCommand *command, uint32_t idx, void *ctx) {
@@ -218,11 +220,10 @@ typedef struct {
   } iter;
 } CollectPointsCBContext;
 
-_Static_assert(
-    (sizeof(GPoint) == sizeof(GPointPrecise)),
-    "GPointPrecise cannot be convert to GPoint in-place because of its size difference.");
+static_assert((sizeof(GPoint) == sizeof(GPointPrecise)),
+              "GPointPrecise cannot be convert to GPoint in-place because of its size difference.");
 
-_Static_assert(
+static_assert(
     (offsetof(GPoint, y) == offsetof(GPointPrecise, y)),
     "GPointPrecise cannot be convert to GPoint in-place because of its member size difference.");
 
@@ -261,7 +262,7 @@ GPoint *gdraw_command_list_collect_points(GDrawCommandList *command_list, bool i
   const size_t max_bytes = num_points * sizeof(GPoint);
   GPoint *points = applib_malloc(num_points * sizeof(GPoint));
   if (!points) {
-    return NULL;
+    return nullptr;
   }
 
   CollectPointsCBContext ctx = {

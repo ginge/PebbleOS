@@ -3,9 +3,9 @@
 
 #pragma once
 
-#include "pbl/util/string_list.h"
 #include <stdint.h>
-#include <stdbool.h>
+
+#include <pbl/util/string_list.h>
 
 /**
  * @defgroup services_timeline_attribute Timeline attributes
@@ -25,7 +25,7 @@
  * Building a list on the stack and reading it back:
  *
  * @code{.c}
- * AttributeList list = {0};
+ * AttributeList list = {};
  * attribute_list_add_cstring(&list, AttributeIdTitle, "Lunch");
  * attribute_list_add_cstring(&list, AttributeIdLocationName, "Cafe");
  * attribute_list_add_resource_id(&list, AttributeIdIconPin, TIMELINE_RESOURCE_TIMELINE_CALENDAR);

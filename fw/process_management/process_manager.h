@@ -3,19 +3,18 @@
 
 #pragma once
 
-#include "pbl/kernel/msgq.h"
-#include "pbl/kernel/thread.h"
 #include "launch_config.h"
 
-#include "applib/app_exit_reason.h"
-#include "applib/platform.h"
-#include "kernel/events.h"
-#include "process_management/app_install_types.h"
-#include "process_management/pebble_process_md.h"
-#include "pbl/services/accel_manager.h"
-#include "pbl/services/compositor/compositor.h"
+#include <pbl/kernel/msgq.h>
+#include <pbl/kernel/thread.h>
+#include <pbl/services/accel_manager.h>
+#include <pbl/services/compositor/compositor.h>
 
-#include <stdbool.h>
+#include <applib/app_exit_reason.h>
+#include <applib/platform.h>
+#include <kernel/events.h>
+#include <process_management/app_install_types.h>
+#include <process_management/pebble_process_md.h>
 
 // Used to identify invalid or system app when using app_bank calls
 #define INVALID_BANK_ID    ~0
@@ -120,7 +119,7 @@ void process_manager_launch_process(const ProcessLaunchConfig *config);
 void process_manager_close_process(PebbleTask task, bool gracefully);
 
 //! Called from the task itself, as it exits and reenters privileged mode
-PBL_NORETURN void process_manager_task_exit(void);
+[[noreturn]] void process_manager_task_exit(void);
 
 //! Prod the given process into exiting. Returns true if it is safe to kill that task and clean it
 //! up using
@@ -167,10 +166,14 @@ bool process_manager_compiled_with_legacy3_sdk(void);
 //! or Basalt while being executed on Emery
 PlatformType process_manager_current_platform(void);
 
-//! Check if address is between lower_bound and the end of task's memory region.
+//! Check if [buf, buf + num_bytes) lies between lower_bound and the end of task's memory region.
 //! lower_bound is used by syscall_assert_userspace_buffer to ensure that
-//! address doesn't point into the stack frame of the executing syscall
-bool process_manager_is_address_in_region(PebbleTask task, const void *address,
-                                          const void *lower_bound);
+//! the range doesn't cover the stack frame of the executing syscall
+bool process_manager_is_range_in_region(PebbleTask task, const void *buf, size_t num_bytes,
+                                        const void *lower_bound);
+
+//! Number of bytes from @p buf to the end of task's memory region, or 0 if buf
+//! is not between lower_bound and the end of the region.
+size_t process_manager_region_bytes_from(PebbleTask task, const void *buf, const void *lower_bound);
 
 void *process_manager_address_to_offset(PebbleTask task, void *system_address);

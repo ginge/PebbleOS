@@ -2,13 +2,14 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "backlight_service.h"
-#include "backlight_service_private.h"
 
+#include "backlight_service_private.h"
 #include "event_service_client.h"
-#include "kernel/events.h"
-#include "process_state/app_state/app_state.h"
-#include "process_state/worker_state/worker_state.h"
-#include "system/passert.h"
+
+#include <kernel/events.h>
+#include <process_state/app_state/app_state.h>
+#include <process_state/worker_state/worker_state.h>
+#include <system/passert.h>
 
 static BacklightServiceState *prv_get_state(void) {
   PebbleTask task = pebble_task_get_current();
@@ -24,7 +25,7 @@ static BacklightServiceState *prv_get_state(void) {
 
 static void prv_do_handle(PebbleEvent *e, void *context) {
   BacklightServiceState *state = prv_get_state();
-  if (state->handler != NULL) {
+  if (state->handler != nullptr) {
     state->handler(e->backlight.is_on);
   }
 }
@@ -38,7 +39,7 @@ void backlight_service_subscribe(BacklightHandler handler) {
 void backlight_service_unsubscribe(void) {
   BacklightServiceState *state = prv_get_state();
   event_service_client_unsubscribe(&state->bls_info);
-  state->handler = NULL;
+  state->handler = nullptr;
 }
 
 void backlight_service_state_init(BacklightServiceState *state) {

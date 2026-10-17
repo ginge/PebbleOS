@@ -1,22 +1,22 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "kernel/util/fw_reset.h"
-
-#include "apps/core/progress_ui.h"
-#include "console/pulse_internal.h"
-#include "kernel/core_dump.h"
-#include "kernel/event_loop.h"
-#include "kernel/ui/modals/modal_manager.h"
-#include "kernel/util/factory_reset.h"
-#include "pbl/services/comm_session/session.h"
-#include "pbl/services/runlevel.h"
-#include "process_management/app_manager.h"
-#include "system/bootbits.h"
+#include <pbl/kernel/compiler.h>
 #include <pbl/logging/logging.h>
-#include "system/passert.h"
-#include "system/reset.h"
-#include "pbl/kernel/compiler.h"
+#include <pbl/services/comm_session/session.h>
+#include <pbl/services/runlevel.h>
+
+#include <apps/core/progress_ui.h>
+#include <console/pulse_internal.h>
+#include <kernel/core_dump.h>
+#include <kernel/event_loop.h>
+#include <kernel/ui/modals/modal_manager.h>
+#include <kernel/util/factory_reset.h>
+#include <kernel/util/fw_reset.h>
+#include <process_management/app_manager.h>
+#include <system/bootbits.h>
+#include <system/passert.h>
+#include <system/reset.h>
 
 static void prv_reset_into_prf(void) {
   RebootReason reason = {RebootReasonCode_PrfReset, 0};
@@ -30,7 +30,7 @@ void fw_reset_into_prf(void) {
   prv_reset_into_prf();
 }
 
-static const uint8_t s_prf_reset_cmd PBL_UNUSED = 0xff;
+[[maybe_unused]] static const uint8_t s_prf_reset_cmd = 0xff;
 
 typedef enum {
   ResetCmdNormal = 0x00,
@@ -79,7 +79,7 @@ void reset_protocol_msg_callback(CommSession *session, const uint8_t *data, unsi
       break;
 
     case ResetCmdFactoryReset:
-      launcher_task_add_callback(prv_launch_factory_reset_app, NULL);
+      launcher_task_add_callback(prv_launch_factory_reset_app, nullptr);
       factory_reset(false /* should_shutdown */);
       break;
 

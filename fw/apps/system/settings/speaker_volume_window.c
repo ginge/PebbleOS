@@ -7,17 +7,18 @@
 
 #include "menu.h"
 
-#include "applib/fonts/fonts.h"
-#include "applib/ui/ui.h"
-#include "kernel/pbl_malloc.h"
-#include "kernel/pebble_tasks.h"
-#include "kernel/ui/system_icons.h"
-#include "pbl/services/i18n/i18n.h"
-#include "pbl/services/notifications/alerts_preferences.h"
-#include "pbl/services/speaker/speaker_service.h"
-
 #include <stddef.h>
 #include <stdio.h>
+
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/services/notifications/alerts_preferences.h>
+#include <pbl/services/speaker/speaker_service.h>
+
+#include <applib/fonts/fonts.h>
+#include <applib/ui/ui.h>
+#include <kernel/pbl_malloc.h>
+#include <kernel/pebble_tasks.h>
+#include <kernel/ui/system_icons.h>
 
 #define VOLUME_STEP               5
 #define BUTTON_REPEAT_INTERVAL_MS 100
@@ -32,13 +33,12 @@ static void prv_play_preview(SpeakerVolumeWindowData *data) {
   // Restart the preview on every step so rapid clicks aren't rejected as
   // same-priority playback.
   speaker_service_stop_for_task(PebbleTask_App);
-  speaker_service_set_owner_task(PebbleTask_App);
-  speaker_service_play_volume_preview((uint8_t)data->value);
+  speaker_service_play_volume_preview((uint8_t)data->value, PebbleTask_App);
 }
 
 static void prv_update_proc(Layer *layer, GContext *ctx) {
-  _Static_assert(offsetof(Window, layer) == 0, "");
-  _Static_assert(offsetof(SpeakerVolumeWindowData, window) == 0, "");
+  static_assert(offsetof(Window, layer) == 0, "");
+  static_assert(offsetof(SpeakerVolumeWindowData, window) == 0, "");
   SpeakerVolumeWindowData *data = (SpeakerVolumeWindowData *)layer;
 
   graphics_context_set_fill_color(ctx, GColorWhite);
@@ -53,7 +53,7 @@ static void prv_update_proc(Layer *layer, GContext *ctx) {
   title_frame.origin.y = PBL_IF_ROUND_ELSE(24, 16);
   title_frame.size.h = 30;
   graphics_draw_text(ctx, i18n_get("Volume", data), fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD),
-                     title_frame, GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, NULL);
+                     title_frame, GTextOverflowModeTrailingEllipsis, GTextAlignmentCenter, nullptr);
 
   char value_text[8];
   snprintf(value_text, sizeof(value_text), "%d%%", (int)data->value);
@@ -64,7 +64,7 @@ static void prv_update_proc(Layer *layer, GContext *ctx) {
   value_frame.origin.y = (layer->bounds.size.h - value_height) / 2;
   value_frame.size.h = value_height + 4; // slack so nothing clips
   graphics_draw_text(ctx, value_text, value_font, value_frame, GTextOverflowModeTrailingEllipsis,
-                     GTextAlignmentCenter, NULL);
+                     GTextAlignmentCenter, nullptr);
 }
 
 static void prv_set_value(SpeakerVolumeWindowData *data, int new_value) {

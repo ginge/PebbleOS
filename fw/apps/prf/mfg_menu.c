@@ -2,30 +2,30 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <stdio.h>
-
-#include "applib/app.h"
-#include "applib/battery_state_service.h"
-#include "applib/ui/ui.h"
-#include "applib/ui/window_private.h"
-#include "applib/ui/dialogs/confirmation_dialog.h"
-#include "apps/prf/mfg_adv.h"
-#include "apps/prf/mfg_test_aging.h"
-#include "apps/prf/mfg_info_qr.h"
-#include "apps/prf/mfg_test_menu.h"
-#include "apps/prf/mfg_utilities.h"
-#include "kernel/event_loop.h"
-#include "kernel/pbl_malloc.h"
-#include "kernel/util/standby.h"
-#include "mfg/mfg_info.h"
-#include "mfg/mfg_serials.h"
-#include "process_management/app_manager.h"
-#include "process_state/app_state/app_state.h"
-#include "pbl/services/bluetooth/pairability.h"
-#include "system/bootbits.h"
-#include "system/reset.h"
-#include "pbl/util/size.h"
-
 #include <string.h>
+
+#include <pbl/services/bluetooth/pairability.h>
+#include <pbl/util/size.h>
+
+#include <applib/app.h>
+#include <applib/battery_state_service.h>
+#include <applib/ui/dialogs/confirmation_dialog.h>
+#include <applib/ui/ui.h>
+#include <applib/ui/window_private.h>
+#include <apps/prf/mfg_adv.h>
+#include <apps/prf/mfg_info_qr.h>
+#include <apps/prf/mfg_test_aging.h>
+#include <apps/prf/mfg_test_menu.h>
+#include <apps/prf/mfg_utilities.h>
+#include <kernel/event_loop.h>
+#include <kernel/pbl_malloc.h>
+#include <kernel/util/standby.h>
+#include <mfg/mfg_info.h>
+#include <mfg/mfg_serials.h>
+#include <process_management/app_manager.h>
+#include <process_state/app_state/app_state.h>
+#include <system/bootbits.h>
+#include <system/reset.h>
 
 // "XXXXXX - 100%"
 #define DEVICE_INFO_SUBTITLE_SIZE (MFG_SERIAL_NUMBER_SIZE + 8)
@@ -38,7 +38,7 @@ typedef struct {
 } MfgMenuAppData;
 
 static uint16_t s_menu_position = 0;
-static const PebbleProcessMd *s_last_test_menu = NULL;
+static const PebbleProcessMd *s_last_test_menu = nullptr;
 
 //! Callback to run from the kernel main task
 static void prv_launch_app_cb(void *data) {
@@ -170,7 +170,8 @@ static void prv_window_load(Window *window) {
 
   data->menu_section = (SimpleMenuSection){.num_items = num_items, .items = menu_items};
 
-  data->menu_layer = simple_menu_layer_create(bounds, data->window, &data->menu_section, 1, NULL);
+  data->menu_layer =
+      simple_menu_layer_create(bounds, data->window, &data->menu_section, 1, nullptr);
   layer_add_child(window_layer, simple_menu_layer_get_layer(data->menu_layer));
 
   // Set the menu layer back to it's previous highlight position

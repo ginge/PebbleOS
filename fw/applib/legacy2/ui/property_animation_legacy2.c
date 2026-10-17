@@ -2,12 +2,12 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "property_animation_legacy2.h"
-#include "applib/ui/property_animation.h"
 
-#include "applib/ui/layer.h"
-
-#include "kernel/pbl_malloc.h"
 #include <pbl/logging/logging.h>
+
+#include <applib/ui/layer.h>
+#include <applib/ui/property_animation.h>
+#include <kernel/pbl_malloc.h>
 
 /////////////////////
 // Property Animation
@@ -106,7 +106,7 @@ struct PropertyAnimationLegacy2 *property_animation_legacy2_create(
 }
 
 void property_animation_legacy2_destroy(struct PropertyAnimationLegacy2 *property_animation) {
-  if (property_animation == NULL) {
+  if (property_animation == nullptr) {
     return;
   }
   animation_legacy2_unschedule(&property_animation->animation);

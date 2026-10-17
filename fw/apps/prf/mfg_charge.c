@@ -3,16 +3,17 @@
 
 #include "mfg_charge.h"
 
-#include "applib/app.h"
-#include "applib/tick_timer_service.h"
-#include "applib/ui/ui.h"
-#include "apps/prf/mfg_test_result.h"
+#include <stdio.h>
+
 #include <pbl/drivers/battery.h>
-#include "kernel/pbl_malloc.h"
-#include "process_state/app_state/app_state.h"
 #include <pbl/logging/logging.h>
 
-#include <stdio.h>
+#include <applib/app.h>
+#include <applib/tick_timer_service.h>
+#include <applib/ui/ui.h>
+#include <apps/prf/mfg_test_result.h>
+#include <kernel/pbl_malloc.h>
+#include <process_state/app_state/app_state.h>
 
 typedef enum {
   ChargeStateWaitPlug = 0,
@@ -51,7 +52,7 @@ typedef struct {
   uint32_t seconds_remaining;
 } AppData;
 
-static void prv_handle_second_tick(struct tm *tick_time, TimeUnits units_changed) {
+static void prv_handle_second_tick(struct pbl_tm *tick_time, TimeUnits units_changed) {
   AppData *data = app_state_get_user_data();
 
   ChargeTestState next_state = data->test_state;

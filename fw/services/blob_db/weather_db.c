@@ -1,16 +1,16 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/blob_db/weather_db.h"
-
-#include "kernel/pbl_malloc.h"
-#include "pbl/kernel/mutex.h"
-#include "pbl/services/filesystem/pfs.h"
-#include "pbl/services/settings/settings_file.h"
-#include "pbl/services/weather/weather_service.h"
+#include <pbl/kernel/mutex.h>
 #include <pbl/logging/logging.h>
-#include "system/passert.h"
-#include "pbl/util/units.h"
+#include <pbl/services/blob_db/weather_db.h>
+#include <pbl/services/filesystem/pfs.h>
+#include <pbl/services/settings/settings_file.h>
+#include <pbl/services/weather/weather_service.h>
+#include <pbl/util/units.h>
+
+#include <kernel/pbl_malloc.h>
+#include <system/passert.h>
 
 PBL_LOG_MODULE_DECLARE(service_blob_db, CONFIG_SERVICE_BLOB_DB_LOG_LEVEL);
 
@@ -261,7 +261,7 @@ static bool prv_each_inspect_keys(SettingsFile *file, SettingsRecordInfo *info, 
 
   SettingsFileEachKeyHelper *key_helper = context;
 
-  if (key_helper->keys != NULL) {
+  if (key_helper->keys != nullptr) {
     info->get_key(file, (uint8_t *)&key_helper->keys[key_helper->key_count], sizeof(WeatherDBKey));
   }
 
@@ -279,7 +279,7 @@ status_t weather_db_get_num_keys(uint16_t *val_out) {
 
   SettingsFileEachKeyHelper key_helper = {
     .key_count = 0,
-    .keys = NULL,
+    .keys = nullptr,
   };
   settings_file_each(&s_weather_db.settings_file, prv_each_inspect_keys, &key_helper);
   *val_out = key_helper.key_count;

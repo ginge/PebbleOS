@@ -2,40 +2,28 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <pbl/bluetooth/gatt.h>
-
-#include "comm/ble/gatt_client_accessors.h"
-#include "comm/ble/gatt_client_discovery.h"
-#include "comm/ble/gatt_service_changed.h"
-#include "comm/ble/gap_le_connection.h"
-
-#include "kernel/events.h"
-
-#include "clar.h"
-
 #include <pbl/btutil/bt_device.h>
 #include <pbl/btutil/bt_uuid.h>
+
+#include <clar.h>
+#include <comm/ble/gap_le_connection.h>
+#include <comm/ble/gatt_client_accessors.h>
+#include <comm/ble/gatt_client_discovery.h>
+#include <comm/ble/gatt_service_changed.h>
+#include <kernel/events.h>
 
 // Fakes
 ///////////////////////////////////////////////////////////
 
-#include "fake_bt_gatt.h"
-#include "fake_events.h"
-#include "fake_new_timer.h"
-#include "fake_system_task.h"
-#include "fake_pbl_malloc.h"
-
-#include "fake_event_gatt_service_buffer.h"
+#include <fake_bt_gatt.h>
+#include <fake_event_gatt_service_buffer.h>
+#include <fake_events.h>
+#include <fake_new_timer.h>
+#include <fake_pbl_malloc.h>
+#include <fake_system_task.h>
 
 // Stubs
 ///////////////////////////////////////////////////////////
-
-#include "stubs_bt_lock.h"
-#include "stubs_gatt_client_subscriptions.h"
-#include "stubs_logging.h"
-#include "stubs_mutex.h"
-#include "stubs_passert.h"
-#include "stubs_rand_ptr.h"
-#include "stubs_regular_timer.h"
 
 void core_dump_reset(bool is_forced) {
 }
@@ -70,7 +58,7 @@ static struct pbl_bt_device_internal prv_dummy_device(uint8_t octet) {
 
 static struct pbl_bt_device_internal prv_connected_dummy_device(uint8_t octet) {
   struct pbl_bt_device_internal device = prv_dummy_device(octet);
-  gap_le_connection_add(&device, NULL, true /* local_is_master */, TIMER_INVALID_ID);
+  gap_le_connection_add(&device, nullptr, true /* local_is_master */, TIMER_INVALID_ID);
   GAPLEConnection *connection = gap_le_connection_by_device(&device);
   connection->gatt_connection_id = TEST_GATT_CONNECTION_ID;
   return device;
@@ -130,7 +118,7 @@ void test_gatt_client_accessors__copy_service_refs(void) {
 
     // Test gatt_client_service_get_device():
     struct pbl_bt_device_internal returned_device = gatt_client_service_get_device(service_ref);
-    cl_assert(bt_device_equal(&returned_device.opaque, &device.opaque));
+    cl_assert(bt_device_internal_equal(&returned_device, &device));
 
     // Check Characteristics:
     const uint8_t num_characteristics = expected_service->num_characteristics;
@@ -158,7 +146,7 @@ void test_gatt_client_accessors__copy_service_refs(void) {
       // Test gatt_client_characteristic_get_device():
       struct pbl_bt_device_internal returned_device =
           gatt_client_characteristic_get_device(characteristic_ref);
-      cl_assert(bt_device_equal(&returned_device.opaque, &device.opaque));
+      cl_assert(bt_device_internal_equal(&returned_device, &device));
 
       // Test gatt_client_characteristic_get_descriptors():
       const uint8_t num_descriptors = expected_characteristic->num_descriptors;

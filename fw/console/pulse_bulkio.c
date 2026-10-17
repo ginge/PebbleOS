@@ -1,22 +1,20 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "console/pulse_bulkio_domain_handler.h"
-#include "console/pulse_protocol_impl.h"
-#include "console/pulse2_transport_impl.h"
-#include "console/pulse_internal.h"
-
-#include <stdbool.h>
-#include <stddef.h>
+#include <console/pulse2_transport_impl.h>
+#include <console/pulse_internal.h>
 #include <stdint.h>
 
-#include "kernel/pbl_malloc.h"
-#include "pbl/services/system_task.h"
-#include "system/passert.h"
-#include "pbl/kernel/compiler.h"
-#include "pbl/crc/crc.h"
-#include "pbl/util/math.h"
-#include "pbl/util/size.h"
+#include <pbl/crc/crc.h>
+#include <pbl/kernel/compiler.h>
+#include <pbl/services/system_task.h>
+#include <pbl/util/math.h>
+#include <pbl/util/size.h>
+
+#include <console/pulse_bulkio_domain_handler.h>
+#include <console/pulse_protocol_impl.h>
+#include <kernel/pbl_malloc.h>
+#include <system/passert.h>
 
 // Defines how many PULSE file descriptors may be open concurrently
 // This is shared across all supported domains
@@ -207,9 +205,9 @@ static void prv_respond_internal_error(Command *cmd, size_t length, status_t sta
 
 static int prv_get_fresh_fd(PulseBulkIODomainHandler *domain_handler, PulseTransferFD **fd) {
   for (int i = 0; i < MAX_PULSE_FDS; ++i) {
-    if (s_transfer_fds[i].impl == NULL && !s_transfer_fds[i].read_callback_pending) {
+    if (s_transfer_fds[i].impl == nullptr && !s_transfer_fds[i].read_callback_pending) {
       s_transfer_fds[i] =
-          (PulseTransferFD){.impl = domain_handler, .domain_state = NULL, .transfer_state = {0}};
+          (PulseTransferFD){.impl = domain_handler, .domain_state = nullptr, .transfer_state = {}};
       *fd = &s_transfer_fds[i];
       return i;
     }
@@ -232,7 +230,7 @@ PulseTransferFD *prv_get_fd(Command *cmd, size_t length) {
   } else {
     // Invalid, closed or out of range FD
     prv_respond_internal_error(cmd, length, E_INVALID_ARGUMENT);
-    return NULL;
+    return nullptr;
   }
 }
 
@@ -243,7 +241,7 @@ static PulseBulkIODomainHandler *prv_get_domain_handler(uint8_t domain_id) {
       return domain_handler;
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 static void prv_domain_read_cb(void *data) {
@@ -301,7 +299,7 @@ static void prv_handle_open(Command *cmd, size_t length) {
     return;
   }
 
-  PulseTransferFD *state = NULL;
+  PulseTransferFD *state = nullptr;
   int fd = prv_get_fresh_fd(domain_handler, &state);
 
   if (FAILED(fd)) {

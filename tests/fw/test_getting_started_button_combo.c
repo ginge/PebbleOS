@@ -1,35 +1,24 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "apps/prf/recovery_first_use/getting_started_button_combo.h"
-
-#include "clar.h"
+#include <apps/prf/recovery_first_use/getting_started_button_combo.h>
+#include <clar.h>
+#include <fff.h>
 
 // Stubs
 ///////////////////////////////////////////////////////////////////////////////
-#include "stubs_logging.h"
-#include "stubs_passert.h"
+#include <fake_new_timer.h>
 
-#include "fake_new_timer.h"
-
-static bool s_mfg_mode_entered;
-
-void mfg_enter_mfg_mode(void) {
-  s_mfg_mode_entered = true;
-}
+FAKE_VOID_FUNC(mfg_enter_mfg_mode);
 
 void mfg_enter_mfg_mode_and_launch_app(void) {
   mfg_enter_mfg_mode();
 }
 
-static bool s_factory_reset_called;
-
-void factory_reset(bool shutdown) {
-  s_factory_reset_called = true;
-}
+FAKE_VOID_FUNC(factory_reset, bool);
 
 Window *spinner_ui_window_get(void) {
-  return NULL;
+  return nullptr;
 }
 
 void app_window_stack_push(Window *window, bool animated) {
@@ -57,8 +46,8 @@ static void prv_select_callback(void *data) {
 }
 
 void test_getting_started_button_combo__initialize(void) {
-  s_mfg_mode_entered = false;
-  s_factory_reset_called = false;
+  RESET_FAKE(mfg_enter_mfg_mode);
+  RESET_FAKE(factory_reset);
   s_select_cb_called = false;
 
   getting_started_button_combo_init(&s_state, prv_select_callback);
@@ -98,7 +87,7 @@ void test_getting_started_button_combo__simple(void) {
   stub_new_timer_fire(timer->id);
 
   // We now should be in mfg mode
-  cl_assert(s_mfg_mode_entered);
+  cl_assert_equal_i(mfg_enter_mfg_mode_fake.call_count, 1);
 }
 
 void test_getting_started_button_combo__push_and_release_other_button(void) {
@@ -111,7 +100,7 @@ void test_getting_started_button_combo__push_and_release_other_button(void) {
 
   // We should have cancelled the timer
   cl_assert(!prv_find_combo_timer());
-  cl_assert(!s_mfg_mode_entered);
+  cl_assert_equal_i(mfg_enter_mfg_mode_fake.call_count, 0);
 
   prv_release_button(BUTTON_ID_DOWN);
 
@@ -124,7 +113,7 @@ void test_getting_started_button_combo__push_and_release_other_button(void) {
   stub_new_timer_fire(timer->id);
 
   // We now should be in mfg mode
-  cl_assert(s_mfg_mode_entered);
+  cl_assert_equal_i(mfg_enter_mfg_mode_fake.call_count, 1);
 }
 
 void test_getting_started_button_combo__push_combo_and_release_one(void) {
@@ -137,7 +126,7 @@ void test_getting_started_button_combo__push_combo_and_release_one(void) {
 
   // We should have cancelled the timer
   cl_assert(!prv_find_combo_timer());
-  cl_assert(!s_mfg_mode_entered);
+  cl_assert_equal_i(mfg_enter_mfg_mode_fake.call_count, 0);
 
   prv_press_button(BUTTON_ID_SELECT);
 
@@ -150,7 +139,7 @@ void test_getting_started_button_combo__push_combo_and_release_one(void) {
   stub_new_timer_fire(timer->id);
 
   // We now should be in mfg mode
-  cl_assert(s_mfg_mode_entered);
+  cl_assert_equal_i(mfg_enter_mfg_mode_fake.call_count, 1);
 }
 
 void test_getting_started_button_combo__push_complex_and_release_to_simple(void) {
@@ -170,7 +159,7 @@ void test_getting_started_button_combo__push_complex_and_release_to_simple(void)
 
   stub_new_timer_fire(timer->id);
 
-  cl_assert(!s_mfg_mode_entered);
+  cl_assert_equal_i(mfg_enter_mfg_mode_fake.call_count, 0);
   cl_assert(s_select_cb_called);
 }
 
@@ -192,6 +181,6 @@ void test_getting_started_button_combo__push_complex_and_release_to_simple_and_b
 
   stub_new_timer_fire(timer->id);
 
-  cl_assert(s_mfg_mode_entered);
-  cl_assert(!s_factory_reset_called);
+  cl_assert_equal_i(mfg_enter_mfg_mode_fake.call_count, 1);
+  cl_assert_equal_i(factory_reset_fake.call_count, 0);
 }

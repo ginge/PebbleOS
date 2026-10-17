@@ -7,11 +7,11 @@
 #include "menu_cell_layer.h"
 #include "scroll_layer.h"
 
-#include "applib/app_timer.h"
-#include "applib/fonts/fonts.h"
-#include "applib/graphics/text.h"
-
 #include <stdint.h>
+
+#include <applib/app_timer.h>
+#include <applib/fonts/fonts.h>
+#include <applib/graphics/text.h>
 
 //! @file menu_layer.h
 //! @addtogroup UI
@@ -320,7 +320,7 @@ enum {
   MenuLayerColor_Count,
 };
 #ifndef __clang__
-_Static_assert(MenuLayerColor_Count == 2, "Bad enum MenuLayerColor");
+static_assert(MenuLayerColor_Count == 2, "Bad enum MenuLayerColor");
 #endif
 
 enum {

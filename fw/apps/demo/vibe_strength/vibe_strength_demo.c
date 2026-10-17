@@ -1,14 +1,15 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/app.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/number_window.h"
-#include <pbl/drivers/vibe.h>
-#include "process_management/pebble_process_md.h"
-#include "process_state/app_state/app_state.h"
-
 #include <stdint.h>
+
+#include <pbl/drivers/vibe.h>
+
+#include <applib/app.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/number_window.h>
+#include <process_management/pebble_process_md.h>
+#include <process_state/app_state/app_state.h>
 
 static void selected_pwm_percentage(NumberWindow *nw, void *ctx) {
   static bool on = true;
@@ -20,7 +21,7 @@ static void selected_pwm_percentage(NumberWindow *nw, void *ctx) {
 
 static void handle_init(void) {
   NumberWindow *vibe_num_window = number_window_create(
-      "Vibe Strength", (NumberWindowCallbacks){.selected = selected_pwm_percentage}, NULL);
+      "Vibe Strength", (NumberWindowCallbacks){.selected = selected_pwm_percentage}, nullptr);
   app_state_set_user_data(vibe_num_window);
 
   uint8_t scale_granularity = 5; // 5 percent at a time

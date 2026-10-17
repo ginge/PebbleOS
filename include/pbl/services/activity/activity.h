@@ -3,14 +3,14 @@
 
 #pragma once
 
-#include <stdbool.h>
 #include <stdint.h>
 
-#include "applib/accel_service_private.h"
-#include "applib/health_service.h"
-#include "pbl/kernel/compiler.h"
-#include "pbl/util/time.h"
-#include "pbl/util/units.h"
+#include <pbl/kernel/compiler.h>
+#include <pbl/util/time.h>
+#include <pbl/util/units.h>
+
+#include <applib/accel_service_private.h>
+#include <applib/health_service.h>
 
 /**
  * @defgroup services_activity Activity
@@ -360,7 +360,7 @@ typedef struct {
 /** @brief A detected or manual activity session. */
 typedef struct PBL_PACKED {
   /** Start time, UTC. */
-  time_t start_utc;
+  int32_t start_utc;
   /** Length, in minutes. */
   uint16_t length_min;
   /** Session type. */

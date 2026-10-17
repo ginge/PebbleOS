@@ -1,36 +1,36 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/graphics/framebuffer.h"
-#include "applib/graphics/graphics.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/content_indicator.h"
-#include "applib/ui/content_indicator_private.h"
-#include "applib/ui/dialogs/simple_dialog.h"
-#include "applib/ui/text_layer.h"
-#include "applib/ui/window_private.h"
-#include "resource/resource.h"
-#include "resource/resource_ids.auto.h"
-#include "pbl/services/timeline/timeline_resources.h"
-#include "shell/system_theme.h"
-#include "system/passert.h"
-#include "applib/graphics/raw_image.h"
-#include "pbl/util/hash.h"
-#include "pbl/util/math.h"
-#include "pbl/util/size.h"
-
-#include "clar.h"
-
 #include <stdio.h>
+
+#include <pbl/services/timeline/timeline_resources.h>
+#include <pbl/util/hash.h>
+#include <pbl/util/math.h>
+#include <pbl/util/size.h>
+
+#include <applib/graphics/framebuffer.h>
+#include <applib/graphics/graphics.h>
+#include <applib/graphics/raw_image.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/content_indicator.h>
+#include <applib/ui/content_indicator_private.h>
+#include <applib/ui/dialogs/simple_dialog.h>
+#include <applib/ui/text_layer.h>
+#include <applib/ui/window_private.h>
+#include <clar.h>
+#include <resource/resource.h>
+#include <resource/resource_ids.auto.h>
+#include <shell/system_theme.h>
+#include <system/passert.h>
 
 static GContext s_ctx;
 
 // Fakes
 /////////////////////
 
-#include "fake_content_indicator.h"
-#include "fake_spi_flash.h"
-#include "fixtures/load_test_resources.h"
+#include <fake_content_indicator.h>
+#include <fake_spi_flash.h>
+#include <fixtures/load_test_resources.h>
 
 GContext *graphics_context_get_current_context(void) {
   return &s_ctx;
@@ -39,32 +39,7 @@ GContext *graphics_context_get_current_context(void) {
 // Stubs
 /////////////////////
 
-#include "stubs_analytics.h"
-#include "stubs_app_install_manager.h"
-#include "stubs_app_state.h"
-#include "stubs_app_timer.h"
-#include "stubs_bootbits.h"
-#include "stubs_buffer.h"
-#include "stubs_click.h"
-#include "stubs_heap.h"
-#include "stubs_layer.h"
-#include "stubs_logging.h"
-#include "stubs_memory_layout.h"
-#include "stubs_mutex.h"
-#include "stubs_passert.h"
-#include "stubs_pbl_malloc.h"
-#include "stubs_pebble_tasks.h"
-#include "stubs_print.h"
-#include "stubs_serial.h"
-#include "stubs_shell_prefs.h"
-#include "stubs_sleep.h"
-#include "stubs_status_bar_layer.h"
-#include "stubs_syscall_internal.h"
-#include "stubs_syscalls.h"
-#include "stubs_task_wdt.h"
-#include "stubs_vibes.h"
-#include "stubs_window_manager.h"
-#include "stubs_window_stack.h"
+#include <stubs_buffer.h>
 
 AnimationProgress animation_timing_scaled(AnimationProgress time_normalized,
                                           AnimationProgress interval_start,
@@ -74,7 +49,7 @@ AnimationProgress animation_timing_scaled(AnimationProgress time_normalized,
 
 KinoReel *kino_reel_scale_segmented_create(KinoReel *from_reel, bool take_ownership,
                                            GRect screen_frame) {
-  return NULL;
+  return nullptr;
 }
 
 void kino_reel_scale_segmented_set_deflate_effect(KinoReel *reel, int16_t expand) {
@@ -93,7 +68,7 @@ bool kino_reel_scale_segmented_set_delay_by_distance(KinoReel *reel, GPoint targ
 // Setup and Teardown
 ////////////////////////////////////
 
-static FrameBuffer *fb = NULL;
+static FrameBuffer *fb = nullptr;
 static GBitmap *s_dest_bitmap;
 
 // To easily render multiple windows in a single canvas, we'll use an 8-bit bitmap for color
@@ -138,7 +113,7 @@ void test_simple_dialog__cleanup(void) {
   free(fb);
 
   gbitmap_destroy(s_dest_bitmap);
-  s_dest_bitmap = NULL;
+  s_dest_bitmap = nullptr;
 }
 
 // Helpers

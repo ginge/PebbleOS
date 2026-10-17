@@ -5,8 +5,9 @@
 
 #include <stdint.h>
 
-#include "pbl/kernel/compiler.h"
-#include "pebbleos/core_dump_structs.h"
+#include <pbl/kernel/compiler.h>
+
+#include <pebbleos/core_dump_structs.h>
 
 // LCPU (BLE coprocessor) RAM, in the LPSYS domain outside main RAM.
 #if defined(CONFIG_SOC_SF32LB52)
@@ -20,11 +21,11 @@
 #define CORE_DUMP_FLASH_SIZE  (CORE_DUMP_FLASH_END - CORE_DUMP_FLASH_START)
 #if defined(CONFIG_SOC_NRF52)
 #define CORE_DUMP_MAX_IMAGES 2
-#elif defined(CONFIG_SOC_SF32LB52)
+#elifdef CONFIG_SOC_SF32LB52
 #define CORE_DUMP_MAX_IMAGES 1
 #elif defined(CONFIG_SOC_T5AI)
 #define CORE_DUMP_MAX_IMAGES 1
-#elif defined(CONFIG_QEMU)
+#elif defined(CONFIG_QEMU) || defined(CONFIG_SOC_POSIX)
 #define CORE_DUMP_MAX_IMAGES 1
 #else
 #error "Unsupported micro family"

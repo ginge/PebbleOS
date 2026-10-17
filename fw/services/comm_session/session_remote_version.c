@@ -1,19 +1,16 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/comm_session/session_remote_version.h"
-
-#include "comm/bt_lock.h"
-
-#include "kernel/events.h"
-
-#include "pbl/services/comm_session/session_internal.h"
-#include "pbl/services/comm_session/session_remote_os.h"
-#include "kernel/event_loop.h"
-
-#include "pbl/kernel/compiler.h"
-#include "pbl/util/byteorder.h"
+#include <pbl/kernel/compiler.h>
 #include <pbl/logging/logging.h>
+#include <pbl/services/comm_session/session_internal.h>
+#include <pbl/services/comm_session/session_remote_os.h>
+#include <pbl/services/comm_session/session_remote_version.h>
+#include <pbl/util/byteorder.h>
+
+#include <comm/bt_lock.h>
+#include <kernel/event_loop.h>
+#include <kernel/events.h>
 
 PBL_LOG_MODULE_DECLARE(service_comm_session, CONFIG_SERVICE_COMM_SESSION_LOG_LEVEL);
 
@@ -75,7 +72,7 @@ static void prv_comm_session_perform_version_request_bg_cb(void *data) {
 static void prv_schedule_request(CommSession *session) {
   bt_lock();
   if (!comm_session_is_valid(session)) {
-    session = NULL;
+    session = nullptr;
     goto unlock;
   }
 unlock:

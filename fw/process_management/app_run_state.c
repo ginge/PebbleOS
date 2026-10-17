@@ -2,16 +2,18 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "app_run_state.h"
+
 #include "launcher_app_message.h"
 
-#include "kernel/event_loop.h"
-#include "kernel/pbl_malloc.h"
-#include "process_management/app_install_manager.h"
-#include "process_management/app_manager.h"
-#include "process_management/process_manager.h"
-#include "pbl/services/system_task.h"
+#include <pbl/kernel/compiler.h>
 #include <pbl/logging/logging.h>
-#include "pbl/kernel/compiler.h"
+#include <pbl/services/system_task.h>
+
+#include <kernel/event_loop.h>
+#include <kernel/pbl_malloc.h>
+#include <process_management/app_install_manager.h>
+#include <process_management/app_manager.h>
+#include <process_management/process_manager.h>
 
 #define PB_APP_STATE_ENDPOINT_ID 0x34
 
@@ -75,7 +77,7 @@ void app_run_state_command(CommSession *session, AppRunStateCommand cmd, const U
     case APP_RUN_STATE_STATUS_COMMAND:
       // Determine the running application
       uuid = &app_manager_get_current_app_md()->uuid;
-      if (session != NULL) {
+      if (session != nullptr) {
         // We check the session here as to be backwards compatible with the 0x31 endpoint and
         // to avoid repeating code, the endpoint makes use of this function, but since it does
         // not have an active session (it's session is NULL), it will fall to the else case.
@@ -107,7 +109,7 @@ void app_run_state_protocol_msg_callback(CommSession *session, const uint8_t *da
       return;
     }
   }
-  app_run_state_command(session, msg->command, uuid_is_invalid(&msg->uuid) ? NULL : &msg->uuid);
+  app_run_state_command(session, msg->command, uuid_is_invalid(&msg->uuid) ? nullptr : &msg->uuid);
 }
 
 void app_run_state_send_update(const Uuid *uuid, AppState app_state) {

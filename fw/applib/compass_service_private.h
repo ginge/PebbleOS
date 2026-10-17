@@ -4,11 +4,10 @@
 #pragma once
 #include "compass_service.h"
 
-#include "applib/app_timer.h"
-#include "applib/event_service_client.h"
-#include "pbl/kernel/compiler.h"
+#include <applib/app_timer.h>
+#include <applib/event_service_client.h>
 
-typedef struct PBL_PACKED {
+typedef struct {
   CompassHeading compass_filter;
   int32_t last_angle;
   CompassHeading heading_declination;

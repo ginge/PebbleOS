@@ -32,7 +32,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("fault_trace.c", build)
 
     def test_t5ai_cacheable_mpu_regions_are_non_shareable(self):
-        mpu = (ROOT / "fw/drivers/mpu/mpu_armv8m.c").read_text()
+        mpu = (ROOT / "kernel/arch/arm/mpu_armv8m.c").read_text()
         self.assertIn("#ifdef CONFIG_SOC_T5AI", mpu)
         self.assertIn("region->cache_policy != MpuCachePolicy_NotCacheable", mpu)
         self.assertIn("shareability = ARM_MPU_SH_NON", mpu)
@@ -44,7 +44,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("measured\n# AppState is 73,936 bytes", defaults)
 
     def test_t5ai_flash_writes_are_limited_to_data_partitions(self):
-        flash = (ROOT / "fw/drivers/flash/t5ai.c").read_text()
+        flash = (ROOT / "drivers/flash/t5ai.c").read_text()
         for region in (
             "FLASH_REGION_FILESYSTEM_BEGIN",
             "FLASH_REGION_SYSTEM_RESOURCES_BANK_0_BEGIN",
@@ -82,7 +82,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
 
 
     def test_t5ai_i2c_uses_stable_single_byte_interrupt_mode(self):
-        i2c = (ROOT / "fw/drivers/i2c/t5ai.c").read_text()
+        i2c = (ROOT / "drivers/i2c/t5ai.c").read_text()
         self.assertNotIn("static uint32_t prv_read_fifo_count", i2c)
         self.assertNotIn("static uint32_t prv_write_fifo_space", i2c)
         self.assertIn("transfer->data[transfer->idx++] = (uint8_t)regs->data;", i2c)
@@ -125,7 +125,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
                         early.index("t5ai_cp_mailbox_announce_power_up();"))
         self.assertLess(early.index("t5ai_cp_mailbox_announce_power_up();"),
                         early.index("__enable_irq();"))
-        mailbox = (ROOT / "fw/drivers/t5ai/cp_mailbox.c").read_text()
+        mailbox = (ROOT / "drivers/t5ai/cp_mailbox.c").read_text()
         self.assertIn("CP_CONTROL_CHANNEL 0x10u", mailbox)
         self.assertIn("CP_POWER_UP_COMMAND 1u", mailbox)
         self.assertIn("CP_HEARTBEAT_COMMAND 2u", mailbox)
@@ -133,7 +133,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("pbl_thread_sleep(PBL_MSEC(CP_HEARTBEAT_PERIOD_MS))", mailbox)
 
     def test_t5ai_display_preserves_qualified_panel_and_qspi_setup(self):
-        display = (ROOT / "fw/drivers/display/t5ai/display_co5300.c").read_text()
+        display = (ROOT / "drivers/display/t5ai/display_co5300.c").read_text()
         self.assertIn("prv_qspi_init() && prv_panel_init()", display)
         self.assertIn(
             "prv_register(PANEL_DCS_INVERSION_OFF,NULL,0)&&"
@@ -174,7 +174,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         compiler = shutil.which("cc")
         if not compiler:
             self.skipTest("Host C compiler unavailable")
-        mailbox = (ROOT / "fw/drivers/t5ai/cp_mailbox.c").read_text()
+        mailbox = (ROOT / "drivers/t5ai/cp_mailbox.c").read_text()
         callback = mailbox.split("static void prv_heartbeat_complete(", 1)[1]
         callback = "static void prv_heartbeat_complete(" + callback.split(
             "\nvoid t5ai_cp_mailbox_heartbeat", 1
@@ -238,7 +238,7 @@ int main(void) {
         compiler = shutil.which("cc")
         if not compiler:
             self.skipTest("Host C compiler unavailable")
-        source = (ROOT / "fw/drivers/t5ai/mailbox_channel.c").read_text()
+        source = (ROOT / "drivers/t5ai/mailbox_channel.c").read_text()
 
         def function(name):
             start = source.index(name + "(")
@@ -385,13 +385,13 @@ int main(void) {
         self.assertIn("rx_pending ? -1 : prv_expired_channel()", task)
 
     def test_t5ai_mailbox_clients_quarantine_ambiguous_ownership(self):
-        physical = (ROOT / "fw/drivers/t5ai/mailbox_channel.c").read_text()
-        mailbox = (ROOT / "fw/drivers/t5ai/cp_mailbox.c").read_text()
-        mb_ipc = (ROOT / "fw/drivers/t5ai/mb_ipc.c").read_text()
-        flash = (ROOT / "fw/drivers/flash/t5ai_flash_ipc.c").read_text()
-        battery = (ROOT / "fw/drivers/battery/t5ai.c").read_text()
+        physical = (ROOT / "drivers/t5ai/mailbox_channel.c").read_text()
+        mailbox = (ROOT / "drivers/t5ai/cp_mailbox.c").read_text()
+        mb_ipc = (ROOT / "drivers/t5ai/mb_ipc.c").read_text()
+        flash = (ROOT / "drivers/flash/t5ai_flash_ipc.c").read_text()
+        battery = (ROOT / "drivers/battery/t5ai.c").read_text()
         dbgserial = (ROOT / "fw/console/dbgserial_t5ai.c").read_text()
-        reset = (ROOT / "fw/drivers/watchdog/t5ai.c").read_text()
+        reset = (ROOT / "drivers/watchdog/t5ai.c").read_text()
 
         physical_init = physical.split("status_t t5ai_mailbox_channel_init", 1)[1].split(
             "status_t t5ai_mailbox_channel_start", 1
@@ -434,7 +434,7 @@ int main(void) {
         self.assertLess(main.index("init_drivers();"), main.index("compositor_init();"))
 
     def test_t5ai_holds_cp_awake_until_low_voltage_resume_is_supported(self):
-        mailbox = (ROOT / "fw/drivers/t5ai/cp_mailbox.c").read_text()
+        mailbox = (ROOT / "drivers/t5ai/cp_mailbox.c").read_text()
         board = (ROOT / "fw/board/boards/board_unhygienix.c").read_text()
         self.assertIn("CP_PM_SLEEP_COMMAND 3u", mailbox)
         self.assertIn("CP_PM_SLEEP_APP_MODULE 12u", mailbox)
@@ -456,7 +456,7 @@ int main(void) {
 
     def test_t5ai_debug_uart_keeps_the_board_runtime_configuration(self):
         console = (ROOT / "fw/console/dbgserial_t5ai.c").read_text()
-        driver = (ROOT / "fw/drivers/uart/t5ai.c").read_text()
+        driver = (ROOT / "drivers/uart/t5ai.c").read_text()
         self.assertIn("t5ai_cp_mailbox_log", console)
         self.assertNotIn("uart_set_baud_rate", console)
         self.assertIn("uart->global_ctrl = UART_GLOBAL_RESET_RELEASE | UART_GLOBAL_CLOCK_GATE_BYPASS;", driver)
@@ -471,7 +471,7 @@ int main(void) {
         self.assertIn("UART_INT_RX_FINISH", driver)
 
     def test_t5ai_cp_logging_rejects_interrupt_context(self):
-        mailbox = (ROOT / "fw/drivers/t5ai/cp_mailbox.c").read_text()
+        mailbox = (ROOT / "drivers/t5ai/cp_mailbox.c").read_text()
         cp_log = mailbox.split("status_t t5ai_cp_mailbox_log", 1)[1]
         rejection = cp_log.index("return E_INVALID_OPERATION;")
         self.assertLess(cp_log.index("mcu_state_is_isr()"), rejection)
@@ -503,17 +503,17 @@ int main(void) {
 
     def test_t5ai_initializes_native_button_debouncing(self):
         main = (ROOT / "fw/main.c").read_text()
-        build = (ROOT / "fw/drivers/t5ai/CMakeLists.txt").read_text()
+        build = (ROOT / "drivers/t5ai/CMakeLists.txt").read_text()
         self.assertIn("debounced_button_init();", main)
         self.assertIn("debounced_button.c", build)
-        buttons = (ROOT / "fw/drivers/t5ai/debounced_button.c").read_text()
+        buttons = (ROOT / "drivers/t5ai/debounced_button.c").read_text()
         self.assertIn("pbl_thread_create", buttons)
         self.assertIn("pbl_sem_give", buttons)
         self.assertNotIn("system_task_add_callback", buttons)
 
     def test_t5ai_i2c_and_external_rtc(self):
-        rtc = (ROOT / "fw/drivers/rtc/t5ai.c").read_text()
-        i2c = (ROOT / "fw/drivers/i2c/t5ai.c").read_text()
+        rtc = (ROOT / "drivers/rtc/t5ai.c").read_text()
+        i2c = (ROOT / "drivers/i2c/t5ai.c").read_text()
         self.assertIn("T5AI_SYSTEM_CPU1_INTERRUPT_ENABLE |= T5AI_I2C0_INTERRUPT_ENABLE", i2c)
         self.assertNotIn("T5AI_SYSTEM_CPU0_INTERRUPT_ENABLE", i2c)
         enable = i2c.split("void i2c_hal_enable", 1)[1].split(
@@ -530,7 +530,7 @@ int main(void) {
         self.assertNotIn("i2c_hal_abort_transfer", disable)
         self.assertIn("~T5AI_I2C_CONFIG_ENABLE", disable)
         self.assertIn("NVIC_SetPriority(bus->hal->irqn, T5AI_I2C_IRQ_PRIORITY)", i2c)
-        common_i2c = (ROOT / "fw/drivers/i2c/common.c").read_text()
+        common_i2c = (ROOT / "drivers/i2c/t5ai_bus.c").read_text()
         self.assertRegex(common_i2c, r"#define I2C_ERROR_TIMEOUT_MS\s+\(1000\)")
         self.assertRegex(common_i2c, r"#define I2C_NACK_COUNT_MAX\s+\(1000\)")
         self.assertNotIn("CONFIG_SOC_T5AI", common_i2c)
@@ -588,7 +588,7 @@ int main(void) {
 
     def test_t5ai_scales_raw_aon_ticks_at_the_rtc_boundary(self):
         interface = (ROOT / "include/pbl/drivers/rtc.h").read_text()
-        implementation = (ROOT / "fw/drivers/rtc/t5ai.c").read_text()
+        implementation = (ROOT / "drivers/rtc/t5ai.c").read_text()
         t5ai_interface = interface.split("#elif defined(CONFIG_SOC_T5AI)", 1)[1]
         t5ai_interface = t5ai_interface.split("#else", 1)[0]
         self.assertIn("#define RTC_TICKS_HZ (1000u)", t5ai_interface)

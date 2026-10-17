@@ -4,7 +4,8 @@
 #pragma once
 
 #include <stdint.h>
-#include "pbl/util/uuid.h"
+
+#include <pbl/util/uuid.h>
 
 /**
  * @defgroup bluetooth_pebble_bt Pebble identifiers

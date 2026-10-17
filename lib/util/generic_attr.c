@@ -1,9 +1,9 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/util/generic_attr.h"
-
 #include <string.h>
+
+#include <pbl/util/generic_attr.h>
 
 struct pbl_generic_attr *pbl_generic_attr_find(struct pbl_generic_attr_list *attr_list, uint8_t id,
                                                size_t size) {
@@ -15,7 +15,7 @@ struct pbl_generic_attr *pbl_generic_attr_find(struct pbl_generic_attr_list *att
     // Check that we do not read past the end of the buffer
     if ((cursor + sizeof(struct pbl_generic_attr) > end) ||
         (attribute->data + attribute->length > end)) {
-      return NULL;
+      return nullptr;
     }
 
     if (attribute->id == id) {
@@ -23,7 +23,7 @@ struct pbl_generic_attr *pbl_generic_attr_find(struct pbl_generic_attr_list *att
     }
     cursor += sizeof(struct pbl_generic_attr) + attribute->length;
   }
-  return NULL;
+  return nullptr;
 }
 
 struct pbl_generic_attr *pbl_generic_attr_add(struct pbl_generic_attr *attr, uint8_t id,

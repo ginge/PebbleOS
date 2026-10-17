@@ -1,21 +1,24 @@
 /* SPDX-FileCopyrightText: 2025 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include "nimble_gattc_op_queue.h"
+#include "nimble_type_conversions.h"
+#include "pairability_priv.h"
+
 #include <stdio.h>
 
-#include <pbl/bluetooth/bonding_sync.h>
 #include <pbl/bluetooth/advert.h>
+#include <pbl/bluetooth/bonding_sync.h>
 #include <pbl/bluetooth/gatt.h>
 #include <pbl/bluetooth/pairing_confirm.h>
+#include <pbl/logging/logging.h>
+#include <pbl/util/math.h>
+
 #include <host/ble_gap.h>
 #include <kernel/pbl_malloc.h>
 #include <os/os_mbuf.h>
-#include <pbl/logging/logging.h>
 #include <system/passert.h>
-#include <pbl/util/math.h>
 
-#include "nimble_gattc_op_queue.h"
-#include "nimble_type_conversions.h"
 #include "pairing_confirm_internal.h"
 
 PBL_LOG_MODULE_DECLARE(bt, CONFIG_BT_LOG_LEVEL);
@@ -23,6 +26,7 @@ PBL_LOG_MODULE_DECLARE(bt, CONFIG_BT_LOG_LEVEL);
 static char s_device_name[PBL_BT_DEVICE_NAME_BUFFER_SIZE];
 static bool s_pairing_in_progress;
 static struct pbl_bt_pairing_confirm_ctx s_pairing_ctx;
+static uint16_t s_pairing_conn_handle;
 
 static const ble_uuid16_t s_device_name_chr_uuid = BLE_UUID16_INIT(0x2A00);
 
@@ -44,7 +48,7 @@ static int prv_device_name_read_op_start(void *ctx) {
   const uint16_t conn_handle = *(uint16_t *)ctx;
 
   int rc = ble_gattc_read_by_uuid(conn_handle, 1, UINT16_MAX, (ble_uuid_t *)&s_device_name_chr_uuid,
-                                  prv_device_name_read_event_cb, NULL);
+                                  prv_device_name_read_event_cb, nullptr);
   if (rc != 0) {
     PBL_LOG_ERR("Pairing device name read failed to start (rc=0x%04x)", (uint16_t)rc);
   }
@@ -153,11 +157,19 @@ static void prv_handle_connection_event(struct ble_gap_event *event) {
   pbl_bt_handle_le_connection_complete_event(&complete_event);
 }
 
-static void prv_handle_disconnection_event(struct ble_gap_event *event) {
-  if (s_pairing_in_progress && s_pairing_ctx.conn_handle == event->disconnect.conn.conn_handle) {
-    pbl_bt_cb_pairing_confirm_handle_completed(&s_pairing_ctx, false);
-    s_pairing_in_progress = false;
+static void prv_end_pairing(uint16_t conn_handle, bool success) {
+  if (!s_pairing_in_progress || conn_handle != s_pairing_conn_handle) {
+    return;
   }
+
+  struct pbl_bt_pairing_confirm_ctx *ctx = &s_pairing_ctx;
+  pbl_bt_cb_pairing_confirm_handle_completed(ctx, success);
+  s_pairing_in_progress = false;
+}
+
+static void prv_handle_disconnection_event(struct ble_gap_event *event) {
+  // A link dropped mid-pairing raises no pairing complete event.
+  prv_end_pairing(event->disconnect.conn.conn_handle, false);
 
   struct pbl_bt_gatt_device_disconnection_event gatt_event;
   nimble_addr_to_pebble_addr(&event->disconnect.conn.peer_id_addr, &gatt_event.dev_address);
@@ -233,7 +245,7 @@ static void prv_handle_conn_update_req_event(struct ble_gap_event *event) {
 static void prv_handle_passkey_event(struct ble_gap_event *event) {
   char passkey_str[7];
   uint32_t passkey = 0;
-  const char *device_name = NULL;
+  const char *device_name = nullptr;
   s_pairing_ctx.conn_handle = event->passkey.conn_handle;
 
   if (event->passkey.params.action == BLE_SM_IOACT_NUMCMP) {
@@ -244,26 +256,16 @@ static void prv_handle_passkey_event(struct ble_gap_event *event) {
     device_name = s_device_name;
   }
 
-  snprintf(passkey_str, sizeof(passkey_str), "%06lu", passkey);
+  snprintf(passkey_str, sizeof(passkey_str), "%06" PRIu32, passkey);
   pbl_bt_cb_pairing_confirm_handle_request(&s_pairing_ctx, device_name, passkey_str);
   s_pairing_in_progress = true;
+  s_pairing_conn_handle = event->passkey.conn_handle;
 }
 
 static void prv_handle_pairing_complete_event(struct ble_gap_event *event) {
   PBL_LOG_INFO("Pairing complete: status=0x%04x", (uint16_t)event->pairing_complete.status);
 
-  if (!s_pairing_in_progress) {
-    return;
-  }
-
-  if (s_pairing_ctx.conn_handle != event->pairing_complete.conn_handle) {
-    PBL_LOG_WRN("Pairing completion for unexpected handle %u (expected %u)",
-                event->pairing_complete.conn_handle, s_pairing_ctx.conn_handle);
-    return;
-  }
-
-  pbl_bt_cb_pairing_confirm_handle_completed(&s_pairing_ctx, event->pairing_complete.status == 0);
-  s_pairing_in_progress = false;
+  prv_end_pairing(event->pairing_complete.conn_handle, event->pairing_complete.status == 0);
 }
 
 static void prv_handle_identity_resolved_event(struct ble_gap_event *event) {
@@ -324,6 +326,30 @@ static void prv_handle_notification_rx_event(struct ble_gap_event *event) {
 static void prv_handle_notification_tx_event(struct ble_gap_event *event) {
   PBL_LOG_DBG("notification tx event; status=%d attr_handle=%d indication=%d\n",
               event->notify_tx.status, event->notify_tx.attr_handle, event->notify_tx.indication);
+}
+
+static int prv_handle_pairing_request_event(struct ble_gap_event *event) {
+  struct ble_gap_conn_desc desc;
+  struct ble_store_value_sec value_sec;
+  int rc;
+
+  if (pairability_is_enabled()) {
+    return 0;
+  }
+
+  rc = ble_gap_conn_find(event->pairing_request.conn_handle, &desc);
+  if (rc != 0) {
+    return BLE_SM_ERR_UNSPECIFIED;
+  }
+
+  // Bonded peers are handled by the repeat pairing policy
+  struct ble_store_key_sec key_sec = {.peer_addr = desc.peer_id_addr};
+  if (ble_store_read_peer_sec(&key_sec, &value_sec) == 0) {
+    return 0;
+  }
+
+  PBL_LOG_INFO("Pairing request rejected: not pairable");
+  return BLE_SM_ERR_PAIR_NOT_SUPP;
 }
 
 static int prv_handle_repeat_pairing_event(struct ble_gap_event *event) {
@@ -410,6 +436,9 @@ static int prv_handle_gap_event(struct ble_gap_event *event, void *arg) {
       PBL_LOG_DBG("BLE_GAP_EVENT_NOTIFY_TX");
       prv_handle_notification_tx_event(event);
       break;
+    case BLE_GAP_EVENT_PAIRING_REQUEST:
+      PBL_LOG_DBG("BLE_GAP_EVENT_PAIRING_REQUEST");
+      return prv_handle_pairing_request_event(event);
     case BLE_GAP_EVENT_REPEAT_PAIRING:
       PBL_LOG_DBG("BLE_GAP_EVENT_REPEAT_PAIRING");
       return prv_handle_repeat_pairing_event(event);
@@ -440,7 +469,8 @@ bool pbl_bt_advert_advertising_enable(uint32_t min_interval_ms, uint32_t max_int
     return false;
   }
 
-  rc = ble_gap_adv_start(own_addr_type, NULL, BLE_HS_FOREVER, &advp, prv_handle_gap_event, NULL);
+  rc = ble_gap_adv_start(own_addr_type, nullptr, BLE_HS_FOREVER, &advp, prv_handle_gap_event,
+                         nullptr);
   if (rc != 0) {
     PBL_LOG_ERR("Failed to start advertising (0x%04x)", (uint16_t)rc);
     return false;

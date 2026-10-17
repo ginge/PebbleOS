@@ -1,9 +1,8 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/util/time.h"
-
-#include "pbl/util/units.h"
+#include <pbl/util/time.h>
+#include <pbl/util/units.h>
 
 static const uint8_t s_mon_lengths[2][PBL_MONTH_PER_YEAR] = {
   {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}, {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31}
@@ -47,7 +46,7 @@ int pbl_time_minute_of_day_adjust(int minute, int delta) {
   return minute;
 }
 
-void pbl_time_breakdown(time_t t, struct tm *tm) {
+void pbl_time_breakdown(time_t t, struct pbl_tm *tm) {
   int32_t days = t / PBL_SEC_PER_DAY;
   int32_t rem = t % PBL_SEC_PER_DAY;
   while (rem < 0) {

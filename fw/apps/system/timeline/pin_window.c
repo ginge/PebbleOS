@@ -3,12 +3,13 @@
 
 #include "pin_window.h"
 
-#include "applib/ui/action_button.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/ui.h"
-#include "kernel/pbl_malloc.h"
-#include "kernel/ui/modals/modal_manager.h"
-#include "pbl/services/time.h"
+#include <pbl/services/time.h>
+
+#include <applib/ui/action_button.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/ui.h>
+#include <kernel/pbl_malloc.h>
+#include <kernel/ui/modals/modal_manager.h>
 
 void timeline_pin_window_set_item(TimelinePinWindow *pin_window, TimelineItem *item,
                                   time_t current_day) {
@@ -51,7 +52,7 @@ static void prv_pin_window_load(Window *window) {
 
   // bounce back from the right
   GPoint from_origin = {-TIMELINE_CARD_MARGIN, 0};
-  Animation *animation = prv_create_bounds_origin_animation(pin_window, &from_origin, NULL);
+  Animation *animation = prv_create_bounds_origin_animation(pin_window, &from_origin, nullptr);
   animation_schedule(animation);
 }
 
@@ -81,7 +82,7 @@ void timeline_pin_window_pop(TimelinePinWindow *pin_window) {
 
   // animate the card layout to the right
   GPoint to_origin = {pin_window->layer.bounds.size.w, 0};
-  Animation *animation = prv_create_bounds_origin_animation(pin_window, NULL, &to_origin);
+  Animation *animation = prv_create_bounds_origin_animation(pin_window, nullptr, &to_origin);
   animation_set_custom_interpolation(animation, interpolate_moook);
   animation_set_handlers(animation,
                          (AnimationHandlers){

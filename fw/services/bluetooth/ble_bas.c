@@ -1,19 +1,20 @@
 /* SPDX-FileCopyrightText: 2025 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/event_service_client.h"
-#include "pbl/bluetooth/bas.h"
-#include "kernel/event_loop.h"
-#include "kernel/pebble_tasks.h"
-#include "syscall/syscall.h"
+#include <pbl/bluetooth/bas.h>
+
+#include <applib/event_service_client.h>
+#include <kernel/event_loop.h>
+#include <kernel/pebble_tasks.h>
+#include <syscall/syscall.h>
 
 static EventServiceInfo s_bas_evt;
 
 static void prv_execute_on_kernel_main(CallbackEventCallback cb) {
   if (pebble_task_get_current() != PebbleTask_KernelMain) {
-    launcher_task_add_callback(cb, NULL);
+    launcher_task_add_callback(cb, nullptr);
   } else {
-    cb(NULL);
+    cb(nullptr);
   }
 }
 

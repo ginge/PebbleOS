@@ -1,19 +1,14 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "apps/system/timeline/text_node.h"
-
-#include "clar.h"
-#include "pebble_asserts.h"
+#include <apps/system/timeline/text_node.h>
+#include <clar.h>
+#include <kernel/pbl_malloc.h>
+#include <pebble_asserts.h>
+#include <stubs_app_state.h>
 
 // Stubs
 /////////////////////
-
-#include "stubs_app_state.h"
-#include "stubs_heap.h"
-#include "stubs_passert.h"
-#include "stubs_pbl_malloc.h"
-#include "stubs_process_manager.h"
 
 // TODO: PBL-22271 Complete timeline text node unit tests
 
@@ -93,7 +88,7 @@ void test_graphics_text_node__text_draw(void) {
   s_data.max_used_size = TEST_TEXT_SIZE;
 
   GSize size;
-  graphics_text_node_draw(&text_node.node, ctx, &TEST_TEXT_BOX, NULL, &size);
+  graphics_text_node_draw(&text_node.node, ctx, &TEST_TEXT_BOX, nullptr, &size);
   cl_assert(size.w > 0);
   cl_assert(size.h > 0);
   cl_assert_equal_i(size.w, TEST_TEXT_SIZE.w);
@@ -112,7 +107,7 @@ void test_graphics_text_node__text_size(void) {
   s_data.max_used_size = TEST_TEXT_SIZE;
 
   GSize size;
-  graphics_text_node_get_size(&text_node.node, ctx, &TEST_TEXT_BOX, NULL, &size);
+  graphics_text_node_get_size(&text_node.node, ctx, &TEST_TEXT_BOX, nullptr, &size);
   cl_assert(size.w > 0);
   cl_assert(size.h > 0);
   cl_assert_equal_i(size.w, TEST_TEXT_SIZE.w);
@@ -134,7 +129,7 @@ void test_graphics_text_node__custom_cached_size(void) {
   custom_node.callback = prv_draw_custom;
 
   GSize size;
-  graphics_text_node_get_size(&custom_node.node, ctx, &TEST_TEXT_BOX, NULL, &size);
+  graphics_text_node_get_size(&custom_node.node, ctx, &TEST_TEXT_BOX, nullptr, &size);
   cl_assert(size.w > 0);
   cl_assert(size.h > 0);
   cl_assert_equal_i(size.w, TEST_TEXT_SIZE.w);
@@ -143,7 +138,7 @@ void test_graphics_text_node__custom_cached_size(void) {
   cl_assert_equal_i(size.h, custom_node.node.cached_size.h);
   cl_assert_equal_i(s_num_draw_custom_calls, 1);
 
-  graphics_text_node_get_size(&custom_node.node, ctx, &TEST_TEXT_BOX, NULL, &size);
+  graphics_text_node_get_size(&custom_node.node, ctx, &TEST_TEXT_BOX, nullptr, &size);
   cl_assert(size.w > 0);
   cl_assert(size.h > 0);
   cl_assert_equal_i(size.w, TEST_TEXT_SIZE.w);
@@ -156,7 +151,7 @@ void test_graphics_text_node__custom_cached_size(void) {
 void test_graphics_text_node__create_container_nodes_buffer(void) {
   GTextNodeHorizontal *h_empty = graphics_text_node_create_horizontal(0);
   cl_assert_equal_i(h_empty->container.max_nodes, 0);
-  cl_assert_equal_p(NULL, h_empty->container.nodes);
+  cl_assert_equal_p(nullptr, h_empty->container.nodes);
 
   GTextNodeHorizontal *h_nodes = graphics_text_node_create_horizontal(3);
   cl_assert_equal_i(h_nodes->container.max_nodes, 3);
@@ -164,7 +159,7 @@ void test_graphics_text_node__create_container_nodes_buffer(void) {
 
   GTextNodeVertical *v_empty = graphics_text_node_create_vertical(0);
   cl_assert_equal_i(v_empty->container.max_nodes, 0);
-  cl_assert_equal_p(NULL, v_empty->container.nodes);
+  cl_assert_equal_p(nullptr, v_empty->container.nodes);
 
   GTextNodeVertical *v_nodes = graphics_text_node_create_vertical(3);
   cl_assert_equal_i(v_nodes->container.max_nodes, 3);
@@ -188,7 +183,7 @@ void test_graphics_text_node__destroy(void) {
   };
   cl_assert(!text_c.node.free_on_destroy);
 
-  GTextNodeCustom *custom_a = graphics_text_node_create_custom(NULL, NULL);
+  GTextNodeCustom *custom_a = graphics_text_node_create_custom(nullptr, nullptr);
   cl_assert(custom_a->node.free_on_destroy);
 
   GTextNodeHorizontal *horizontal_a = graphics_text_node_create_horizontal(3);
@@ -232,13 +227,13 @@ void test_graphics_text_node__clip(void) {
   // Clipping off
   s_data.gcontext.draw_state.clip_box = DISP_FRAME;
   s_data.clip_box = DISP_FRAME;
-  graphics_text_node_draw(&custom_node.node, ctx, &TEST_CLIP_BOX, NULL, NULL);
+  graphics_text_node_draw(&custom_node.node, ctx, &TEST_CLIP_BOX, nullptr, nullptr);
   cl_assert_equal_grect(ctx->draw_state.clip_box, DISP_FRAME);
 
   // Clipping on
   custom_node.node.clip = true;
   s_data.gcontext.draw_state.clip_box = DISP_FRAME;
   s_data.clip_box = TEST_CLIP_BOX;
-  graphics_text_node_draw(&custom_node.node, ctx, &TEST_CLIP_BOX, NULL, NULL);
+  graphics_text_node_draw(&custom_node.node, ctx, &TEST_CLIP_BOX, nullptr, nullptr);
   cl_assert_equal_grect(ctx->draw_state.clip_box, DISP_FRAME);
 }

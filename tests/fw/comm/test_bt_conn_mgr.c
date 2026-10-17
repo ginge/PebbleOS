@@ -1,26 +1,21 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "clar.h"
+#include <pbl/services/regular_timer.h>
 
-#include "comm/ble/gap_le_connection.h"
-#include "comm/bt_conn_mgr.h"
-#include "comm/bt_conn_mgr_impl.h"
-#include "pbl/services/regular_timer.h"
+#include <clar.h>
+#include <comm/ble/gap_le_connection.h>
+#include <comm/bt_conn_mgr.h>
+#include <comm/bt_conn_mgr_impl.h>
 
 // Fakes
-#include "fake_gap_le_connect_params.h"
-#include "fake_new_timer.h"
-#include "fake_rtc.h"
-#include "fake_system_task.h"
-#include "fake_pbl_malloc.h"
+#include <fake_gap_le_connect_params.h>
+#include <fake_new_timer.h>
+#include <fake_pbl_malloc.h>
+#include <fake_rtc.h>
+#include <fake_system_task.h>
 
 // Stubs
-#include "stubs_bluetopia_interface.h"
-#include "stubs_bt_lock.h"
-#include "stubs_logging.h"
-#include "stubs_mutex.h"
-#include "stubs_passert.h"
 
 extern void conn_mgr_handle_desired_state_granted(GAPLEConnection *hdl,
                                                   enum pbl_bt_response_time_state granted_state);
@@ -28,11 +23,11 @@ extern void conn_mgr_handle_desired_state_granted(GAPLEConnection *hdl,
 // Stubs
 /////
 bool gap_le_connection_is_valid(const GAPLEConnection *conn) {
-  return (conn != NULL);
+  return (conn != nullptr);
 }
 
 GAPLEConnection *gap_le_connection_any(void) {
-  return NULL;
+  return nullptr;
 }
 
 void prv_regular_timer_spend_seconds(uint32_t seconds) {

@@ -7,17 +7,17 @@
 #include "window_stack.h"
 #include "window_stack_private.h"
 
-#include "kernel/event_loop.h"
-#include "kernel/pbl_malloc.h"
-#include "process_state/app_state/app_state.h"
+#include <pbl/kernel/sem.h>
 #include <pbl/logging/logging.h>
 
-#include "pbl/kernel/sem.h"
+#include <kernel/event_loop.h>
+#include <kernel/pbl_malloc.h>
+#include <process_state/app_state/app_state.h>
 
 #ifdef CONFIG_SHELL
-#include <pbl/shell/shell.h>
-
 #include <errno.h>
+
+#include <pbl/shell/shell.h>
 #endif
 
 void app_window_stack_push(Window *window, bool animated) {
@@ -73,7 +73,7 @@ static void prv_window_stack_info_cb(void *ctx) {
 
 static int prv_cmd_windows(const struct pbl_shell *sh, size_t argc, char **argv) {
   int ret = 0;
-  struct WindowStackInfoContext info = {0};
+  struct WindowStackInfoContext info = {};
   pbl_sem_init(&info.interlock, 0, 1);
   // FIXME: Dumping the app window stack from another task without a
   // lock exposes us to the possibility of catching the window stack in
@@ -100,6 +100,6 @@ cleanup:
 }
 
 PBL_SHELL_SUBCMD_SET_CREATE(sub_ui);
-PBL_SHELL_CMD_REGISTER(ui, sub_ui, "User interface debugging", NULL);
-PBL_SHELL_SUBCMD_ADD(sub_ui, windows, NULL, "Show the app window stack", prv_cmd_windows, 0, 0);
+PBL_SHELL_CMD_REGISTER(ui, sub_ui, "User interface debugging", nullptr);
+PBL_SHELL_SUBCMD_ADD(sub_ui, windows, nullptr, "Show the app window stack", prv_cmd_windows, 0, 0);
 #endif

@@ -1,24 +1,24 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/kernel/irq.h"
-#include "pbl/kernel/sched.h"
 #include "pulse_logging.h"
 
 #include "logging_private.h"
-#include "kernel/pebble_tasks.h"
-
-#include "console/pulse_protocol_impl.h"
-#include "kernel/events.h"
-
-#include "pbl/mcu/interrupts.h"
-#include "pbl/mcu/privilege.h"
-#include "pbl/kernel/compiler.h"
-#include "pbl/util/circular_buffer.h"
-#include "pbl/util/math.h"
-#include "pbl/util/string.h"
 
 #include <ctype.h>
+
+#include <pbl/kernel/compiler.h>
+#include <pbl/kernel/irq.h>
+#include <pbl/kernel/sched.h>
+#include <pbl/mcu/interrupts.h>
+#include <pbl/mcu/privilege.h>
+#include <pbl/util/circular_buffer.h>
+#include <pbl/util/math.h>
+#include <pbl/util/string.h>
+
+#include <console/pulse_protocol_impl.h>
+#include <kernel/events.h>
+#include <kernel/pebble_tasks.h>
 
 //! This is the format for a PULSEv2 log message when sent out over the wire.
 typedef struct PBL_PACKED MessageContents {
@@ -214,7 +214,7 @@ void pulse_logging_log(uint8_t log_level, const char *src_filename, uint16_t src
 }
 
 void pulse_logging_log_buffer_flush(void) {
-  prv_event_cb(NULL);
+  prv_event_cb(nullptr);
 }
 
 void pulse_logging_log_sync(uint8_t log_level, const char *src_filename, uint16_t src_line_number,

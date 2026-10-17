@@ -4,7 +4,6 @@
 #pragma once
 
 #include <stdint.h>
-#include <stdbool.h>
 
 //! ID unique to a given app for the duration that it is installed
 //! System apps (system/resource) and banked applications are negative numbers.

@@ -1,15 +1,25 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/util/heap.h"
-
-#include "pbl/util/assert.h"
-#include "pbl/util/math.h"
-#include "pbl/util/logging.h"
-
 #include <stddef.h>
-#include <string.h>
 #include <stdio.h>
+#include <string.h>
+
+#include <pbl/util/assert.h>
+#include <pbl/util/heap.h>
+#include <pbl/util/logging.h>
+#include <pbl/util/math.h>
+
+// With AddressSanitizer, only what is allocated is addressable. This file is
+// not instrumented itself, as it walks block headers and free memory.
+#ifdef CONFIG_ASAN
+#include <sanitizer/asan_interface.h>
+#define HEAP_POISON(addr, size)   ASAN_POISON_MEMORY_REGION(addr, size)
+#define HEAP_UNPOISON(addr, size) ASAN_UNPOISON_MEMORY_REGION(addr, size)
+#else
+#define HEAP_POISON(addr, size)
+#define HEAP_UNPOISON(addr, size)
+#endif
 
 /* The following defines a type that is the size in bytes of the     */
 /* desired alignment of each data fragment.                          */
@@ -73,7 +83,7 @@ typedef struct _tagHeapInfo_t {
 //! Convert a pointer to the Data member to a pointer to the HeapInfo_t beginner
 #define HEAP_INFO_FOR_PTR(ptr) (HeapInfo_t *)(((Alignment_t *)ptr) - HEAP_INFO_BLOCK_SIZE(0))
 
-_Static_assert((offsetof(HeapInfo_t, Data) % ALIGNMENT_SIZE) == 0, "Heap not properly aligned.");
+static_assert((offsetof(HeapInfo_t, Data) % ALIGNMENT_SIZE) == 0, "Heap not properly aligned.");
 
 //! Heap is assumed corrupt if expr does not evaluate true
 #define HEAP_ASSERT_SANE(heap, expr, log_addr) \
@@ -95,9 +105,9 @@ static void heap_unlock(Heap *heap) {
   }
 
   // Handle any heap corruption that may have been detected while the heap was locked.
-  if (heap->corrupt_block != NULL) {
+  if (heap->corrupt_block != nullptr) {
     heap->corruption_handler(heap->corrupt_block);
-    heap->corrupt_block = NULL;
+    heap->corrupt_block = nullptr;
   }
 }
 
@@ -153,7 +163,7 @@ static void prv_calc_totals(Heap *const heap, unsigned int *used, unsigned int *
 
       /* Check to see if the current fragment is larger that any  */
       /* we have seen and update the Max Value if it is larger.   */
-      if (heap_info_ptr->Size > *max_free) {
+      if (heap_info_ptr->Size * ALIGNMENT_SIZE > *max_free) {
         *max_free = heap_info_ptr->Size * ALIGNMENT_SIZE;
       }
     }
@@ -202,6 +212,7 @@ void heap_init(Heap *const heap, void *start, void *end, bool fuzz_on_free) {
   *heap = (Heap){.begin = start, .end = end, .fuzz_on_free = fuzz_on_free};
 
   *(heap->begin) = (HeapInfo_t){.PrevSize = heap_size, .is_allocated = false, .Size = heap_size};
+  HEAP_POISON(start, heap_size * ALIGNMENT_SIZE);
 }
 
 void heap_set_lock_impl(Heap *heap, HeapLockImpl lock_impl) {
@@ -229,7 +240,7 @@ void *heap_malloc(Heap *const heap, unsigned long nbytes, uintptr_t client_pc) {
 
   /* Verify that the requested size is valid                           */
   if ((allocation_size < HEAP_INFO_BLOCK_SIZE(1)) || (allocation_size >= SEGMENT_SIZE_MAX)) {
-    return NULL;
+    return nullptr;
   }
 
   HeapInfo_t *allocated_block;
@@ -239,7 +250,7 @@ void *heap_malloc(Heap *const heap, unsigned long nbytes, uintptr_t client_pc) {
     HeapInfo_t *free_block = find_segment(heap, allocation_size);
     allocated_block = allocate_block(heap, allocation_size, free_block);
 
-    if (allocated_block != NULL) {
+    if (allocated_block != nullptr) {
       // We've allocated a new block, update our metrics
 
 #ifdef CONFIG_MALLOC_INSTRUMENTATION
@@ -255,9 +266,11 @@ void *heap_malloc(Heap *const heap, unsigned long nbytes, uintptr_t client_pc) {
   heap_unlock(heap);
 
   if (allocated_block) {
+    HEAP_UNPOISON(&allocated_block->Data,
+                  (allocated_block->Size - HEAP_INFO_BLOCK_SIZE(0)) * ALIGNMENT_SIZE);
     return &allocated_block->Data;
   }
-  return NULL;
+  return nullptr;
 }
 
 void heap_free(Heap *const heap, void *ptr, uintptr_t client_pc) {
@@ -299,6 +312,7 @@ void heap_free(Heap *const heap, void *ptr, uintptr_t client_pc) {
       memset(ptr, 0xBD, (heap_info_ptr->Size - HEAP_INFO_BLOCK_SIZE(0)) * ALIGNMENT_SIZE);
     }
 #endif
+    HEAP_POISON(ptr, (heap_info_ptr->Size - HEAP_INFO_BLOCK_SIZE(0)) * ALIGNMENT_SIZE);
 
     // Update metrics
 #ifdef CONFIG_MALLOC_INSTRUMENTATION
@@ -407,7 +421,7 @@ static void prv_sanity_check_block(Heap *const heap, HeapInfo_t *block) {
 //!     @param heap the heap to search.
 //!     @param n_units number of ALIGNMENT_SIZE units this segment requires.
 static HeapInfo_t *find_segment(Heap *const heap, unsigned long n_units) {
-  HeapInfo_t *heap_info_ptr = NULL;
+  HeapInfo_t *heap_info_ptr = nullptr;
   /* If we are allocating a large segment, then start at the  */
   /* end of the heap.  Otherwise, start at the beginning of   */
   /* the heap.  If there is only one segment in the heap, then*/
@@ -484,7 +498,7 @@ static HeapInfo_t *allocate_block(Heap *const heap, unsigned long n_units,
                                   HeapInfo_t *heap_info_ptr) {
   // Make sure we can use all or part of this block for this allocation.
   if (heap_info_ptr == heap->end || heap_info_ptr->is_allocated || heap_info_ptr->Size < n_units) {
-    return NULL;
+    return nullptr;
   }
 
   /* Check to see if we need to split this into two        */
@@ -573,7 +587,7 @@ void heap_dump_malloc_instrumentation_to_dbgserial(Heap *heap) {
       num_alloc_blocks++;
       num_alloc_bytes += block_size;
     } else {
-      pc = NULL;
+      pc = nullptr;
       type = "FREE";
       num_free_blocks++;
       num_free_bytes += block_size;

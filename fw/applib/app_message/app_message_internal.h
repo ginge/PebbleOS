@@ -3,11 +3,12 @@
 
 #pragma once
 
-#include "applib/app_message/app_message.h"
-#include "applib/app_timer.h"
-#include "pbl/services/app_message/app_message_sender.h"
-#include "pbl/kernel/compiler.h"
-#include "pbl/util/uuid.h"
+#include <pbl/kernel/compiler.h>
+#include <pbl/services/app_message/app_message_sender.h>
+#include <pbl/util/uuid.h>
+
+#include <applib/app_message/app_message.h>
+#include <applib/app_timer.h>
 
 typedef struct CommSession CommSession;
 
@@ -97,7 +98,7 @@ typedef struct AppMessageCtx {
   AppMessageCtxOutbox outbox;
 } AppMessageCtx;
 
-_Static_assert(sizeof(AppMessageCtx) <= 112, "AppMessageCtx must not exceed 112 bytes!");
+static_assert(sizeof(AppMessageCtx) <= 112, "AppMessageCtx must not exceed 112 bytes!");
 
 typedef struct {
   CommSession *session;
@@ -107,9 +108,9 @@ typedef struct {
   uint8_t data[];
 } AppMessageReceiverHeader;
 
-#ifndef UNITTEST
-_Static_assert(sizeof(AppMessageReceiverHeader) == 12,
-               "The size of AppMessageReceiverHeader cannot grow beyond 12 bytes!");
+#if !UNITTEST && __SIZEOF_POINTER__ == 4
+static_assert(sizeof(AppMessageReceiverHeader) == 12,
+              "The size of AppMessageReceiverHeader cannot grow beyond 12 bytes!");
 #endif
 
 void app_message_init(void);

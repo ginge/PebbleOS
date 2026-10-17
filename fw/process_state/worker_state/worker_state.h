@@ -3,20 +3,19 @@
 
 #pragma once
 
-#include "applib/event_service_client.h"
-#include "logging/logging_private.h"
-#include "applib/accel_service_private.h"
-#include "applib/compass_service_private.h"
-#include "applib/plugin_service_private.h"
-#include "applib/backlight_service_private.h"
-#include "applib/battery_state_service_private.h"
-#include "applib/connection_service_private.h"
-#include "applib/health_service_private.h"
-#include "applib/tick_timer_service_private.h"
-#include "applib/tick_timer_service.h"
-#include "pbl/util/heap.h"
+#include <pbl/util/heap.h>
 
-#include <stdbool.h>
+#include <applib/accel_service_private.h>
+#include <applib/backlight_service_private.h>
+#include <applib/battery_state_service_private.h>
+#include <applib/compass_service_private.h>
+#include <applib/connection_service_private.h>
+#include <applib/event_service_client.h>
+#include <applib/health_service_private.h>
+#include <applib/plugin_service_private.h>
+#include <applib/tick_timer_service.h>
+#include <applib/tick_timer_service_private.h>
+#include <logging/logging_private.h>
 
 struct _reent;
 
@@ -51,8 +50,8 @@ TickTimerServiceState *worker_state_get_tick_timer_service_state(void);
 
 ConnectionServiceState *worker_state_get_connection_service_state(void);
 
-struct tm *worker_state_get_gmtime_tm(void);
-struct tm *worker_state_get_localtime_tm(void);
+struct pbl_tm *worker_state_get_gmtime_tm(void);
+struct pbl_tm *worker_state_get_localtime_tm(void);
 char *worker_state_get_localtime_zone(void);
 
 void *worker_state_get_rand_ptr(void);

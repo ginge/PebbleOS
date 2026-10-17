@@ -1,18 +1,23 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/kernel/irq.h"
-#include "pbl/kernel/sched.h"
-#include "system/reset.h"
-
-#include "board/board.h"
-#include "system/bootbits.h"
-#include "kernel/core_dump.h"
-#include "kernel/util/fw_reset.h"
-#include "pbl/mcu/interrupts.h"
+#include <stddef.h>
 
 #include <pbl/drivers/flash.h>
-#include "system/reboot_reason.h"
+#include <pbl/kernel/irq.h>
+#include <pbl/kernel/sched.h>
+#include <pbl/mcu/interrupts.h>
+
+#include <board/board.h>
+#include <kernel/core_dump.h>
+#include <kernel/util/fw_reset.h>
+#include <system/bootbits.h>
+#include <system/reboot_reason.h>
+#include <system/reset.h>
+
+#ifdef CONFIG_SOC_POSIX
+#include <posix_host.h>
+#endif
 
 #include <cmsis_core.h>
 
@@ -24,7 +29,6 @@
 
 #ifdef CONFIG_SOC_SF32LB52
 #include <bf0_hal.h>
-#include "pbl/kernel/compiler.h"
 #endif
 
 void system_reset_prepare(void) {
@@ -32,7 +36,7 @@ void system_reset_prepare(void) {
   flash_stop();
 }
 
-PBL_NORETURN void system_reset(void) {
+[[noreturn]] void system_reset(void) {
   static bool failure_occurred = false;
 
   bool already_failed = failure_occurred;
@@ -68,7 +72,7 @@ void system_reset_callback(void *data) {
   (void)data;
 }
 
-PBL_NORETURN void system_hard_reset(void) {
+[[noreturn]] void system_hard_reset(void) {
   // Don't do anything fancy here. We may be in a context where nothing works, not even
   // interrupts. Just reset us.
 
@@ -76,9 +80,11 @@ PBL_NORETURN void system_hard_reset(void) {
   t5ai_force_whole_chip_reset(T5AI_RESET_REASON_PEBBLE_BASE | RebootReasonCode_Unknown);
 #elif defined(CONFIG_SOC_SF32LB52)
   HAL_PMU_Reboot();
+#elifdef CONFIG_SOC_POSIX
+  posix_host_reboot();
 #else
   NVIC_SystemReset();
 #endif
 
-  PBL_UNREACHABLE();
+  unreachable();
 }

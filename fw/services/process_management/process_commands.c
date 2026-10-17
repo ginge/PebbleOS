@@ -3,14 +3,14 @@
 
 #if defined(CONFIG_SHELL) && !defined(CONFIG_RECOVERY_FW)
 
-#include <pbl/shell/shell.h>
-
 #include <errno.h>
 #include <inttypes.h>
 
-#include "process_management/app_install_manager.h"
-#include "process_management/app_manager.h"
-#include "pbl/services/blob_db/app_db.h"
+#include <pbl/services/blob_db/app_db.h>
+#include <pbl/shell/shell.h>
+
+#include <process_management/app_install_manager.h>
+#include <process_management/app_manager.h>
 
 static int prv_parse_id(const struct pbl_shell *sh, const char *str, AppInstallId *id) {
   long val;
@@ -98,14 +98,14 @@ static int prv_cmd_worker_launch(const struct pbl_shell *sh, size_t argc, char *
 }
 
 PBL_SHELL_SUBCMD_SET_CREATE(sub_app);
-PBL_SHELL_CMD_REGISTER(app, sub_app, "Installed apps", NULL);
-PBL_SHELL_SUBCMD_ADD(sub_app, list, NULL, "List installed apps", prv_cmd_app_list, 0, 0);
-PBL_SHELL_SUBCMD_ADD(sub_app, launch, NULL, "Launch an app <id>", prv_cmd_app_launch, 2, 0);
-PBL_SHELL_SUBCMD_ADD(sub_app, remove, NULL, "Remove an app <id>", prv_cmd_app_remove, 2, 0);
+PBL_SHELL_CMD_REGISTER(app, sub_app, "Installed apps", nullptr);
+PBL_SHELL_SUBCMD_ADD(sub_app, list, nullptr, "List installed apps", prv_cmd_app_list, 0, 0);
+PBL_SHELL_SUBCMD_ADD(sub_app, launch, nullptr, "Launch an app <id>", prv_cmd_app_launch, 2, 0);
+PBL_SHELL_SUBCMD_ADD(sub_app, remove, nullptr, "Remove an app <id>", prv_cmd_app_remove, 2, 0);
 
 PBL_SHELL_SUBCMD_SET_CREATE(sub_worker);
-PBL_SHELL_CMD_REGISTER(worker, sub_worker, "Background workers", NULL);
-PBL_SHELL_SUBCMD_ADD(sub_worker, launch, NULL, "Launch the worker of an app <id>",
+PBL_SHELL_CMD_REGISTER(worker, sub_worker, "Background workers", nullptr);
+PBL_SHELL_SUBCMD_ADD(sub_worker, launch, nullptr, "Launch the worker of an app <id>",
                      prv_cmd_worker_launch, 2, 0);
 
 #endif

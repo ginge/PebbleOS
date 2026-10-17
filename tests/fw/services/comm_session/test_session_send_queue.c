@@ -1,22 +1,18 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "clar.h"
+#include <pbl/services/comm_session/session_internal.h>
+#include <pbl/services/comm_session/session_send_queue.h>
+#include <pbl/util/math.h>
 
-#include "pbl/services/comm_session/session_internal.h"
-#include "pbl/services/comm_session/session_send_queue.h"
-#include "pbl/util/math.h"
+#include <clar.h>
 
 extern void comm_session_send_queue_cleanup(CommSession *session);
 
 // Fakes & Stubs
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#include "fake_kernel_malloc.h"
-
-#include "stubs_bt_lock.h"
-#include "stubs_logging.h"
-#include "stubs_passert.h"
+#include <fake_kernel_malloc.h>
 
 static CommSession s_session;
 static CommSession *s_valid_session;
@@ -213,7 +209,7 @@ void test_session_send_queue__get_read_pointer(void) {
 
   int num_jobs = 3;
   prv_add_jobs(num_jobs);
-  const uint8_t *data_out = NULL;
+  const uint8_t *data_out = nullptr;
 
   for (int consumed = 0; consumed < sizeof(TEST_DATA); ++consumed) {
     cl_assert_equal_i(comm_session_send_queue_get_read_pointer(s_valid_session, &data_out),
@@ -233,7 +229,7 @@ void test_session_send_queue__get_read_pointer(void) {
 }
 
 void test_session_send_queue__get_read_pointer_no_jobs(void) {
-  const uint8_t *data_out = NULL;
+  const uint8_t *data_out = nullptr;
   cl_assert_equal_i(0, comm_session_send_queue_get_read_pointer(s_valid_session, &data_out));
 }
 
@@ -274,7 +270,7 @@ void test_session_send_queue__cleanup_calls_free_on_all_jobs(void) {
 }
 
 void test_session_send_queue__session_closed_when_add_is_called(void) {
-  s_valid_session = NULL;
+  s_valid_session = nullptr;
 
   SessionSendQueueJob *job = prv_create_test_job(TEST_DATA, sizeof(TEST_DATA));
   comm_session_send_queue_add_job(s_valid_session, &job);

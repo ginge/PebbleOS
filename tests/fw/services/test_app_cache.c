@@ -1,40 +1,32 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "clar.h"
-
-#include "pbl/services/app_cache.h"
-
-#include "process_management/app_install_manager.h"
-#include "resource/resource_storage.h"
-#include "process_management/app_install_types.h"
-#include "pbl/services/filesystem/app_file.h"
-#include "pbl/services/filesystem/pfs.h"
-#include "pbl/services/process_management/app_storage.h"
-#include "pbl/services/settings/settings_file.h"
-#include "shell/normal/quick_launch.h"
-#include <pbl/util/size.h>
-#include <pbl/logging/logging.h>
-#include "pbl/kernel/compiler.h"
 #include <stdio.h>
+
+#include <pbl/kernel/compiler.h>
+#include <pbl/logging/logging.h>
+#include <pbl/services/app_cache.h>
+#include <pbl/services/filesystem/app_file.h>
+#include <pbl/services/filesystem/pfs.h>
+#include <pbl/services/process_management/app_storage.h>
+#include <pbl/services/settings/settings_file.h>
+#include <pbl/util/size.h>
+#include <pbl/util/string.h>
+
+#include <clar.h>
+#include <process_management/app_install_manager.h>
+#include <process_management/app_install_types.h>
+#include <resource/resource_storage.h>
+#include <shell/normal/quick_launch.h>
 
 // Fakes
 ////////////////////////////////////
-#include "fake_spi_flash.h"
-#include "fake_system_task.h"
-#include "fake_events.h"
+#include <fake_events.h>
+#include <fake_spi_flash.h>
+#include <fake_system_task.h>
 
 // Stubs
 ////////////////////////////////////
-#include "stubs_analytics.h"
-#include "stubs_hexdump.h"
-#include "stubs_logging.h"
-#include "stubs_mutex.h"
-#include "stubs_pbl_malloc.h"
-#include "stubs_serial.h"
-#include "stubs_sleep.h"
-#include "stubs_passert.h"
-#include "stubs_task_wdt.h"
 
 void app_storage_delete_app(AppInstallId id) {
   char buffer[30];
@@ -256,8 +248,8 @@ void test_app_cache__clear(void) {
 #define APP_CACHE_MAX_SIZE  4000
 
 typedef struct PBL_PACKED {
-  time_t install_date;
-  time_t last_launch;
+  int32_t install_date;
+  int32_t last_launch;
   uint32_t total_size;
   uint16_t launch_count;
 } AppCacheEntry;

@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "pbl/kernel/types.h"
+#include <pbl/kernel/types.h>
 
 struct pbl_poll_group;
 
@@ -77,7 +77,7 @@ struct pbl_msgq {
  * @param size Size of one message in bytes.
  * @param max Capacity in messages.
  */
-#define PBL_MSGQ_STATIC_BUF(size, max) ((uint32_t[((size) *(max) + 3) / 4]){0})
+#define PBL_MSGQ_STATIC_BUF(size, max) ((uint32_t[((size) *(max) + 3) / 4]){})
 
 /**
  * @brief Define a queue with its own storage, usable without pbl_msgq_init().

@@ -3,15 +3,16 @@
 
 #include "detail_card.h"
 
-#include "applib/pbl_std/pbl_std.h"
-#include "board/display.h"
-#include "kernel/pbl_malloc.h"
-#include "resource/resource_ids.auto.h"
-#include "pbl/services/i18n/i18n.h"
-#include "pbl/services/activity/health_util.h"
-#include "shell/prefs.h"
-#include "pbl/util/size.h"
-#include "pbl/util/units.h"
+#include <pbl/services/activity/health_util.h>
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/util/size.h>
+#include <pbl/util/units.h>
+
+#include <applib/pbl_std/pbl_std.h>
+#include <board/display.h>
+#include <kernel/pbl_malloc.h>
+#include <resource/resource_ids.auto.h>
+#include <shell/prefs.h>
 
 // Compile-time display offset calculations
 #define HEALTH_Y_OFFSET       ((DISP_ROWS - LEGACY_2X_DISP_ROWS) / 2)
@@ -68,7 +69,7 @@ static void prv_draw_headings(HealthDetailCard *detail_card, GContext *ctx, cons
     graphics_context_set_text_color(ctx, gcolor_legible_over(heading->fill_color));
 
     graphics_draw_text(ctx, heading->primary_label, detail_card->heading_label_font, label_rect,
-                       GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+                       GTextOverflowModeWordWrap, GTextAlignmentCenter, nullptr);
 
     const int16_t value_rect_y_padding = 12;
 
@@ -76,7 +77,7 @@ static void prv_draw_headings(HealthDetailCard *detail_card, GContext *ctx, cons
     value_rect.origin.y += value_rect_y_padding;
 
     graphics_draw_text(ctx, heading->primary_value, detail_card->heading_value_font, value_rect,
-                       GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+                       GTextOverflowModeWordWrap, GTextAlignmentCenter, nullptr);
 
     if (!heading->secondary_label) {
       continue;
@@ -101,10 +102,10 @@ static void prv_draw_headings(HealthDetailCard *detail_card, GContext *ctx, cons
     value_rect.origin.x += value_rect.size.w;
 
     graphics_draw_text(ctx, heading->secondary_label, detail_card->heading_label_font, label_rect,
-                       GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+                       GTextOverflowModeWordWrap, GTextAlignmentCenter, nullptr);
 
     graphics_draw_text(ctx, heading->secondary_value, detail_card->heading_value_font, value_rect,
-                       GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+                       GTextOverflowModeWordWrap, GTextAlignmentCenter, nullptr);
   }
 }
 
@@ -140,7 +141,7 @@ static void prv_draw_subtitles(HealthDetailCard *detail_card, GContext *ctx, con
 
     graphics_context_set_text_color(ctx, gcolor_legible_over(subtitle->fill_color));
     graphics_draw_text(ctx, subtitle->label, detail_card->subtitle_font, subtitle_rect,
-                       GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+                       GTextOverflowModeWordWrap, GTextAlignmentCenter, nullptr);
   }
 }
 
@@ -240,7 +241,7 @@ static void prv_draw_zones(HealthDetailCard *detail_card, GContext *ctx) {
 
     graphics_context_set_text_color(ctx, gcolor_legible_over(detail_card->bg_color));
     graphics_draw_text(ctx, zone->label, detail_card->subtitle_font, zone_rect,
-                       GTextOverflowModeWordWrap, GTextAlignmentLeft, NULL);
+                       GTextOverflowModeWordWrap, GTextAlignmentLeft, nullptr);
 
     if (zone->show_crown) {
       const GSize label_size = app_graphics_text_layout_get_content_size(
@@ -303,7 +304,7 @@ static void prv_draw_row_callback(GContext *ctx, const Layer *cell_layer, MenuIn
 
     graphics_context_set_text_color(ctx, gcolor_legible_over(detail_card->bg_color));
     graphics_draw_text(ctx, zone->label, detail_card->subtitle_font, label_rect,
-                       GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+                       GTextOverflowModeWordWrap, GTextAlignmentCenter, nullptr);
   } else {
     const GRect cell_bounds = grect_inset(cell_layer->bounds, GEdgeInsets(0, -1));
 
@@ -342,7 +343,7 @@ static void prv_draw_row_callback(GContext *ctx, const Layer *cell_layer, MenuIn
 
     graphics_context_set_text_color(ctx, GColorBlack);
     graphics_draw_text(ctx, zone->label, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD), label_rect,
-                       GTextOverflowModeWordWrap, GTextAlignmentCenter, NULL);
+                       GTextOverflowModeWordWrap, GTextAlignmentCenter, nullptr);
   }
 }
 
@@ -511,7 +512,7 @@ void health_detail_card_set_render_day_zones(HealthDetailZone *zones, int16_t *n
                                              GColor today_fill_color, int32_t *day_data,
                                              void *i18n_owner) {
   time_t time_utc = rtc_get_time();
-  struct tm time_tm;
+  struct pbl_tm time_tm;
 
   int max_data = 0;
   int crown_index = 0;
@@ -519,7 +520,7 @@ void health_detail_card_set_render_day_zones(HealthDetailZone *zones, int16_t *n
   *num_zones = PBL_DAY_PER_WEEK;
 
   for (int i = 0; i < *num_zones; i++) {
-    localtime_r(&time_utc, &time_tm);
+    pbl_localtime_r(&time_utc, &time_tm);
 
     const bool is_today = (i == 0);
 
@@ -538,7 +539,7 @@ void health_detail_card_set_render_day_zones(HealthDetailZone *zones, int16_t *n
     if (i == 0) {
       pos += snprintf(label_ptr, buffer_size, "%s ", i18n_get("Today", i18n_owner));
     } else {
-      pos += strftime(label_ptr, buffer_size, "%a ", &time_tm);
+      pos += pbl_strftime_r(label_ptr, buffer_size, "%a ", &time_tm);
     }
 
     if (day_data[i] > 0) {

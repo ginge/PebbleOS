@@ -1,420 +1,15 @@
 #include "utf8.h"
 
-#include "system/passert.h"
-#include <pbl/logging/logging.h>
-
-#include "pbl/util/iterator.h"
-#include "pbl/util/math.h"
-#include "pbl/util/size.h"
-#include "pbl/util/string.h"
-
 #include <inttypes.h>
-#include <stdbool.h>
 
-////////////////////////////////////////////////////////////////////////////////
-// Copyright (c) 2008-2009 Bjoern Hoehrmann <bjoern@hoehrmann.de>
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the Software is
-// furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in
-// all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-// SOFTWARE.
-////////////////////////////////////////////////////////////////////////////////
-static const unsigned int VALID_UTF8 = 0;
+#include <pbl/logging/logging.h>
+#include <pbl/util/iterator.h>
+#include <pbl/util/math.h>
+#include <pbl/util/size.h>
+#include <pbl/util/string.h>
+#include <pbl/util/utf8.h>
 
-static const uint8_t utf8d[] = {
-  // The first part of the table maps bytes to character classes that
-  // to reduce the size of the transition table and create bitmasks.
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  0,
-  1,
-  1,
-  1,
-  1,
-  1,
-  1,
-  1,
-  1,
-  1,
-  1,
-  1,
-  1,
-  1,
-  1,
-  1,
-  1,
-  9,
-  9,
-  9,
-  9,
-  9,
-  9,
-  9,
-  9,
-  9,
-  9,
-  9,
-  9,
-  9,
-  9,
-  9,
-  9,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  7,
-  8,
-  8,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  2,
-  10,
-  3,
-  3,
-  3,
-  3,
-  3,
-  3,
-  3,
-  3,
-  3,
-  3,
-  3,
-  3,
-  4,
-  3,
-  3,
-  11,
-  6,
-  6,
-  6,
-  5,
-  8,
-  8,
-  8,
-  8,
-  8,
-  8,
-  8,
-  8,
-  8,
-  8,
-  8,
-
-  // The second part is a transition table that maps a combination
-  // of a state of the automaton and a character class to a state.
-  0,
-  12,
-  24,
-  36,
-  60,
-  96,
-  84,
-  12,
-  12,
-  12,
-  48,
-  72,
-  12,
-  12,
-  12,
-  12,
-  12,
-  12,
-  12,
-  12,
-  12,
-  12,
-  12,
-  12,
-  12,
-  0,
-  12,
-  12,
-  12,
-  12,
-  12,
-  0,
-  12,
-  0,
-  12,
-  12,
-  12,
-  24,
-  12,
-  12,
-  12,
-  12,
-  12,
-  24,
-  12,
-  24,
-  12,
-  12,
-  12,
-  12,
-  12,
-  12,
-  12,
-  12,
-  12,
-  24,
-  12,
-  12,
-  12,
-  12,
-  12,
-  24,
-  12,
-  12,
-  12,
-  12,
-  12,
-  12,
-  12,
-  24,
-  12,
-  12,
-  12,
-  12,
-  12,
-  12,
-  12,
-  12,
-  12,
-  36,
-  12,
-  36,
-  12,
-  12,
-  12,
-  36,
-  12,
-  12,
-  12,
-  12,
-  12,
-  36,
-  12,
-  36,
-  12,
-  12,
-  12,
-  36,
-  12,
-  12,
-  12,
-  12,
-  12,
-  12,
-  12,
-  12,
-  12,
-  12,
-};
-
-static uint32_t utf8_decode(uint8_t *state, uint32_t *codepoint, uint32_t byte) {
-  uint32_t type = utf8d[byte];
-
-  *codepoint =
-      (*state != VALID_UTF8) ? (byte & 0x3fu) | (*codepoint << 6) : (0xff >> type) & (byte);
-
-  *state = utf8d[256 + *state + type];
-  return *state;
-}
+#include <system/passert.h>
 
 //! Print all code points in a c-string (debugging)
 //! @param s A null-terminated c-string
@@ -423,12 +18,12 @@ void utf8_print_code_points(utf8_t *s) {
   uint8_t state = 0;
 
   for (; *s; ++s) {
-    if (!utf8_decode(&state, &codepoint, *s)) {
+    if (!pbl_utf8_decode(&state, &codepoint, *s)) {
       PBL_LOG_ALWAYS("U+%04" PRIX32, codepoint);
     }
   }
 
-  if (state != VALID_UTF8) {
+  if (state != PBL_UTF8_ACCEPT) {
     PBL_LOG_ALWAYS("String is not well-formed");
   }
 }
@@ -441,12 +36,12 @@ uint32_t utf8_peek_codepoint(utf8_t *stream, utf8_t **next_ptr) {
   uint32_t codepoint = 0;
   uint8_t state = 0;
 
-  if (stream == NULL) {
+  if (stream == nullptr) {
     return 0;
   }
 
   for (; *stream; stream++) {
-    if (utf8_decode(&state, &codepoint, *stream)) {
+    if (pbl_utf8_decode(&state, &codepoint, *stream)) {
       // not done, loop again
       continue;
     }
@@ -457,7 +52,7 @@ uint32_t utf8_peek_codepoint(utf8_t *stream, utf8_t **next_ptr) {
   }
 
   if (next_ptr) {
-    *next_ptr = NULL;
+    *next_ptr = nullptr;
   }
 
   return 0;
@@ -467,26 +62,26 @@ utf8_t *utf8_get_next(utf8_t *stream) {
   uint32_t codepoint = 0;
   uint8_t state = 0;
 
-  if (stream == NULL) {
+  if (stream == nullptr) {
     return stream;
   }
 
   for (; *stream; stream++) {
-    if (!utf8_decode(&state, &codepoint, *stream)) {
+    if (!pbl_utf8_decode(&state, &codepoint, *stream)) {
       // Valid codepoint found; advance to start of next code point
       return ++stream;
     }
   }
 
   // No valid codepoint found
-  return NULL;
+  return nullptr;
 }
 
 // see http://stackoverflow.com/questions/22257486/iterate-backwards-through-a-utf8-multibyte-string
 utf8_t *utf8_get_previous(utf8_t *start, utf8_t *stream) {
   do {
     if (stream <= start) {
-      return NULL;
+      return nullptr;
     }
     --stream;
   } while ((*stream & 0xc0) == 0x80);
@@ -499,7 +94,7 @@ utf8_t *utf8_get_previous(utf8_t *start, utf8_t *stream) {
 
 //! Return NULL if not successful in decoding text
 utf8_t *utf8_get_end(const char *text) {
-  if (text == NULL) {
+  if (text == nullptr) {
     return (utf8_t *)text;
   }
 
@@ -508,20 +103,20 @@ utf8_t *utf8_get_end(const char *text) {
   uint8_t state = 0;
 
   while (*stream) {
-    utf8_decode(&state, &codepoint, *stream);
+    pbl_utf8_decode(&state, &codepoint, *stream);
     stream++;
   }
 
-  bool success = (state == VALID_UTF8);
+  bool success = (state == PBL_UTF8_ACCEPT);
   if (!success) {
-    return NULL;
+    return nullptr;
   }
 
   return (utf8_t *)stream;
 }
 
 bool utf8_is_valid_string(const char *char_stream) {
-  return (utf8_get_end(char_stream) != NULL);
+  return (utf8_get_end(char_stream) != nullptr);
 }
 
 Utf8Bounds utf8_get_bounds(bool *const success, char const *text) {
@@ -531,7 +126,7 @@ Utf8Bounds utf8_get_bounds(bool *const success, char const *text) {
 
   utf8_t *end = utf8_get_end(text);
 
-  if (NULL == end) {
+  if (nullptr == end) {
     *success = false;
     return bounds;
   }
@@ -547,7 +142,7 @@ bool utf8_bounds_init(Utf8Bounds *bounds, const char *text) {
 
   utf8_t *end = utf8_get_end(text);
 
-  if (end == NULL) {
+  if (end == nullptr) {
     return false;
   }
 
@@ -567,7 +162,7 @@ bool utf8_iter_next(IteratorState state) {
 
   utf8_iter_state->current = utf8_iter_state->next;
 
-  if (utf8_iter_state->current == NULL) {
+  if (utf8_iter_state->current == nullptr) {
     return false;
   }
 
@@ -639,10 +234,10 @@ size_t utf8_copy_character(utf8_t *dest, utf8_t *origin, size_t length) {
   utf8_t *next_char = utf8_get_next(origin);
   // If next_char is NULL, we were asked to copy the last character, so just take the end of the
   // string.
-  if (next_char == NULL) {
+  if (next_char == nullptr) {
     next_char = utf8_get_end((char *)origin);
     // If we can't get the end, bail out.
-    if (next_char == NULL) {
+    if (next_char == nullptr) {
       return 0;
     }
   }

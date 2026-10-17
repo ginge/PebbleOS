@@ -3,9 +3,8 @@
 
 #pragma once
 
-#include <stdint.h>
 #include <stddef.h>
-#include <stdbool.h>
+#include <stdint.h>
 
 /**
  * @defgroup drivers_mic Microphone

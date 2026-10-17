@@ -5,14 +5,13 @@
 
 #include "event_service_client.h"
 #include "tick_timer_service.h"
-#include "pbl/kernel/compiler.h"
 
-typedef struct PBL_PACKED TickTimerServiceState {
+typedef struct TickTimerServiceState {
   TickHandler handler;
   TimeUnits tick_units;
-  struct tm last_time;
   bool first_tick;
   bool last_is_24h;
+  struct pbl_tm last_time;
 
   EventServiceInfo tick_service_info;
 } TickTimerServiceState;

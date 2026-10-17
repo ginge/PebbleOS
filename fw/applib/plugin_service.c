@@ -1,16 +1,18 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "event_service_client.h"
-#include "applib/applib_malloc.auto.h"
 #include "plugin_service.h"
-#include "plugin_service_private.h"
-#include "syscall/syscall.h"
 
-#include "process_state/app_state/app_state.h"
-#include "process_state/worker_state/worker_state.h"
+#include "event_service_client.h"
+#include "plugin_service_private.h"
+
 #include <pbl/logging/logging.h>
-#include "system/passert.h"
+
+#include <applib/applib_malloc.auto.h>
+#include <process_state/app_state/app_state.h>
+#include <process_state/worker_state/worker_state.h>
+#include <syscall/syscall.h>
+#include <system/passert.h>
 
 // ---------------------------------------------------------------------------------------------------------------
 // Get our state variables
@@ -30,7 +32,7 @@ static PluginServiceState *prv_get_state(PebbleTask task) {
 // Lookup the plugin service index from the UUID. We store the index in the event structure instead
 // of the UUID
 //  so that we have payload room.
-static uint16_t prv_get_service_index(Uuid *uuid) {
+static int16_t prv_get_service_index(Uuid *uuid) {
   return sys_event_service_get_plugin_service_index(uuid);
 }
 
@@ -60,14 +62,18 @@ static void prv_handle_event_service_event(PebbleEvent *e, void *context) {
 
   // Call the handler provided by the client
   PluginServiceEntry *entry = (PluginServiceEntry *)found;
-  entry->handler(e->plugin_service.type, &e->plugin_service.data);
+  PluginEventData data = e->plugin_service.data;
+  entry->handler(e->plugin_service.type, &data);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
 // Subscribe to a specific plug-in service by uuid.
 bool plugin_service_subscribe(Uuid *uuid, PluginServiceHandler handler) {
   PluginServiceState *state = prv_get_state(PebbleTask_Unknown);
-  uint16_t service_index = prv_get_service_index(uuid);
+  int16_t service_index = prv_get_service_index(uuid);
+  if (service_index < 0) {
+    return false;
+  }
 
   ListNode *list = &state->subscribed_services;
   if (list_find(list, prv_service_filter, (void *)(uintptr_t)service_index)) {
@@ -97,7 +103,10 @@ bool plugin_service_subscribe(Uuid *uuid, PluginServiceHandler handler) {
 // Unsubscribe from a specific plug-in service by uuid.
 bool plugin_service_unsubscribe(Uuid *uuid) {
   PluginServiceState *state = prv_get_state(PebbleTask_Unknown);
-  uint16_t service_index = prv_get_service_index(uuid);
+  int16_t service_index = prv_get_service_index(uuid);
+  if (service_index < 0) {
+    return true;
+  }
 
   ListNode *found;
   ListNode *list = &state->subscribed_services;
@@ -107,7 +116,7 @@ bool plugin_service_unsubscribe(Uuid *uuid) {
     return true;
   }
 
-  list_remove(found, NULL, NULL);
+  list_remove(found, nullptr, nullptr);
   applib_free(found);
   return true;
 }
@@ -115,7 +124,10 @@ bool plugin_service_unsubscribe(Uuid *uuid) {
 // ---------------------------------------------------------------------------------------------------------------
 // Send an event to all registered subscribers of the given plugin service identified by UUID.
 void plugin_service_send_event(Uuid *uuid, uint8_t type, PluginEventData *data) {
-  uint16_t service_index = prv_get_service_index(uuid);
+  int16_t service_index = prv_get_service_index(uuid);
+  if (service_index < 0) {
+    return;
+  }
 
   PebbleEvent event = {
     .type = PEBBLE_PLUGIN_SERVICE_EVENT,

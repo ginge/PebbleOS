@@ -3,19 +3,20 @@
 
 #include "test_mpu_violation.h"
 
-#include "applib/app.h"
-#include "applib/app_timer.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/click.h"
-#include "applib/ui/text_layer.h"
-#include "applib/ui/window.h"
-#include "font_resource_keys.auto.h"
-#include "kernel/pbl_malloc.h"
-#include "kernel/memory_layout.h"
-#include "process_state/app_state/app_state.h"
-
 #include <stdio.h>
-#include "pbl/kernel/compiler.h"
+
+#include <pbl/kernel/compiler.h>
+
+#include <applib/app.h>
+#include <applib/app_timer.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/click.h>
+#include <applib/ui/text_layer.h>
+#include <applib/ui/window.h>
+#include <font_resource_keys.auto.h>
+#include <kernel/memory_layout.h>
+#include <kernel/pbl_malloc.h>
+#include <process_state/app_state/app_state.h>
 
 // Demo app that deliberately runs a series of memory accesses that the
 // MPU is supposed to deny for the unprivileged App task. Use up/down to
@@ -41,7 +42,7 @@ extern const uint32_t __stack_guard_size__[];
 extern const uint32_t __ramfunc_start[];
 #endif
 
-#ifndef CONFIG_MPU_TYPE_ARMV8M
+#ifndef CONFIG_ARMV8_M_MAINLINE
 KERNEL_READONLY_DATA static uint32_t s_ro_bss_probe;
 #endif
 
@@ -54,11 +55,11 @@ typedef enum {
   TestKind_RamfuncWrite,
   TestKind_RamfuncRead,
 #endif
-#ifndef CONFIG_MPU_TYPE_ARMV8M
+#ifndef CONFIG_ARMV8_M_MAINLINE
   TestKind_RoBssWrite,
 #endif
   TestKind_FlashWrite,
-#ifndef CONFIG_MPU_TYPE_ARMV8M
+#ifndef CONFIG_ARMV8_M_MAINLINE
   TestKind_StackGuardWrite,
 #endif
   TestKind_StackOverflow,
@@ -75,11 +76,11 @@ static const char *const s_test_titles[TestKindCount] = {
   [TestKind_RamfuncWrite] = "Ramfunc W",
   [TestKind_RamfuncRead] = "Ramfunc R",
 #endif
-#ifndef CONFIG_MPU_TYPE_ARMV8M
+#ifndef CONFIG_ARMV8_M_MAINLINE
   [TestKind_RoBssWrite] = "RO BSS W",
 #endif
   [TestKind_FlashWrite] = "Flash W",
-#ifndef CONFIG_MPU_TYPE_ARMV8M
+#ifndef CONFIG_ARMV8_M_MAINLINE
   [TestKind_StackGuardWrite] = "Stack guard W",
 #endif
   [TestKind_StackOverflow] = "Stack overflow",
@@ -172,7 +173,7 @@ static void prv_run_test(TestKind kind) {
       break;
     }
 #endif
-#ifndef CONFIG_MPU_TYPE_ARMV8M
+#ifndef CONFIG_ARMV8_M_MAINLINE
     case TestKind_RoBssWrite: {
       // ARMv7-M maps this as priv RW + user RO, so unprivileged writes fault.
       volatile uint32_t *p = &s_ro_bss_probe;
@@ -185,7 +186,7 @@ static void prv_run_test(TestKind kind) {
       *p = 0xDEADBEEF;
       break;
     }
-#ifndef CONFIG_MPU_TYPE_ARMV8M
+#ifndef CONFIG_ARMV8_M_MAINLINE
     case TestKind_StackGuardWrite: {
       // Direct store to the bottom 32 B of App RAM. On ARMv7-M the per-task
       // stack-guard MPU region blocks this; ARMv8-M uses PSPLIM instead, so

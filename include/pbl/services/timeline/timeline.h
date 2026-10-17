@@ -2,9 +2,10 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #pragma once
-#include "pbl/services/timeline/item.h"
-#include "system/status_codes.h"
-#include "pbl/util/iterator.h"
+#include <pbl/services/timeline/item.h>
+#include <pbl/util/iterator.h>
+
+#include <system/status_codes.h>
 
 /**
  * @defgroup services_timeline Timeline
@@ -26,7 +27,7 @@
  * @code{.c}
  * TimelineNode *timeline = NULL;
  * Iterator iter;
- * TimelineIterState state = {0};
+ * TimelineIterState state = {};
  *
  * timeline_init(&timeline);
  * if (timeline_iter_init(&iter, &state, &timeline, TimelineIterDirectionFuture, rtc_get_time()) ==

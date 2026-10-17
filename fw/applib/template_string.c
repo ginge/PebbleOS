@@ -2,25 +2,26 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "template_string.h"
-#include "template_string_private.h"
 
-#include "pbl/services/i18n/i18n.h"
-#include "syscall/syscall.h"
-#include "system/passert.h"
-#include "pbl/kernel/compiler.h"
-#include "pbl/util/testing.h"
-#include "pbl/util/math.h"
-#include "pbl/util/size.h"
+#include "template_string_private.h"
 
 #include <ctype.h>
 #include <limits.h>
-#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include "pbl/util/units.h"
+
+#include <pbl/kernel/compiler.h>
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/util/math.h>
+#include <pbl/util/size.h>
+#include <pbl/util/testing.h>
+#include <pbl/util/units.h>
+
+#include <syscall/syscall.h>
+#include <system/passert.h>
 
 #define MAX_FILTER_NAME_LENGTH 16
 
@@ -275,7 +276,7 @@ static void prv_append_string_i18n(TemplateStringState *state, const char *str) 
 }
 
 static void prv_append_number(TemplateStringState *state, const char *fmt, int value) {
-  size_t len = snprintf(NULL, 0, fmt, value);
+  size_t len = snprintf(nullptr, 0, fmt, value);
   if (state->output_remaining < len) {
     len = state->output_remaining;
   }
@@ -847,7 +848,7 @@ bool template_string_evaluate(const char *input_template_string, char *output, s
   // We have no output space, so don't bother trying to write anything.
   // By unifying these states, we can just check `output_remaining` against zero for writing.
   if (!state.output || !state.output_remaining) {
-    state.output = NULL;
+    state.output = nullptr;
     state.output_remaining = 0;
   } else {
     // Subtract 1 for the null terminator.

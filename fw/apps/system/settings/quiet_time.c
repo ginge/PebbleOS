@@ -2,23 +2,25 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "quiet_time.h"
+
 #include "menu.h"
 #include "window.h"
 
-#include "applib/ui/action_menu_window_private.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/menu_layer.h"
-#include "applib/ui/time_range_selection_window.h"
-#include "kernel/pbl_malloc.h"
-#include "pbl/services/clock.h"
-#include "pbl/services/i18n/i18n.h"
-#include "pbl/services/notifications/alerts_private.h"
-#include "pbl/services/notifications/do_not_disturb.h"
-#include "pbl/services/notifications/alerts_preferences.h"
-#include "system/passert.h"
-#include "pbl/util/size.h"
-#include "pbl/util/string.h"
-#include "shell/prefs.h"
+#include <pbl/services/clock.h>
+#include <pbl/services/i18n/i18n.h>
+#include <pbl/services/notifications/alerts_preferences.h>
+#include <pbl/services/notifications/alerts_private.h>
+#include <pbl/services/notifications/do_not_disturb.h>
+#include <pbl/util/size.h>
+#include <pbl/util/string.h>
+
+#include <applib/ui/action_menu_window_private.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/menu_layer.h>
+#include <applib/ui/time_range_selection_window.h>
+#include <kernel/pbl_malloc.h>
+#include <shell/prefs.h>
+#include <system/passert.h>
 
 typedef struct {
   SettingsCallbacks callbacks;
@@ -31,22 +33,16 @@ typedef struct {
   ActionMenuConfig action_menu;
 } SettingsQuietTimeScheduleData;
 
-#ifdef CONFIG_TOUCH
 typedef struct {
   SettingsCallbacks callbacks;
 } SettingsQuietTimeBacklightData;
-#endif
 
 enum QuietTimeItem {
   QuietTimeItemManual,
   QuietTimeItemSchedule,
   QuietTimeItemInterruptions,
   QuietTimeItemNotifications,
-#ifdef CONFIG_TOUCH
   QuietTimeItemBacklight,
-#else
-  QuietTimeItemMotionBacklight,
-#endif
 #ifdef CONFIG_SPEAKER
   QuietTimeItemMuteSpeaker,
 #endif
@@ -60,13 +56,14 @@ enum QuietTimeScheduleItem {
   QuietTimeScheduleItem_Count,
 };
 
-#ifdef CONFIG_TOUCH
 enum QuietTimeBacklightItem {
   QuietTimeBacklightItemMotion,
+#ifdef CONFIG_TOUCH
   QuietTimeBacklightItemTouch,
+#endif
+  QuietTimeBacklightItemNotifications,
   QuietTimeBacklightItem_Count,
 };
-#endif
 
 static const AlertMask s_dnd_mask_cycle[] = {
   AlertMaskAllOff,
@@ -88,7 +85,7 @@ static AlertMask prv_cycle_dnd_mask(void) {
 }
 
 static const char *prv_get_dnd_mask_subtitle(void *i18n_key) {
-  const char *title = NULL;
+  const char *title = nullptr;
   switch (alerts_get_dnd_mask()) {
     case AlertMaskAllOff:
       title = i18n_get("Quiet All Notifications", i18n_key);
@@ -126,11 +123,11 @@ enum {
 
 static void prv_toggle_scheduled_dnd(ActionMenu *action_menu, const ActionMenuItem *item,
                                      void *context) {
-  do_not_disturb_toggle_scheduled((DoNotDisturbScheduleType)item->action_data);
+  do_not_disturb_toggle_scheduled((DoNotDisturbScheduleType)(uintptr_t)item->action_data);
 }
 
 static void prv_complete_schedule(TimeRangeSelectionWindowData *schedule_window, void *data) {
-  DoNotDisturbScheduleType type = (DoNotDisturbScheduleType)data;
+  DoNotDisturbScheduleType type = (DoNotDisturbScheduleType)(uintptr_t)data;
   DoNotDisturbSchedule schedule = {
     .from_hour = schedule_window->from.hour,
     .from_minute = schedule_window->from.minute,
@@ -167,7 +164,7 @@ static void prv_time_range_select_window_push(DoNotDisturbScheduleType type,
 
 static void prv_dnd_set_schedule(ActionMenu *action_menu, const ActionMenuItem *item,
                                  void *context) {
-  DoNotDisturbScheduleType type = (DoNotDisturbScheduleType)item->action_data;
+  DoNotDisturbScheduleType type = (DoNotDisturbScheduleType)(uintptr_t)item->action_data;
   do_not_disturb_set_schedule_enabled(type, true);
   prv_time_range_select_window_push(type, context);
 }
@@ -245,8 +242,8 @@ static void prv_schedule_deinit_cb(SettingsCallbacks *context) {
 static void prv_schedule_draw_row_cb(SettingsCallbacks *context, GContext *ctx,
                                      const Layer *cell_layer, uint16_t row, bool selected) {
   SettingsQuietTimeScheduleData *data = (SettingsQuietTimeScheduleData *)context;
-  const char *title = NULL;
-  char *subtitle = NULL;
+  const char *title = nullptr;
+  char *subtitle = nullptr;
   const uint8_t buffer_length = 80;
   subtitle = app_malloc_check(buffer_length);
 
@@ -277,7 +274,7 @@ static void prv_schedule_draw_row_cb(SettingsCallbacks *context, GContext *ctx,
     default:
       WTF;
   }
-  menu_cell_basic_draw(ctx, cell_layer, title, subtitle, NULL);
+  menu_cell_basic_draw(ctx, cell_layer, title, subtitle, nullptr);
   app_free(subtitle);
 }
 
@@ -342,10 +339,9 @@ static void prv_cycle_dnd_notifications(void) {
 }
 
 ///////////////////////////////
-// Backlight sub-menu (touch boards)
+// Backlight sub-menu
 ///////////////////////////////
 
-#ifdef CONFIG_TOUCH
 static void prv_backlight_deinit_cb(SettingsCallbacks *context) {
   SettingsQuietTimeBacklightData *data = (SettingsQuietTimeBacklightData *)context;
   i18n_free_all(data);
@@ -355,21 +351,28 @@ static void prv_backlight_deinit_cb(SettingsCallbacks *context) {
 static void prv_backlight_draw_row_cb(SettingsCallbacks *context, GContext *ctx,
                                       const Layer *cell_layer, uint16_t row, bool selected) {
   SettingsQuietTimeBacklightData *data = (SettingsQuietTimeBacklightData *)context;
-  const char *title = NULL;
-  const char *subtitle = NULL;
+  const char *title = nullptr;
+  const char *subtitle = nullptr;
   switch (row) {
     case QuietTimeBacklightItemMotion:
       title = i18n_noop("Motion");
       subtitle = alerts_preferences_dnd_get_motion_backlight() ? i18n_noop("On") : i18n_noop("Off");
       break;
+#ifdef CONFIG_TOUCH
     case QuietTimeBacklightItemTouch:
       title = i18n_noop("Touch");
       subtitle = alerts_preferences_dnd_get_touch_backlight() ? i18n_noop("On") : i18n_noop("Off");
       break;
+#endif
+    case QuietTimeBacklightItemNotifications:
+      title = i18n_noop("Notifications");
+      subtitle =
+          alerts_preferences_dnd_get_notification_backlight() ? i18n_noop("On") : i18n_noop("Off");
+      break;
     default:
       WTF;
   }
-  menu_cell_basic_draw(ctx, cell_layer, i18n_get(title, data), i18n_get(subtitle, data), NULL);
+  menu_cell_basic_draw(ctx, cell_layer, i18n_get(title, data), i18n_get(subtitle, data), nullptr);
 }
 
 static void prv_backlight_select_click_cb(SettingsCallbacks *context, uint16_t row) {
@@ -377,8 +380,14 @@ static void prv_backlight_select_click_cb(SettingsCallbacks *context, uint16_t r
     case QuietTimeBacklightItemMotion:
       alerts_preferences_dnd_set_motion_backlight(!alerts_preferences_dnd_get_motion_backlight());
       break;
+#ifdef CONFIG_TOUCH
     case QuietTimeBacklightItemTouch:
       alerts_preferences_dnd_set_touch_backlight(!alerts_preferences_dnd_get_touch_backlight());
+      break;
+#endif
+    case QuietTimeBacklightItemNotifications:
+      alerts_preferences_dnd_set_notification_backlight(
+          !alerts_preferences_dnd_get_notification_backlight());
       break;
     default:
       WTF;
@@ -404,7 +413,6 @@ static void prv_backlight_submenu_push(void) {
                                                      i18n_noop("Backlight"), &data->callbacks);
   app_window_stack_push(window, true /* animated */);
 }
-#endif // CONFIG_TOUCH
 
 ///////////////////////////////
 // Top-level Quiet Time menu
@@ -419,8 +427,8 @@ static void prv_deinit_cb(SettingsCallbacks *context) {
 static void prv_draw_row_cb(SettingsCallbacks *context, GContext *ctx, const Layer *cell_layer,
                             uint16_t row, bool selected) {
   SettingsQuietTimeData *data = (SettingsQuietTimeData *)context;
-  const char *title = NULL;
-  const char *subtitle = NULL;
+  const char *title = nullptr;
+  const char *subtitle = nullptr;
 
   switch (row) {
     case QuietTimeItemManual:
@@ -439,17 +447,9 @@ static void prv_draw_row_cb(SettingsCallbacks *context, GContext *ctx, const Lay
       title = i18n_get("Notifications", data);
       subtitle = prv_get_dnd_notifications_subtitle(data);
       break;
-#ifdef CONFIG_TOUCH
     case QuietTimeItemBacklight:
       title = i18n_get("Backlight", data);
       break;
-#else
-    case QuietTimeItemMotionBacklight:
-      title = i18n_get("Motion Backlight", data);
-      subtitle = alerts_preferences_dnd_get_motion_backlight() ? i18n_get("On", data)
-                                                               : i18n_get("Off", data);
-      break;
-#endif
 #ifdef CONFIG_SPEAKER
     case QuietTimeItemMuteSpeaker:
       title = i18n_get("Mute Speaker", data);
@@ -460,7 +460,7 @@ static void prv_draw_row_cb(SettingsCallbacks *context, GContext *ctx, const Lay
     default:
       WTF;
   }
-  menu_cell_basic_draw(ctx, cell_layer, title, subtitle, NULL);
+  menu_cell_basic_draw(ctx, cell_layer, title, subtitle, nullptr);
 }
 
 static void prv_select_click_cb(SettingsCallbacks *context, uint16_t row) {
@@ -477,15 +477,9 @@ static void prv_select_click_cb(SettingsCallbacks *context, uint16_t row) {
     case QuietTimeItemNotifications:
       prv_cycle_dnd_notifications();
       break;
-#ifdef CONFIG_TOUCH
     case QuietTimeItemBacklight:
       prv_backlight_submenu_push();
       break;
-#else
-    case QuietTimeItemMotionBacklight:
-      alerts_preferences_dnd_set_motion_backlight(!alerts_preferences_dnd_get_motion_backlight());
-      break;
-#endif
 #ifdef CONFIG_SPEAKER
     case QuietTimeItemMuteSpeaker:
       alerts_preferences_dnd_set_mute_speaker(!alerts_preferences_dnd_get_mute_speaker());

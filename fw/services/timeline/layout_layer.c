@@ -1,19 +1,19 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/timeline/layout_layer.h"
+#include <pbl/services/timeline/layout_layer.h>
 
 // layout implementations
-#include "pbl/services/timeline/alarm_layout.h"
-#include "pbl/services/timeline/calendar_layout.h"
-#include "pbl/services/timeline/generic_layout.h"
-#include "pbl/services/timeline/health_layout.h"
-#include "pbl/services/timeline/notification_layout.h"
-#include "pbl/services/timeline/sports_layout.h"
-#include "pbl/services/timeline/weather_layout.h"
+#include <pbl/services/notifications/alerts_preferences_private.h>
+#include <pbl/services/timeline/alarm_layout.h>
+#include <pbl/services/timeline/calendar_layout.h>
+#include <pbl/services/timeline/generic_layout.h>
+#include <pbl/services/timeline/health_layout.h>
+#include <pbl/services/timeline/notification_layout.h>
+#include <pbl/services/timeline/sports_layout.h>
+#include <pbl/services/timeline/weather_layout.h>
 
-#include "pbl/services/notifications/alerts_preferences_private.h"
-#include "system/passert.h"
+#include <system/passert.h>
 
 static const LayoutLayerConstructor s_layout_constructors[NumLayoutIds] = {
   [LayoutIdGeneric] = generic_layout_create,
@@ -109,7 +109,7 @@ void *layout_get_context(LayoutLayer *layout) {
   if (layout->impl->context_getter) {
     return layout->impl->context_getter(layout);
   } else {
-    return NULL;
+    return nullptr;
   }
 }
 

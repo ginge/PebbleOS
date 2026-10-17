@@ -1,18 +1,19 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "applib/app_message/app_message_internal.h"
-#include "kernel/pbl_malloc.h"
-#include "process_management/app_install_manager.h"
-#include "process_management/app_manager.h"
-#include "pbl/services/analytics/analytics.h"
-#include "pbl/services/comm_session/session.h"
-#include "pbl/services/comm_session/session_receive_router.h"
-#include "pbl/services/app_inbox_service.h"
-#include <pbl/logging/logging.h>
-#include "pbl/util/math.h"
-
 #include <stdint.h>
+
+#include <pbl/logging/logging.h>
+#include <pbl/services/analytics/analytics.h>
+#include <pbl/services/app_inbox_service.h>
+#include <pbl/services/comm_session/session.h>
+#include <pbl/services/comm_session/session_receive_router.h>
+#include <pbl/util/math.h>
+
+#include <applib/app_message/app_message_internal.h>
+#include <kernel/pbl_malloc.h>
+#include <process_management/app_install_manager.h>
+#include <process_management/app_manager.h>
 
 PBL_LOG_MODULE_DECLARE(service_app_message, CONFIG_SERVICE_APP_MESSAGE_LOG_LEVEL);
 
@@ -53,7 +54,7 @@ static bool prv_fwd_prepare(AppMessageReceiver *rcv, CommSession *session,
     .handler = app_message_app_protocol_system_nack_callback,
     .access_mask = PebbleProtocolAccessAny,
     .receiver_imp = &g_default_kernel_receiver_implementation,
-    .receiver_opt = NULL,
+    .receiver_opt = nullptr,
   };
   Receiver *kernel_receiver = g_default_kernel_receiver_implementation.prepare(
       session, &kernel_nack_endpoint, header_bytes_remaining);
@@ -82,7 +83,7 @@ static Receiver *prv_app_message_receiver_prepare(CommSession *session,
 
   AppMessageReceiver *rcv = (AppMessageReceiver *)kernel_zalloc(sizeof(AppMessageReceiver));
   if (!rcv) {
-    return NULL;
+    return nullptr;
   }
   rcv->session = session;
 
@@ -93,7 +94,7 @@ static Receiver *prv_app_message_receiver_prepare(CommSession *session,
   // message was written successfully to the app inbox.
   if (!prv_fwd_prepare(rcv, session, header_bytes_remaining)) {
     kernel_free(rcv);
-    return NULL;
+    return nullptr;
   }
 
   const size_t total_size = sizeof(AppMessageReceiverHeader) + total_payload_size;

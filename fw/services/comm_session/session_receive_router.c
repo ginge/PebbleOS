@@ -1,19 +1,19 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/services/comm_session/session_receive_router.h"
-
-#include "pbl/services/comm_session/meta_endpoint.h"
-#include "pbl/services/comm_session/session_analytics.h"
-#include "pbl/services/comm_session/session_internal.h"
-#include "system/hexdump.h"
 #include <pbl/logging/logging.h>
-#include "pbl/util/math.h"
-#include "pbl/util/byteorder.h"
-#include "pbl/util/size.h"
+#include <pbl/services/comm_session/meta_endpoint.h>
+#include <pbl/services/comm_session/session_analytics.h>
+#include <pbl/services/comm_session/session_internal.h>
+#include <pbl/services/comm_session/session_receive_router.h>
+#include <pbl/util/byteorder.h>
+#include <pbl/util/math.h>
+#include <pbl/util/size.h>
+
+#include <system/hexdump.h>
 
 // Generated table of endpoint handler (s_protocol_endpoints):
-#include "services/comm_session/protocol_endpoints_table.auto.h"
+#include <services/comm_session/protocol_endpoints_table.auto.h>
 
 PBL_LOG_MODULE_DECLARE(service_comm_session, CONFIG_SERVICE_COMM_SESSION_LOG_LEVEL);
 
@@ -30,7 +30,7 @@ static const PebbleProtocolEndpoint *prv_find_endpoint(uint16_t endpoint_id) {
       return endpoint;
     }
   }
-  return NULL;
+  return nullptr;
 }
 
 static bool prv_is_endpoint_allowed_with_session(const PebbleProtocolEndpoint *endpoint,

@@ -3,20 +3,21 @@
 
 #include "data_logging_test.h"
 
-#include <pbl/logging/logging.h>
-#include "pbl/services/comm_session/session.h"
-#include "pbl/services/data_logging/data_logging_service.h"
-#include "pbl/services/data_logging/dls_private.h"
-#include "applib/app.h"
-#include "applib/data_logging.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/window.h"
-#include "applib/ui/text_layer.h"
-#include "applib/app_timer.h"
-#include "applib/app_logging.h"
-
 #include <stdio.h>
 #include <string.h>
+
+#include <pbl/logging/logging.h>
+#include <pbl/services/comm_session/session.h>
+#include <pbl/services/data_logging/data_logging_service.h>
+#include <pbl/services/data_logging/dls_private.h>
+
+#include <applib/app.h>
+#include <applib/app_logging.h>
+#include <applib/app_timer.h>
+#include <applib/data_logging.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/text_layer.h>
+#include <applib/ui/window.h>
 
 /*
  *  Incremental STM CRC32 implemented in software
@@ -89,7 +90,7 @@ static void log_moar_data(struct DataLoggingInfo *info) {
 }
 
 static void handle_timer(void *ck) {
-  if (s_data.info[0].logging_session == NULL) {
+  if (s_data.info[0].logging_session == nullptr) {
     // Sessions closed.
     return;
   }
@@ -113,7 +114,7 @@ static void handle_timer(void *ck) {
 static void close_sessions(void) {
   for (int i = 0; i < 3; ++i) {
     data_logging_finish(s_data.info[i].logging_session);
-    s_data.info[i].logging_session = NULL;
+    s_data.info[i].logging_session = nullptr;
   }
   text_layer_set_text(&s_data.log_layer, "Closed all logging sessions.");
 }

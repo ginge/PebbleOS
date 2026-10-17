@@ -3,16 +3,16 @@
 
 #include "actionable_dialog.h"
 
-#include "applib/applib_malloc.auto.h"
-#include "applib/fonts/fonts.h"
-#include "applib/ui/dialogs/dialog.h"
-#include "applib/ui/dialogs/dialog_private.h"
-#include "applib/ui/layer.h"
-#include "applib/ui/text_layer.h"
-#include "applib/ui/window.h"
-#include "kernel/ui/kernel_ui.h"
-#include "resource/resource_ids.auto.h"
-#include "system/passert.h"
+#include <applib/applib_malloc.auto.h>
+#include <applib/fonts/fonts.h>
+#include <applib/ui/dialogs/dialog.h>
+#include <applib/ui/dialogs/dialog_private.h>
+#include <applib/ui/layer.h>
+#include <applib/ui/text_layer.h>
+#include <applib/ui/window.h>
+#include <kernel/ui/kernel_ui.h>
+#include <resource/resource_ids.auto.h>
+#include <system/passert.h>
 
 static void prv_actionable_dialog_load(Window *window) {
   ActionableDialog *actionable_dialog = window_get_user_data(window);
@@ -43,7 +43,7 @@ static void prv_actionable_dialog_load(Window *window) {
   x = left_margin_px;
   w = bounds->size.w - left_margin_px - right_margin_px;
 
-  GTextAttributes *text_attributes = NULL;
+  GTextAttributes *text_attributes = nullptr;
 #if PBL_ROUND
   // Create a GTextAttributes for the TextLayer. Note that the matching
   // graphics_text_attributes_destroy() will not need to be called here, as the ownership
@@ -210,7 +210,7 @@ void actionable_dialog_set_action_bar_type(ActionableDialog *actionable_dialog,
     PBL_ASSERTN(action_bar); // Action bar must not be NULL if it is a custom type.
     actionable_dialog->action_bar = action_bar;
   } else {
-    actionable_dialog->action_bar = NULL;
+    actionable_dialog->action_bar = nullptr;
   }
   actionable_dialog->action_bar_type = action_bar_type;
 }

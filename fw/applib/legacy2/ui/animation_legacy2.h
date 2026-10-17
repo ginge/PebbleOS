@@ -3,9 +3,10 @@
 
 #pragma once
 #include <stdint.h>
-#include <stdbool.h>
-#include "pbl/util/list.h"
-#include "applib/ui/animation.h"
+
+#include <pbl/util/list.h>
+
+#include <applib/ui/animation.h>
 
 //! @file animation.h
 //! @addtogroup UI

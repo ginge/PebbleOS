@@ -6,10 +6,10 @@
 
 #include "window.h"
 #include "window_stack_animation.h"
-#include "pbl/util/list.h"
 
-#include <stdbool.h>
 #include <stddef.h>
+
+#include <pbl/util/list.h>
 
 #define WINDOW_STACK_ITEMS_MAX (16)
 

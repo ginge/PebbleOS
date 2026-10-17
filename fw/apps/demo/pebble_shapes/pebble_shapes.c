@@ -3,19 +3,20 @@
 
 #include "pebble_shapes.h"
 
-#include "applib/app.h"
-#include "applib/graphics/graphics.h"
-#include "applib/graphics/gpath.h"
-#include "applib/graphics/gtypes.h"
-#include "applib/graphics/gtransform.h"
-#include "applib/graphics/text.h"
-#include "pbl/util/trig.h"
-#include "applib/ui/action_bar_layer.h"
-#include "applib/ui/app_window_stack.h"
-#include "applib/ui/window.h"
-#include "kernel/pbl_malloc.h"
-#include "process_state/app_state/app_state.h"
 #include <pbl/logging/logging.h>
+#include <pbl/util/trig.h>
+
+#include <applib/app.h>
+#include <applib/graphics/gpath.h>
+#include <applib/graphics/graphics.h>
+#include <applib/graphics/gtransform.h>
+#include <applib/graphics/gtypes.h>
+#include <applib/graphics/text.h>
+#include <applib/ui/action_bar_layer.h>
+#include <applib/ui/app_window_stack.h>
+#include <applib/ui/window.h>
+#include <kernel/pbl_malloc.h>
+#include <process_state/app_state/app_state.h>
 
 typedef enum {
   POINT,
@@ -404,7 +405,7 @@ static void timer_callback(void *cb_data) {
 
   layer_mark_dirty(&data->window.layer);
 
-  app_timer_register(1000 / TARGET_FPS, timer_callback, NULL);
+  app_timer_register(1000 / TARGET_FPS, timer_callback, nullptr);
 }
 
 static void init(void) {
@@ -488,7 +489,7 @@ static void init(void) {
   update_state(data, APP_STATE_FILL_NON_AA);
   data->stroke_width = 1;
   data->moving = true;
-  app_timer_register(33, timer_callback, NULL);
+  app_timer_register(33, timer_callback, nullptr);
 }
 
 static void deinit(void) {

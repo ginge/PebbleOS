@@ -2,9 +2,9 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #pragma once
-#include "pbl/services/battery/battery_state.h"
-#include "pbl/services/new_timer/new_timer.h"
-#include <stdbool.h>
+
+#include <pbl/services/battery/battery_state.h>
+#include <pbl/services/new_timer/new_timer.h>
 
 /**
  * @defgroup services_battery_battery_monitor Battery monitor

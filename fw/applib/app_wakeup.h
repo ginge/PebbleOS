@@ -3,11 +3,10 @@
 
 #pragma once
 
-#include <stdbool.h>
 #include <stdint.h>
-
 #include <time.h>
-#include "pbl/services/wakeup.h"
+
+#include <pbl/services/wakeup.h>
 
 //! @addtogroup Foundation
 //! @{

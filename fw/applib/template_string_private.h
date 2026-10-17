@@ -3,10 +3,9 @@
 
 #pragma once
 
-#include "applib/template_string.h"
-
-#include <stdbool.h>
 #include <stdint.h>
+
+#include <applib/template_string.h>
 #include <sys/types.h>
 
 typedef struct TemplateStringState {
