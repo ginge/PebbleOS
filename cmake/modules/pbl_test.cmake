@@ -152,6 +152,7 @@ endfunction()
 #   PLATFORMS  which platforms to build it for (default: 'default',
 #              which is obelix without the platform-specific fixtures)
 #   DEFINES    extra preprocessor defines
+#   UNDEFINES  platform fixture defines this test must not inherit
 #   INCLUDES   extra header directories
 #   OVERRIDES  directories under tests/overrides/ that come first on the
 #              header search path
@@ -161,7 +162,7 @@ endfunction()
 #   TEST_IMAGES  the test renders against the image fixtures
 function(pbl_clar_test name)
   cmake_parse_arguments(ARG "TEST_IMAGES" "SOURCE"
-    "MODULES;SOURCES;PLATFORMS;DEFINES;INCLUDES;OVERRIDES;LIBS;DEPENDS" ${ARGN})
+    "MODULES;SOURCES;PLATFORMS;DEFINES;UNDEFINES;INCLUDES;OVERRIDES;LIBS;DEPENDS" ${ARGN})
   if(ARG_UNPARSED_ARGUMENTS)
     message(FATAL_ERROR "pbl_clar_test(${name}): unknown arguments ${ARG_UNPARSED_ARGUMENTS}")
   endif()
@@ -204,6 +205,7 @@ function(pbl_clar_test name)
     set_property(GLOBAL PROPERTY PBL_TEST_${id}_MODULES "${ARG_MODULES}")
     set_property(GLOBAL PROPERTY PBL_TEST_${id}_SOURCES "${ARG_SOURCES}")
     set_property(GLOBAL PROPERTY PBL_TEST_${id}_DEFINES "${ARG_DEFINES}")
+    set_property(GLOBAL PROPERTY PBL_TEST_${id}_UNDEFINES "${ARG_UNDEFINES}")
     set_property(GLOBAL PROPERTY PBL_TEST_${id}_INCLUDES "${ARG_INCLUDES}")
     set_property(GLOBAL PROPERTY PBL_TEST_${id}_OVERRIDES "${ARG_OVERRIDES}")
     set_property(GLOBAL PROPERTY PBL_TEST_${id}_LIBS "${ARG_LIBS}")
@@ -274,7 +276,7 @@ function(pbl_test_finalize)
 endfunction()
 
 function(_pbl_test_add id)
-  foreach(field NAME PLATFORM DIR BINDIR SOURCE MODULES SOURCES DEFINES INCLUDES OVERRIDES LIBS DEPENDS IMAGES)
+  foreach(field NAME PLATFORM DIR BINDIR SOURCE MODULES SOURCES DEFINES UNDEFINES INCLUDES OVERRIDES LIBS DEPENDS IMAGES)
     get_property(${field} GLOBAL PROPERTY PBL_TEST_${id}_${field})
   endforeach()
 
@@ -343,6 +345,11 @@ function(_pbl_test_add id)
   foreach(define ${PBL_TEST_DEFINES} ${defines})
     list(APPEND flags -D${define})
   endforeach()
+  set(undefines "")
+  foreach(define ${UNDEFINES})
+    list(APPEND undefines -U${define})
+  endforeach()
+  list(APPEND flags ${undefines})
   foreach(dir ${includes})
     list(APPEND flags -I${dir})
   endforeach()
@@ -389,7 +396,7 @@ function(_pbl_test_add id)
     RUNTIME_OUTPUT_DIRECTORY ${test_dir})
   # clar.h lands next to the generated main.
   target_include_directories(${id} PRIVATE ${head} ${test_dir} ${rest})
-  target_compile_options(${id} PRIVATE ${options})
+  target_compile_options(${id} PRIVATE ${options} ${undefines})
   target_compile_definitions(${id} PRIVATE ${defines})
   # DUMA catches memory corruption; a handful of tests trip over it. It
   # has to come before any system library: it overrides malloc, and once

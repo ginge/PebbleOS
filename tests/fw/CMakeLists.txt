@@ -7,6 +7,32 @@ pbl_clar_test(test_clar
     fw/applib/graphics/gtypes.c
 )
 
+# The T5AI backend reads metadata through its fixed low-address XIP aperture.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  pbl_clar_test(test_t5ai_system_resources
+    MODULES pfs
+    SOURCES
+      fw/resource/resource.c
+      fw/resource/resource_storage.c
+      fw/resource/resource_storage_builtin.c
+      fw/resource/resource_storage_file.c
+      soc/t5ai/resource_storage.c
+      fw/services/filesystem/app_file.c
+      drivers/flash/flash_crc.c
+      fw/services/i18n/i18n.c
+      fw/applib/fonts/codepoint.c
+      fw/applib/fonts/fonts.c
+      fw/applib/graphics/text_resources.c
+      tests/fakes/fake_bootbits.c
+      tests/fakes/fake_rtc.c
+      tests/fixtures/resources/builtin_resources.auto.c
+      tests/fixtures/resources/pfs_resource_table.c
+    DEFINES CONFIG_SOC_T5AI=1
+    UNDEFINES CONFIG_PBLBOOT
+    OVERRIDES i18n_legacy_string_api dummy_board
+  )
+endif()
+
 pbl_clar_test(test_utf8
   SOURCES
     fw/applib/graphics/utf8.c
@@ -19,7 +45,7 @@ pbl_clar_test(test_i18n
     fw/services/i18n/i18n.c
     tests/fakes/fake_bootbits.c
     tests/fakes/fake_rtc.c
-  OVERRIDES dummy_board
+  OVERRIDES i18n_legacy_string_api dummy_board
 )
 
 pbl_clar_test(test_utf8_iterator

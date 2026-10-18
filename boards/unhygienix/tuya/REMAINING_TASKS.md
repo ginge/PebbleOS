@@ -62,11 +62,10 @@ No capture remains from the latest GATT test. Merge readiness remains unqualifie
      GATT discovery lease override set to stock zero, in separate candidates.
      Remove successful exceptions and their build glue; investigate underlying
      costs rather than retaining historical workarounds indefinitely.
-   - Restore PFS-backed system-resource provisioning, routing and watch/unwatch
-     behavior deliberately: registering missing language files can break resource
-     lookup. Remeasure stock full-pack validation before accepting reduced
-     integrity checks. Preserve the physical single-bank layout and reject
-     unsupported resource updates.
+   - Remeasure stock full-pack validation before accepting reduced integrity
+     checks. PFS system-file routing and watch/unwatch are restored as recorded
+     below; qualify language/font changes on the device. Preserve the physical
+     single-bank layout and reject unsupported resource updates.
    - Test stock reconnect advertising transitions, then stock connection-parameter
      negotiation, independently on the RF-corrected CP. Record actual parameters
      and update completions. Retain only reproduced controller limitations at a
@@ -93,6 +92,32 @@ No capture remains from the latest GATT test. Merge readiness remains unqualifie
    The dated progress records below are history, not outstanding instructions;
    the current review identifies work already completed. Merge readiness remains
    unqualified.
+
+   Progress — 2026-10-18 (PFS system-resource restoration): restored stock
+   `resource_impl.def` ordering and `resource_storage.c` unwatch behavior; both
+   files now match `origin/main` at `b3a2dcb88` exactly. The existing file backend,
+   PFS and file-transfer path are reused without a migration or seeded language
+   pack. Current resource IDs place optional translation/extension resources
+   outside the bank; English strings and base fonts already have stock fallback
+   behavior. This supersedes the audit's concern that registering absent files
+   would displace working bank fonts/strings. Eight new integration cases link
+   real PFS, the T5AI bank and shared language/font code; six failures were
+   reproduced before restoration, and all eight cases now pass. Together with
+   existing language/font suites, 42 native cases pass; 23 resource/image tooling
+   tests pass. Normal firmware builds/packages with existing LTO warnings:
+   flash 1,596,832 B (+608 B), static RAM 97,280 B and display RAM 118,272 B
+   (unchanged). The system resource pack is byte-identical to the prior candidate.
+   Build ID: `50d14c63d1336e77edb840d723bfefc230982883`; source is uncommitted.
+   Flashed AP-only on 2026-10-18; the booted build ID matches. The trace records
+   valid system resources, restored bond registration and an open reversed
+   PPoGATT session. CP, resource bank and persistent storage were not selected
+   for programming. Capture is stopped; existing PFS/app warnings remain.
+   Device language/font install, replacement, removal, heap use and UI checks
+   remain open. Flash evidence:
+   `/home/baz/Documents/ChatGPT/pebble/artifacts/pfs-system-resources-20261018/flash/report.md`.
+   Build evidence and candidate details:
+   `/home/baz/Documents/ChatGPT/pebble/artifacts/pfs-system-resources-20261018/validation.txt`.
+   Full-pack integrity validation remains a separate open item.
 
    Progress — 2026-10-18 (legacy accelerometer retirement): removed the periodic
    QMI8658 driver, its Kconfig selector, conditional driver-state layout and
@@ -466,8 +491,9 @@ contains superseded startup/kernel work. The remaining candidates are:
   `441534a95`, shared `resource_storage_flash.c` matches the compared upstream
   `b3a2dcb88`. The earlier extraction proposal is superseded; preserve the stock
   implementation and review only deviations still present.
-- Resolve resource-watch callback ownership before restoring stock
-  `resource_unwatch()` behavior; do not simply remove its T5 guard.
+- Stock file-store routing and resource-watch ownership were restored on
+  2026-10-18 and verified with real PFS integration cases. Complete the device
+  checks listed above; full-pack validation remains open.
 - Select unavailable update, recovery, coredump and reset implementations or
   explicit capabilities at build time, reducing shared T5 conditionals without
   enabling unsupported operations.

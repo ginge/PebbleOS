@@ -13,7 +13,7 @@ with Getafix. Getafix DVT and DVT2 remain independent Round 2 hardware targets.
 Unhygienix is excluded from release matrices. Recovery firmware, OTA, PBZ
 bundles, bulk erase and unsupported raw-flash operations remain disabled.
 
-## Latest implementation status — 2026-10-17
+## Latest implementation status — 2026-10-18
 
 Source baseline: `tuya` at `ab3616d5e`, with an uncommitted normal Bluetooth
 persistence selection in the working tree. The port merged newer upstream
@@ -30,7 +30,16 @@ one ARM SDK/QEMU fault-entry test skipped. The Unhygienix firmware built and
 linked, with existing LTO warnings. These are recorded checks for that candidate,
 not a fresh broad run against the later persistence experiment.
 
-The latest installed AP image is the stock shell-init candidate, build ID
+The latest installed AP image is the PFS system-resource restoration candidate,
+build ID `50d14c63d1336e77edb840d723bfefc230982883`, flashed AP-only on 2026-10-18.
+The booted build ID matches the saved candidate. Startup accepted the system
+resource bank, registered the stored bond and opened reversed PPoGATT. CP,
+resources and persistent storage were not selected for programming. Capture is
+stopped; PFS/app warnings and device pack/heap/UI qualification remain open.
+Exact images, raw trace, matching dictionary and limits:
+`/home/baz/Documents/ChatGPT/pebble/artifacts/pfs-system-resources-20261018/flash/report.md`.
+
+The preceding installed AP image was the stock shell-init candidate, build ID
 `6e39f48175667f6dce5d6e419b8581a805ebed62`, flashed AP-only on 2026-10-17 at
 15:51 London time. First boot logged DB compaction completion and seven successful
 individual results; reminder/health results and the start record were not captured.
@@ -85,8 +94,8 @@ the startup UI-delay warning remain documented in the latest flash report above.
 ## Top priority cleanup for main and upstream — 2026-10-17
 
 Complete the [upstream divergence cleanup TODO](../../../boards/unhygienix/tuya/REMAINING_TASKS.md#next-priorities--2026-10-14)
-before proposing the port for merge to `main`. It references the complete
-2026-10-14 source audit and file inventory, separates general fixes for upstream,
+before proposing the port for merge to `main`. It references the active
+2026-10-18 stock convergence review, separates general fixes for upstream,
 and defines the required regression and hardware validation. Each retained
 stock deviation or CMake-selected replacement needs an explicit justification;
 merge readiness remains unqualified until the checklist is resolved.
@@ -374,6 +383,34 @@ four existing native GATT discovery/accessor/subscription/Service Changed
 suites also pass. The October 17 watch smoke test above additionally verifies
 one encrypted reconnect and discovery sequence. Broader reconnect and cold-boot
 qualification remain outstanding.
+
+## PFS system resources — 2026-10-18
+
+Normal firmware now uses stock system-file routing and watch/unwatch behavior.
+The existing `lang` file supplies translations and optional font extensions;
+`pug` is an optional file-backed test resource. English strings come from the
+firmware, and base fonts remain in the system bank. An empty PFS therefore needs
+no seeded language pack or migration. The normal named-file PutBytes transfer
+path installs `lang`; Settings can select English or the installed language.
+
+File watches are registered even before a pack exists, so installation, replacement
+and removal invalidate language/font state without rebooting. Unwatch now releases
+those PFS callbacks through the stock backend. Corrupt or truncated language
+resources are rejected by the existing validation and retain the English/base-font
+fallback. The immutable bank layout, validation policy and update gates are
+unchanged by this restoration.
+
+Eight new native integration cases use real PFS and the T5AI bank backend with
+host flash fixtures. Together with existing language/font suites, 42 cases pass;
+23 resource/image tooling tests also pass. Firmware builds/packages successfully
+with 608 additional flash bytes and unchanged static RAM; the system resource
+pack is unchanged. Candidate build ID: `50d14c63d1336e77edb840d723bfefc230982883`.
+The candidate was flashed AP-only on 2026-10-18; its booted build ID matches.
+Startup accepted the system resource bank and opened a phone protocol session
+with the stored bond registered. Capture is stopped; the flash report above
+records remaining warnings and evidence limits. Device pack installation/removal,
+selected-face/UI behavior and peak heap use remain unqualified. Matching candidate and validation records are at
+`/home/baz/Documents/ChatGPT/pebble/artifacts/pfs-system-resources-20261018/`.
 
 ## Accelerometer and motion wake progress (2026-10-04)
 

@@ -105,6 +105,10 @@ const ResourceStoreImplementation g_app_file_impl = {
   .metadata_size = resource_storage_generic_metadata_size, .read = app_read,
 };
 const ResourceStoreImplementation g_builtin_impl = {.find_resource = builtin_find};
+static bool file_find(ResourceStoreEntry *e, ResAppNum a, uint32_t id) {
+  (void)e; (void)a; (void)id; return false;
+}
+const ResourceStoreImplementation g_file_impl = {.find_resource = file_find};
 
 static void setup(void) {
   memset(bank, 0xff, 0x100000);
