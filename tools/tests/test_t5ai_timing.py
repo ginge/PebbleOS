@@ -258,11 +258,11 @@ void *heap_realloc(Heap *h, void *p, size_t n, unsigned pc) { (void)pc; assert(s
 void heap_free(Heap *h, void *p, unsigned pc) { (void)pc; assert(s_mutex.locked && h->ready); free(p); }
 bool heap_contains_address(Heap *h, void *p) { assert(s_mutex.locked && h->ready); return p!=NULL; }
 int main(void) {
- void *p=t5ai_voice_malloc_check(32);
- p=t5ai_voice_realloc(p,64);
- t5ai_voice_free(p);
- p=t5ai_voice_zalloc_check(16); assert(*(unsigned char *)p==0); t5ai_voice_free(p);
- t5ai_voice_free(NULL);
+ void *p=pbl_speex_malloc_check(32);
+ p=pbl_speex_realloc(p,64);
+ pbl_speex_free(p);
+ p=pbl_speex_zalloc_check(16); assert(*(unsigned char *)p==0); pbl_speex_free(p);
+ pbl_speex_free(NULL);
  assert(inits==1 && locks==5 && !s_mutex.locked);
  return 0;
 }

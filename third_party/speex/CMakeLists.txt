@@ -66,9 +66,9 @@ pbl_library_sources(${speex_sources})
 pbl_library_compile_definitions(${speex_defines})
 pbl_library_compile_options(${speex_cflags})
 
+# Codec state and voice frame buffers share one allocator backend.
 if(CONFIG_SOC_T5AI AND CONFIG_SERVICE_VOICE)
-  pbl_library_compile_definitions(
-    kernel_zalloc_check=t5ai_voice_zalloc_check
-    kernel_realloc=t5ai_voice_realloc
-    kernel_free=t5ai_voice_free)
+  pbl_library_sources(${PBL_BASE}/soc/t5ai/voice_memory.c)
+else()
+  pbl_library_sources(memory.c)
 endif()

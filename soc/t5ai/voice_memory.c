@@ -1,9 +1,11 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include "system/passert.h"
+
+#include <pbl/kernel/mutex.h>
 #include <pbl/soc/t5ai/voice_memory.h>
 #include <pbl/util/heap.h>
-#include "system/passert.h"
-#include <pbl/kernel/mutex.h>
+#include <pbl/util/speex_memory.h>
 
 static unsigned char s_arena[T5AI_VOICE_ARENA_BYTES]
     __attribute__((section(".t5ai_board_cache"), aligned(32)));
@@ -18,7 +20,7 @@ static void prv_init(void) {
   }
 }
 
-void *t5ai_voice_malloc_check(size_t size) {
+void *pbl_speex_malloc_check(size_t size) {
   pbl_mutex_lock(&s_mutex, PBL_FOREVER);
   prv_init();
   void *ptr = heap_malloc(&s_heap, size, 0u);
@@ -27,7 +29,7 @@ void *t5ai_voice_malloc_check(size_t size) {
   return ptr;
 }
 
-void *t5ai_voice_zalloc_check(size_t size) {
+void *pbl_speex_zalloc_check(size_t size) {
   pbl_mutex_lock(&s_mutex, PBL_FOREVER);
   prv_init();
   void *ptr = heap_zalloc(&s_heap, size, 0u);
@@ -36,7 +38,7 @@ void *t5ai_voice_zalloc_check(size_t size) {
   return ptr;
 }
 
-void *t5ai_voice_realloc(void *ptr, size_t size) {
+void *pbl_speex_realloc(void *ptr, size_t size) {
   pbl_mutex_lock(&s_mutex, PBL_FOREVER);
   prv_init();
   void *result = heap_realloc(&s_heap, ptr, size, 0u);
@@ -44,7 +46,7 @@ void *t5ai_voice_realloc(void *ptr, size_t size) {
   return result;
 }
 
-void t5ai_voice_free(void *ptr) {
+void pbl_speex_free(void *ptr) {
   if (!ptr) {
     return;
   }
