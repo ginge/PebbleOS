@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="420mm" height="297mm" viewBox="0 0 420 297">
+<rect width="420" height="297" fill="white"/>
+<g transform="translate(0,297) scale(1,-1)">
+<text transform="translate(15,280) scale(1,-1)" fill="#243746" font-family="sans-serif" font-size="5.7" font-weight="bold">UNHYGIENIX / CLEARANCE / EVIDENCE / RELEASE GATES</text>
+<text transform="translate(15,270) scale(1,-1)" fill="#ae3e25" font-family="sans-serif" font-size="3.5">CONCEPT 01  |  UNVERIFIED COMPONENT FIT  |  BATTERY UNSELECTED</text>
+<line x1="15" y1="265" x2="405" y2="265" stroke="#344452" stroke-width="0.2"/>
+<line x1="15" y1="18" x2="405" y2="18" stroke="#344452" stroke-width="0.2"/>
+<text transform="translate(15,10) scale(1,-1)" fill="#243746" font-family="sans-serif" font-size="3">All dimensions mm. A3. Published outer dimensions are not verified bare-host geometry.</text>
+<text transform="translate(366,10) scale(1,-1)" fill="#243746" font-family="sans-serif" font-size="3">2026-10-18 / 5</text>
+<text transform="translate(15,251) scale(1,-1)" fill="#243746" font-family="sans-serif" font-size="4" font-weight="bold">What is established</text>
+<text transform="translate(15,239) scale(1,-1)" fill="#243746" font-family="sans-serif" font-size="3.6">Manufacturer image: D51 assembly, 43.76 visible width, stock side 11.70 / 12.10.</text>
+<text transform="translate(15,231) scale(1,-1)" fill="#243746" font-family="sans-serif" font-size="3.6">Downloaded host resource contains DWG + PDF, no STEP solid. PDF label is ESP32-S3.</text>
+<text transform="translate(15,223) scale(1,-1)" fill="#243746" font-family="sans-serif" font-size="3.6">It cannot establish actual T5 PCB revision, internal heights or mounting datums.</text>
+<text transform="translate(15,215) scale(1,-1)" fill="#243746" font-family="sans-serif" font-size="3.6">LRA drawing: D8.0 +/-0.1, H2.55 +/-0.05; FPC overall 13.265 +/-0.3 x 8.535 +/-0.3.</text>
+<text transform="translate(15,207) scale(1,-1)" fill="#243746" font-family="sans-serif" font-size="3.6">Soberton product and 2019 drawing show D10 x H2.4; this model retains H2.9 reserve.</text>
+<text transform="translate(15,199) scale(1,-1)" fill="#243746" font-family="sans-serif" font-size="3.6">Candidate dimensions are not installed-fit verification or final component selection.</text>
+<text transform="translate(15,180) scale(1,-1)" fill="#243746" font-family="sans-serif" font-size="4" font-weight="bold">Numerical CAD checks</text>
+<text transform="translate(15,166) scale(1,-1)" fill="#243746" font-family="sans-serif" font-size="3.5">thin_notched: 36 physical parts; 0 positive-volume intersections; STEP reimport valid = True.</text>
+<text transform="translate(15,159) scale(1,-1)" fill="#243746" font-family="sans-serif" font-size="3.5">13 printable meshes; watertight = True. Minimum installed-cell gap 0.20 to PRINT_rear_cover.</text>
+<text transform="translate(15,147) scale(1,-1)" fill="#243746" font-family="sans-serif" font-size="3.5">full_cell_stacked: 37 physical parts; 0 positive-volume intersections; STEP reimport valid = True.</text>
+<text transform="translate(15,140) scale(1,-1)" fill="#243746" font-family="sans-serif" font-size="3.5">14 printable meshes; watertight = True. Minimum installed-cell gap 0.20 to PRINT_rear_cover.</text>
+<text transform="translate(15,112) scale(1,-1)" fill="#ae3e25" font-family="sans-serif" font-size="4" font-weight="bold">Open release gates - a clear placeholder assembly is not proof of component fit</text>
+<text transform="translate(15,100) scale(1,-1)" fill="#243746" font-family="sans-serif" font-size="3.5">FPC, RF and actual PCB geometry remain unregistered. Red keepout STEP and JSON record their intersections.</text>
+<text transform="translate(15,91) scale(1,-1)" fill="#243746" font-family="sans-serif" font-size="3.5">Register actual flex before routing: current illustrative FPC intersects battery/retainer and optional pressure island.</text>
+<text transform="translate(15,82) scale(1,-1)" fill="#243746" font-family="sans-serif" font-size="3.5">Illustrative RF sector intersects LRA. Obtain antenna drawing and rearrange magnetic/metal parts before fit release.</text>
+<text transform="translate(15,73) scale(1,-1)" fill="#243746" font-family="sans-serif" font-size="3.5">Battery pack, lead exit, growth, protection and capacity must be supplier-drawn; A removes about half the cell area.</text>
+<text transform="translate(15,64) scale(1,-1)" fill="#243746" font-family="sans-serif" font-size="3.5">Magnetic center distances are geometric only; test speaker/LRA drive, charging, screws and compass saturation.</text>
+<text transform="translate(15,55) scale(1,-1)" fill="#243746" font-family="sans-serif" font-size="3.5">Qualify button return/travel, carrier, USB plug and recovery access, vent adhesive, speaker response and strap loads.</text>
+<text transform="translate(15,46) scale(1,-1)" fill="#243746" font-family="sans-serif" font-size="3.5">HR requires a separately budgeted rear cover/stack. Charging current and enclosure temperature need fitted-cell review.</text>
+<text transform="translate(15,27) scale(1,-1)" fill="#243746" font-family="sans-serif" font-size="3.4">All STEP/STL outputs are concept fit-study artifacts. No parts fabricated, ordered or fitted; firmware untouched by this design.</text>
+</g></svg>

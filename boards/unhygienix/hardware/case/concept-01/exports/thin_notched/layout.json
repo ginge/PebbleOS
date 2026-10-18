@@ -1,0 +1,16 @@
+{
+  "mode": "thin_notched",
+  "diameter": 53.8,
+  "height": 13.9,
+  "host_base_datum": 7.0,
+  "accessory_shift": 0,
+  "battery_area_mm2": 760.864404642801,
+  "battery_disk_fraction": 0.4784013077395509,
+  "strap_tip_span": 64,
+  "key_span": 56.8,
+  "host_height_assumed": 6.0,
+  "step_valid": true,
+  "step_solids": 36,
+  "part_count": 36,
+  "physical_intersections": 0
+}

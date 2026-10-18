@@ -1,0 +1,22 @@
+{
+  "units": "mm", "revision": "concept-01", "body_diameter": 53.8,
+  "cavity_diameter": 51.6, "host_diameter_RESERVATION": 51.0,
+  "host_height_ASSUMED": 6.0, "host_axial_gap_each": 0.15,
+  "bezel_aperture": 44.3, "bezel_thickness": 0.6, "rear_floor": 1.0,
+  "battery_diameter_TARGET": 45.0, "battery_thickness_TARGET": 4.0,
+  "battery_bottom": 1.4, "battery_zone_bottom": 1.2,
+  "battery_installed_height_RESERVATION": 5.5, "battery_edge_gap_ASSUMED": 0.8,
+  "speaker_xy": [15.0,-5.0], "speaker_diameter": 10.0,
+  "speaker_height_RESERVED": 2.9, "speaker_bore": 10.8,
+  "speaker_cup_outer": 12.8, "speaker_cup_top": 5.4,
+  "lra_xy": [13.4,13.0], "lra_diameter": 8.0, "lra_height": 2.55,
+  "lra_flex_envelope_width_RESERVED": 9.2, "lra_flex_envelope_length_RESERVED": 14.2,
+  "pcb_xy": [-2.0,-16.0], "pcb_width": 12.0, "pcb_depth": 10.0,
+  "pcb_thickness": 0.6, "component_height_ASSUMED": 1.2,
+  "button_angles": [0,320,180,210], "button_travel_ASSUMED": 0.25,
+  "button_stop": 0.35, "button_running_gap_each": 0.2,
+  "strap_width_ASSUMED": 20.0, "springbar_bore_ASSUMED": 1.8,
+  "sensor_radius": 23.1, "pressure_angle": 130.0,
+  "light_angle": 70.0, "compass_angle": 160.0,
+  "prototype_process": "MJF/SLS PA12; unsealed bench fit concept"
+}

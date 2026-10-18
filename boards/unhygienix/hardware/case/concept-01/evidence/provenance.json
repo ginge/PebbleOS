@@ -1,0 +1,12 @@
+[
+  {
+    "file": "host-3d.zip",
+    "url": "https://files.waveshare.com/wiki/T5-E1-Touch-AMOLED-1.75/T5-E1-Touch-AMOLED-1.75-3D.zip",
+    "sha256": "7ee010ae91a5c9395572ef5687371626f67b6cbd55fb7623ed84b47cd4364289"
+  },
+  {
+    "file": "VG0825003D.pdf",
+    "url": "https://www.vybronics.com/wp-content/uploads/datasheet-files/Vybronics-VG0825003D-datasheet.pdf",
+    "sha256": "309ff9f2b630357ffe329cc5f545e6f3ca5f77dba99dad91e9cc3f4a7a3cdbb8"
+  }
+]

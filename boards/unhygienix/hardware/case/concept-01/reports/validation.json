@@ -1,0 +1,24 @@
+[
+  {
+    "mode": "thin_notched",
+    "physical_parts": 36,
+    "printable_parts": 13,
+    "min_installed_cell_gap_mm": 0.2,
+    "magnetic_body_surface_gaps_mm": {
+      "PH_LRA_VG0825003D": 30.933964203878737,
+      "PH_speaker_SP1003_RESERVED": 33.505503191795405
+    },
+    "status": "CAD_GEOMETRY_PASS_ONLY; PHYSICAL_FIT_UNVERIFIED"
+  },
+  {
+    "mode": "full_cell_stacked",
+    "physical_parts": 37,
+    "printable_parts": 14,
+    "min_installed_cell_gap_mm": 0.2,
+    "magnetic_body_surface_gaps_mm": {
+      "PH_LRA_VG0825003D": 30.933964203878737,
+      "PH_speaker_SP1003_RESERVED": 33.505503191795405
+    },
+    "status": "CAD_GEOMETRY_PASS_ONLY; PHYSICAL_FIT_UNVERIFIED"
+  }
+]

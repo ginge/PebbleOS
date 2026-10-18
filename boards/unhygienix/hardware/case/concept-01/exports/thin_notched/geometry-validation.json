@@ -1,0 +1,545 @@
+[
+  {
+    "name": "PRINT_key_1",
+    "valid": true,
+    "solids": 1,
+    "volume": 33.132592153667105,
+    "bounds": [
+      24.699999999999996,
+      28.4,
+      -2.7000000000000006,
+      2.7000000000000006,
+      3.7,
+      6.1
+    ],
+    "watertight": true,
+    "mesh_components": 1,
+    "mesh_volume": 33.10765387497356
+  },
+  {
+    "name": "PH_switch_1",
+    "valid": true,
+    "solids": 1,
+    "volume": 17.980000000000008,
+    "bounds": [
+      21.7,
+      24.6,
+      -2.0,
+      2.0,
+      4.05,
+      5.75
+    ]
+  },
+  {
+    "name": "PRINT_key_2",
+    "valid": true,
+    "solids": 1,
+    "volume": 33.13259215366711,
+    "bounds": [
+      17.530491198288637,
+      23.491188730732627,
+      -20.323488111518966,
+      -14.097788387195232,
+      3.7,
+      6.1
+    ],
+    "watertight": true,
+    "mesh_components": 1,
+    "mesh_volume": 33.10765424318448
+  },
+  {
+    "name": "PH_switch_2",
+    "valid": true,
+    "solids": 1,
+    "volume": 17.98000000000001,
+    "bounds": [
+      15.337589196308738,
+      19.90045518716424,
+      -17.15182780162087,
+      -12.416402243959952,
+      4.05,
+      5.75
+    ]
+  },
+  {
+    "name": "PRINT_key_3",
+    "valid": true,
+    "solids": 1,
+    "volume": 33.13259215366708,
+    "bounds": [
+      -28.4,
+      -24.699999999999996,
+      -2.699999999999999,
+      2.700000000000004,
+      3.7,
+      6.1
+    ],
+    "watertight": true,
+    "mesh_components": 1,
+    "mesh_volume": 33.10765387497356
+  },
+  {
+    "name": "PH_switch_3",
+    "valid": true,
+    "solids": 1,
+    "volume": 17.980000000000008,
+    "bounds": [
+      -24.6,
+      -21.7,
+      -1.9999999999999973,
+      2.000000000000003,
+      4.05,
+      5.75
+    ]
+  },
+  {
+    "name": "PRINT_key_4",
+    "valid": true,
+    "solids": 1,
+    "volume": 33.132592153667076,
+    "bounds": [
+      -25.94512146747806,
+      -20.39082747347563,
+      -16.53826859021799,
+      -10.23673140978202,
+      3.7,
+      6.1
+    ],
+    "watertight": true,
+    "mesh_components": 1,
+    "mesh_volume": 33.10765335541322
+  },
+  {
+    "name": "PH_switch_4",
+    "valid": true,
+    "solids": 1,
+    "volume": 17.98000000000001,
+    "bounds": [
+      -22.04441731196186,
+      -17.792751262122316,
+      -13.88205080756888,
+      -9.117949192431125,
+      4.05,
+      5.75
+    ]
+  },
+  {
+    "name": "PRINT_rear_cover",
+    "valid": true,
+    "solids": 1,
+    "volume": 2253.6065725712815,
+    "bounds": [
+      -26.9,
+      26.9,
+      -26.9,
+      26.9,
+      0.0,
+      1.0
+    ],
+    "watertight": true,
+    "mesh_components": 1,
+    "mesh_volume": 2252.2603883499646
+  },
+  {
+    "name": "PRINT_host_retainer",
+    "valid": true,
+    "solids": 1,
+    "volume": 223.74894117764532,
+    "bounds": [
+      -25.45,
+      25.45,
+      -25.45,
+      25.45,
+      6.4,
+      7.0
+    ],
+    "watertight": true,
+    "mesh_components": 1,
+    "mesh_volume": 223.61543233494504
+  },
+  {
+    "name": "PRINT_speaker_cup",
+    "valid": true,
+    "solids": 1,
+    "volume": 164.38545388953426,
+    "bounds": [
+      8.6,
+      25.423611073173696,
+      -11.4,
+      1.4000000000000004,
+      1.2,
+      5.4
+    ],
+    "watertight": true,
+    "mesh_components": 1,
+    "mesh_volume": 164.3339882567469
+  },
+  {
+    "name": "PH_speaker_SP1003_RESERVED",
+    "valid": true,
+    "solids": 1,
+    "volume": 227.76546738526,
+    "bounds": [
+      10.0,
+      20.0,
+      -10.0,
+      0.0,
+      1.95,
+      4.85
+    ]
+  },
+  {
+    "name": "PH_speaker_gasket",
+    "valid": true,
+    "solids": 1,
+    "volume": 3.966260725157116,
+    "bounds": [
+      9.7,
+      20.3,
+      -10.3,
+      0.2999999999999998,
+      1.7,
+      1.95
+    ]
+  },
+  {
+    "name": "PH_speaker_edge_retainer",
+    "valid": true,
+    "solids": 1,
+    "volume": 9.377654070965548,
+    "bounds": [
+      9.65,
+      20.35,
+      -10.35,
+      0.34999999999999964,
+      4.9,
+      5.300000000000001
+    ]
+  },
+  {
+    "name": "CUT_LRA_rigid_shim",
+    "valid": true,
+    "solids": 1,
+    "volume": 19.08517537055799,
+    "bounds": [
+      8.9,
+      17.9,
+      8.5,
+      17.5,
+      1.2,
+      1.5
+    ]
+  },
+  {
+    "name": "PH_LRA_VG0825003D",
+    "valid": true,
+    "solids": 1,
+    "volume": 128.17698026646352,
+    "bounds": [
+      9.4,
+      17.4,
+      9.0,
+      17.0,
+      1.6,
+      4.15
+    ]
+  },
+  {
+    "name": "PRINT_PCB_post_-6.0_-19.0",
+    "valid": true,
+    "solids": 1,
+    "volume": 2.8651325000738908,
+    "bounds": [
+      -7.35,
+      -4.65,
+      -20.35,
+      -17.65,
+      1.2,
+      1.7999999999999998
+    ],
+    "watertight": true,
+    "mesh_components": 1,
+    "mesh_volume": 2.8634229888820557
+  },
+  {
+    "name": "PRINT_PCB_post_2.0_-13.0",
+    "valid": true,
+    "solids": 1,
+    "volume": 2.865132500073891,
+    "bounds": [
+      0.6499999999999999,
+      3.35,
+      -14.35,
+      -11.65,
+      1.2,
+      1.7999999999999998
+    ],
+    "watertight": true,
+    "mesh_components": 1,
+    "mesh_volume": 2.8634229888820557
+  },
+  {
+    "name": "PH_daughterboard",
+    "valid": true,
+    "solids": 1,
+    "volume": 69.587256842043,
+    "bounds": [
+      -8.0,
+      4.0,
+      -21.0,
+      -11.0,
+      1.8,
+      2.4
+    ]
+  },
+  {
+    "name": "PH_core_components",
+    "valid": true,
+    "solids": 1,
+    "volume": 76.79999999999998,
+    "bounds": [
+      -6.0,
+      2.0,
+      -20.0,
+      -12.0,
+      2.4,
+      3.5999999999999996
+    ]
+  },
+  {
+    "name": "PH_compass_island",
+    "valid": true,
+    "solids": 1,
+    "volume": 7.200000000000001,
+    "bounds": [
+      -24.09931499671481,
+      -19.314484083594166,
+      5.807086092992751,
+      9.994244528653153,
+      2.9,
+      3.5
+    ]
+  },
+  {
+    "name": "PH_compass_IC",
+    "valid": true,
+    "solids": 1,
+    "volume": 0.2559999999999998,
+    "bounds": [
+      -22.219584645799117,
+      -21.194214434509856,
+      7.387980205178321,
+      8.413350416467583,
+      3.5,
+      3.9
+    ]
+  },
+  {
+    "name": "PH_barometer_island",
+    "valid": true,
+    "solids": 1,
+    "volume": 12.000000000000004,
+    "bounds": [
+      -17.987451694213362,
+      -11.709335873304754,
+      14.494940308877869,
+      20.896312963218918,
+      2.9,
+      3.5
+    ]
+  },
+  {
+    "name": "PH_barometer_IC",
+    "valid": true,
+    "solids": 1,
+    "volume": 3.0,
+    "bounds": [
+      -16.257225836564576,
+      -13.439561730953539,
+      16.286794583242877,
+      19.104458688853914,
+      3.5,
+      4.25
+    ]
+  },
+  {
+    "name": "PH_ALS_island",
+    "valid": true,
+    "solids": 1,
+    "volume": 7.200000000000001,
+    "bounds": [
+      5.807086092992751,
+      9.994244528653152,
+      19.314484083594163,
+      24.099314996714803,
+      2.9,
+      3.5
+    ]
+  },
+  {
+    "name": "PH_ALS_IC",
+    "valid": true,
+    "solids": 1,
+    "volume": 2.6000000000000028,
+    "bounds": [
+      6.618952546711374,
+      9.18237807493453,
+      20.425186776042906,
+      22.988612304266063,
+      3.5,
+      4.15
+    ]
+  },
+  {
+    "name": "PH_pressure_membrane_UNSELECTED",
+    "valid": true,
+    "solids": 1,
+    "volume": 3.7499999999999667,
+    "bounds": [
+      -18.9554106405876,
+      -15.02877028353973,
+      18.585962496399908,
+      21.914807211300452,
+      1.0,
+      6.0
+    ]
+  },
+  {
+    "name": "PH_ALS_window",
+    "valid": true,
+    "solids": 1,
+    "volume": 1.0829999999999937,
+    "bounds": [
+      8.187926815549895,
+      10.075948838040823,
+      24.623919945706483,
+      25.555666004261024,
+      2.65,
+      4.55
+    ]
+  },
+  {
+    "name": "PRINT_ALS_blackout",
+    "valid": true,
+    "solids": 1,
+    "volume": 15.03600000000003,
+    "bounds": [
+      4.850119910368623,
+      10.95121071127728,
+      18.47705239646208,
+      24.936746683846884,
+      2.7,
+      4.800000000000001
+    ],
+    "watertight": true,
+    "mesh_components": 1,
+    "mesh_volume": 15.035998413049219
+  },
+  {
+    "name": "PH_UNSELECTED_battery",
+    "valid": true,
+    "solids": 1,
+    "volume": 3043.457618571204,
+    "bounds": [
+      -22.25668438918969,
+      16.635798599606435,
+      -21.739595212422888,
+      22.5,
+      1.4,
+      5.4
+    ]
+  },
+  {
+    "name": "CUT_dielectric_liner",
+    "valid": true,
+    "solids": 1,
+    "volume": 152.17288092856015,
+    "bounds": [
+      -22.25668438918969,
+      16.635798599606435,
+      -21.739595212422888,
+      22.5,
+      1.05,
+      1.25
+    ]
+  },
+  {
+    "name": "PRINT_cell_guide_110",
+    "valid": true,
+    "solids": 1,
+    "volume": 12.000000000000007,
+    "bounds": [
+      -10.190474724385567,
+      -6.089684097916263,
+      21.21079777766033,
+      23.518570971748915,
+      1.2,
+      4.2
+    ],
+    "watertight": true,
+    "mesh_components": 1,
+    "mesh_volume": 11.999999073054099
+  },
+  {
+    "name": "PRINT_cell_guide_290",
+    "valid": true,
+    "solids": 1,
+    "volume": 12.000000000000004,
+    "bounds": [
+      6.089684097916271,
+      10.190474724385574,
+      -23.51857097174891,
+      -21.210797777660325,
+      1.2,
+      4.2
+    ],
+    "watertight": true,
+    "mesh_components": 1,
+    "mesh_volume": 11.999999073054099
+  },
+  {
+    "name": "PH_host_UNREGISTERED",
+    "valid": true,
+    "solids": 1,
+    "volume": 12256.923737980578,
+    "bounds": [
+      -25.5,
+      25.5,
+      -25.5,
+      25.5,
+      7.15,
+      13.15
+    ]
+  },
+  {
+    "name": "PRINT_upper_housing",
+    "valid": true,
+    "solids": 1,
+    "volume": 3137.139999750003,
+    "bounds": [
+      -26.9,
+      26.9,
+      -32.0,
+      32.0,
+      0.9999999,
+      13.9
+    ],
+    "watertight": true,
+    "mesh_components": 1,
+    "mesh_volume": 3135.8431188819864
+  },
+  {
+    "name": "PH_pack_protection_UNSELECTED",
+    "valid": true,
+    "solids": 1,
+    "volume": 144.0,
+    "bounds": [
+      -17.0,
+      -9.0,
+      -11.0,
+      -5.0,
+      1.8,
+      4.8
+    ]
+  }
+]

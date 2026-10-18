@@ -1,0 +1,72 @@
+[
+  {
+    "keepout": "KO_FPC_route_UNREGISTERED",
+    "part": "PRINT_host_retainer",
+    "overlap_mm3": 5.008292
+  },
+  {
+    "keepout": "KO_FPC_route_UNREGISTERED",
+    "part": "PRINT_accessory_deck",
+    "overlap_mm3": 31.962559
+  },
+  {
+    "keepout": "KO_FPC_route_UNREGISTERED",
+    "part": "PH_barometer_island",
+    "overlap_mm3": 2.539452
+  },
+  {
+    "keepout": "KO_FPC_route_UNREGISTERED",
+    "part": "PH_barometer_IC",
+    "overlap_mm3": 0.239202
+  },
+  {
+    "keepout": "KO_FPC_route_UNREGISTERED",
+    "part": "PH_UNSELECTED_battery",
+    "overlap_mm3": 111.393713
+  },
+  {
+    "keepout": "KO_FPC_route_UNREGISTERED",
+    "part": "CUT_dielectric_liner",
+    "overlap_mm3": 5.569686
+  },
+  {
+    "keepout": "KO_FPC_route_UNREGISTERED",
+    "part": "PRINT_cell_guide_110",
+    "overlap_mm3": 0.390353
+  },
+  {
+    "keepout": "KO_RF_sector_UNREGISTERED",
+    "part": "PRINT_host_retainer",
+    "overlap_mm3": 19.347724
+  },
+  {
+    "keepout": "KO_RF_sector_UNREGISTERED",
+    "part": "PRINT_accessory_deck",
+    "overlap_mm3": 58.973629
+  },
+  {
+    "keepout": "KO_RF_sector_UNREGISTERED",
+    "part": "CUT_LRA_rigid_shim",
+    "overlap_mm3": 7.308042
+  },
+  {
+    "keepout": "KO_RF_sector_UNREGISTERED",
+    "part": "PH_LRA_VG0825003D",
+    "overlap_mm3": 47.23128
+  },
+  {
+    "keepout": "KO_RF_sector_UNREGISTERED",
+    "part": "PH_UNSELECTED_battery",
+    "overlap_mm3": 139.515868
+  },
+  {
+    "keepout": "KO_RF_sector_UNREGISTERED",
+    "part": "CUT_dielectric_liner",
+    "overlap_mm3": 6.975793
+  },
+  {
+    "keepout": "KO_RF_sector_UNREGISTERED",
+    "part": "PRINT_upper_housing",
+    "overlap_mm3": 21.940375
+  }
+]

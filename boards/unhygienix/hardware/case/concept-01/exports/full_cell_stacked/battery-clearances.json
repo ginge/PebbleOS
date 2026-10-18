@@ -1,0 +1,172 @@
+[
+  {
+    "part": "PRINT_key_1",
+    "gap_mm": 3.7125,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PH_switch_1",
+    "gap_mm": 2.95,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PRINT_key_2",
+    "gap_mm": 3.7125,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PH_switch_2",
+    "gap_mm": 2.95,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PRINT_key_3",
+    "gap_mm": 3.7125,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PH_switch_3",
+    "gap_mm": 2.95,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PRINT_key_4",
+    "gap_mm": 3.7125,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PH_switch_4",
+    "gap_mm": 2.95,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PRINT_rear_cover",
+    "gap_mm": 0.2,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PRINT_host_retainer",
+    "gap_mm": 5.3235,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PRINT_accessory_deck",
+    "gap_mm": 0.6,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PRINT_speaker_cup",
+    "gap_mm": 1.4,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PH_speaker_SP1003_RESERVED",
+    "gap_mm": 2.15,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PH_speaker_gasket",
+    "gap_mm": 1.9,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PH_speaker_edge_retainer",
+    "gap_mm": 5.1,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PH_LRA_VG0825003D",
+    "gap_mm": 1.8,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PRINT_PCB_post_-6.0_-19.0",
+    "gap_mm": 1.4,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PRINT_PCB_post_2.0_-13.0",
+    "gap_mm": 1.4,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PH_daughterboard",
+    "gap_mm": 2.0,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PH_core_components",
+    "gap_mm": 2.6,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PH_compass_island",
+    "gap_mm": 3.1,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PH_compass_IC",
+    "gap_mm": 3.7054,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PH_barometer_island",
+    "gap_mm": 3.1,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PH_barometer_IC",
+    "gap_mm": 3.7,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PH_ALS_island",
+    "gap_mm": 3.1,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PH_ALS_IC",
+    "gap_mm": 3.7,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PH_pressure_membrane_UNSELECTED",
+    "gap_mm": 4.0422,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PH_ALS_window",
+    "gap_mm": 4.9523,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PRINT_ALS_blackout",
+    "gap_mm": 2.9,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PRINT_cell_guide_110",
+    "gap_mm": 0.8,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PRINT_cell_guide_290",
+    "gap_mm": 0.8,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PH_host_UNREGISTERED",
+    "gap_mm": 6.05,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PRINT_upper_housing",
+    "gap_mm": 0.3,
+    "overlap_mm3": 0.0
+  },
+  {
+    "part": "PH_pack_protection_UNSELECTED",
+    "gap_mm": 2.0,
+    "overlap_mm3": 0.0
+  }
+]
