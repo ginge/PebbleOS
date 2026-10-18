@@ -34,7 +34,6 @@ typedef enum {
 //! bound the radio duty cycle. The window resets after
 //! RECONNECT_CHURN_WINDOW_SECS, so during sustained churn one attempt per
 //! window still gets the fast short-interval burst.
-#ifndef CONFIG_SOC_T5AI
 #define RECONNECT_CHURN_WINDOW_SECS (60)
 #define RECONNECT_CHURN_THRESHOLD   (3)
 
@@ -51,7 +50,6 @@ static bool prv_should_skip_short_interval(void) {
   ++s_churn_count;
   return (s_churn_count > RECONNECT_CHURN_THRESHOLD);
 }
-#endif
 
 // -----------------------------------------------------------------------------
 //! Static, internal helper functions
@@ -134,18 +132,6 @@ static void prv_evaluate(ReconnectType prev_type) {
     }
 
     // Values chosen according to Apple Accessory Design Guidelines
-#ifdef CONFIG_SOC_T5AI
-    /* The BK7258 controller can stop responding after the short-to-long
-     * advertising transition. Use one continuous reconnect term so recovery
-     * never depends on a disable/re-enable command pair. */
-    const GAPLEAdvertisingJobTerm advert_terms[] = {
-      {
-        .duration_secs = GAPLE_ADVERTISING_DURATION_INFINITE,
-        .interval =
-            use_hrm_payload ? GAPLEAdvertisingInterval_Short : GAPLEAdvertisingInterval_Long,
-      },
-    };
-#else
     const GAPLEAdvertisingJobTerm advert_terms[] = {
       {
         .duration_secs = 30,
@@ -156,18 +142,15 @@ static void prv_evaluate(ReconnectType prev_type) {
         .interval = GAPLEAdvertisingInterval_Long,
       },
     };
-#endif
 
     const GAPLEAdvertisingJobTerm *terms = advert_terms;
     uint8_t num_terms = ARRAY_LENGTH(advert_terms);
-#ifndef CONFIG_SOC_T5AI
     // HRM reconnection is user-initiated and time-bounded, don't back it off.
     if (!use_hrm_payload && prv_should_skip_short_interval()) {
       PBL_LOG_WRN("Reconnect churn: advertising at long interval only");
       terms = &advert_terms[1];
       num_terms = 1;
     }
-#endif
 
     s_reconnect_advert_job =
         gap_le_advert_schedule(ad, terms, num_terms, prv_advert_job_unscheduled_callback, nullptr,

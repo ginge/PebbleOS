@@ -191,6 +191,22 @@ No capture remains from the latest GATT test. Merge readiness remains unqualifie
    the current review identifies work already completed. Merge readiness remains
    unqualified.
 
+   Progress — 2026-10-18 (stock reconnect advertising, audit item 10): implemented
+   and device smoke-tested. `gap_le_slave_reconnect.c` matches local `origin/main`
+   byte for byte: stock 30-second short/indefinite long terms and churn handling
+   are restored. Upper/lower parameter overrides remain unchanged. Normal/debug
+   builds package; 13 rebuilt advertising scheduler cases and 29 board tests pass.
+   Three captured cycles request 32 then 1635 HCI units and restore encrypted
+   bonding, protocol sessions and discovery (5,451/3,880/4,449 ms). Operator confirms
+   all three reconnects and responsiveness. No additional boot/watchdog expiry
+   is decoded in the diagnostic capture; unrelated warnings remain preserved.
+   The debug build override is removed. Final normal-logging firmware
+   `7c5d20f0aebae01dee706eb5640340c5d3381a30` is flashed AP-only; boot identity,
+   phone session and discovery (3,914 ms) verified. Both captures are stopped.
+   Churn-threshold, HRM, 25-cycle, cold-cycle and soak qualification remain open.
+   Next stock-convergence work is upper/lower connection policy (items 8/9).
+   Evidence: `/home/baz/Documents/ChatGPT/pebble/artifacts/stock-advertising-20261018/report.md`.
+
    Progress — 2026-10-18 (Getafix compositor override, audit item 3): removed
    the full-frame dirty-region override, its Kconfig option and obsolete board-test
    expectations. The shared compositor now matches local `origin/main` and the
