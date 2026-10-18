@@ -432,7 +432,7 @@ remains. The full-source host harness now also covers a database of 24 services,
 Device comparison and qualification limits are recorded in
 [the lease comparison report](/home/baz/Documents/ChatGPT/pebble/artifacts/gatt-lease-zero-20261018/report.md).
 
-The full-source host harness exercises stock and T5AI lease settings with
+The full-source host harness exercises zero and 120-second lease settings with
 allocation accounting and AddressSanitizer/UndefinedBehaviorSanitizer. The
 four existing native GATT discovery/accessor/subscription/Service Changed
 suites also pass. The October 17 watch smoke test above additionally verifies

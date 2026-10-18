@@ -199,10 +199,14 @@ No capture remains from the latest GATT test. Merge readiness remains unqualifie
    case with incremental release and final allocation accounting. QEMU Gabbro,
    Getafix DVT2 and Unhygienix configuration checks all select stock zero.
    Firmware builds/packages with the default inherited, without an explicit
-   lease override. An AP-only trial restored the encrypted phone bond/session
-   and completed discovery in 4,001 ms. It also reproduced the existing
-   KernelBG/FdF Time watchdog stall and recovery; this is not clean stability
-   qualification. Final image, reconnect evidence and qualification limits:
+   lease override. The final AP-only image's boot ID
+   `a7dde5d4e97d85395949fe84d93f7d09c493f85c` is verified; initial discovery
+   took 4,144 ms and two operator-confirmed Bluetooth off/on reconnects completed
+   discovery in 4,992/4,908 ms, restoring encrypted bonds and protocol sessions.
+   The earlier explicit-zero trial took 4,001 ms and reproduced existing
+   KernelBG/FdF Time watchdog stalls/recovery. The final image logged a watchface
+   app fault/relaunch during the operator's switch/upload test; its cause remains
+   unresolved. Neither is clean stability qualification. Evidence and limits:
    `/home/baz/Documents/ChatGPT/pebble/artifacts/gatt-lease-zero-20261018/report.md`.
    Large-database hardware, cold power-cycle, sustained soak and a repeat after
    restoring actual controller negotiation remain open.

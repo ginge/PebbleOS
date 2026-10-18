@@ -227,8 +227,8 @@ static void prv_handle_query_region(Command *cmd, size_t length) {
       break;
     case FLASH_REGION_SYSTEM_RESOURCES: {
       const SystemResourceBank *bank = resource_storage_flash_get_unused_bank();
-      region_base = bank->begin;
-      region_length = bank->end - bank->begin;
+      region_base = bank ? bank->begin : 0;
+      region_length = bank ? bank->end - bank->begin : 0;
       break;
     }
     default:

@@ -39,9 +39,13 @@ static const MemoryLayout *prv_get_layout_for_type(PutBytesObjectType object_typ
   // Our PutBytesObjectType values are 1 indexed instead of zero indexed and the first three
   // are the only raw ones, so we can get away with just subtracting 1.
   if (object_type == ObjectSysResources) {
+    const SystemResourceBank *bank = resource_storage_flash_get_unused_bank();
+    if (!bank) {
+      return NULL;
+    }
     resource_layout = (MemoryLayout){
-      resource_storage_flash_get_unused_bank()->begin,
-      resource_storage_flash_get_unused_bank()->end,
+      bank->begin,
+      bank->end,
       0,
     };
     return &resource_layout;
@@ -52,6 +56,9 @@ static const MemoryLayout *prv_get_layout_for_type(PutBytesObjectType object_typ
 
 bool pb_storage_raw_get_status(PutBytesObjectType obj_type, PbInstallStatus *status) {
   const MemoryLayout *layout = prv_get_layout_for_type(obj_type);
+  if (!layout) {
+    return false;
+  }
 
   const size_t read_buffer_size = 2048;
   uint8_t *read_buffer = kernel_zalloc(read_buffer_size);
@@ -110,6 +117,9 @@ cleanup:
 bool pb_storage_raw_init(PutBytesStorage *storage, PutBytesObjectType object_type,
                          uint32_t total_size, PutBytesStorageInfo *info, uint32_t append_offset) {
   const MemoryLayout *layout = prv_get_layout_for_type(object_type);
+  if (!layout) {
+    return false;
+  }
   storage->impl_data = (void *)layout;
 
   storage->current_offset = layout->start_offset;
@@ -142,7 +152,7 @@ bool pb_storage_raw_init(PutBytesStorage *storage, PutBytesObjectType object_typ
 
 uint32_t pb_storage_raw_get_max_size(PutBytesObjectType object_type) {
   const MemoryLayout *layout = prv_get_layout_for_type(object_type);
-  return layout->end_address - layout->start_address;
+  return layout ? layout->end_address - layout->start_address : 0;
 }
 
 void pb_storage_raw_write(PutBytesStorage *storage, uint32_t offset, const uint8_t *buffer,

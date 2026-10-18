@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Exercise the production T5 backend and shared resource routing on the host."""
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 STUBS = {
@@ -13,7 +13,8 @@ STUBS = {
 #define PBL_LOG_INFO(...)
 #define PBL_LOG_WRN(...)
 #define PBL_LOG_ERR(...)
-#define PBL_LOG_DBG(...)
+#define PBL_LOG_DBG(...) test_log(__VA_ARGS__)
+static inline void test_log(const char *fmt, ...) { (void)fmt; }
 ''',
     'pbl/drivers/flash.h': '''
 #include <stdint.h>
@@ -22,6 +23,8 @@ STUBS = {
 #define TEST_BANK_SIZE 0x100000u
 #endif
 #define FLASH_REGION_SYSTEM_RESOURCES_BANK_0_END (0x02400000u + TEST_BANK_SIZE)
+#define FLASH_REGION_SYSTEM_RESOURCES_BANK_1_BEGIN (0x02400000u + TEST_BANK_SIZE)
+#define FLASH_REGION_SYSTEM_RESOURCES_BANK_1_END (0x02400000u + 2 * TEST_BANK_SIZE)
 void flash_read_bytes(uint8_t *, uint32_t, uint32_t);
 void flash_write_bytes(const uint8_t *, uint32_t, uint32_t);
 uint32_t flash_crc32_legacy(uint32_t, uint32_t);
@@ -40,7 +43,8 @@ void app_file_name_make(char *, size_t, uint32_t, const char *, size_t);
     'pbl/util/size.h': '#define ARRAY_LENGTH(x) (sizeof(x) / sizeof((x)[0]))\n',
     'pbl/util/testing.h': '#define PBL_T_STATIC static\n',
     'resource/resource_version.auto.h': '''
-#define SYSTEM_RESOURCE_VERSION ((ResourceVersion){0x12345678, 42})
+extern ResourceVersion test_resource_version;
+#define SYSTEM_RESOURCE_VERSION test_resource_version
 ''',
 }
 HARNESS = r'''
@@ -53,7 +57,9 @@ HARNESS = r'''
 #include "resource/resource_storage_flash.h"
 #include "resource/resource_version.auto.h"
 #include "pbl/drivers/flash.h"
+#include <pbl/crc/crc.h>
 
+ResourceVersion test_resource_version;
 static uint8_t *bank;
 static uint8_t app[RESOURCE_STORE_METADATA_BYTES + 8];
 static unsigned reads, read_bytes, crcs, app_queries, builtin_queries, clears;
@@ -81,7 +87,10 @@ void flash_write_bytes(const uint8_t *p, uint32_t a, uint32_t n) {
   memcpy(bank, p, n);
 }
 uint32_t flash_crc32_legacy(uint32_t address, uint32_t n) {
-  crcs++; crc_address = address; crc_length = n; return 0xaabbccdd;
+  assert(address >= base && address - base <= TEST_BANK_SIZE);
+  assert(n <= TEST_BANK_SIZE - (address - base));
+  crcs++; crc_address = address; crc_length = n;
+  return pbl_crc32_legacy(bank + address - base, n);
 }
 void boot_bit_clear(int bit) { assert(bit == 1); clears++; }
 bool resource_version_matches(const ResourceVersion *a, const ResourceVersion *b) {
@@ -112,17 +121,21 @@ const ResourceStoreImplementation g_file_impl = {.find_resource = file_find};
 
 static void setup(void) {
   memset(bank, 0xff, 0x100000);
+  test_resource_version = (ResourceVersion){pbl_crc32_legacy("abcdefgh", 8), 42};
   *manifest() = (ResourceManifest){.num_resources = 2, .version = SYSTEM_RESOURCE_VERSION};
   *table(0) = (ResTableEntry){1, 0, 4, 0xaabbccdd};
   *table(1) = (ResTableEntry){2, 4, 4, 0xaabbccdd};
   memcpy(bank + SYSTEM_STORE_METADATA_BYTES, "abcdefgh", 8);
+  table(0)->crc = pbl_crc32_legacy("abcd", 4);
+  table(1)->crc = pbl_crc32_legacy("efgh", 4);
   reads = read_bytes = crcs = 0;
 }
-static void init_expect(bool valid, unsigned expected_reads) {
+static void init_expect(bool valid, unsigned expected_crcs) {
   resource_storage_init();
-  assert(reads == expected_reads);
-  assert(read_bytes <= MANIFEST_SIZE + TABLE_ENTRY_SIZE);
-  assert(crcs == 0); // Boot never scans payload or computes a full-pack CRC.
+  assert(crcs == expected_crcs);
+  if (expected_crcs) {
+    assert(crc_address == base + SYSTEM_STORE_METADATA_BYTES);
+  }
   assert(resource_storage_check(SYSTEM_APP, 0, &SYSTEM_RESOURCE_VERSION) == valid);
 }
 int main(void) {
@@ -134,29 +147,39 @@ int main(void) {
     init_expect(false, 0); // Truncated manifest/table geometry: no mapped access.
     return 0;
   }
-  init_expect(true, 2);
+  init_expect(true, 1);
   assert(clears == 1);
-  assert(resource_storage_flash_get_unused_bank()->begin == base);
-  assert(resource_storage_flash_get_unused_bank()->end == base + TEST_BANK_SIZE);
+  assert(resource_storage_flash_get_unused_bank() == NULL);
+  g_system_bank_impl.clear(NULL); // An immutable bank is never cleared.
+  assert(manifest()->num_resources == 2);
   // Timestamp remains informational, matching stock resource_version_matches.
-  setup(); manifest()->version.timestamp++; init_expect(true, 2);
-  setup(); manifest()->version.crc++; init_expect(false, 1);
-  setup(); manifest()->num_resources = 0; init_expect(true, 1);
+  setup(); manifest()->version.timestamp++; init_expect(true, 1);
+  setup(); manifest()->version.crc++; init_expect(false, 0);
+  setup(); manifest()->num_resources = 0; init_expect(true, 0);
   setup(); manifest()->num_resources = MAX_RESOURCES_FOR_SYSTEM_STORE + 1;
-  init_expect(false, 1);
-  setup(); manifest()->num_resources = UINT32_MAX; init_expect(false, 1);
-  setup(); table(1)->resource_id = 3; init_expect(false, 2);
+  init_expect(false, 0);
+  setup(); manifest()->num_resources = UINT32_MAX; init_expect(false, 0);
+  setup(); table(1)->resource_id = 3; init_expect(false, 0);
   setup(); table(1)->offset = UINT32_MAX - 1; table(1)->length = 8;
-  init_expect(false, 2);
+  init_expect(false, 0);
   setup(); table(1)->offset = TEST_BANK_SIZE - (uint32_t)SYSTEM_STORE_METADATA_BYTES;
-  table(1)->length = 1; init_expect(false, 2);
+  table(1)->length = 1; init_expect(false, 0);
   setup(); table(1)->offset = TEST_BANK_SIZE - (uint32_t)SYSTEM_STORE_METADATA_BYTES - 4;
-  table(1)->length = 4; init_expect(true, 2); // Exact data end is valid.
+  table(1)->length = 4;
+  test_resource_version.crc = pbl_crc32_legacy(bank + SYSTEM_STORE_METADATA_BYTES,
+                                            TEST_BANK_SIZE - SYSTEM_STORE_METADATA_BYTES);
+  manifest()->version = test_resource_version;
+  init_expect(true, 1); // Exact bank end is valid with the correct full CRC.
   setup(); manifest()->num_resources = MAX_RESOURCES_FOR_SYSTEM_STORE;
-  *table(MAX_RESOURCES_FOR_SYSTEM_STORE - 1) =
-      (ResTableEntry){MAX_RESOURCES_FOR_SYSTEM_STORE, 4, 4, 0xaabbccdd};
-  init_expect(true, 2); // Maximum table still costs just two metadata reads.
-  setup(); init_expect(true, 2);
+  for (unsigned i = 0; i < MAX_RESOURCES_FOR_SYSTEM_STORE; ++i)
+    *table(i) = (ResTableEntry){i + 1, 4, 4, 0};
+  init_expect(true, 1); // Entire maximum-size table is checked before full CRC.
+  setup(); table(0)->resource_id = 7; init_expect(false, 0);
+  setup(); table(0)->offset = UINT32_MAX; init_expect(false, 0);
+  setup(); table(0)->offset = 7; table(0)->length = 2; init_expect(false, 0);
+  setup(); bank[SYSTEM_STORE_METADATA_BYTES + 2] ^= 1; init_expect(false, 2);
+  setup(); bank[SYSTEM_STORE_METADATA_BYTES + 6] ^= 1; init_expect(false, 2);
+  setup(); init_expect(true, 1);
   ResourceStoreEntry e;
   app_queries = builtin_queries = 0;
   resource_storage_get_resource(SYSTEM_APP, 1, &e);
@@ -176,7 +199,7 @@ int main(void) {
   assert(!resource_storage_flash_bytes_are_readonly((const void *)(uintptr_t)(base - 1)));
   assert(!resource_storage_flash_bytes_are_readonly((const void *)(uintptr_t)(base + TEST_BANK_SIZE)));
   assert(resource_storage_check(SYSTEM_APP, 1, &SYSTEM_RESOURCE_VERSION));
-  assert(crcs == 1 && crc_address == base + SYSTEM_STORE_METADATA_BYTES && crc_length == 4);
+  assert(crcs == 2 && crc_address == base + SYSTEM_STORE_METADATA_BYTES && crc_length == 4);
   table(0)->crc++; assert(!resource_storage_check(SYSTEM_APP, 1, &SYSTEM_RESOURCE_VERSION));
   resource_storage_get_resource(SYSTEM_APP, 3, &e); assert(e.impl == NULL);
   ResourceManifest am = {.num_resources = 1};
@@ -187,17 +210,39 @@ int main(void) {
   resource_storage_get_resource(42, 1, &e);
   assert(e.impl == &g_app_file_impl && app_queries == 1 && builtin_queries == 0);
   assert(resource_storage_read(&e, 0, out, 4) == 4 && memcmp(out, "face", 4) == 0);
-  setup(); manifest()->version.crc++; init_expect(false, 1);
+  setup(); manifest()->version.crc++; init_expect(false, 0);
   resource_storage_get_resource(SYSTEM_APP, 1, &e); assert(e.impl == NULL);
   resource_storage_get_resource(42, 1, &e); assert(e.impl == &g_app_file_impl);
-  puts("bounded boot metadata, CRC delegation, mapped reads and app/system routing passed");
+  puts("full boot CRC, bounded tables, immutable bank and resource routing passed");
+  return 0;
+}
+'''
+
+
+STOCK_HARNESS = HARNESS.split("static void init_expect")[0] + r'''
+int main(void) {
+  bank = mmap((void *)(uintptr_t)base, 0x100000, PROT_READ | PROT_WRITE,
+              MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
+  assert(bank == (void *)(uintptr_t)base);
+  setup();
+  resource_storage_init();
+  assert(resource_storage_check(SYSTEM_APP, 0, &SYSTEM_RESOURCE_VERSION));
+  assert(crcs == 1 && crc_length == 8);
+  const SystemResourceBank *unused = resource_storage_flash_get_unused_bank();
+  assert(unused && unused->begin == FLASH_REGION_SYSTEM_RESOURCES_BANK_1_BEGIN);
+  assert(unused->end == FLASH_REGION_SYSTEM_RESOURCES_BANK_1_END);
+  ResourceStoreEntry entry;
+  resource_storage_get_resource(SYSTEM_APP, 1, &entry);
+  char out[4];
+  assert(resource_storage_read(&entry, 0, out, sizeof(out)) == sizeof(out));
+  assert(!memcmp(out, "abcd", sizeof(out)));
   return 0;
 }
 '''
 
 
 class T5ResourcesTest(unittest.TestCase):
-    def compile_and_run(self, *defines):
+    def compile_and_run(self, *defines, stock=False):
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)
             for name, content in STUBS.items():
@@ -205,17 +250,22 @@ class T5ResourcesTest(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text('#pragma once\n' + content)
             harness = directory / 'test.c'
-            harness.write_text(HARNESS)
+            harness.write_text(STOCK_HARNESS if stock else HARNESS)
             binary = directory / 'test'
             subprocess.run([
                 'cc', '-std=gnu2x', '-Wall', '-Wextra', '-Werror',
                 '-Wno-unused-parameter', '-DCONFIG_SOC_T5AI=1', '-Dmemcpy=tracked_memcpy',
                 '-DTEST_BANK_SIZE=0x100000u', *defines,
-                '-I', str(directory), '-I', str(ROOT / 'fw'),
-                str(harness), str(ROOT / 'soc/t5ai/resource_storage.c'),
-                str(ROOT / 'fw/resource/resource_storage.c'), '-o', str(binary),
+                '-I', str(directory), '-I', str(ROOT / 'fw'), '-I', str(ROOT / 'include'),
+                str(harness), str(ROOT / ('fw/resource/resource_storage_flash.c' if stock
+                                         else 'soc/t5ai/resource_storage.c')),
+                str(ROOT / 'fw/resource/resource_storage.c'),
+                str(ROOT / 'subsys/crc/crc32_legacy.c'), '-o', str(binary),
             ], check=True)
             subprocess.run([str(binary)], check=True)
+
+    def test_stock_backend_keeps_spare_bank(self):
+        self.compile_and_run(stock=True)
 
     def test_mapped_backend_and_routing(self):
         self.compile_and_run('-DCONFIG_MMAP_RESOURCES=1')

@@ -281,9 +281,10 @@ static void handle_deinit(void) {
 }
 
 static void s_main(void) {
-  if (resource_storage_flash_get_unused_bank()->begin == s_flash_regions[0].begin) {
+  const SystemResourceBank *bank = resource_storage_flash_get_unused_bank();
+  if (bank && bank->begin == s_flash_regions[0].begin) {
     s_flash_regions[0].name = "Unused Resources";
-  } else {
+  } else if (bank) {
     s_flash_regions[1].name = "Unused Resources";
   }
 

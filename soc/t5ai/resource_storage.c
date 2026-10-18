@@ -1,15 +1,15 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include "pbl/services/process_management/app_storage.h"
 #include "resource/resource_storage_flash.h"
 #include "resource/resource_storage_impl.h"
 #include "resource/resource_version.auto.h"
-
-#include <pbl/drivers/flash.h>
-#include <pbl/logging/logging.h>
-#include "pbl/services/process_management/app_storage.h"
 #include "system/bootbits.h"
 
 #include <string.h>
+
+#include <pbl/drivers/flash.h>
+#include <pbl/logging/logging.h>
 
 static const SystemResourceBank s_bank = {
   .begin = FLASH_REGION_SYSTEM_RESOURCES_BANK_0_BEGIN,
@@ -40,27 +40,42 @@ static bool prv_metadata_valid(const ResourceVersion *expected_version) {
   const uint32_t last_entry_address =
       s_bank.begin + MANIFEST_SIZE + (manifest.num_resources - 1u) * TABLE_ENTRY_SIZE;
   memcpy(&last_entry, (const void *)(uintptr_t)last_entry_address, sizeof(last_entry));
-
-  const uint32_t resource_end = last_entry.offset + last_entry.length;
-  return last_entry.resource_id == manifest.num_resources && resource_end >= last_entry.offset &&
-         resource_end <= bank_size - SYSTEM_STORE_METADATA_BYTES;
+  const uint32_t capacity = bank_size - SYSTEM_STORE_METADATA_BYTES;
+  if (last_entry.offset > capacity || last_entry.length > capacity - last_entry.offset) {
+    return false;
+  }
+  const uint32_t payload_size = last_entry.offset + last_entry.length;
+  for (uint32_t i = 0; i < manifest.num_resources; ++i) {
+    ResTableEntry table_entry;
+    const uint32_t address = s_bank.begin + MANIFEST_SIZE + i * TABLE_ENTRY_SIZE;
+    memcpy(&table_entry, (const void *)(uintptr_t)address, sizeof(table_entry));
+    if (table_entry.resource_id != i + 1 || table_entry.offset > payload_size ||
+        table_entry.length > payload_size - table_entry.offset) {
+      return false;
+    }
+  }
+  return true;
 }
 
 static void prv_init(void) {
   boot_bit_clear(BOOT_BIT_NEW_SYSTEM_RESOURCES_AVAILABLE);
-  // Immutable resources are flashed with matching firmware. Check bounded metadata at boot;
-  // individual resource CRCs are still checked on access by the generic implementation.
-  s_valid_resources_found = prv_metadata_valid(&SYSTEM_RESOURCE_VERSION);
+  ResourceStoreEntry entry = {
+    .id = 0,
+    .impl = &g_system_bank_impl,
+    .length = s_bank.end - s_bank.begin,
+  };
+  s_valid_resources_found =
+      prv_metadata_valid(&SYSTEM_RESOURCE_VERSION) &&
+      resource_storage_generic_check(SYSTEM_APP, 0, &entry, &SYSTEM_RESOURCE_VERSION);
   if (s_valid_resources_found) {
     PBL_LOG_INFO("Valid system resources found!");
   } else {
-    PBL_LOG_WRN("Invalid system resource metadata");
+    PBL_LOG_WRN("Invalid system resources");
   }
 }
 
 const SystemResourceBank *resource_storage_flash_get_unused_bank(void) {
-  // Preserve the single-bank interface; update entry points remain disabled on T5.
-  return &s_bank;
+  return NULL;
 }
 
 static uint32_t prv_metadata_size(ResourceStoreEntry *entry) {
@@ -68,11 +83,20 @@ static uint32_t prv_metadata_size(ResourceStoreEntry *entry) {
 }
 
 static uint32_t prv_get_crc(ResourceStoreEntry *entry, uint32_t num_bytes, uint32_t entry_offset) {
-  const uint32_t start_offset = resource_store_get_metadata_size(entry) + entry_offset;
-  return flash_crc32_legacy(s_bank.begin + start_offset, num_bytes);
+  const uint32_t capacity = s_bank.end - s_bank.begin;
+  const uint32_t metadata = resource_store_get_metadata_size(entry);
+  if (metadata > capacity || entry_offset > capacity - metadata ||
+      num_bytes > capacity - metadata - entry_offset) {
+    return UINT32_MAX;
+  }
+  return flash_crc32_legacy(s_bank.begin + metadata + entry_offset, num_bytes);
 }
 
 static uint32_t prv_read(ResourceStoreEntry *entry, uint32_t offset, void *data, size_t num_bytes) {
+  const uint32_t capacity = s_bank.end - s_bank.begin;
+  if (offset > capacity || num_bytes > capacity - offset) {
+    return 0;
+  }
   flash_read_bytes(data, s_bank.begin + offset, num_bytes);
   return num_bytes;
 }
@@ -96,8 +120,7 @@ static const uint8_t *prv_readonly_bytes(ResourceStoreEntry *entry, bool has_pri
 }
 
 static void prv_clear(ResourceStoreEntry *entry) {
-  uint8_t buffer[MANIFEST_SIZE] = {0};
-  flash_write_bytes(buffer, s_bank.begin, MANIFEST_SIZE);
+  PBL_LOG_WRN("Cannot clear immutable system resources");
 }
 
 bool resource_storage_system_bank_check(ResAppNum app_num, uint32_t resource_id,

@@ -15,7 +15,7 @@ typedef struct SystemResourceBank {
 } SystemResourceBank;
 
 //! Get the extents of a resource storage bank which is not currently in use by
-//! the system.
+//! the system. Returns NULL when no update bank is available.
 // TODO PBL-21009: Move this somewhere else.
 const SystemResourceBank *resource_storage_flash_get_unused_bank(void);
 
