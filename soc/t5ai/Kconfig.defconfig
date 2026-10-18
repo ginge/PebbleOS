@@ -14,10 +14,6 @@ config NUM_IRQ_PRIO_BITS
 config NUM_IRQS
     default 64
 
-config BT_GATT_DISCOVERY_LEASE_SECONDS
-    # Keep the existing T5AI lease for gateways with large GATT databases.
-    default 120
-
 choice BT_HCI
     default BT_HCI_T5AI
 endchoice

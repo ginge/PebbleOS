@@ -14,6 +14,7 @@ import kconfiglib
 ROOT = Path(__file__).resolve().parents[2]
 SCENARIOS = (
     "incremental",
+    "large-database",
     "empty-services",
     "no-services",
     "all-empty",
@@ -114,11 +115,11 @@ class NimbleDiscoveryTest(unittest.TestCase):
                     with self.subTest(lease=lease, scenario=scenario):
                         subprocess.run([str(binary), scenario], check=True, timeout=10)
 
-    def test_lease_defaults_preserve_stock_and_t5ai_policy(self):
+    def test_lease_defaults_use_stock_policy(self):
         for board, revision, expected in (
             ("qemu_gabbro", "_", 0),
             ("getafix", "dvt2", 0),
-            ("unhygienix", "_", 120),
+            ("unhygienix", "_", 0),
         ):
             with (
                 self.subTest(board=board),

@@ -421,11 +421,16 @@ Connection-validity checks and the existing queued-operation/error/cancellation
 paths remain in the shared engine; an immediate subscription-write failure
 also releases its callback context.
 
-`CONFIG_BT_GATT_DISCOVERY_LEASE_SECONDS` retains the 120-second T5AI response-time
-lease override when a range is queued. Other SoCs default to zero, retaining the
-firmware's existing lease policy. Successful discovery still applies the common
-10-second tail. This is a connection-responsiveness policy, not a longer ATT
-procedure timeout. No alternate T5AI discovery implementation remains.
+The T5AI 120-second `CONFIG_BT_GATT_DISCOVERY_LEASE_SECONDS` default override
+was removed on 2026-10-18. T5AI now inherits stock zero, retaining the firmware's
+normal response-time lease policy; successful discovery still applies the common
+10-second tail. This setting controls connection responsiveness, independently
+of the ATT procedure timeout. The SDK compatibility cache remains enabled and
+display profiling remains disabled. No alternate T5AI discovery implementation
+remains. The full-source host harness now also covers a database of 24 services,
+96 characteristics and 288 descriptors under both zero and 120-second settings.
+Device comparison and qualification limits are recorded in
+[the lease comparison report](/home/baz/Documents/ChatGPT/pebble/artifacts/gatt-lease-zero-20261018/report.md).
 
 The full-source host harness exercises stock and T5AI lease settings with
 allocation accounting and AddressSanitizer/UndefinedBehaviorSanitizer. The

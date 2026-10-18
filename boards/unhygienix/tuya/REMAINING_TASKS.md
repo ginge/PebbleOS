@@ -155,10 +155,10 @@ No capture remains from the latest GATT test. Merge readiness remains unqualifie
 
    - Remove the disabled pixel fast path, unrelated Getafix full-frame
      compositor override and unrelated utility or cosmetic changes. Separate independently useful improvements from the port.
-   - Compare current firmware with the SDK compatibility cache disabled and the
-     GATT discovery lease override set to stock zero, in separate candidates.
-     Remove successful exceptions and their build glue; investigate underlying
-     costs rather than retaining historical workarounds indefinitely.
+   - SDK compatibility-cache benchmarking is deferred by the operator as of
+     2026-10-18. The T5AI GATT discovery lease override is removed; stock zero
+     is inherited without a build override. Keep its broader device qualification
+     and later real connection-parameter negotiation checks separate.
    - Remeasure stock full-pack validation before accepting reduced integrity
      checks. PFS system-file routing and watch/unwatch are restored as recorded
      below; qualify language/font changes on the device. Preserve the physical
@@ -189,6 +189,23 @@ No capture remains from the latest GATT test. Merge readiness remains unqualifie
    The dated progress records below are history, not outstanding instructions;
    the current review identifies work already completed. Merge readiness remains
    unqualified.
+
+   Progress — 2026-10-18 (GATT discovery lease, audit item 11): removed the
+   four-line T5AI 120-second default; stock zero now applies naturally. No
+   shared discovery implementation changed. SDK compatibility caching remains
+   enabled; display profiling is off and pixel-path removal is deferred.
+   The actual-source discovery harness passes 21 scenarios under each lease
+   setting (42 runs), including a new 24-service/96-characteristic/288-descriptor
+   case with incremental release and final allocation accounting. QEMU Gabbro,
+   Getafix DVT2 and Unhygienix configuration checks all select stock zero.
+   Firmware builds/packages with the default inherited, without an explicit
+   lease override. An AP-only trial restored the encrypted phone bond/session
+   and completed discovery in 4,001 ms. It also reproduced the existing
+   KernelBG/FdF Time watchdog stall and recovery; this is not clean stability
+   qualification. Final image, reconnect evidence and qualification limits:
+   `/home/baz/Documents/ChatGPT/pebble/artifacts/gatt-lease-zero-20261018/report.md`.
+   Large-database hardware, cold power-cycle, sustained soak and a repeat after
+   restoring actual controller negotiation remain open.
 
    Progress — 2026-10-18 (native kernel objects, audit item 7): removed the
    allocating T5AI kernel adapter. Mailbox, heartbeat, HCI, battery and touch

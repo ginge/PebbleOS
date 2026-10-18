@@ -271,6 +271,46 @@ int main(int argc, char **argv) {
     terminal(BLE_HS_EDONE);
     assert(!completed_error);
     check_done(2, 1);
+  } else if (!strcmp(test, "large-database")) {
+    // Exercise a larger database and incremental node release under both lease policies.
+    enum {
+      SERVICE_COUNT = 24,
+      CHARS_PER_SERVICE = 4,
+      DESCS_PER_CHAR = 3
+    };
+    start();
+    for (unsigned i = 0; i < SERVICE_COUNT; ++i) {
+      uint16_t base = 1 + 40 * i;
+      service(base, base + 39, 0x180f);
+    }
+    terminal(BLE_HS_EDONE);
+    for (unsigned i = 0; i < SERVICE_COUNT; ++i) {
+      uint16_t base = 1 + 40 * i;
+      assert(pending.kind == CHR && pending.start == base && pending.end == base + 39);
+      for (unsigned j = 0; j < CHARS_PER_SERVICE; ++j)
+        characteristic(base + 1 + 8 * j, base + 2 + 8 * j, 0x2a19);
+      terminal(BLE_HS_EDONE);
+    }
+    for (unsigned i = 0; i < SERVICE_COUNT; ++i) {
+      uint16_t base = 1 + 40 * i;
+      for (unsigned j = 0; j < CHARS_PER_SERVICE; ++j) {
+        assert(pending.kind == DSC && pending.start == base + 1 + 8 * j);
+        for (unsigned k = 0; k < DESCS_PER_CHAR; ++k)
+          descriptor(base + 3 + 8 * j + k, 0x2901);
+        terminal(BLE_HS_EDONE);
+      }
+      assert(emitted == i + 1);
+      assert(services[i]->att_handle == base);
+      assert(services[i]->num_characteristics == CHARS_PER_SERVICE);
+      assert(services[i]->num_descriptors == CHARS_PER_SERVICE * DESCS_PER_CHAR);
+      if (i + 1 < SERVICE_COUNT) {
+        assert(!completions && !queue_done);
+        assert(list_count(((GATTServiceDiscoveryContext *)pending.arg)->services) ==
+               SERVICE_COUNT - i - 1);
+      }
+    }
+    assert(!completed_error);
+    check_done(SERVICE_COUNT, 1);
   } else if (!strcmp(test, "empty-services")) {
     start();
     service(1, 10, 1);
