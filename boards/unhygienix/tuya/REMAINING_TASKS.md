@@ -191,6 +191,54 @@ No capture remains from the latest GATT test. Merge readiness remains unqualifie
    the current review identifies work already completed. Merge readiness remains
    unqualified.
 
+   Device update — 2026-10-18 (splash RAM reclamation): AP-only flash
+   passed in 31.2 seconds; boot ID matches
+   `8f99cca0b42e77cf3b9a92edb10da9ea6cfd0991`. Launcher, bond/pairing and
+   phone protocol session pass; operator confirms normal splash/watchface,
+   phone connection, controls and sleep/wake. The 131.413-second capture
+   (including flash/pre-boot) received 16,651 UART bytes and is stopped.
+   Six post-boot KernelBG not-fed records and five recoveries remain with
+   FdF Time; no additional AP boot/assertion is decoded. Broader stability
+   and physical stack high-water qualification remain open. See the
+   RAM-reclamation report below for full evidence and limitations.
+
+   Progress — 2026-10-18 (splash RAM reclamation): splash stack and thread
+   object now share a temporary kernel-heap allocation, freed by the stopping
+   caller after the worker reaches DEAD. Failure paths release owned memory.
+   Thirty-eight focused checks and ARM build pass. Static internal RAM falls
+   from 101,888 B to 99,744 B (2,144 B recovered); flash rises 64 B and PSRAM
+   is unchanged. T5AI requests 2,195 B plus allocator overhead while the splash
+   runs. This follow-up is flashed as recorded above; broader stability/stack
+   qualification remains open. Evidence:
+   `/home/baz/Documents/ChatGPT/pebble/artifacts/splash-reclaim-20261018/report.md`.
+
+   Device update — 2026-10-18 (stock splash candidate): operator authorized
+   AP-only flash of frozen build `d722d45420f10eb5efd6c8a15422d4118e2f15f1`.
+   Flash passed in 31.0 seconds; exact physical range `0x132000..0x2d1414`
+   preserves CP, resources and PFS. Boot identity matches; pairing completed and
+   the phone protocol session opened. The 180.381-second capture received 21,119
+   UART bytes and is stopped. It contains seven KernelBG not-fed records and
+   seven recovery records during FdF Time, plus filesystem/app-event/pindb and
+   advertising-start warnings. This previously recorded symptom remains unresolved;
+   no additional AP boot is decoded. This is not clean stability qualification.
+   Splash/colors/control/sleep-wake operator confirmation is pending. Full raw,
+   CRC-validated replay and warnings are retained in the proposal's `flash/` evidence.
+
+   Proposal — 2026-10-18 (stock boot splash, audit item 18): implemented in
+   the working tree for operator review; subsequently flashed as recorded above. The stock
+   rendering/animation service uses a small deferred-start/buffer-provider seam.
+   The T5AI adapter borrows the existing compositor PSRAM pixel array after board
+   validation, releases it through the final frame before compositor_init(), and
+   cancels requests stopped before readiness. Main/compositor are unchanged.
+   The local boot-frame transfer now locks the panel and accepts ARGB2222 without
+   inversion. A shared failure-path fix releases the buffer if thread creation
+   fails. Thirty-eight focused checks pass; ARM firmware builds/packages. Flash
+   increases by 608 B and static internal RAM by 1,920 B to 101,888 B; PSRAM remains
+   118,272 B. The stock task reserves a 2,048-byte stack. Physical startup/visual,
+   stack/headroom and scheduling checks remain open. Preserve the prior static
+   implementation as the committed baseline until the operator reviews the diff.
+   Evidence: `/home/baz/Documents/ChatGPT/pebble/artifacts/stock-splash-proposal-20261018/report.md`.
+
    Progress — 2026-10-18 (unsupported update capabilities): shared firmware,
    PRF and PutBytes update guards now use explicit firmware/recovery/system-resource
    update capabilities instead of SoC identity. T5AI defaults all three off while

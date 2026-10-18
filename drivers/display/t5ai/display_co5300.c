@@ -899,21 +899,27 @@ bool display_update_in_progress(void) {
 }
 
 void display_update_boot_frame(uint8_t *framebuffer) {
-  if (!s_initialized || framebuffer == NULL) {
+  if (framebuffer == NULL) {
     return;
+  }
+  pbl_mutex_lock(&s_panel_mutex, PBL_FOREVER);
+  if (!s_initialized) {
+    goto done;
   }
   if (!prv_set_window(PANEL_X_OFFSET, 0u, PANEL_X_OFFSET + PANEL_WIDTH - 1u,
                       PANEL_HEIGHT - 1u) ||
       !prv_pixel_stream_begin()) {
-    return;
+    goto done;
   }
   size_t aperture_word = 0u;
   for (uint16_t y = 0; y < PBL_DISPLAY_HEIGHT; ++y) {
     if (!prv_stream_logical_row(y, framebuffer + y * PBL_DISPLAY_WIDTH, &aperture_word,
-                                false, true)) {
+                                false, false)) {
       break;
     }
   }
   (void)prv_finish_row_dma(&aperture_word);
   prv_pixel_stream_end();
+done:
+  pbl_mutex_unlock(&s_panel_mutex);
 }

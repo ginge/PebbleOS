@@ -5,3 +5,14 @@ config SERVICE_BOOT_SPLASH
     bool "Boot splash"
     help
       Boot splash screen service.
+
+config BOOT_SPLASH_CUSTOM_PLATFORM
+    bool
+    help
+      Platform supplies deferred startup and framebuffer allocation hooks.
+
+config BOOT_SPLASH_ARGB2222
+    bool
+    default y if QEMU || SOC_POSIX
+    help
+      The display boot-frame interface accepts ARGB2222 rather than RGB332.

@@ -5,7 +5,8 @@
 #include <pbl/kernel/thread.h>
 #include <pbl/services/boot_splash.h>
 
-#if defined(CONFIG_PBLBOOT) || defined(CONFIG_QEMU) || defined(CONFIG_SOC_POSIX)
+#if defined(CONFIG_PBLBOOT) || defined(CONFIG_QEMU) || defined(CONFIG_SOC_POSIX) || \
+    defined(CONFIG_BOOT_SPLASH_CUSTOM_PLATFORM)
 
 #include <string.h>
 
@@ -13,11 +14,11 @@
 
 #include <board/display.h>
 #include <board/splash.h>
-#include <kernel/pbl_malloc.h>
+#include <pbl/services/boot_splash/platform.h>
 
 // Platform-specific colors: PebbleOS uses ARGB2222 (GColor8), not raw RGB332
-#if defined(CONFIG_QEMU) || defined(CONFIG_SOC_POSIX)
-// QEMU and native displays render ARGB2222
+#ifdef CONFIG_BOOT_SPLASH_ARGB2222
+// Displays whose boot-frame interface accepts ARGB2222
 #define SPLASH_COLOR_WHITE 0xFF // A=3, R=3, G=3, B=3
 #define SPLASH_COLOR_BLACK 0xC0 // A=3, R=0, G=0, B=0
 #define SPLASH_COLOR_LGRAY 0xEA // A=3, R=2, G=2, B=2
@@ -138,18 +139,22 @@ static void prv_boot_splash_task(void *param) {
   }
 
   // Cleanup
-  kernel_free(fb);
+  boot_splash_platform_free(fb);
   s_boot_splash_fb = nullptr;
   s_boot_splash_task = nullptr;
   pbl_thread_abort(nullptr);
 }
 
 void boot_splash_start(void) {
+  if (boot_splash_platform_defer_start()) {
+    return;
+  }
+
   // Initialize the display
   display_init();
 
   // Allocate framebuffer for boot splash
-  s_boot_splash_fb = kernel_malloc(BOOT_SPLASH_FB_BYTES);
+  s_boot_splash_fb = boot_splash_platform_alloc(BOOT_SPLASH_FB_BYTES);
   if (!s_boot_splash_fb) {
     return;
   }
@@ -166,10 +171,15 @@ void boot_splash_start(void) {
   };
   if (pbl_thread_create(&s_boot_splash_thread, &attr) == 0) {
     s_boot_splash_task = &s_boot_splash_thread;
+  } else {
+    s_boot_splash_running = false;
+    boot_splash_platform_free(s_boot_splash_fb);
+    s_boot_splash_fb = nullptr;
   }
 }
 
 void boot_splash_stop(void) {
+  boot_splash_platform_cancel_start();
   if (s_boot_splash_running && s_boot_splash_task != nullptr) {
     s_boot_splash_running = false;
     // Wait for the splash task to finish (max ~10ms delay due to short sleep intervals)
@@ -178,7 +188,7 @@ void boot_splash_stop(void) {
     }
 
     // Draw final frame with logo only (no progress bar)
-    uint8_t *fb = kernel_malloc(BOOT_SPLASH_FB_BYTES);
+    uint8_t *fb = boot_splash_platform_alloc(BOOT_SPLASH_FB_BYTES);
     if (fb) {
       memset(fb, SPLASH_COLOR_WHITE, BOOT_SPLASH_FB_BYTES);
 
@@ -201,7 +211,7 @@ void boot_splash_stop(void) {
       }
 
       display_update_boot_frame(fb);
-      kernel_free(fb);
+      boot_splash_platform_free(fb);
     }
   }
 }

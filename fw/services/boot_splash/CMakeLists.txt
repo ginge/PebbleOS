@@ -2,8 +2,5 @@
 # SPDX-License-Identifier: Apache-2.0
 
 pbl_library()
-if(CONFIG_SOC_T5AI)
-  pbl_library_sources(service_t5ai.c)
-else()
-  pbl_library_sources(service.c)
-endif()
+pbl_library_sources(service.c)
+pbl_library_sources_ifdef(CONFIG_SOC_T5AI service_t5ai.c)

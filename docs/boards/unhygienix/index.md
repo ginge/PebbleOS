@@ -15,9 +15,12 @@ bundles, bulk erase and unsupported raw-flash operations remain disabled.
 
 ## Hardware add-on and case design
 
-See the [hardware and enclosure brief](hardware-addon-design.md) for the proposed
+Canonical hardware docs, PDFs, generators, references and future CAD live in
+[`boards/unhygienix/hardware/`](../../../boards/unhygienix/hardware/README.md).
+
+See the [hardware and enclosure brief](../../../boards/unhygienix/hardware/docs/hardware-addon-design.md) for the proposed
 BOM, battery choices, provisional clearances and unresolved fit requirements.
-Use the [case-design handoff prompt](case-design-handoff.md) to continue enclosure
+Use the [case-design handoff prompt](../../../boards/unhygienix/hardware/docs/case-design-handoff.md) to continue enclosure
 work. These documents describe a preliminary design, not verified hardware.
 
 ## Latest implementation status — 2026-10-18

@@ -10,6 +10,11 @@ config RECOVERY_UPDATE_SUPPORTED
 config SYSTEM_RESOURCE_UPDATE_SUPPORTED
     default n
 
+config BOOT_SPLASH_CUSTOM_PLATFORM
+    default y
+config BOOT_SPLASH_ARGB2222
+    default y
+
 config KERNEL_TICK_HZ
     default 1000
 
