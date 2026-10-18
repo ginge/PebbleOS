@@ -33,7 +33,6 @@ struct pbl_qmi8658_state {
   struct pbl_sem poll_signal;
   struct pbl_mutex io_lock;
   uint8_t poll_stack[1536] PBL_ALIGNED(CONFIG_KERNEL_STACK_ALIGN);
-#ifndef CONFIG_T5AI_QMI8658_LEGACY
   uint8_t watermark;
   uint8_t odr;
   bool irq_armed;
@@ -52,9 +51,6 @@ struct pbl_qmi8658_state {
   bool counter_valid;
   bool command_idle;
   bool recovery_required;
-#else
-  AccelDriverSample pending_sample;
-#endif
 #ifdef CONFIG_T5AI_QMI8658_PROFILE
   bool test_precheck;
   TimerID test_timer;

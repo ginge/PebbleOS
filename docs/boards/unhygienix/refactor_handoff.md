@@ -3,7 +3,7 @@
 Current-status update — 2026-10-17: this is a historical investigation and
 refactor record. Use the [operator handoff](index.md#latest-implementation-status--2026-10-17)
 for the latest recorded flash/configuration and the
-[remaining-work list](../../../boards/unhygienix/tuya/REMAINING_TASKS.md#current-disposition--2026-10-17)
+[remaining-work list](../../../boards/unhygienix/tuya/REMAINING_TASKS.md#current-disposition--2026-10-18)
 for current scope. The upstream merge/driver API adaptation, restored stock
 resource-bank condition and shared GATT engine supersede the corresponding
 older extraction plans and source paths below. The October 17 GATT smoke test
@@ -2299,10 +2299,11 @@ build. See the stale board-test exceptions above.
 Canonical build: `pbl configure --board unhygienix`, then `pbl build`.
 This host's working build directory is `build-cmake`; its bundled tools are
 `/tmp/pebbleos-merge-gitlint/bin/ninja` and `.../ctest`. Native tests are in
-`/tmp/pebble-wrapper-tests`; use `CCACHE_DISABLE=1` there. Actual-source tests:
+`/tmp/pebble-wrapper-tests`; use `CCACHE_DISABLE=1` there. Current equivalent
+actual-source tests (the legacy QMI suite was retired on 2026-10-18):
 
 ```sh
-python3 -m unittest tools.tests.test_t5ai_qmi8658 tools.tests.test_t5ai_state_trace tools.tests.test_t5ai_flash_completion tools.tests.test_t5ai_dbgserial -v
+python3 -m unittest tools.tests.test_t5ai_qmi8658_fifo tools.tests.test_t5ai_state_trace tools.tests.test_t5ai_flash_completion tools.tests.test_t5ai_dbgserial -v
 ```
 
 For each refactor slice, inspect current source/diff, make one scoped change,

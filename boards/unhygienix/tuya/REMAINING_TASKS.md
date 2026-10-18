@@ -4,12 +4,15 @@ The [operator handoff](../../../docs/boards/unhygienix/index.md) records current
 support and implementation gaps. The [tooling guide](../../../docs/boards/unhygienix/tooling.md)
 records dependency, build, packaging and flash procedures.
 
-## Current disposition — 2026-10-17
+## Current disposition — 2026-10-18
 
-The October 14 audit below remains the checklist; completed work must not be
-repeated merely because its original action still appears in the audit scope.
-Current committed source is `ab3616d5e` after upstream merge `9b6537971` and
-driver API adaptation `a53522389`.
+The [2026-10-18 stock convergence review](/home/baz/Documents/ChatGPT/pebble/audits/2026-10-18-stock-convergence/review.md)
+is the active cleanup checklist and supersedes earlier audit dispositions.
+Reassess retained divergences against current source and stock behavior; historical
+justifications do not establish a continuing requirement. Completed work must not
+be repeated merely because it appears in older progress records.
+Current committed source reviewed is `ecf82bce8`, compared with the already merged
+local `origin/main` at `b3a2dcb88`; the review did not fetch upstream.
 
 - Completed: QEMU metadata/unused override cleanup, diagnostic flag exclusions,
   tool regression repair/reference staging, alternate syscall-header removal,
@@ -21,7 +24,7 @@ driver API adaptation `a53522389`.
   confirmed responsiveness; the 141-second post-flash interval contained no
   later boot or watchdog expiry. This does not close install, cold-boot,
   reconnect-cycle or soak qualification. Exact evidence is linked below.
-- In progress, uncommitted: normal T5AI firmware selects the existing normal
+- Completed and committed: normal T5AI firmware selects the existing normal
   Bluetooth backend; recovery keeps PRF. The SoC selection exception and temporary
   evaluation switch are removed. Three native persistence suites pass (17 cases).
   The normal-backend evaluation image built/packaged successfully; its initial
@@ -40,46 +43,70 @@ Latest recorded installed image and configuration are summarized in the
 [operator handoff](../../../docs/boards/unhygienix/index.md#latest-implementation-status--2026-10-17).
 No capture remains from the latest GATT test. Merge readiness remains unqualified.
 
-## Next priorities — 2026-10-14
+<a id="next-priorities--2026-10-14"></a>
 
-1. **Top priority: upstream divergence cleanup and readiness to merge to main.**
-   Use the [2026-10-14 source audit](/home/baz/Documents/ChatGPT/pebble/audits/2026-10-14-pebbleos/audit.md)
-   and its [complete file inventory](/home/baz/Documents/ChatGPT/pebble/audits/2026-10-14-pebbleos/file-inventory.md)
-   as the cleanup checklist before proposing the port for merge to `main` or
-   sending its general fixes upstream. These are local audit artifacts; preserve
-   or attach them with the merge review so reviewers can access the evidence.
-   The audit compares `tuya` at `fbdf1220a` plus the recorded working-tree changes
-   with fork point `a2120e2ae` and fetched upstream `main` at `fc89e16b2`.
-   It accounts for 381 changed or untracked files; refresh the comparison as
-   code and upstream advance. This TODO does not establish merge readiness.
+## Next priorities — 2026-10-18
 
-   - Restore stock QEMU board metadata and remove unused revision-override
-     plumbing; fix allowed diagnostic combinations with duplicate linker wrappers.
-   - Repair regression tests that still assume the retired FreeRTOS port and
-     archive or repair the obsolete standalone Tuya reference build path.
-   - Consolidate duplicated stock logic, especially GATT discovery. Reassess
-     the PRF Bluetooth persistence selection and separate development-only
-     product behavior from hardware requirements. Follow each inventory verdict;
-     retain documented exceptions until their behavior is safely preserved.
-   - Remove unused alternate syscall ABI code and unjustified shared edits;
-     share redundant assets where supported. Track removal of the temporary
-     SDK compatibility cache under its existing TODO below.
-   - Prepare general correctness fixes as separate upstream tasks/patches:
-     PULSE framing, bounds and transport lifetime; logging progress; accelerometer
-     enqueue-result propagation; watchdog runnable-waiter accounting; KernelBG
-     recovery; serial teardown; and MPU correctness. Reconcile the watchdog
-     grace-period fix already present upstream and the upstream MPU relocation
-     rather than carrying obsolete copies or submitting duplicate fixes.
-   - Close or explicitly resolve every audit finding, record justification for
-     each retained divergence, and rerun relevant tests and stock-board/QEMU
-     checks. Qualify the resulting watch firmware with install/launch,
-     reconnect cycles, cold-boot bond restoration and connected-idle soak before
-     marking the cleanup ready for merge review. Preserve first-failure evidence.
+1. **Top priority: stock convergence and readiness to merge to main.**
+   Follow the [2026-10-18 stock convergence review](/home/baz/Documents/ChatGPT/pebble/audits/2026-10-18-stock-convergence/review.md)
+   for current decisions, implementation order and validation requirements. It
+   reviews `ecf82bce8` against local `origin/main` at `b3a2dcb88`. Preserve or attach
+   this local report with the merge review so reviewers can access its evidence.
+   The [October 14 audit](/home/baz/Documents/ChatGPT/pebble/audits/2026-10-14-pebbleos/audit.md)
+   and its file inventory are historical evidence only, not the active checklist
+   or authority for retaining exceptions.
 
-   Prefer existing stock interfaces and narrow board-/SoC-/driver-local adapters.
-   CMake-selected copies still require justification; avoid new logical forks
-   merely to keep common source text unchanged. Preserve CP/flash ownership,
-   PSRAM placement, display startup constraints and unsupported update gates.
+   - Remove the disabled pixel fast path, unrelated Getafix full-frame
+     compositor override and unrelated utility or cosmetic changes. Separate independently useful improvements from the port.
+   - Compare current firmware with the SDK compatibility cache disabled and the
+     GATT discovery lease override set to stock zero, in separate candidates.
+     Remove successful exceptions and their build glue; investigate underlying
+     costs rather than retaining historical workarounds indefinitely.
+   - Restore PFS-backed system-resource provisioning, routing and watch/unwatch
+     behavior deliberately: registering missing language files can break resource
+     lookup. Remeasure stock full-pack validation before accepting reduced
+     integrity checks. Preserve the physical single-bank layout and reject
+     unsupported resource updates.
+   - Test stock reconnect advertising transitions, then stock connection-parameter
+     negotiation, independently on the RF-corrected CP. Record actual parameters
+     and update completions. Retain only reproduced controller limitations at a
+     narrow boundary; replace the upper layer's unconditional local grants.
+   - Share ordinary boot-bit and reboot-record logic through small retained-storage
+     and reset hooks. Convert local driver allocations to native kernel objects,
+     make allocation/capability contracts explicit, and revalidate current RAM
+     budgets, compiler tuning and watchdog timing.
+   - Review general correctness changes independently and prepare separate
+     upstream patches for GATT lifetimes, PULSE framing/bounds/transport lifetime,
+     logging progress, pairing context lifetime, watchdog runnable-waiter
+     accounting, KernelBG recovery, serial teardown and MPU correctness. Do not
+     resubmit fixes already present in stock or assume each current fix is complete.
+   - Resolve every remaining finding with current evidence, then run relevant
+     tests and stock-board/QEMU checks. Qualify the combined watch firmware with
+     install/launch, 25 reconnect cycles, cold-boot bond/face restoration and
+     connected-idle soak before marking it ready for merge review. Preserve the
+     first complete failure trace.
+
+   Prefer stock interfaces and narrow board-/SoC-/driver-local implementations.
+   CP ownership, actual hardware interfaces, necessary PSRAM placement and
+   unsupported update rejection remain constraints; historical failures do not
+   justify keeping whole replacements when a smaller stock integration works.
+   The dated progress records below are history, not outstanding instructions;
+   the current review identifies work already completed. Merge readiness remains
+   unqualified.
+
+   Progress — 2026-10-18 (legacy accelerometer retirement): removed the periodic
+   QMI8658 driver, its Kconfig selector, conditional driver-state layout and
+   legacy-only tests. The interrupt/FIFO driver is now selected directly;
+   acquisition logic and normal sensor settings are unchanged. Shared test stubs
+   and disabled-mode coverage are retained in the interrupt/FIFO suite. Git
+   history and saved images retain historical rollback material. All 63 focused
+   driver/I2C/memory/board/kernel checks pass. Normal firmware builds/packages
+   successfully: flash 1,596,224 B, static RAM 97,280 B and display RAM 118,272 B,
+   unchanged from the prior shell-init candidate. Existing LTO warnings remain.
+   Candidate build ID: `6dc9f1c7e63c3eeb3fa5d926f35782f8f1126442`; source is
+   uncommitted and no image has been flashed. Evidence and matching images:
+   `/home/baz/Documents/ChatGPT/pebble/artifacts/retire-legacy-accel-20261018/`.
+   On-device animation, shake/wrist-to-wake and touch smoke checks remain open.
 
    Progress — 2026-10-17 (first cleanup batch, based on `75cdedff7`):
    restored `tools/boards.py` exactly to local `main`, including QEMU metadata
@@ -293,8 +320,9 @@ No capture remains from the latest GATT test. Merge readiness remains unqualifie
 
    The previous acquisition implementation iteration remains complete for now,
    closed at the operator’s request on 2026-10-14. Implemented driver-local interrupt-driven
-   acquisition, bounded sensor FIFO batching and combined register reads, with
-   the previous periodic implementation behind a legacy compile-time flag.
+   acquisition, bounded sensor FIFO batching and combined register reads.
+   The periodic comparison implementation and its legacy compile-time flag were
+   retired on 2026-10-18; historical measurements remain below.
    The I2C controller receive FIFO defaults on with a twelve-byte maximum;
    the four-byte cap and acquisition profiling default off. Shared Pebble code,
    task priorities and the 100 kHz bus are preserved.

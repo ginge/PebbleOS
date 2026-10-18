@@ -7,9 +7,114 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tools.tests.test_t5ai_qmi8658 import HEADERS, STUB
-
 ROOT = Path(__file__).resolve().parents[2]
+HEADERS = [
+    "board/board.h",
+    "pbl/drivers/accel.h", "pbl/drivers/gpio.h", "pbl/drivers/intc.h", "pbl/util/misc.h",
+    "pbl/drivers/i2c.h",
+    "pbl/drivers/rtc.h",
+    "pbl/kernel/kernel.h",
+    "pbl/kernel/irq.h",
+    "pbl/kernel/mutex.h",
+    "pbl/kernel/sem.h",
+    "pbl/kernel/thread.h",
+    "pbl/kernel/delay.h",
+    "pbl/services/new_timer/new_timer.h",
+    "system/status_codes.h",
+    "pbl/logging/logging.h",
+]
+STUB = r"""
+#pragma once
+#include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <time.h>
+typedef struct { int16_t x, y, z; uint64_t timestamp_us; } AccelDriverSample;
+typedef struct {
+ const uint8_t *data; uint16_t num_samples; uint8_t stride;
+ struct { uint8_t offset; int8_t sign; } axis[3];
+ int32_t scale_num, scale_den; uint64_t first_timestamp_us; uint32_t sampling_interval_us;
+} AccelRawBatch;
+typedef int IMUCoordinateAxis;
+typedef int TimerID;
+#define TIMER_INVALID_ID -1
+#define TIMER_START_FLAG_REPEATING 1
+#define I2C_QMI8658 0
+#define PBL_FOREVER -1
+#define PBL_PRIO_IDLE 0
+#define PBL_PRIO_MAX 4
+#define E_ERROR -1
+#define S_SUCCESS 0
+#define PBL_LOG_MODULE_DEFINE(...)
+#define PBL_LOG_DBG(...)
+#define PBL_LOG_ERR(...)
+struct pbl_mutex { int held; };
+struct pbl_sem { int count; };
+struct pbl_thread { int unused; };
+struct pbl_thread_attr {
+ const char *name; void (*entry)(void *); int prio; bool privileged;
+ void *stack; size_t stack_size;
+};
+#define PBL_MUTEX_DEFINE(n) struct pbl_mutex n
+#define PBL_SEM_DEFINE(n, i, l) struct pbl_sem n = {i}
+#define PBL_THREAD_STACK_DEFINE(n, size) static char n[size]
+void pbl_irq_lock(void);
+void pbl_irq_unlock(void);
+int pbl_mutex_lock(struct pbl_mutex *, int);
+void pbl_mutex_unlock(struct pbl_mutex *);
+int pbl_sem_take(struct pbl_sem *, int);
+void pbl_sem_give(struct pbl_sem *);
+int pbl_thread_create(struct pbl_thread *, const struct pbl_thread_attr *);
+void rtc_get_time_ms(time_t *, uint16_t *);
+void pbl_sleep_ms(unsigned);
+TimerID new_timer_create(void);
+bool new_timer_start(TimerID,uint32_t,void (*)(void *),void *,int);
+bool new_timer_stop(TimerID);
+
+#define PBL_ALIGNED(n) __attribute__((aligned(n)))
+#define CONFIG_KERNEL_STACK_ALIGN 8
+#define container_of(p,t,m) ((t *)((char *)(p)-offsetof(t,m)))
+struct pbl_accel { int unused; };
+struct pbl_i2c_dev { int unused; };
+struct pbl_gpio { unsigned pin; };
+struct pbl_intc { int unused; };
+struct pbl_irq_spec { const struct pbl_intc *intc; unsigned hwirq,type; };
+#define PBL_GPIO_INPUT 1
+#define PBL_ACCEL_EVENT_SHAKE 1
+struct pbl_accel_event { int type; IMUCoordinateAxis axis; int32_t direction; };
+struct pbl_accel_ops {
+ int (*init)(const struct pbl_accel *);
+ int (*set_rotated)(const struct pbl_accel *,bool);
+ int (*set_sampling_interval)(const struct pbl_accel *,uint32_t,uint32_t *);
+ uint32_t (*get_sampling_interval)(const struct pbl_accel *);
+ int (*set_num_samples)(const struct pbl_accel *,uint32_t);
+ uint32_t (*get_max_num_samples)(const struct pbl_accel *);
+ int (*peek)(const struct pbl_accel *,AccelDriverSample *);
+ int (*set_shake_detection)(const struct pbl_accel *,bool);
+ int (*set_shake_sensitivity_high)(const struct pbl_accel *,bool);
+ int (*set_shake_sensitivity_percent)(const struct pbl_accel *,uint8_t);
+};
+void pbl_mutex_init(struct pbl_mutex *);
+void pbl_sem_init(struct pbl_sem *,unsigned,unsigned);
+void pbl_accel_lock(const struct pbl_accel *);
+void pbl_accel_unlock(const struct pbl_accel *);
+void pbl_accel_report_sample(const struct pbl_accel *,const AccelDriverSample *);
+void pbl_accel_report_samples(const struct pbl_accel *,const AccelRawBatch *);
+void pbl_accel_report_event(const struct pbl_accel *,const struct pbl_accel_event *);
+bool new_timer_add_work_callback(void (*)(void *),void *);
+void new_timer_delete(TimerID);
+void pbl_i2c_use(const struct pbl_i2c_dev *);
+void pbl_i2c_release(const struct pbl_i2c_dev *);
+int pbl_i2c_write_block(const struct pbl_i2c_dev *,size_t,const uint8_t *);
+int pbl_i2c_read_block(const struct pbl_i2c_dev *,size_t,uint8_t *);
+int pbl_i2c_read_register_block(const struct pbl_i2c_dev *,uint8_t,unsigned,uint8_t *);
+int pbl_gpio_get_raw(const struct pbl_gpio *);
+int pbl_gpio_configure(const struct pbl_gpio *,uint32_t);
+int pbl_intc_request(const struct pbl_irq_spec *,void (*)(void *),void *);
+int pbl_intc_free(const struct pbl_irq_spec *);
+int pbl_intc_enable(const struct pbl_irq_spec *);
+int pbl_intc_disable(const struct pbl_irq_spec *);
+"""
 EXTRA = r"""
 #define PBL_LOG_WRN(...) ((void)0)
 uint64_t rtc_get_ticks(void);
@@ -157,7 +262,16 @@ static void samples(unsigned n) {
 int main(void) {
  pbl_qmi8658_ops.init(&sensor.accel);
 #ifdef CONFIG_T5AI_ACCEL_DISABLED
- assert(!sensor_state.initialized && !created && !irq_enabled); return 0;
+ assert(io==1 && !sensor_state.initialized && !created && !irq_enabled && !timer_ms);
+ assert(sensor_state.timer==TIMER_INVALID_ID && !sensor_state.active);
+ assert(set_count(1)==-ENODEV && set_shake(true)==-ENODEV);
+ set_interval(32000); assert(set_rotated(true)==0);
+ AccelDriverSample disabled_sample;
+ assert(read_sample(&disabled_sample)==-ENODEV);
+ prv_int2_handler(nullptr); prv_timer_callback(NULL); prv_acquire_sample();
+ assert(io==1 && !wakes && !queued && !delivered && !timer_ms && !irq_enabled);
+ assert(!sensor_state.shake_enabled && !sensor_state.poll_pending);
+ return 0;
 #endif
  assert(sensor_state.initialized && created==1 && !sensor_state.active);
  set_count(1); assert(sensor_state.active && sensor_state.watermark==1 && irq_enabled && timer_ms==100);

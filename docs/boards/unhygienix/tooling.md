@@ -169,29 +169,24 @@ wait on an object. Increasing KernelBG CPU time indicates continued execution
 rather than complete starvation. The ring freezes on the first watchdog
 report even if throttling later recovers; reboot starts a fresh recording.
 
-### QMI8658 polling isolation
+### QMI8658 acquisition
 
-Periodic accelerometer I2C acquisition runs on the static `QMI8658` worker
-(priority 3, 1536-byte stack). NewTimers only signals a binary semaphore;
-NewTimers delivers the acquired sample and runs the existing shake filter through
-the standard accel-manager offload callback with the manager mutex held.
-The sensor ODRs, requested sampling intervals, startup settling and axis mapping
-are unchanged. Configuration and explicit uncached `accel_peek()` calls remain
-synchronous. A driver-local mutex serializes register-pointer/read pairs with
-configuration writes.
+The interrupt/FIFO driver is the sole T5AI QMI8658 implementation. GPIO9 wakes
+its static priority-3 worker with a 1536-byte stack; the timer is a bounded
+missed-edge/recovery watchdog rather than a periodic acquisition alternative.
+I2C work runs on that worker, while the standard timer work queue delivers
+samples and runs the existing shake filter under the accel-manager mutex.
+Configuration and uncached inactive peek remain synchronous. The driver serializes
+sensor transactions and rejects stale delivery after reconfiguration.
 
-Only one acquisition or delivery is outstanding. Ticks during that work are
-dropped. Delivery uses the standard timer work queue with its bounded enqueue
-wait; a full queue drops that sample and allows the next tick to retry; no catch-up
-burst is generated. Power, rotation and rate changes invalidate stale samples.
-This isolates periodic I2C waits from KernelBG; it does not establish the cause
-of the previously observed stalls or prove hardware stability. Validate with
-MU-TH-UR T app loading and a sustained accelerometer subscription after flashing.
-
-`python3 -m unittest tools.tests.test_t5ai_qmi8658 -v` compiles the production
-driver with controlled I2C and scheduler stubs. It checks pending-work bounds,
-queue pressure, read failures, stale samples, startup settling, worker priority,
-and that neither the timer nor the delivery callback performs I2C.
+The periodic comparison driver, legacy selector and legacy-only test suite were
+retired on 2026-10-18. Use Git history or saved images for historical rollback.
+`python3 -m unittest tools.tests.test_t5ai_qmi8658_fifo -v` compiles the production
+interrupt/FIFO driver with modeled I2C and scheduler operations. It covers
+interrupt coalescing, queue pressure, FIFO transitions, timestamp handling,
+recovery, reconfiguration, peek, shake and disabled acquisition. See
+[acquisition results and limitations](qmi8658_acquisition.md) for hardware
+measurements; host tests do not qualify on-device sensor or low-power behavior.
 
 T5 buttons use an ISR-safe binary semaphore and a static priority-4 worker with
 a 1536-byte stack. It sleeps between 2 ms debounce samples and blocks when idle,

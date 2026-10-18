@@ -182,14 +182,6 @@ config T5AI_PIXEL_FAST_PATH
       Uncommon formats and clip geometry retain the stock implementation.
       Opt-in pending broader watchface and connected-soak coverage.
 
-config T5AI_QMI8658_LEGACY
-    bool "Use legacy periodic QMI8658 single-sample acquisition"
-    depends on BOARD_UNHYGIENIX && ACCEL_QMI8658_T5AI
-    default n
-    help
-      Retain the previous timer-driven acquisition thread and single-sample
-      delivery for matched comparisons and hardware rollback.
-
 config T5AI_QMI8658_PROFILE
     bool "Measure QMI8658 acquisition and delivery"
     depends on BOARD_UNHYGIENIX && ACCEL_QMI8658_T5AI

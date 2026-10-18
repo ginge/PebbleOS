@@ -14,6 +14,17 @@ requests allowing batching use the sensor FIFO. The existing worker priority,
 100 kHz bus, axis mapping, 4 g range and rounded sampling periods are retained.
 Shared accelerometer service, kernel and I2C implementations are unchanged.
 
+## Legacy driver retirement — 2026-10-18
+
+The periodic acquisition implementation and `CONFIG_T5AI_QMI8658_LEGACY`
+selector have been removed. The interrupt/FIFO driver is the sole T5AI QMI8658
+implementation; its acquisition logic, worker priority and sensor settings are
+unchanged. The legacy-only harness is retired, with shared host stubs moved into
+the surviving interrupt/FIFO suite and disabled-mode coverage retained there.
+Use Git history or saved images for historical comparisons and rollback.
+The October 12–17 results below remain historical evidence; removing the fallback
+does not resolve the previously recorded sensor/low-power qualification gaps.
+
 ## Integration update — 2026-10-17
 
 Commit `a53522389`, following the upstream merge, adapts the QMI driver and its
@@ -86,20 +97,17 @@ a low-power ODR, because low-power settings slow command processing too.
 
 ## Build and verification
 
-`CONFIG_T5AI_QMI8658_LEGACY=y` selects the retained periodic driver. It defaults
-to `n`. `CONFIG_T5AI_QMI8658_PROFILE=y` enables five-second acquisition, transfer
+`CONFIG_T5AI_QMI8658_PROFILE=y` enables five-second acquisition, transfer
 and service-processing counters; it defaults to `n`. The explicit diagnostic
-CMake override `-DT5AI_QMI8658_SELF_TEST=ON` requires profiling and non-legacy
-acquisition. The current diagnostic compares a status precheck against an IRQ-proven
-watermark, exercises FIFO batch/rate combinations, then restores the original
+CMake override `-DT5AI_QMI8658_SELF_TEST=ON` requires profiling. The current
+diagnostic compares a status precheck against an IRQ-proven watermark, exercises FIFO batch/rate combinations, then restores the original
 configuration. It skips the standby phase used in the earlier failed experiment. Keep it OFF
 for normal firmware.
 
 Focused verification:
 
 ```
-python3 -m unittest tools.tests.test_t5ai_qmi8658 \
-  tools.tests.test_t5ai_qmi8658_fifo tools.tests.test_t5ai_i2c
+python3 -m unittest tools.tests.test_t5ai_qmi8658_fifo tools.tests.test_t5ai_i2c
 ```
 
 The tests compile actual driver C with modeled I2C and scheduler operations,
@@ -143,7 +151,8 @@ then also confirmed both worked with the normal interrupt image
 The bounded follow-up capture is `paused-candidate/normal-after-freeze.*`.
 This narrows the reproduction conditions but does not explain the spontaneous
 reboot or qualify FIFO transitions. The watch was left on this normal image.
-The legacy compile-time fallback remains available, and no commits were made.
+At that checkpoint the legacy compile-time fallback remained available; it was
+retired on October 18 as described above.
 
 ## FIFO model investigation
 
