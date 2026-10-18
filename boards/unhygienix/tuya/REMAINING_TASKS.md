@@ -93,6 +93,17 @@ No capture remains from the latest GATT test. Merge readiness remains unqualifie
    the current review identifies work already completed. Merge readiness remains
    unqualified.
 
+   Progress — 2026-10-18 (unrelated utility cleanup, audit item 6): restored
+   the activity attachment download directory, BSS reporting script and
+   orientation service's final-newline state to `origin/main` at `b3a2dcb88`.
+   All three files now match that baseline byte for byte. Existing upstream
+   UTC aliases, include cleanup and native accel/magnetometer APIs are retained;
+   local `main` at `a2120e2ae` predates those merged changes. Python syntax checks
+   pass. No firmware behavior changes, rebuild or flash; the BSS tool again
+   expects `pebbleos.elf` in the current directory and uses stock shell/temp-file
+   behavior. The removed rewrite remains in Git and the saved patch at
+   `/home/baz/Documents/ChatGPT/pebble/artifacts/utility-cleanup-20261018/before.patch`.
+
    Progress — 2026-10-18 (PFS system-resource restoration): restored stock
    `resource_impl.def` ordering and `resource_storage.c` unwatch behavior; both
    files now match `origin/main` at `b3a2dcb88` exactly. The existing file backend,
@@ -118,6 +129,17 @@ No capture remains from the latest GATT test. Merge readiness remains unqualifie
    Build evidence and candidate details:
    `/home/baz/Documents/ChatGPT/pebble/artifacts/pfs-system-resources-20261018/validation.txt`.
    Full-pack integrity validation remains a separate open item.
+
+   Follow-up — 2026-10-18 (marker warning): the startup layout probe temporarily
+   restores a zero-page PFS, triggering the stock marker warning without reading
+   any page. A native preserved-flash restart finds marker page 6 before/after,
+   warns only at zero pages, and passes the language/font checks. Deliberately
+   retiring that marker in fake NOR produces additional nonempty-scan warnings.
+   Exact candidate disassembly confirms the zero-page path; the watch warning
+   alone is not evidence of marker loss. No production fix, hardware read/reset
+   or storage repair was performed. A generic zero-page scan guard is the narrow
+   potential correction; keep nonempty-filesystem warnings. Evidence and limits:
+   `/home/baz/Documents/ChatGPT/pebble/artifacts/pfs-marker-investigation-20261018/report.md`.
 
    Progress — 2026-10-18 (legacy accelerometer retirement): removed the periodic
    QMI8658 driver, its Kconfig selector, conditional driver-state layout and

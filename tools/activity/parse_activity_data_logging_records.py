@@ -48,7 +48,7 @@ SETTINGS = {
     "user": None,
     "password": None,
     # Local path to download issue attachments to
-    "download_path": "build/activity/",
+    "download_path": "/tmp/",
 }
 
 SLEEP_DEFAULT_EXPECTED_TEXT = """  //> TEST_VERSION 3
@@ -183,7 +183,7 @@ class JIRASupport:
         jira = self.create_jira()
         issue = jira.issue(self.issue_id)
 
-        # Create build/activity/ISSUE_ID to download attachments to:
+        # Create /tmp/ISSUE_ID to download attachments to:
         issue_path = self.issue_download_path(self.issue_id)
         if not os.path.exists(issue_path):
             logger.info(f"Creating {issue_path}")

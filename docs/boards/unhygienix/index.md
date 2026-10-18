@@ -412,6 +412,14 @@ records remaining warnings and evidence limits. Device pack installation/removal
 selected-face/UI behavior and peak heap use remain unqualified. Matching candidate and validation records are at
 `/home/baz/Documents/ChatGPT/pebble/artifacts/pfs-system-resources-20261018/`.
 
+The startup "Couldn't resolve last written pg" warning can be emitted by a
+zero-page layout probe even when the on-flash marker is valid. Native restart
+probes preserve marker page 6 and warn only at zero pages; a controlled missing
+marker also warns on nonempty scans. Exact installed-candidate disassembly
+confirms this false-positive path. This does not independently verify the
+watch's physical marker; no firmware or storage repair was applied. See
+`/home/baz/Documents/ChatGPT/pebble/artifacts/pfs-marker-investigation-20261018/report.md`.
+
 ## Accelerometer and motion wake progress (2026-10-04)
 
 The QMI8658 driver previously delivered samples but left shake detection and
