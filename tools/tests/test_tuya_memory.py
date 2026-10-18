@@ -35,6 +35,57 @@ class TuyaMemoryLayoutTest(unittest.TestCase):
         self.assertIn("KEEP(*(.bss.pool_acl_buf))", sections)
         self.assertIn("AP-only NimBLE pool backing arrays", sections)
 
+    def test_put_bytes_pool_bounds_clearing_and_slot_isolation(self):
+        compiler = shutil.which("cc")
+        if not compiler:
+            self.skipTest("Host C compiler unavailable")
+        harness = r"""
+#include <assert.h>
+#include <stdint.h>
+#include <string.h>
+#include "pbl/services/put_bytes/put_bytes_job_buffer.h"
+int main(void) {
+  uint8_t *slots[MAX_BATCHED_PB_PUT_OPS];
+  for (size_t i = 0; i < MAX_BATCHED_PB_PUT_OPS; ++i) {
+    slots[i] = put_bytes_job_buffer_alloc(i, PUT_BYTES_JOB_BUFFER_CAPACITY);
+    assert(slots[i] && (uintptr_t)slots[i] % 32 == 0);
+    for (size_t j = 0; j < i; ++j) assert(slots[i] != slots[j]);
+    memset(slots[i], i + 1, PUT_BYTES_JOB_BUFFER_CAPACITY);
+  }
+  assert(!put_bytes_job_buffer_alloc(MAX_BATCHED_PB_PUT_OPS, 1));
+  assert(!put_bytes_job_buffer_alloc(SIZE_MAX, 1));
+  assert(!put_bytes_job_buffer_alloc(0, PUT_BYTES_JOB_BUFFER_CAPACITY + 1));
+  assert(!put_bytes_job_buffer_alloc(0, SIZE_MAX));
+  put_bytes_job_buffer_free(MAX_BATCHED_PB_PUT_OPS, slots[0]);
+  put_bytes_job_buffer_free(0, NULL);
+  put_bytes_job_buffer_free(0, slots[1]);
+  for (size_t i = 0; i < MAX_BATCHED_PB_PUT_OPS; ++i) {
+    for (size_t j = 0; j < PUT_BYTES_JOB_BUFFER_CAPACITY; ++j)
+      assert(slots[i][j] == i + 1);
+  }
+  for (size_t i = 0; i < MAX_BATCHED_PB_PUT_OPS; ++i) {
+    put_bytes_job_buffer_free(i, slots[i]);
+    for (size_t j = 0; j < PUT_BYTES_JOB_BUFFER_CAPACITY; ++j)
+      assert(slots[i][j] == 0);
+    memset(slots[i], 0x5a, PUT_BYTES_JOB_BUFFER_CAPACITY);
+    assert(put_bytes_job_buffer_alloc(i, 17) == slots[i]);
+    for (size_t j = 0; j < PUT_BYTES_JOB_BUFFER_CAPACITY; ++j)
+      assert(slots[i][j] == (j < 17 ? 0 : 0x5a));
+  }
+}
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "put_bytes_pool.c"
+            binary = Path(directory) / "put_bytes_pool"
+            source.write_text(harness)
+            subprocess.run(
+                [compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
+                 "-I", str(ROOT / "include"), str(source),
+                 str(ROOT / "drivers/t5ai/put_bytes_job_buffer.c"),
+                 "-o", str(binary)], check=True,
+            )
+            subprocess.run([str(binary)], check=True)
+
     def test_framebuffer_psram_validation_detects_corruption_within_bounds(self):
         compiler = shutil.which("cc")
         if not compiler:

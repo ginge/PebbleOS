@@ -97,15 +97,15 @@ static const uint32_t PUT_TIMEOUT_MS = 30000;
 //! clients (i.e. mobile app, libpebble, ...) so it would require a protocol change / extension
 //! to increase this. We could experiment with increasing this in the future for slightly faster
 //! object transfers (less time spent ACK'ing).
-static const size_t PUT_BYTES_PP_BUFFER_SIZE = (2044 + sizeof(PutRequest));
+enum { PUT_BYTES_PP_BUFFER_SIZE = 2044 + sizeof(PutRequest) };
+static_assert(PUT_BYTES_PP_BUFFER_SIZE <= PUT_BYTES_JOB_BUFFER_CAPACITY,
+              "PutBytes requests exceed the job-buffer backend capacity");
 
 typedef enum {
   ResponseAck = 0x01,
   ResponseNack = 0x02,
   NumResponseCodes
 } ResponseCode;
-
-#define MAX_BATCHED_PB_PUT_OPS 3
 
 typedef struct {
   uint8_t *buffer;

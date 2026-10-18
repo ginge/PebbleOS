@@ -191,6 +191,18 @@ No capture remains from the latest GATT test. Merge readiness remains unqualifie
    the current review identifies work already completed. Merge readiness remains
    unqualified.
 
+   Progress — 2026-10-18 (PutBytes buffer contract): implemented. The service
+   and T5AI pool share the job count and backend capacity; a compile-time check
+   rejects requests larger than that capacity. The existing 2,053-byte request,
+   three 2,080-byte PSRAM slots and 32-byte alignment remain unchanged. Thirty-four
+   focused checks and the three native PutBytes suites (52 cases per platform)
+   pass. ARM compilation accepts the current capacity and rejects an undersized
+   backend at the intended assertion. Firmware builds/packages; the final ELF
+   places the 6,240-byte pool at `0x600195a0`. Internal static RAM remains 99,968 B.
+   This is a source/build check; the image was not flashed. Peak memory and device
+   transfer qualification remain separate. Evidence:
+   `/home/baz/Documents/ChatGPT/pebble/artifacts/putbytes-contract-20261018/report.md`.
+
    Progress — 2026-10-18 (retained boot/reboot consolidation, audit items 14/15):
    implemented and AP-only boot smoke-tested. The common boot-bit API and common
    four-word record/first-reason/restarted-safe/last-app operations now serve T5AI
