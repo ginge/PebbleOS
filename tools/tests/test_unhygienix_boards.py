@@ -538,7 +538,6 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertEqual(unhygienix["SERVICE_VOICE"], "y")
         self.assertEqual(unhygienix["VIBE"], "n")
         self.assertEqual(unhygienix["AMBIENT_LIGHT"], "n")
-        self.assertEqual(unhygienix["DISPLAY_FORCE_FULL_FRAME_UPDATES"], "n")
         self.assertEqual(unhygienix["PRESSURE"], "n")
         self.assertEqual(unhygienix["TEMPERATURE"], "n")
 

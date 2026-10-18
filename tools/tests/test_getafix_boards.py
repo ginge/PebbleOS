@@ -57,7 +57,6 @@ class GetafixBoardsTest(unittest.TestCase):
         self.assertEqual(config["SHELL"], "y")
         self.assertEqual(config["VIBE_AW8623X"], "y")
         self.assertEqual(config["VIBE_AW86225"], "n")
-        self.assertEqual(config["DISPLAY_FORCE_FULL_FRAME_UPDATES"], "y")
 
 
 if __name__ == "__main__":

@@ -35,13 +35,6 @@ config DISPLAY_CO5300_T5AI
     help
       Support for the 466x466 CO5300 AMOLED panel over T5AI QSPI0.
 
-config DISPLAY_FORCE_FULL_FRAME_UPDATES
-    bool
-    default y if BOARD_GETAFIX && !DISPLAY_CO5300_T5AI
-    help
-      Force every compositor update to cover the complete framebuffer on
-      displays whose partial region updates cause animation artifacts.
-
 config DISPLAY_SDL
     bool "SDL window"
     default y if SOC_POSIX

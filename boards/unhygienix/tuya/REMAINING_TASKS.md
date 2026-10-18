@@ -153,8 +153,9 @@ No capture remains from the latest GATT test. Merge readiness remains unqualifie
    and its file inventory are historical evidence only, not the active checklist
    or authority for retaining exceptions.
 
-   - Remove the disabled pixel fast path, unrelated Getafix full-frame
-     compositor override and unrelated utility or cosmetic changes. Separate independently useful improvements from the port.
+   - Pixel fast-path removal is deferred by the operator. The Getafix full-frame
+     compositor override and unrelated utility/cosmetic changes are removed.
+     Separate independently useful improvements from the port.
    - SDK compatibility-cache benchmarking is deferred by the operator as of
      2026-10-18. The T5AI GATT discovery lease override is removed; stock zero
      is inherited without a build override. Keep its broader device qualification
@@ -189,6 +190,12 @@ No capture remains from the latest GATT test. Merge readiness remains unqualifie
    The dated progress records below are history, not outstanding instructions;
    the current review identifies work already completed. Merge readiness remains
    unqualified.
+
+   Progress — 2026-10-18 (Getafix compositor override, audit item 3): removed
+   the full-frame dirty-region override, its Kconfig option and obsolete board-test
+   expectations. The shared compositor now matches local `origin/main` and the
+   pinned stock baseline exactly. All 29 Getafix/Unhygienix board checks pass.
+   No hardware flash or Getafix display qualification was performed.
 
    Progress — 2026-10-18 (GATT discovery lease, audit item 11): removed the
    four-line T5AI 120-second default; stock zero now applies naturally. No
