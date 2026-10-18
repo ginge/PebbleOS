@@ -569,12 +569,19 @@ static bool prv_has_invalid_request_length(const PutBytesCommand command, uint32
 }
 
 static bool prv_is_object_allowed(PutBytesObjectType type) {
-#ifdef CONFIG_SOC_T5AI
+#if !defined(CONFIG_FIRMWARE_UPDATE_SUPPORTED) || !defined(CONFIG_RECOVERY_UPDATE_SUPPORTED) || \
+    !defined(CONFIG_SYSTEM_RESOURCE_UPDATE_SUPPORTED)
   switch (type) {
+#ifndef CONFIG_FIRMWARE_UPDATE_SUPPORTED
     case ObjectFirmware:
+#endif
+#ifndef CONFIG_RECOVERY_UPDATE_SUPPORTED
     case ObjectRecovery:
+#endif
+#ifndef CONFIG_SYSTEM_RESOURCE_UPDATE_SUPPORTED
     case ObjectSysResources:
-      PBL_LOG_WRN("Firmware object type %u is unavailable on T5AI", type);
+#endif
+      PBL_LOG_WRN("Update object type %u is unavailable", type);
       return false;
     default:
       break;

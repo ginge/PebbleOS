@@ -97,7 +97,7 @@ static bool prv_legacy_handle_progress(PebblePutBytesEvent *event) {
   return true;
 }
 
-#ifndef CONFIG_SOC_T5AI
+#ifdef CONFIG_FIRMWARE_UPDATE_SUPPORTED
 static bool prv_legacy_completion_status_init(PebbleSystemMessageEvent *event) {
   if (event->type != PebbleSystemMessageFirmwareUpdateStartLegacy) {
     return false;
@@ -129,7 +129,7 @@ FirmwareUpdateStatus firmware_update_current_status(void) {
 void firmware_update_init(void) {
 }
 
-#ifndef CONFIG_SOC_T5AI
+#ifdef CONFIG_FIRMWARE_UPDATE_SUPPORTED
 static void prv_initialize_completion_status(PebbleSystemMessageEvent *event) {
   if (prv_legacy_completion_status_init(event)) {
     return;
@@ -150,12 +150,10 @@ static void prv_initialize_completion_status(PebbleSystemMessageEvent *event) {
 #define FIRMWARE_TIMEOUT_MS (1000 * 40)
 
 static FirmwareUpdateStatus prv_firmware_update_start(PebbleSystemMessageEvent *event) {
-#ifdef CONFIG_SOC_T5AI
-  // The T5AI port has no validated OTA container, install slot, rollback, or
-  // recovery flow. Keep the protocol endpoint present for compatibility, but
-  // reject the update before entering the update runlevel or accepting bytes.
+#ifndef CONFIG_FIRMWARE_UPDATE_SUPPORTED
+  // Keep the endpoint available, but reject before changing runlevel or accepting bytes.
   (void)event;
-  PBL_LOG_WRN("Firmware update is unavailable on T5AI");
+  PBL_LOG_WRN("Firmware update is unavailable");
   return FirmwareUpdateCancelled;
 #else
   if (battery_monitor_critical_lockout()) {

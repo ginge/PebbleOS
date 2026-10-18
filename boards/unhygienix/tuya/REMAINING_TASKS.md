@@ -191,6 +191,44 @@ No capture remains from the latest GATT test. Merge readiness remains unqualifie
    the current review identifies work already completed. Merge readiness remains
    unqualified.
 
+   Progress — 2026-10-18 (unsupported update capabilities): shared firmware,
+   PRF and PutBytes update guards now use explicit firmware/recovery/system-resource
+   update capabilities instead of SoC identity. T5AI defaults all three off while
+   retaining protocol endpoints and existing rejection behavior. Other targets
+   retain enabled defaults. Stale PRF requests are consumed without a flash copy.
+   Thirty-five focused checks pass, covering all eight capability combinations
+   in normal/recovery mode, firmware-start rejection before side effects, PRF
+   stale-bit handling, hidden-option overrides and stock-board defaults. Supported
+   shared paths preprocess identically to the pre-change source in normal/recovery
+   builds. All three native PutBytes suites pass (52 cases per platform) with their
+   supported capabilities explicitly configured. Normal ARM firmware builds/packages
+   with unchanged memory budgets.
+   No firmware was flashed; device/OTA qualification remains separate. Evidence:
+   `/home/baz/Documents/ChatGPT/pebble/artifacts/update-capabilities-20261018/report.md`.
+
+   Operator disposition — 2026-10-18 (app-cache reserve/PFS expansion):
+   deferred at the operator's request; the storage gain does not justify pursuing
+   this item now. Keep the current 300 KiB cleanup target and flash/PFS layout.
+   No reserve configuration, admission-policy or PFS expansion changes were made.
+   Investigation evidence remains available at
+   `/home/baz/Documents/ChatGPT/pebble/artifacts/app-cache-reserve-20261018/report.md`.
+
+   Progress — 2026-10-18 (voice/Speex allocator contract): implemented in
+   `b694ad747`. Explicit codec allocator calls replace CMake renaming of kernel
+   allocation/free functions. The default backend delegates to the kernel heap;
+   T5AI retains its local mutex-protected 16 KiB PSRAM arena. Codec state and voice
+   frame buffers use the same selected backend. Forty-one focused checks pass,
+   including real voice/Speex initialization, encoding and teardown (20 cycles per
+   backend), bit-buffer growth, failed-realloc preservation and T5AI fatal
+   allocation/foreign-free behavior. The existing timing harness still checks
+   mutex scope. Normal firmware builds/packages with unchanged flash/static RAM
+   and PSRAM budgets. Shared voice call sites and the Speex adapter use the new
+   interface; stock kernel/heap implementation and vendored codec sources are
+   unchanged. No device flash was performed; microphone/phone dictation and peak
+   memory qualification remain open. Extra bit-buffer regression coverage and
+   this checklist update remain uncommitted. Evidence:
+   `/home/baz/Documents/ChatGPT/pebble/artifacts/speex-memory-20261018/report.md`.
+
    Progress — 2026-10-18 (PutBytes buffer contract): implemented. The service
    and T5AI pool share the job count and backend capacity; a compile-time check
    rejects requests larger than that capacity. The existing 2,053-byte request,

@@ -36,6 +36,12 @@ pbl_clar_test(test_put_bytes
     tests/fakes/fake_resource_storage.c
     tests/fakes/fake_rtc.c
     tests/fakes/fake_spi_flash.c
+  # This suite exercises the supported update protocol; rejection combinations
+  # are covered separately by test_update_capabilities.py.
+  DEFINES
+    CONFIG_FIRMWARE_UPDATE_SUPPORTED
+    CONFIG_RECOVERY_UPDATE_SUPPORTED
+    CONFIG_SYSTEM_RESOURCE_UPDATE_SUPPORTED
   PLATFORMS obelix gabbro asterix
   OVERRIDES dummy_board
 )

@@ -6,6 +6,25 @@ config SERVICE_FIRMWARE_UPDATE
     help
       Firmware update endpoint/state machine.
 
+# Platform capabilities are separate from exposing the protocol services.
+config FIRMWARE_UPDATE_SUPPORTED
+    bool
+    default y
+    help
+      The platform has a supported firmware install and restart flow.
+
+config RECOVERY_UPDATE_SUPPORTED
+    bool
+    default y
+    help
+      The platform has a supported recovery image destination and install flow.
+
+config SYSTEM_RESOURCE_UPDATE_SUPPORTED
+    bool
+    default y
+    help
+      The platform has a writable system-resource update bank and activation flow.
+
 if SERVICE_FIRMWARE_UPDATE
 
 module = SERVICE_FIRMWARE_UPDATE

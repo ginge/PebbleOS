@@ -2,6 +2,14 @@
 
 if SOC_T5AI
 
+# Keep protocol compatibility without enabling unsupported installation paths.
+config FIRMWARE_UPDATE_SUPPORTED
+    default n
+config RECOVERY_UPDATE_SUPPORTED
+    default n
+config SYSTEM_RESOURCE_UPDATE_SUPPORTED
+    default n
+
 config KERNEL_TICK_HZ
     default 1000
 

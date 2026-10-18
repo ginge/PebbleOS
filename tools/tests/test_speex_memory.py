@@ -129,6 +129,7 @@ LIFECYCLE = r"""
 #include <string.h>
 #include <pbl/services/voice/voice_speex.h>
 #include <pbl/drivers/mic.h>
+#include <speex/speex_bits.h>
 uint32_t mic_get_channels(MicDevice *device) { (void)device; return 1; }
 int main(void) {
   assert(!voice_speex_is_initialized());
@@ -154,6 +155,21 @@ int main(void) {
     assert(!voice_speex_is_initialized() && !voice_speex_get_frame_buffer());
     check_empty();
   }
+  SpeexBits bits;
+  speex_bits_init(&bits);
+  char input[20000]; memset(input, 0x5a, sizeof(input));
+  speex_bits_read_from(&bits, input, 4096);
+  assert(bits.buf_size == 4096 && bits.nbBits == 4096 * 8);
+#ifdef TEST_T5
+  assert(heap_contains_address(&s_heap, bits.chars));
+  char *previous = bits.chars;
+  // Real Speex must retain its allocation when the bounded arena cannot grow it.
+  speex_bits_read_from(&bits, input, sizeof(input));
+  assert(bits.chars == previous && bits.buf_size == 4096);
+  assert(bits.nbBits == 4096 * 8);
+#endif
+  speex_bits_destroy(&bits);
+  check_empty();
 }
 """
 

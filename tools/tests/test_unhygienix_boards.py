@@ -72,16 +72,16 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertIn("Unhygienix has no supported PBZ update flow", build_script)
 
         firmware_update = (ROOT / "fw/services/firmware_update/service.c").read_text()
-        self.assertIn("#ifdef CONFIG_SOC_T5AI", firmware_update)
+        self.assertIn("#ifndef CONFIG_FIRMWARE_UPDATE_SUPPORTED", firmware_update)
         self.assertIn("return FirmwareUpdateCancelled;", firmware_update)
 
         put_bytes = (ROOT / "fw/services/put_bytes/put_bytes.c").read_text()
-        t5ai_gate = put_bytes.index("Firmware object type %u is unavailable on T5AI")
+        t5ai_gate = put_bytes.index("Update object type %u is unavailable")
         for object_name in ("ObjectFirmware", "ObjectRecovery", "ObjectSysResources"):
-            self.assertIn(object_name, put_bytes[t5ai_gate - 250 : t5ai_gate])
+            self.assertIn(object_name, put_bytes[t5ai_gate - 400 : t5ai_gate])
 
         prf_update = (ROOT / "fw/services/prf_update/service.c").read_text()
-        self.assertIn("Ignoring unsupported T5AI recovery firmware update", prf_update)
+        self.assertIn("Ignoring unsupported recovery firmware update", prf_update)
 
     def test_unhygienix_reports_round_2_identity_without_enabling_updates(self):
         metadata = (ROOT / "include/pebbleos/firmware_metadata.h").read_text()
@@ -113,11 +113,11 @@ class UnhygienixBoardsTest(unittest.TestCase):
         version = (ROOT / "fw/system/version.c").read_text()
         self.assertIn("bool version_is_prf_installed(void)", version)
         firmware_update = (ROOT / "fw/services/firmware_update/service.c").read_text()
-        self.assertIn("Firmware update is unavailable on T5AI", firmware_update)
+        self.assertIn("Firmware update is unavailable", firmware_update)
         put_bytes = (ROOT / "fw/services/put_bytes/put_bytes.c").read_text()
-        rejection = put_bytes.index("Firmware object type %u is unavailable on T5AI")
+        rejection = put_bytes.index("Update object type %u is unavailable")
         for object_name in ("ObjectFirmware", "ObjectRecovery", "ObjectSysResources"):
-            self.assertIn(object_name, put_bytes[rejection - 250 : rejection])
+            self.assertIn(object_name, put_bytes[rejection - 400 : rejection])
 
     def test_unhygienix_initializes_the_provisioned_filesystem(self):
         services = (ROOT / "fw/services/services_normal/service.c").read_text()
