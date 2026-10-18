@@ -1,3 +1,4 @@
+/* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 /* GD25WQ64E (JEDEC C8 65 17), datasheet rev 1.2, sections 7.4/7.5.
  * Use the pinned RAM-resident SPI bypass to issue 50h immediately followed

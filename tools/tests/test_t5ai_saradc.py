@@ -1,3 +1,4 @@
+# SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Exercise production MB-IPC and SARADC together against an asynchronous CP model."""
 import re

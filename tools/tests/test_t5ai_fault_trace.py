@@ -1,3 +1,4 @@
+# SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Exercise actual minimal fault formatting and bounded emergency publication."""
 from pathlib import Path

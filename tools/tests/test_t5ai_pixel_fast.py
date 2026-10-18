@@ -1,3 +1,4 @@
+# SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Compare the T5 pixel path against unchanged upstream C implementations."""
 

@@ -1,3 +1,4 @@
+/* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <pbl/drivers/backlight.h>
 #include <pbl/drivers/display/t5ai.h>

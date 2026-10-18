@@ -1,3 +1,4 @@
+# SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Exercise raw resource transfer rejection before any flash or allocation side effects."""
 import subprocess

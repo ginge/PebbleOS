@@ -1,3 +1,4 @@
+# SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Compile the T5AI ISR with a modeled receive FIFO, in both flag modes."""
 

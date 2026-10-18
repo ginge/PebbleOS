@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
 """Reproducible A3 PDF + editable vector SVG views, sectioned from CAD meshes.
 Section discretisation .04 mm; dimension labels use exact CAD parameters.
 """

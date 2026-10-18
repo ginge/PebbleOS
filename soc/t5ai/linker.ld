@@ -1,3 +1,4 @@
+/* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 /* The T5AI AP bootloader maps the CRC-stripped application partition here. */
 ASSERT(ORIGIN(FLASH) == 0x02120000, "Unexpected T5AI AP virtual flash base")

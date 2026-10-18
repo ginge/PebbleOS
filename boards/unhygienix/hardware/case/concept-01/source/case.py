@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
 """Unhygienix concept CAD; editable CadQuery source, mm, no firmware actions.
 PH = placeholder; KO = unverified keepout, excluded from physical assembly.
 Run python case.py to rebuild both alternatives, STEP/STL/DXF and numeric checks.

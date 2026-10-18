@@ -1,3 +1,4 @@
+/* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 #pragma once
 #define PBL_SOC_IRQN_DMA0_NSEC 0

@@ -1,3 +1,4 @@
+/* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <clar.h>
 #include <comm/ble/gap_le_connect_params.h>

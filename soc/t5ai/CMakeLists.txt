@@ -1,6 +1,7 @@
 if(CONFIG_RECOVERY_FW OR VARIANT STREQUAL "prf")
   message(FATAL_ERROR "T5AI recovery firmware is disabled: no validated recovery flow")
 endif()
+# SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 pbl_library()
 pbl_library_sources(init.c idle.c tick.c delay.c power.c retained.c reboot_reason.c flash_translation.c)

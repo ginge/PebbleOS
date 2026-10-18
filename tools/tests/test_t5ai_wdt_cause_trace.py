@@ -1,3 +1,4 @@
+# SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Check actual watchdog diagnostic wrappers, delegation and bounded records."""
 from pathlib import Path

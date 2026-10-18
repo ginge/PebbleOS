@@ -1,3 +1,4 @@
+# SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Actual-source T5 interrupt timing diagnostics with controlled hardware time."""
 from pathlib import Path

@@ -1,3 +1,4 @@
+/* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 /* Experimental pinned bypass ABI. CP transfer code is RAM-resident.
  * This does not park the AP: packaging is blocked until AP ownership is solved. */

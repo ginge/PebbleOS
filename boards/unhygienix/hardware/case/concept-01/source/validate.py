@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
 """Geometry/export audit only, never a claim of physical component fit."""
 import csv,json,math
 from case import ROOT,P,build,polar

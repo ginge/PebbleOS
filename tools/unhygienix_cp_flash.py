@@ -1,3 +1,4 @@
+# SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Hash-gated CP flash diagnostics and ITCM deadline guard for the pinned ABI."""
 

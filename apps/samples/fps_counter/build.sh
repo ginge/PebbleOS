@@ -1,4 +1,7 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
 set -eu
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 os_dir=/home/baz/coredevices/pebbleos
