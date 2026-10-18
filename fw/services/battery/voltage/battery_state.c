@@ -114,7 +114,11 @@ static void battery_state_put_change_event(PreciseBatteryChargeState state) {
 }
 
 void battery_state_reset_filter(void) {
-  s_last_battery_state.voltage = battery_get_millivolts();
+  const int millivolts = battery_get_millivolts();
+  if (millivolts <= 0) {
+    return;
+  }
+  s_last_battery_state.voltage = millivolts;
   // Reset the stabilization timer in case we encountered a current spike during the reset
   s_last_battery_state.init_time = rtc_get_ticks();
 }
@@ -160,7 +164,16 @@ static ConnectionStateID prv_get_connection_state(void) {
 static void prv_update_state(void *force_update) {
   bool forced = (bool)force_update;
 
-  // Driver communication
+  // Failed measurements must not change the estimate or trigger low-power events.
+  const int millivolts = battery_get_millivolts();
+  if (millivolts <= 0) {
+    return;
+  }
+  if (s_last_battery_state.voltage == 0) {
+    forced = true;
+    s_last_battery_state.voltage = millivolts;
+    s_last_battery_state.init_time = rtc_get_ticks();
+  }
 
   bool state_changed = false;
   ConnectionStateID next_state = prv_get_connection_state();
@@ -173,8 +186,7 @@ static void prv_update_state(void *force_update) {
     }
   }
 
-  s_last_battery_state.voltage =
-      prv_filter_voltage(s_last_battery_state.voltage, battery_get_millivolts());
+  s_last_battery_state.voltage = prv_filter_voltage(s_last_battery_state.voltage, millivolts);
   bool charging = (s_last_battery_state.connection == ConnectionStateChargingPlugged);
 
   // Update Percent & Filtering

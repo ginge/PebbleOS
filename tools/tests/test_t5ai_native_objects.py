@@ -207,33 +207,3 @@ int main(void){
 }
 """
         run_c(harness, {})
-
-    def test_battery_initialization_retries_and_creates_only_one_worker(self):
-        source = (ROOT / "drivers/battery/t5ai.c").read_text()
-        declarations = source[source.index("static struct pbl_thread s_battery_task"):
-                              source.index("static int s_last_millivolts")]
-        harness = NATIVE + r"""
-#define T5AI_BATTERY_TASK_STACK_SIZE 2048
-#define T5AI_BATTERY_TASK_PRIORITY 1
-#define prv_battery_task expected_entry
-#define PBL_GPIO_INPUT 1
-#define PBL_LOG_ERR(...) (++errors)
-static int s_charge;
-static unsigned gpio_calls,errors;
-static int pbl_gpio_configure(const int *p,unsigned mode) {
- assert(p==&s_charge && mode==PBL_GPIO_INPUT);++gpio_calls;return 0;
-}
-""" + declarations + body(source, "battery_init") + r"""
-int main(void){
- (void)pbl_mutex_lock;(void)pbl_mutex_unlock;
- expected_stack_size=2048;expected_prio=1;
- fail_create=true;battery_init();
- assert(creates==1 && errors==1 && !s_started);
- fail_create=false;battery_init();
- assert(creates==2 && s_started && gpio_calls==2);
- battery_init();
- assert(creates==2 && gpio_calls==2 && !sem_inits && !mutex_inits);
- return 0;
-}
-"""
-        run_c(harness, {})

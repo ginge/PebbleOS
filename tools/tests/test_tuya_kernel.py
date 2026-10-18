@@ -347,7 +347,7 @@ int main(void) {
  ack = published[2]; ack.header |= MBOX_ACK_BOX;
  s_tx[2].synchronous = true;
  prv_process_ack(&ack);
- assert(s_tx[2].state == TxState_Complete && signalled == 1);
+ assert(s_tx[2].state == TxState_Complete && signalled == 2);
  assert(prv_schedule_tx() == S_SUCCESS);
  assert((published[3].header >> 24) == 0x1eu);
  /* The completed synchronous slot cannot be selected again. */
@@ -417,10 +417,9 @@ int main(void) {
         battery_get = battery.split("int battery_get_millivolts(void)", 1)[1].split(
             "int battery_get_constants", 1
         )[0]
-        self.assertIn("__atomic_load_n", battery_get)
         self.assertNotIn("t5ai_saradc_read_peak", battery_get)
-        self.assertIn(".entry = prv_battery_task", battery)
-        self.assertRegex(battery, r"#define T5AI_BATTERY_STARTUP_DELAY_MS\s+30000u")
+        self.assertNotIn("pbl_thread_create", battery)
+        self.assertNotIn("pbl_thread_sleep", battery)
         self.assertIn("s_t5ai_mutex", dbgserial)
         self.assertIn("T5AI_AON_PMU_R2", reset)
 

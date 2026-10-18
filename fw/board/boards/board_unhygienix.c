@@ -3,6 +3,7 @@
 #include "system/passert.h"
 
 #include <pbl/device.h>
+#include <pbl/drivers/battery/t5ai.h>
 #include <pbl/drivers/gpio/t5ai.h>
 #include <pbl/drivers/i2c/t5ai.h>
 #include <pbl/drivers/imu/qmi8658.h>
@@ -146,6 +147,17 @@ const BoardConfigButton BOARD_CONFIG_BUTTON = {
          .gpio = PBL_GPIO(&T5AI_GPIO, 12, PBL_GPIO_ACTIVE_LOW | PBL_GPIO_PULL_UP)},
     [BUTTON_ID_DOWN] = {.name = "Down"},
   },
+};
+// P13/channel 15, 2M/510K divider and meter calibration from the Waveshare board.
+const T5AIBatteryConfig T5AI_BATTERY_CONFIG = {
+  .charge = PBL_GPIO(&T5AI_GPIO, 30, PBL_GPIO_ACTIVE_LOW | PBL_GPIO_PULL_UP),
+  .interrupt = PBL_IRQ_SPEC(&T5AI_GPIO_INTC, 30, PBL_IRQ_TYPE_EDGE_BOTH),
+  .channel = 15,
+  .samples = 16,
+  .cal_low = 2716,
+  .cal_span = 2854,
+  .divider_numerator = 2510,
+  .divider_denominator = 510,
 };
 const BoardConfigPower BOARD_CONFIG_POWER = {.low_power_threshold = 5};
 const BoardConfigActuator BOARD_CONFIG_VIBE = {};

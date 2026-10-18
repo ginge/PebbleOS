@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Exercise T5 clock transitions, elapsed tick accounting and critical-section scope."""
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -133,6 +133,7 @@ int main(void) {
 #define T5AI_MAILBOX_CHANNEL_COUNT 16
 #define MAILBOX_TASK_STACK_SIZE 2048
 #define MAILBOX_TASK_PRIORITY 4
+#define MAILBOX_ACTIVE_TIMEOUT_MS 5000
 #define E_OUT_OF_MEMORY -1
 #define E_INVALID_ARGUMENT -2
 #define E_BUSY -3
@@ -212,8 +213,7 @@ int main(void) {
    assert(ack.parameter1==123+i && s_tx[i].state==TxState_Idle && !s_tx[i].mutex.locked);
  }
  assert(creations==2 && !depth);
- T5AIMailboxMessage message={0}; s_tx[0].state=TxState_Active;
- assert(t5ai_mailbox_channel_send(0,&message,NULL,100)==E_BUSY && !s_tx[0].mutex.locked);
+ T5AIMailboxMessage message={0};
  assert(t5ai_mailbox_channel_send(16,&message,NULL,100)==E_INVALID_ARGUMENT);
  return 0;
 }

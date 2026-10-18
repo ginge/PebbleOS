@@ -13,9 +13,16 @@ with Getafix. Getafix DVT and DVT2 remain independent Round 2 hardware targets.
 Unhygienix is excluded from release matrices. Recovery firmware, OTA, PBZ
 bundles, bulk erase and unsupported raw-flash operations remain disabled.
 
+## Hardware add-on and case design
+
+See the [hardware and enclosure brief](hardware-addon-design.md) for the proposed
+BOM, battery choices, provisional clearances and unresolved fit requirements.
+Use the [case-design handoff prompt](case-design-handoff.md) to continue enclosure
+work. These documents describe a preliminary design, not verified hardware.
+
 ## Latest implementation status — 2026-10-18
 
-Source baseline: `8732a079a`, with CST92xx stock-style KernelBG/native-input
+Source baseline: `08a8212e8`, with the battery validity/ADC repair and worker
 consolidation in the working tree. The port merged newer upstream
 `main` in `9b6537971`; `a53522389` adapts GPIO, I2C, RTC, battery, touch and
 QMI8658 integration to the current driver APIs. It also corrects the Armv8-M
@@ -30,7 +37,12 @@ one ARM SDK/QEMU fault-entry test skipped. The Unhygienix firmware built and
 linked, with existing LTO warnings. These are recorded checks for that candidate,
 not a fresh broad run against the later persistence experiment.
 
-The latest installed AP image is the CST92xx KernelBG/native-input candidate,
+The latest installed AP image is battery build
+`779f3e5a1bcaeed66d06043ead303ab3c91254ed`, flashed AP-only on 2026-10-18.
+ADC and operator control checks pass; KernelBG watchdog stalls remain open.
+See the battery section below for the final capture and limitations.
+
+The preceding hardware-tested touch AP image is the CST92xx KernelBG/native-input candidate,
 build ID `69549c57d6ef588a96516b36640d53b18e705d20`, flashed AP-only on 2026-10-18.
 The booted ID matches the frozen ELF; encrypted bonding and the phone session
 restored, with discovery completing in 3,759 ms. The operator confirms taps,
@@ -424,8 +436,8 @@ qualification remain outstanding.
 
 ## Native T5AI kernel objects — 2026-10-18
 
-The allocating T5AI kernel adapter is removed. Five worker threads now own native
-thread objects and aligned stacks. Mailbox/heartbeat/battery/touch keep their
+The allocating T5AI kernel adapter is removed. At the initial conversion, five
+worker threads acquired native thread objects and aligned stacks. Mailbox/heartbeat/battery/touch keep their
 previous stack capacities in internal SRAM; HCI retains its PSRAM stack. Native
 mutexes/semaphores are embedded in their owning mailbox/socket/microphone state
 or defined statically. Common kernel code and scheduling policy are unchanged.
@@ -438,9 +450,10 @@ the broader 283-entry tooling suite (two skips) and the existing native kernel
 suite pass; firmware packaging succeeds with existing LTO warnings.
 
 Stock HCI also uses fixed native stacks/objects. Stock touch and battery instead
-reuse system-task callbacks, so T5AI's private worker count is still an open
-convergence opportunity: touch, battery and heartbeat reserve 6,144 B of internal
-stacks. The static increase is largely a heap-to-static transfer, but does not
+reuse system-task callbacks. Subsequent heartbeat/touch changes removed their
+private stacks; the battery candidate now removes the last of the original
+6,144 B of private heartbeat/touch/battery stacks. Their individual sections
+record the current implementation and qualification state. The static increase is largely a heap-to-static transfer, but does not
 prove equal startup/peak headroom. See the comparison and accounting at
 `/home/baz/Documents/ChatGPT/pebble/artifacts/native-kernel-objects-20261018/stock-comparison.md`.
 
@@ -488,6 +501,51 @@ passes in the bounded startup trace; warnings/errors remain recorded in the late
 flash report above. Verify cold power-cycle behavior, encryption changes, heartbeat
 gaps during traffic/UI load, mailbox stack high-water and sustained watchdog
 behavior. The earlier KernelBG feed-delay finding remains open.
+
+## Battery ADC repair and worker consolidation — 2026-10-18
+
+The current candidate removes the private 2,048-byte battery stack/thread.
+The stock voltage service drives sampling; the SoC-local SARADC client uses
+bounded asynchronous MB-IPC phases on the existing mailbox owner. KernelBG and
+NewTimer never wait for CP ADC conversion or IPC. The whole acquisition has a
+5-second deadline; ambiguous failures retain static CP-visible storage until
+reset. Successful raw replies complete READ_RAW_DONE even when their data fails
+CRC/size checks, then clean up only acquired resources. Shared physical-slot
+serialization preserves synchronous flash progress while ADC traffic is active.
+
+Wiring/calibration are board data. A native charge IRQ and shared regular timer
+provide debounced connection events, GPIO reconciliation and dropped-callback
+recovery. The previous validity correction remains: no fabricated startup voltage,
+failed/stale readings return unavailable, and the voltage service skips failures.
+CHRG remains a charging proxy; it cannot distinguish full/plugged from unplugged.
+No battery is fitted on the operator's board, and the inherited curve is unqualified.
+
+All 299 tooling entries pass with two skips; all 15 native battery-monitor cases
+pass. Static RAM is 99,968 B (1,760 B recovered), with 27,008 B linker heap.
+These are linker budgets, not measured peak usage. See [subsystem review](battery-review.md).
+
+Final build `779f3e5a1bcaeed66d06043ead303ab3c91254ed` was flashed AP-only
+on 2026-10-18 and its boot ID verified. The 300.478-second UART capture received
+23,438 bytes, with four successful ADC samples (4,011–4,025 mV, 6–7 ms), zero
+ADC errors and one AP boot. The operator confirms watchface, phone connection,
+taps/swipes, buttons and sleep/wake all work normally. Encrypted bonding and
+phone sessions restored; two discovery completions took 5,059 and 5,265 ms.
+The trace still contains 21 KernelBG feed delays, 23 watchdog recoveries and
+25 channel warnings. These counts are separate record types, not paired stall
+counts; this is not clean watchdog qualification. Capture is stopped.
+
+The first candidate reset after synchronous logging from the mailbox owner
+waited on that same owner. ADC diagnostics now log from KernelBG instead.
+The next image exposed an inherited checksum error: vendor CRC tests bit 7
+of an unmasked 32-bit accumulator, while the port tested bit 31. Independent
+vendor vectors and CP-model checks now cover that correction. Failed images,
+rollback to the previously tested touch build, and each trace remain preserved.
+
+No cell is fitted: these voltages measure the unloaded charger node, not cell
+calibration or battery percentage accuracy. Cold power-cycle, sustained watchdog,
+read-done timing under load, stack high-water, peak heap and fitted-cell/meter
+qualification remain open. Final evidence:
+`/home/baz/Documents/ChatGPT/pebble/artifacts/battery-consolidation-20261018/vendor-crc/flash/report.txt`.
 
 ## CST92xx stock touch scheduling — 2026-10-18
 

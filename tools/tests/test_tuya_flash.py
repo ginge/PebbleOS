@@ -15,7 +15,7 @@ class TuyaFlashTest(unittest.TestCase):
             self.skipTest("Host C compiler unavailable")
         source = (ROOT / "drivers/flash/t5ai_flash_ipc.c").read_text()
         crc = source[source.index("static const uint32_t s_flash_crc32_table"):
-                     source.index("static uint32_t prv_saradc_crc32")]
+                     source.index("status_t t5ai_flash_ipc_init")]
         harness = r"""
 #include <stdint.h>
 #include <stddef.h>

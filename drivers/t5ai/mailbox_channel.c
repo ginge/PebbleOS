@@ -12,6 +12,7 @@
 #include <pbl/soc/t5ai/interrupt_profile.h>
 #include <pbl/soc/t5ai/mailbox_channel.h>
 #include <pbl/soc/t5ai/memory.h>
+#include <pbl/soc/t5ai/mb_ipc.h>
 #include <pbl/soc/t5ai/reboot_trace.h>
 #include <pbl/soc/t5ai/reset.h>
 #include <pbl/soc/t5ai/rtc.h>
@@ -210,9 +211,9 @@ static bool prv_snapshot_rx(T5AIMailboxMessage *message) {
 static void prv_finish_tx(TxChannel *tx, const T5AIMailboxMessage *ack, status_t status) {
   tx->ack = *ack;
   tx->state = tx->synchronous ? TxState_Complete : TxState_Idle;
-  if (tx->synchronous) {
-    (void)pbl_sem_give(&tx->completion);
-  } else if (tx->handler != NULL) {
+  // Also wake a synchronous client waiting for an asynchronous slot to retire.
+  (void)pbl_sem_give(&tx->completion);
+  if (!tx->synchronous && tx->handler != NULL) {
     T5AIMailboxTransmitHandler handler = tx->handler;
     void *context = tx->context;
     tx->handler = NULL;
@@ -334,7 +335,13 @@ static void prv_mailbox_task(void *context) {
     const pbl_tick_t heartbeat_wait = t5ai_cp_mailbox_heartbeat_poll();
     const pbl_tick_t fault_wait =
         !prv_any_active() ? PBL_TICK_FOREVER : prv_milliseconds_to_ticks(MAILBOX_FAULT_POLL_MS);
-    const pbl_tick_t wait = heartbeat_wait < fault_wait ? heartbeat_wait : fault_wait;
+    const uint32_t async_ms = t5ai_mb_ipc_async_poll();
+    const pbl_tick_t async_wait =
+        async_ms == UINT32_MAX ? PBL_TICK_FOREVER : prv_milliseconds_to_ticks(async_ms);
+    pbl_tick_t wait = heartbeat_wait < fault_wait ? heartbeat_wait : fault_wait;
+    if (async_wait < wait) {
+      wait = async_wait;
+    }
     (void)pbl_sem_take(&s_wake, PBL_TICKS(wait));
     const bool rx_pending = prv_drain_rx();
     const int expired_channel = rx_pending ? -1 : prv_expired_channel();
@@ -512,9 +519,13 @@ status_t t5ai_mailbox_channel_send_async(uint8_t channel, const T5AIMailboxMessa
     return E_INVALID_ARGUMENT;
   }
   TxChannel *tx = &s_tx[index];
+  if (pbl_mutex_lock(&tx->mutex, PBL_TICKS(0u)) != 0) {
+    return E_BUSY;
+  }
   pbl_irq_lock();
   if (tx->state != TxState_Idle) {
     pbl_irq_unlock();
+    pbl_mutex_unlock(&tx->mutex);
     return E_BUSY;
   }
   tx->message = *message;
@@ -523,6 +534,7 @@ status_t t5ai_mailbox_channel_send_async(uint8_t channel, const T5AIMailboxMessa
   tx->synchronous = false;
   tx->state = TxState_Pending;
   pbl_irq_unlock();
+  pbl_mutex_unlock(&tx->mutex);
   (void)pbl_sem_give(&s_wake);
   return S_SUCCESS;
 }
@@ -537,11 +549,18 @@ status_t t5ai_mailbox_channel_send(uint8_t channel, const T5AIMailboxMessage *me
   pbl_mutex_lock(&tx->mutex, PBL_FOREVER);
   while (pbl_sem_take(&tx->completion, PBL_TICKS(0u)) == 0) {
   }
-  pbl_irq_lock();
-  if (tx->state != TxState_Idle) {
+  // Holding the native mutex prevents asynchronous clients stealing the next slot.
+  for (;;) {
+    pbl_irq_lock();
+    if (tx->state == TxState_Idle) {
+      break;
+    }
     pbl_irq_unlock();
-    pbl_mutex_unlock(&tx->mutex);
-    return E_BUSY;
+    if (pbl_sem_take(&tx->completion,
+                     PBL_TICKS(prv_milliseconds_to_ticks(MAILBOX_ACTIVE_TIMEOUT_MS))) != 0) {
+      s_faulted = true;
+      prv_reset_after_timeout(index);
+    }
   }
   tx->message = *message;
   tx->synchronous = true;
@@ -553,7 +572,7 @@ status_t t5ai_mailbox_channel_send(uint8_t channel, const T5AIMailboxMessage *me
 
   const bool taken = pbl_sem_take(
       &tx->completion, PBL_TICKS(timeout_ms == UINT32_MAX ? PBL_TICK_FOREVER
-                                        : prv_milliseconds_to_ticks(timeout_ms)));
+                                                          : prv_milliseconds_to_ticks(timeout_ms)));
   if (taken != 0) {
     /* Returning would let the caller reuse memory which may still be visible
      * through this descriptor. Recovery must reset both CPUs and the mailbox

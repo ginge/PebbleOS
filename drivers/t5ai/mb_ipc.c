@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include <pbl/kernel/irq.h>
 #include <pbl/kernel/time.h>
 #include <pbl/logging/logging.h>
 #include <pbl/mcu/cache.h>
@@ -20,43 +21,53 @@ PBL_LOG_MODULE_DEFINE(t5ai_mb_ipc, LOG_LEVEL_DEBUG);
 #include <string.h>
 
 // MB-IPC parameter1: dst port/CPU, src port/CPU, tag, API status, route status.
-#define MB_IPC_PORT_MASK 0x3fu
-#define MB_IPC_CPU_MASK 3u
-#define MB_IPC_DEST_CPU_SHIFT 6u
-#define MB_IPC_SOURCE_PORT_SHIFT 8u
-#define MB_IPC_SOURCE_CPU_SHIFT 14u
-#define MB_IPC_TAG_SHIFT 16u
-#define MB_IPC_API_STATUS_SHIFT 24u
+#define MB_IPC_PORT_MASK          0x3fu
+#define MB_IPC_CPU_MASK           3u
+#define MB_IPC_DEST_CPU_SHIFT     6u
+#define MB_IPC_SOURCE_PORT_SHIFT  8u
+#define MB_IPC_SOURCE_CPU_SHIFT   14u
+#define MB_IPC_TAG_SHIFT          16u
+#define MB_IPC_API_STATUS_SHIFT   24u
 #define MB_IPC_ROUTE_STATUS_SHIFT 28u
-#define MB_IPC_STATUS_MASK 0x0fu
-#define MB_IPC_ROUTE_STATUS_MASK (MB_IPC_STATUS_MASK << MB_IPC_ROUTE_STATUS_SHIFT)
+#define MB_IPC_STATUS_MASK        0x0fu
+#define MB_IPC_ROUTE_STATUS_MASK  (MB_IPC_STATUS_MASK << MB_IPC_ROUTE_STATUS_SHIFT)
 // parameter2: 16-bit byte length, CRC-8, then the service command.
-#define MB_IPC_CRC_SHIFT 16u
-#define MB_IPC_USER_COMMAND_SHIFT 24u
-#define MB_IPC_MAX_PAYLOAD_BYTES UINT16_MAX
-#define MB_IPC_CLIENT_PORT_MIN 16u
-#define MB_IPC_CLIENT_PORT_MAX 63u
-#define MB_IPC_SERVER_PORT_MAX 15u
-#define MB_IPC_CONNECT_TIMEOUT_MS 500u
+#define MB_IPC_CRC_SHIFT               16u
+#define MB_IPC_USER_COMMAND_SHIFT      24u
+#define MB_IPC_MAX_PAYLOAD_BYTES       UINT16_MAX
+#define MB_IPC_CLIENT_PORT_MIN         16u
+#define MB_IPC_CLIENT_PORT_MAX         63u
+#define MB_IPC_SERVER_PORT_MAX         15u
+#define MB_IPC_CONNECT_TIMEOUT_MS      500u
+#define MB_IPC_ASYNC_MAX_PAYLOAD_BYTES 256u
 // Vendor MSB-first CRC-8, seed zero, no final XOR.
 #define MB_IPC_CRC_POLYNOMIAL 0x31u
-#define MB_IPC_CRC_HIGH_BIT 0x80u
-#define MB_IPC_CRC_BITS 8u
+#define MB_IPC_CRC_HIGH_BIT   0x80u
+#define MB_IPC_CRC_BITS       8u
 
-#define MB_IPC_TX_CHANNEL 0x11u
-#define MB_IPC_RX_CHANNEL 0x41u
-#define MB_IPC_CPU_AP 1u
-#define MB_IPC_CPU_CP 0u
-#define MB_IPC_COMMAND_CONNECT 0u
-#define MB_IPC_COMMAND_SEND 2u
-#define MB_IPC_RESPONSE_FLAG 0x80u
-#define MB_IPC_ROUTE_OK 0u
-#define MB_IPC_ROUTE_UNREACHABLE 2u
-#define MB_IPC_ROUTE_UNSOLICITED 3u
-#define MB_IPC_ROUTE_UNMATCHED 4u
-#define MB_IPC_ROUTE_RX_BUSY 5u
-#define MB_IPC_SOCKET_COUNT 2u
+#define MB_IPC_TX_CHANNEL          0x11u
+#define MB_IPC_RX_CHANNEL          0x41u
+#define MB_IPC_CPU_AP              1u
+#define MB_IPC_CPU_CP              0u
+#define MB_IPC_COMMAND_CONNECT     0u
+#define MB_IPC_COMMAND_SEND        2u
+#define MB_IPC_RESPONSE_FLAG       0x80u
+#define MB_IPC_ROUTE_OK            0u
+#define MB_IPC_ROUTE_UNREACHABLE   2u
+#define MB_IPC_ROUTE_UNSOLICITED   3u
+#define MB_IPC_ROUTE_UNMATCHED     4u
+#define MB_IPC_ROUTE_RX_BUSY       5u
+#define MB_IPC_SOCKET_COUNT        2u
 #define MB_IPC_PHYSICAL_TIMEOUT_MS 5000u
+
+enum AsyncPhase {
+  AsyncIdle,
+  AsyncQueueSend,
+  AsyncWaitSend,
+  AsyncWaitResponse,
+  AsyncQueueAck,
+  AsyncWaitAck,
+};
 
 struct T5AIMbIpcSocket {
   uint8_t client_port;
@@ -76,6 +87,18 @@ struct T5AIMbIpcSocket {
   struct pbl_mutex mutex;
   struct pbl_sem tx_ready;
   struct pbl_sem rx_ready;
+  struct {
+    enum AsyncPhase phase;
+    bool opening, physical_done;
+    uint8_t command;
+    void *response;
+    size_t length;
+    uint64_t deadline_ms;
+    T5AIMbIpcCompletion callback;
+    void *context;
+    status_t physical_status, result;
+    T5AIMailboxMessage ack;
+  } async;
 };
 
 static T5AIMbIpcSocket s_sockets[MB_IPC_SOCKET_COUNT];
@@ -227,7 +250,7 @@ static status_t prv_wait_for_logical_response(T5AIMbIpcSocket *socket, uint32_t 
 static status_t prv_transmit(T5AIMbIpcSocket *socket, uint8_t command, uint8_t user_command,
                              const void *data, size_t length, uint32_t timeout_ms) {
   if (socket->poisoned || (data != NULL && length != 0u &&
-       !t5ai_cp_mailbox_shared_range_valid((uintptr_t)data, length))) {
+                           !t5ai_cp_mailbox_shared_range_valid((uintptr_t)data, length))) {
     return socket->poisoned ? E_INVALID_OPERATION : E_RANGE;
   }
   while (pbl_sem_take(&socket->tx_ready, PBL_TICKS(0u)) == 0) {
@@ -237,12 +260,12 @@ static status_t prv_transmit(T5AIMbIpcSocket *socket, uint8_t command, uint8_t u
   socket->tx_status = E_AGAIN;
   socket->tx_in_process = true;
   socket->tx_message = (T5AIMailboxMessage){
-      .header = command,
-      .parameter1 = prv_address(MB_IPC_CPU_CP, socket->server_port, MB_IPC_CPU_AP,
-                                socket->client_port, socket->tx_tag),
-      .parameter2 = (uint32_t)length | ((uint32_t)prv_crc8(data, length) << MB_IPC_CRC_SHIFT) |
-                    ((uint32_t)user_command << MB_IPC_USER_COMMAND_SHIFT),
-      .parameter3 = (uint32_t)(uintptr_t)data,
+    .header = command,
+    .parameter1 = prv_address(MB_IPC_CPU_CP, socket->server_port, MB_IPC_CPU_AP,
+                              socket->client_port, socket->tx_tag),
+    .parameter2 = (uint32_t)length | ((uint32_t)prv_crc8(data, length) << MB_IPC_CRC_SHIFT) |
+                  ((uint32_t)user_command << MB_IPC_USER_COMMAND_SHIFT),
+    .parameter3 = (uint32_t)(uintptr_t)data,
   };
   if (data != NULL && length != 0u) {
     dcache_flush((void *)data, length);
@@ -262,16 +285,16 @@ static status_t prv_transmit(T5AIMbIpcSocket *socket, uint8_t command, uint8_t u
 #endif
   if (FAILED(status)) {
     PBL_LOG_ERR("T5AI MIPC physical send failed: status=%ld cmd=%u user=%u tag=%u port=%u>%u",
-                  (long)status, command, user_command, socket->tx_tag, socket->client_port,
-                  socket->server_port);
+                (long)status, command, user_command, socket->tx_tag, socket->client_port,
+                socket->server_port);
     socket->tx_in_process = false;
     return status;
   }
   const uint8_t route_status = prv_route_status(&ack);
   if (route_status != MB_IPC_ROUTE_OK) {
     PBL_LOG_ERR("T5AI MIPC route rejected: route=%u api=%u cmd=%u user=%u tag=%u port=%u>%u",
-                  route_status, prv_api_status(&ack), command, user_command, socket->tx_tag,
-                  socket->client_port, socket->server_port);
+                route_status, prv_api_status(&ack), command, user_command, socket->tx_tag,
+                socket->client_port, socket->server_port);
     socket->tx_in_process = false;
     return E_INVALID_OPERATION;
   }
@@ -365,13 +388,13 @@ static status_t prv_respond(T5AIMbIpcSocket *socket, T5AIMailboxMessage *request
       t5ai_mailbox_channel_send(MB_IPC_TX_CHANNEL, &response, &ack, MB_IPC_PHYSICAL_TIMEOUT_MS);
   if (FAILED(status)) {
     PBL_LOG_ERR("T5AI MIPC response physical send failed: status=%ld user=%u tag=%u port=%u>%u",
-                  (long)status, (unsigned)(request->parameter2 >> MB_IPC_USER_COMMAND_SHIFT),
-                  prv_tag(request), socket->client_port, socket->server_port);
+                (long)status, (unsigned)(request->parameter2 >> MB_IPC_USER_COMMAND_SHIFT),
+                prv_tag(request), socket->client_port, socket->server_port);
   } else if (prv_route_status(&ack) != MB_IPC_ROUTE_OK) {
     PBL_LOG_WRN("T5AI MIPC response route rejected: route=%u api=%u user=%u tag=%u port=%u>%u",
-                  prv_route_status(&ack), prv_api_status(&ack),
-                  (unsigned)(request->parameter2 >> MB_IPC_USER_COMMAND_SHIFT), prv_tag(request),
-                  socket->client_port, socket->server_port);
+                prv_route_status(&ack), prv_api_status(&ack),
+                (unsigned)(request->parameter2 >> MB_IPC_USER_COMMAND_SHIFT), prv_tag(request),
+                socket->client_port, socket->server_port);
     status = E_INVALID_OPERATION;
   }
   return status;
@@ -475,4 +498,207 @@ void t5ai_mb_ipc_poison(T5AIMbIpcSocket *socket) {
     socket->rx_in_process = false;
     ++socket->generation;
   }
+}
+
+// The mailbox owner advances asynchronous clients; no client waits in this path.
+static void prv_async_physical_done(const T5AIMailboxMessage *ack, status_t status, void *context) {
+  T5AIMbIpcSocket *socket = context;
+  socket->async.physical_status =
+      FAILED(status) ? status : (prv_route_status(ack) == MB_IPC_ROUTE_OK ? S_SUCCESS : E_ERROR);
+  socket->async.physical_done = true;
+  t5ai_mailbox_channel_wake();
+}
+
+static void prv_async_finish(T5AIMbIpcSocket *socket, status_t status) {
+  T5AIMbIpcCompletion cb = socket->async.callback;
+  void *context = socket->async.context;
+  if (FAILED(status)) {
+    t5ai_mb_ipc_poison(socket);
+  }
+  socket->async.phase = AsyncIdle;
+  cb(status, context);
+}
+
+static status_t prv_async_begin(T5AIMbIpcSocket *socket, uint8_t operation, uint8_t command,
+                                const void *data, void *response, size_t length,
+                                uint64_t deadline_ms, T5AIMbIpcCompletion cb, void *context) {
+  if (cb == NULL || deadline_ms <= pbl_uptime_ms()) {
+    return E_INVALID_ARGUMENT;
+  }
+  pbl_irq_lock();
+  if (socket->poisoned || socket->async.phase != AsyncIdle) {
+    status_t status = socket->poisoned ? E_INVALID_OPERATION : E_BUSY;
+    pbl_irq_unlock();
+    return status;
+  }
+  socket->async.opening = operation == MB_IPC_COMMAND_CONNECT;
+  socket->async.command = command;
+  socket->async.response = response;
+  socket->async.length = length;
+  socket->async.deadline_ms = deadline_ms;
+  socket->async.callback = cb;
+  socket->async.context = context;
+  socket->async.physical_done = false;
+  socket->async.result = S_SUCCESS;
+  ++socket->tx_tag;
+  socket->tx_command = operation;
+  socket->tx_status = E_AGAIN;
+  socket->tx_in_process = true;
+  socket->tx_message = (T5AIMailboxMessage){
+    .header = operation,
+    .parameter1 = prv_address(MB_IPC_CPU_CP, socket->server_port, MB_IPC_CPU_AP,
+                              socket->client_port, socket->tx_tag),
+    .parameter2 = (uint32_t)length | ((uint32_t)prv_crc8(data, length) << MB_IPC_CRC_SHIFT) |
+                  ((uint32_t)command << MB_IPC_USER_COMMAND_SHIFT),
+    .parameter3 = (uint32_t)(uintptr_t)data,
+  };
+  if (length != 0u) {
+    dcache_flush((void *)data, length);
+  }
+  socket->async.phase = AsyncQueueSend;
+  pbl_irq_unlock();
+  t5ai_mailbox_channel_wake();
+  return S_SUCCESS;
+}
+
+status_t t5ai_mb_ipc_open_async(uint8_t client_port, uint8_t server_port, T5AIMbIpcSocket **out,
+                                uint64_t deadline_ms, T5AIMbIpcCompletion cb, void *context) {
+  if (out == NULL || cb == NULL || deadline_ms <= pbl_uptime_ms() ||
+      client_port < MB_IPC_CLIENT_PORT_MIN || client_port > MB_IPC_CLIENT_PORT_MAX ||
+      server_port == 0u || server_port > MB_IPC_SERVER_PORT_MAX || !s_initialized) {
+    return E_INVALID_ARGUMENT;
+  }
+  T5AIMbIpcSocket *socket = NULL;
+  pbl_irq_lock();
+  for (size_t i = 0; i < MB_IPC_SOCKET_COUNT; ++i) {
+    if (s_sockets[i].allocated && s_sockets[i].client_port == client_port) {
+      pbl_irq_unlock();
+      return E_INVALID_OPERATION;
+    }
+    if (!s_sockets[i].allocated && socket == NULL) {
+      socket = &s_sockets[i];
+    }
+  }
+  if (socket == NULL) {
+    pbl_irq_unlock();
+    return E_OUT_OF_RESOURCES;
+  }
+  socket->allocated = true;
+  socket->client_port = client_port;
+  socket->server_port = server_port;
+  *out = socket;
+  pbl_irq_unlock();
+  return prv_async_begin(socket, MB_IPC_COMMAND_CONNECT, 0, NULL, NULL, 0, deadline_ms, cb,
+                         context);
+}
+
+status_t t5ai_mb_ipc_exchange_async(T5AIMbIpcSocket *socket, uint8_t command, const void *request,
+                                    void *response, size_t length, uint64_t deadline_ms,
+                                    T5AIMbIpcCompletion cb, void *context) {
+  if (socket == NULL || request == NULL || response == NULL || length == 0u ||
+      length > MB_IPC_ASYNC_MAX_PAYLOAD_BYTES || !socket->connected ||
+      !t5ai_cp_mailbox_shared_range_valid((uintptr_t)request, length)) {
+    return E_INVALID_OPERATION;
+  }
+  return prv_async_begin(socket, MB_IPC_COMMAND_SEND, command, request, response, length,
+                         deadline_ms, cb, context);
+}
+
+uint32_t t5ai_mb_ipc_async_poll(void) {
+  uint32_t wait_ms = UINT32_MAX;
+  for (size_t i = 0; i < MB_IPC_SOCKET_COUNT; ++i) {
+    T5AIMbIpcSocket *socket = &s_sockets[i];
+    if (socket->async.phase == AsyncIdle) {
+      continue;
+    }
+    const uint64_t now = pbl_uptime_ms();
+    if (now >= socket->async.deadline_ms) {
+      prv_async_finish(socket, E_AGAIN);
+      continue;
+    }
+    const uint64_t remaining = socket->async.deadline_ms - now;
+    uint32_t delay = remaining > UINT32_MAX ? UINT32_MAX : (uint32_t)remaining;
+    status_t status;
+    switch (socket->async.phase) {
+      case AsyncQueueSend:
+      case AsyncQueueAck: {
+        const bool ack = socket->async.phase == AsyncQueueAck;
+        socket->async.physical_done = false;
+        status = t5ai_mailbox_channel_send_async(MB_IPC_TX_CHANNEL,
+                                                 ack ? &socket->async.ack : &socket->tx_message,
+                                                 prv_async_physical_done, socket);
+        if (status == E_BUSY) {
+          delay = 1u;
+        } else if (FAILED(status)) {
+          prv_async_finish(socket, status);
+        } else {
+          socket->async.phase = ack ? AsyncWaitAck : AsyncWaitSend;
+        }
+        break;
+      }
+      case AsyncWaitSend:
+        if (!socket->async.physical_done) {
+          break;
+        }
+        if (FAILED(socket->async.physical_status)) {
+          prv_async_finish(socket, socket->async.physical_status);
+        } else if (!socket->tx_in_process) {
+          (void)pbl_sem_take(&socket->tx_ready, PBL_TICKS(0u));
+          if (FAILED(socket->tx_status)) {
+            prv_async_finish(socket, socket->tx_status);
+          } else if (socket->async.opening) {
+            socket->connected = true;
+            prv_async_finish(socket, S_SUCCESS);
+          } else {
+            socket->async.phase = AsyncWaitResponse;
+          }
+          delay = 0u;
+        }
+        break;
+      case AsyncWaitResponse:
+        if (socket->rx_in_process) {
+          (void)pbl_sem_take(&socket->rx_ready, PBL_TICKS(0u));
+          const T5AIMailboxMessage *request = &socket->rx_message;
+          const size_t length = (uint16_t)request->parameter2;
+          const void *source = (void *)(uintptr_t)request->parameter3;
+          status = E_ERROR;
+          if ((uint8_t)request->header == MB_IPC_COMMAND_SEND &&
+              (uint8_t)(request->parameter2 >> MB_IPC_USER_COMMAND_SHIFT) ==
+                  socket->async.command &&
+              length == socket->async.length &&
+              t5ai_cp_mailbox_shared_range_valid((uintptr_t)source, length)) {
+            dcache_invalidate((void *)source, length);
+            if (prv_crc8(source, length) == (uint8_t)(request->parameter2 >> MB_IPC_CRC_SHIFT)) {
+              memcpy(socket->async.response, source, length);
+              status = S_SUCCESS;
+            }
+          }
+          socket->async.result = status;
+          socket->async.ack = *request;
+          socket->async.ack.header = (uint8_t)request->header | MB_IPC_RESPONSE_FLAG;
+          socket->async.ack.parameter1 =
+              prv_address(MB_IPC_CPU_CP, socket->server_port, MB_IPC_CPU_AP, socket->client_port,
+                          prv_tag(request));
+          socket->rx_ack_aon = T5AI_AON_RTC_COUNT_LOW;
+          socket->async.phase = AsyncQueueAck;
+          delay = 0u;
+        }
+        break;
+      case AsyncWaitAck:
+        if (socket->async.physical_done) {
+          socket->rx_in_process = false;
+          status = FAILED(socket->async.physical_status) ? socket->async.physical_status
+                                                         : socket->async.result;
+          prv_async_finish(socket, status);
+          delay = 0u;
+        }
+        break;
+      case AsyncIdle:
+        break;
+    }
+    if (socket->async.phase != AsyncIdle && delay < wait_ms) {
+      wait_ms = delay;
+    }
+  }
+  return wait_ms;
 }

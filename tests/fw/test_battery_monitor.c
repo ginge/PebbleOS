@@ -23,6 +23,7 @@ static bool s_in_low_power;
 static bool s_error_window_shown;
 static bool s_warning_window_shown;
 static PebbleEvent s_last_event_put;
+static unsigned s_battery_event_count;
 
 bool battery_is_usb_connected_raw(void) {
   return false;
@@ -89,6 +90,7 @@ void event_put(PebbleEvent *event) {
   s_last_event_put = *event;
 
   if (event->type == PEBBLE_BATTERY_STATE_CHANGE_EVENT) {
+    ++s_battery_event_count;
     battery_monitor_handle_state_change_event(event->battery_state.new_state);
   } else if (event->type == PEBBLE_BATTERY_CONNECTION_EVENT) {
     battery_state_handle_connection_event(event->battery_connection.is_connected);
@@ -107,6 +109,7 @@ void test_battery_monitor__initialize(void) {
   s_error_window_shown = false;
   s_warning_window_shown = false;
   s_in_low_power = false;
+  s_battery_event_count = 0;
   fake_rtc_init(0, 0);
   fake_rtc_auto_increment_ticks(0);
 
@@ -499,4 +502,64 @@ void test_battery_monitor__battery_get_charge_state(void) {
     cl_assert(!result.is_plugged);
     last_discharge_percent = result.charge_percent;
   }
+}
+
+// An unavailable measurement is not a critical battery or a seeded estimate.
+void test_battery_monitor__unavailable_startup_then_valid_sample(void) {
+  fake_battery_init(0, false, false);
+  battery_monitor_init();
+  periodic_timer_trigger(2);
+  cl_assert_equal_i(s_battery_event_count, 0);
+  cl_assert_equal_i(battery_state_get_voltage(), 0);
+  cl_assert(!battery_monitor_critical_lockout());
+  cl_assert(!s_in_low_power);
+
+  int millivolts = battery_curve_lookup_voltage_by_percent(50, false);
+  fake_battery_set_millivolts(millivolts);
+  periodic_timer_trigger(1);
+  cl_assert_equal_i(s_battery_event_count, 1);
+  cl_assert_equal_i(battery_state_get_voltage(), millivolts);
+  cl_assert(battery_get_charge_state().charge_percent > 0);
+  cl_assert(!battery_monitor_critical_lockout());
+}
+
+void test_battery_monitor__failed_samples_preserve_estimate_without_events(void) {
+  int millivolts = battery_curve_lookup_voltage_by_percent(50, false);
+  fake_battery_init(millivolts, false, false);
+  battery_monitor_init();
+  periodic_timer_trigger(1);
+  unsigned count = s_battery_event_count;
+  BatteryChargeState state = battery_get_charge_state();
+
+  fake_battery_set_millivolts(0);
+  battery_state_reset_filter();
+  battery_state_force_update();
+  periodic_timer_trigger(4);
+  fake_battery_set_millivolts(-12);
+  periodic_timer_trigger(1);
+  cl_assert_equal_i(s_battery_event_count, count);
+  cl_assert_equal_i(battery_state_get_voltage(), millivolts);
+  cl_assert_equal_i(battery_get_charge_state().charge_percent, state.charge_percent);
+  cl_assert(!battery_monitor_critical_lockout());
+  cl_assert(!s_in_low_power);
+
+  fake_battery_set_millivolts(millivolts - 100);
+  battery_state_force_update();
+  periodic_timer_trigger(1);
+  cl_assert_equal_i(s_battery_event_count, count + 1);
+  cl_assert(battery_state_get_voltage() < millivolts);
+}
+
+// A real low first reading must retain the stock first-run lockout policy.
+void test_battery_monitor__unavailable_startup_then_low_battery(void) {
+  fake_battery_init(0, false, false);
+  battery_monitor_init();
+  periodic_timer_trigger(1);
+  cl_assert(!battery_monitor_critical_lockout());
+
+  fake_battery_set_millivolts(battery_curve_lookup_voltage_by_percent(3, false));
+  periodic_timer_trigger(1);
+  cl_assert_equal_i(s_battery_event_count, 1);
+  cl_assert(battery_monitor_critical_lockout());
+  cl_assert_equal_i(standby_timer_get_timeout(), 2000);
 }

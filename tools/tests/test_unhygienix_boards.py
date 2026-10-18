@@ -710,7 +710,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
 
         battery_source = (ROOT / "drivers/battery/t5ai.c").read_text()
         self.assertIn(
-            "pbl_gpio_configure(&s_charge, PBL_GPIO_INPUT)",
+            "pbl_gpio_configure(&cfg->charge, PBL_GPIO_INPUT)",
             battery_source,
         )
 

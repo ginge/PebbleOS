@@ -30,34 +30,12 @@ PBL_LOG_MODULE_DECLARE(driver_flash, CONFIG_DRIVER_FLASH_LOG_LEVEL);
 #define FLASH_STATUS_SHIFT 16u
 #define FLASH_MAX_TRANSFER_BYTES UINT16_MAX
 #define FLASH_ERASE_BLOCK_BYTES 4096u
-#define SARADC_MAX_CHANNEL 15u
-#define SARADC_MAX_SAMPLES 32u
-#define SARADC_CONFIG_WIRE_SIZE 36u
-#define SARADC_COMMAND_WIRE_SIZE 132u
-#define SARADC_NOTIFY_WORDS 4u
-#define SARADC_NOTIFY_ACK_WORD 1u
-// Preserve the raw vendor clock configuration and continuous sampling setup.
-#define SARADC_CLOCK_CONFIG 0x30a0c5u
-#define SARADC_MODE_CONTINUOUS 3u
-#define SARADC_SOURCE_XTAL 1u
-#define SARADC_SATURATE_MODE 4u
-#define SARADC_STEADY_COUNT 7u
-// Vendor SARADC uses a 32-bit MSB-first accumulator with polynomial 0x31.
-#define SARADC_CRC_HIGH_BIT 0x80000000u
-#define SARADC_CRC_POLYNOMIAL 0x31u
-#define SARADC_CRC_BITS_PER_BYTE 8u
-
 #define FLASH_CLIENT_PORT 16u
 #define FLASH_SERVER_PORT 1u
-#define SARADC_CLIENT_PORT 17u
-#define SARADC_SERVER_PORT 2u
 #define IPC_TIMEOUT_MS 5000u
-#define SARADC_IPC_TIMEOUT_MS 2000u
 #define IPC_STALE_RESPONSE_LIMIT 4u
 // Pinned CP server: FLASH_SVR_WAIT_TIME=50 at a 1 kHz FreeRTOS tick.
 #define FLASH_READ_LEASE_AON_TICKS (T5AI_AON_RTC_HZ / 20u)
-#define SARADC_NOTIFY_RX_CHANNEL 0x4cu
-#define SARADC_NOTIFY_ACK 2u
 #define MB_IPC_CLIENT_PRIORITY (CONFIG_KERNEL_NUM_PRIORITIES - 2u)
 
 enum {
@@ -74,57 +52,9 @@ typedef struct {
   uint32_t crc;
 } FlashCommand;
 
-typedef struct {
-  uint32_t clock;
-  uint32_t sample_rate;
-  uint32_t filter;
-  uint32_t steady;
-  uint8_t mode;
-  uint8_t source_clock;
-  uint8_t channel;
-  uint8_t saturate_mode;
-  uint32_t is_open;
-  uint16_t *output_buffer;
-  int32_t output_length;
-  uint16_t use_hardware_calibration;
-  uint8_t voltage_divider;
-} SaradcConfig;
-
-typedef struct {
-  uint32_t parameter;
-  uint16_t samples[SARADC_MAX_SAMPLES];
-  uint32_t size;
-  uint32_t timeout;
-  int16_t status;
-  uint8_t sample_count;
-  uint16_t calibration_data;
-  uint32_t crc;
-  SaradcConfig config;
-  void *callback;
-  void *context;
-} SaradcCommand;
-
-enum {
-  SARADC_ACQUIRE = 0,
-  SARADC_INIT = 1,
-  SARADC_ENABLE_BYPASS_CALIBRATION = 2,
-  SARADC_START = 3,
-  SARADC_READ_RAW = 4,
-  SARADC_READ_RAW_DONE = 5,
-  SARADC_STOP = 6,
-  SARADC_DEINIT = 7,
-  SARADC_RELEASE = 8,
-  SARADC_SET_CONFIG = 9,
-  SARADC_INIT_GPIO = 29,
-  SARADC_DEINIT_GPIO = 30,
-};
-
 static T5AIMbIpcSocket *s_flash_socket;
-static T5AIMbIpcSocket *s_saradc_socket;
 static PBL_MUTEX_DEFINE(s_flash_mutex);
-static PBL_MUTEX_DEFINE(s_saradc_mutex);
 static FlashCommand s_flash_command __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
-static SaradcCommand s_saradc_command __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
 #ifdef CONFIG_T5AI_FLASH_PROFILE
 static T5AIFlashDiagnostics s_flash_diagnostics = {.active_command = UINT32_MAX};
 
@@ -165,7 +95,6 @@ void t5ai_flash_ipc_get_diagnostics(T5AIFlashDiagnostics *diagnostics) {
 #endif
 
 static bool s_flash_available;
-static bool s_saradc_available = true;
 
 static pbl_prio_t prv_boost_client_priority(void) {
   pbl_irq_lock();
@@ -190,9 +119,6 @@ static void prv_restore_client_priority(pbl_prio_t previous) {
 }
 
 #if UINTPTR_MAX == UINT32_MAX
-_Static_assert(sizeof(SaradcConfig) == SARADC_CONFIG_WIRE_SIZE, "BK7258 SARADC config ABI changed");
-_Static_assert(sizeof(SaradcCommand) == SARADC_COMMAND_WIRE_SIZE,
-               "BK7258 SARADC command ABI changed");
 #endif
 
 /* Vendor flash CRC: reflected CRC-32, seed zero, no final XOR. */
@@ -272,37 +198,13 @@ static uint32_t prv_crc32(const void *data, size_t length) {
   return crc;
 }
 
-static uint32_t prv_saradc_crc32(const void *data, size_t length) {
-  const uint8_t *bytes = data;
-  uint32_t crc = 0u;
-  while (length-- != 0u) {
-    crc ^= *bytes++;
-    for (unsigned bit = 0; bit < SARADC_CRC_BITS_PER_BYTE; ++bit) {
-      crc = (crc & SARADC_CRC_HIGH_BIT) != 0u ? (crc << 1u) ^ SARADC_CRC_POLYNOMIAL : crc << 1u;
-    }
-  }
-  return crc;
-}
-
-static void prv_saradc_notify(uint8_t channel, const T5AICPMailboxFrame *frame, void *context) {
-  (void)channel;
-  (void)context;
-  if (frame->length != SARADC_NOTIFY_WORDS * sizeof(uint32_t)) {
-    (void)t5ai_cp_mailbox_acknowledge_frame(frame, false);
-    return;
-  }
-  uint32_t *words = (uint32_t *)(uintptr_t)frame->address;
-  words[SARADC_NOTIFY_ACK_WORD] = SARADC_NOTIFY_ACK;
-  (void)t5ai_cp_mailbox_acknowledge_frame(frame, true);
-}
-
 status_t t5ai_flash_ipc_init(void) {
   status_t status = t5ai_mb_ipc_init();
   if (FAILED(status)) {
     return status;
   }
-  status = t5ai_cp_mailbox_register(SARADC_NOTIFY_RX_CHANNEL, prv_saradc_notify, NULL);
-  if (FAILED(status) && status != E_INVALID_OPERATION) {
+  status = t5ai_saradc_init();
+  if (FAILED(status)) {
     return status;
   }
   status = t5ai_mb_ipc_open(FLASH_CLIENT_PORT, FLASH_SERVER_PORT, &s_flash_socket);
@@ -515,157 +417,5 @@ status_t t5ai_flash_ipc_erase_4k(uint32_t offset) {
   s_flash_command = (FlashCommand){.part_and_address = offset << FLASH_ADDRESS_SHIFT};
   const status_t status = prv_flash_transaction(FLASH_ERASE_SECTOR);
   pbl_mutex_unlock(&s_flash_mutex);
-  return status;
-}
-
-static status_t prv_saradc_connect(void) {
-  if (!s_saradc_available) {
-    return E_INVALID_OPERATION;
-  }
-  if (s_saradc_socket != NULL) {
-    return S_SUCCESS;
-  }
-  return t5ai_mb_ipc_open(SARADC_CLIENT_PORT, SARADC_SERVER_PORT, &s_saradc_socket);
-}
-
-static void prv_saradc_disconnect(void) {
-  t5ai_mb_ipc_poison(s_saradc_socket);
-  s_saradc_available = false;
-}
-
-static status_t prv_saradc_transaction(uint8_t command) {
-  const pbl_prio_t previous_priority = prv_boost_client_priority();
-  t5ai_mb_ipc_discard(s_saradc_socket);
-  status_t status = t5ai_mb_ipc_send(s_saradc_socket, command, &s_saradc_command,
-                                     sizeof(s_saradc_command), SARADC_IPC_TIMEOUT_MS);
-  if (FAILED(status)) {
-    if (status == E_AGAIN) {
-      prv_saradc_disconnect();
-    }
-    goto out;
-  }
-  for (unsigned stale = 0u; stale <= IPC_STALE_RESPONSE_LIMIT; ++stale) {
-    uint8_t received_command = UINT8_MAX;
-    SaradcCommand response;
-    status = t5ai_mb_ipc_receive(s_saradc_socket, &received_command, &response,
-                                 sizeof(response), SARADC_IPC_TIMEOUT_MS);
-    if (FAILED(status)) {
-      if (status == E_AGAIN) {
-        prv_saradc_disconnect();
-      }
-      goto out;
-    }
-    if (received_command != command) {
-      PBL_LOG_WRN("T5AI SARADC ignored stale completion expected=%u received=%u count=%u",
-                  command, received_command, stale + 1u);
-      continue;
-    }
-    s_saradc_command = response;
-    status = response.status == 0 ? S_SUCCESS : E_ERROR;
-    goto out;
-  }
-  status = E_ERROR;
-out:
-  prv_restore_client_priority(previous_priority);
-  return status;
-}
-
-static status_t prv_saradc_cleanup(uint8_t channel, status_t result) {
-  if (!s_saradc_available) {
-    return result;
-  }
-  status_t cleanup_status = S_SUCCESS;
-  memset(&s_saradc_command, 0, sizeof(s_saradc_command));
-  status_t status = prv_saradc_transaction(SARADC_STOP);
-  if (FAILED(status)) {
-    return status;
-  }
-  s_saradc_command.config.channel = channel;
-  status = prv_saradc_transaction(SARADC_DEINIT);
-  if (FAILED(status)) {
-    return status;
-  }
-  status = prv_saradc_transaction(SARADC_RELEASE);
-  if (FAILED(status)) {
-    return status;
-  }
-  s_saradc_command.config.channel = channel;
-  status = prv_saradc_transaction(SARADC_DEINIT_GPIO);
-  cleanup_status = FAILED(status) ? status : cleanup_status;
-  return FAILED(result) ? result : cleanup_status;
-}
-
-static status_t prv_saradc_read_peak_locked(uint8_t channel, uint8_t samples, uint16_t *peak) {
-  status_t status = prv_saradc_connect();
-  if (FAILED(status)) {
-    return status;
-  }
-  memset(&s_saradc_command, 0, sizeof(s_saradc_command));
-  s_saradc_command.config.channel = channel;
-  status = prv_saradc_transaction(SARADC_INIT_GPIO);
-  if (FAILED(status)) {
-    return status;
-  }
-  status = prv_saradc_transaction(SARADC_ACQUIRE);
-  if (FAILED(status)) {
-    return prv_saradc_cleanup(channel, status);
-  }
-  s_saradc_command.config.channel = channel;
-  status = prv_saradc_transaction(SARADC_INIT);
-  if (FAILED(status)) {
-    return prv_saradc_cleanup(channel, status);
-  }
-
-  memset(&s_saradc_command.config, 0, sizeof(s_saradc_command.config));
-  s_saradc_command.config.clock = SARADC_CLOCK_CONFIG;
-  s_saradc_command.config.mode = SARADC_MODE_CONTINUOUS;
-  s_saradc_command.config.source_clock = SARADC_SOURCE_XTAL;
-  s_saradc_command.config.channel = channel;
-  s_saradc_command.config.saturate_mode = SARADC_SATURATE_MODE;
-  s_saradc_command.config.steady = SARADC_STEADY_COUNT;
-  s_saradc_command.config.output_buffer = s_saradc_command.samples;
-  s_saradc_command.config.output_length = samples;
-  status = prv_saradc_transaction(SARADC_SET_CONFIG);
-  if (FAILED(status)) {
-    return prv_saradc_cleanup(channel, status);
-  }
-  status = prv_saradc_transaction(SARADC_ENABLE_BYPASS_CALIBRATION);
-  if (FAILED(status)) {
-    return prv_saradc_cleanup(channel, status);
-  }
-  status = prv_saradc_transaction(SARADC_START);
-  if (FAILED(status)) {
-    return prv_saradc_cleanup(channel, status);
-  }
-
-  memset(s_saradc_command.samples, 0, sizeof(s_saradc_command.samples));
-  s_saradc_command.size = samples;
-  s_saradc_command.timeout = SARADC_IPC_TIMEOUT_MS;
-  status = prv_saradc_transaction(SARADC_READ_RAW);
-  if (PASSED(status) && s_saradc_command.size == samples &&
-      prv_saradc_crc32(s_saradc_command.samples, samples * sizeof(uint16_t)) ==
-          s_saradc_command.crc) {
-    uint16_t maximum = 0u;
-    for (uint8_t i = 0; i < samples; ++i) {
-      if (s_saradc_command.samples[i] > maximum) {
-        maximum = s_saradc_command.samples[i];
-      }
-    }
-    *peak = maximum;
-    status = prv_saradc_transaction(SARADC_READ_RAW_DONE);
-  } else {
-    status = E_ERROR;
-  }
-  return prv_saradc_cleanup(channel, status);
-}
-
-status_t t5ai_saradc_read_peak(uint8_t channel, uint8_t samples, uint16_t *peak) {
-  if (peak == NULL || channel > SARADC_MAX_CHANNEL || samples == 0u ||
-      samples > SARADC_MAX_SAMPLES) {
-    return E_INVALID_ARGUMENT;
-  }
-  pbl_mutex_lock(&s_saradc_mutex, PBL_FOREVER);
-  const status_t status = prv_saradc_read_peak_locked(channel, samples, peak);
-  pbl_mutex_unlock(&s_saradc_mutex);
   return status;
 }

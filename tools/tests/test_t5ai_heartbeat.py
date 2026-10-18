@@ -58,7 +58,7 @@ static uint8_t s_control_sequence;
 static T5AIMailboxMessage s_control_message;
 typedef enum {TxState_Idle,TxState_Pending,TxState_Active} TxState;
 typedef struct {
- TxState state;T5AIMailboxMessage message;T5AIMailboxTransmitHandler handler;
+ unsigned mutex;TxState state;T5AIMailboxMessage message;T5AIMailboxTransmitHandler handler;
  void *context;bool synchronous;
 } TxChannel;
 static TxChannel s_tx[16];
@@ -67,6 +67,9 @@ static uint64_t sent_at,last_attempt;
 static bool physical_done;
 static jmp_buf finished;
 static uint64_t pbl_uptime_ticks(void){return now;}
+static unsigned t5ai_mb_ipc_async_poll(void){return UINT32_MAX;}
+static int pbl_mutex_lock(unsigned *p,unsigned t){assert(!*p && !t);*p=1;return 0;}
+static void pbl_mutex_unlock(unsigned *p){assert(*p);*p=0;}
 static unsigned prv_milliseconds_to_ticks(unsigned n){return n;}
 static void pbl_irq_lock(void){assert(!depth);++depth;}
 static void pbl_irq_unlock(void){assert(depth==1);--depth;}

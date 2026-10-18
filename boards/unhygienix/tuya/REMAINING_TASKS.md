@@ -7,8 +7,9 @@ records dependency, build, packaging and flash procedures.
 ## Tuya private workers — 2026-10-18
 
 Heartbeat and touch consolidation were explicitly resumed on 2026-10-18. Battery
-remains deferred. Native object ownership does not establish that every dedicated
-worker or its current stack capacity is necessary.
+subsystem review and software consolidation are complete; device qualification
+remains open. Native object ownership does not establish that every dedicated worker or its
+current stack capacity is necessary.
 
 - **Touch — implemented and flashed; broader qualification pending:** CST92xx now follows stock CST816's
   coalesced raised-priority KernelBG callback and synchronized native input reports.
@@ -36,10 +37,39 @@ worker or its current stack capacity is necessary.
   findings. Queue saturation, measured latency/stack/heap, injected I2C recovery,
   cold power-cycle and sustained watchdog checks remain open.
   Evidence: `/home/baz/Documents/ChatGPT/pebble/artifacts/cst92xx-kernelbg-20261018/flash/report.txt`.
-- **Battery — 2,048 B internal stack:** compare the private sampling worker with
-  stock battery-service system-task updates. Evaluate using the existing update
-  path while preserving startup retries, cached readings and bounded CP ADC
-  operations; measure any blocking effect on other system-task work.
+- **Battery — repair/consolidation flashed; ADC and controls pass, watchdog open:** the private
+  worker and its 2,048-byte stack are removed. The existing voltage service drives
+  sampling; getters submit a nonblocking request and report unavailable until it
+  completes. The existing mailbox owner advances bounded asynchronous MB-IPC/
+  SARADC phases with a 5-second whole-acquisition deadline (500 ms connect,
+  existing 2-second CP conversion timeout). No ADC waits, sleeps or extra thread
+  run on KernelBG or NewTimer. The raw-read error is preserved; successful raw
+  replies always complete READ_RAW_DONE before cleanup, including rejected
+  CRC/size data. Cleanup only acts on successfully acquired resources. Ambiguous
+  transport failures and failed cleanup retain/poison CP-visible storage until
+  reset. Synchronous flash waits for a shared physical slot instead of failing
+  busy; asynchronous callers cannot overtake it. Wiring/calibration are board
+  data, and BATTERY_T5AI selects the driver. A native both-edge charge IRQ plus
+  shared regular timer provides debounced stock connection events, missed-edge
+  reconciliation and dropped-callback recovery. CHRG remains only a charging
+  proxy; full/plugged versus unplugged is not independently observable.
+  The previous validity fix remains: no 3,700 mV default, failure/expiry returns
+  unavailable, and the stock voltage service skips invalid readings. All 299
+  tooling entries pass with two skips; all 15 native battery-monitor cases pass.
+  Static RAM falls by 1,760 B to 99,968 B; linker heap becomes 27,008 B. These
+  are linker capacities, not measured peak headroom. Final build
+  `779f3e5a1bcaeed66d06043ead303ab3c91254ed` is flashed AP-only; boot ID verified.
+  Four ADC samples succeeded in 6–7 ms at 4,011–4,025 mV; zero ADC errors and
+  no additional AP boots in the completed 300.478-second capture. The operator
+  confirms watchface, phone, controls and sleep/wake work normally. KernelBG
+  watchdog stalls/recoveries persist and remain unresolved. Hardware testing
+  exposed mailbox-owner synchronous logging and an inherited vendor CRC bit
+  error; both are corrected with regression coverage. Failed candidates and the
+  recovery flash are preserved. No cell is fitted; unloaded charger voltage does
+  not qualify battery calibration or percentage accuracy. Cold-cycle, sustained
+  watchdog, read-done timing under load, stack/peak heap and fitted-cell checks
+  remain open. [Subsystem review](../../../docs/boards/unhygienix/battery-review.md).
+  Evidence: `/home/baz/Documents/ChatGPT/pebble/artifacts/battery-consolidation-20261018/vendor-crc/flash/report.txt`.
 - **CP heartbeat — implemented and flashed; broader qualification pending:**
   This consolidation was not required for correctness, but removes one dedicated
   thread and its 1,024-byte stack, saving 1,152 B of static RAM overall. The existing
@@ -59,15 +89,16 @@ worker or its current stack capacity is necessary.
   Evidence: `/home/baz/Documents/ChatGPT/pebble/artifacts/heartbeat-mailbox-20261018/flash/report.txt`.
 
 Before heartbeat consolidation these workers reserved **6,144 B of internal stack
-storage**; the flashed heartbeat/touch consolidation leaves only the battery
-worker's **2,048 B**. Eliminating or
-consolidating them could save real RAM; moving their existing allocations from
-heap to static storage does not. The native-object candidate's +8,768 B static
-increase replaces 9,044 B of former heap requests, so it is not an equivalent
-increase in steady-state live RAM. Startup and peak heap headroom still need
-measurement. Keep priorities, timing and stack capacities unchanged until each
-comparison has evidence. Heartbeat and touch are consolidated and flashed with
-broader qualification still open; battery consolidation remains deferred.
+storage**. Heartbeat, touch and battery are consolidated and flashed. Battery
+removes the remaining **2,048 B**. None of those three private stacks remain
+in the final image. Together the consolidations recover 6,080 B of static
+RAM after accounting for replacement state, bringing linker heap from 20,928 B
+at the native-object baseline to 27,008 B. Startup/peak heap and mailbox stack
+high-water still need measurement. The original native-object conversion itself
+moved allocations from heap to static storage; its +8,768 B static increase
+replaced 9,044 B of former heap requests and was not an equivalent steady-state
+live-RAM increase. HCI and mailbox owner threads remain necessary to the current
+transport design. Broader combined device qualification remains open.
 See the [stock comparison and accounting](/home/baz/Documents/ChatGPT/pebble/artifacts/native-kernel-objects-20261018/stock-comparison.md).
 
 ## Current disposition — 2026-10-18
