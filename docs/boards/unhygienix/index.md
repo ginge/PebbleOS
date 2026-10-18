@@ -15,8 +15,8 @@ bundles, bulk erase and unsupported raw-flash operations remain disabled.
 
 ## Latest implementation status — 2026-10-18
 
-Source baseline: `2e2dcc732`, with heartbeat worker consolidation in the working
-tree. The port merged newer upstream
+Source baseline: `8732a079a`, with CST92xx stock-style KernelBG/native-input
+consolidation in the working tree. The port merged newer upstream
 `main` in `9b6537971`; `a53522389` adapts GPIO, I2C, RTC, battery, touch and
 QMI8658 integration to the current driver APIs. It also corrects the Armv8-M
 MPU restore selection and bounds native unregistered-task logging state.
@@ -30,7 +30,22 @@ one ARM SDK/QEMU fault-entry test skipped. The Unhygienix firmware built and
 linked, with existing LTO warnings. These are recorded checks for that candidate,
 not a fresh broad run against the later persistence experiment.
 
-The latest installed AP image is the heartbeat-consolidation candidate, build ID
+The latest installed AP image is the CST92xx KernelBG/native-input candidate,
+build ID `69549c57d6ef588a96516b36640d53b18e705d20`, flashed AP-only on 2026-10-18.
+The booted ID matches the frozen ELF; encrypted bonding and the phone session
+restored, with discovery completing in 3,759 ms. The operator confirms taps,
+drags/swipes, clean liftoff and sleep/wake touch work normally, and reconfirms
+normal touch after a KernelBG watchdog warning/recovery. The image logged a
+5,952 ms BG feed delay with App throttling for FdF Time, then recovery. No later
+AP boot was decoded. A later watchdog channel warning lacks matching feed-age or
+recovery records before capture ends. The cause remains open; this is not clean qualification.
+A separate recovery record received before flashing belongs to the preceding run.
+First-failure prefix and full trace retained; capture stopped. Filesystem,
+pindb-mutex, dropped-event, battery and app-animation findings remain recorded.
+No numerical touch latency, stack high-water or peak heap was measured. Evidence:
+`/home/baz/Documents/ChatGPT/pebble/artifacts/cst92xx-kernelbg-20261018/flash/report.txt`.
+
+The preceding installed AP image was the heartbeat-consolidation candidate, build ID
 `c42b19caafdddfeef102c7d1eec3182da1fc0fcb`, flashed AP-only on 2026-10-18.
 The booted ID matches the frozen ELF. Stored bond keys registered, the phone
 protocol session opened and discovery completed in 4,213 ms. The operator confirms
@@ -473,6 +488,62 @@ passes in the bounded startup trace; warnings/errors remain recorded in the late
 flash report above. Verify cold power-cycle behavior, encryption changes, heartbeat
 gaps during traffic/UI load, mailbox stack high-water and sustained watchdog
 behavior. The earlier KernelBG feed-delay finding remains open.
+
+## CST92xx stock touch scheduling — 2026-10-18
+
+The flashed CST92xx candidate follows CST816's coalesced,
+`system_task_add_callback_from_isr_droppable_raised()` dispatch to KernelBG and
+its synchronized `pbl_input_report_key/abs()` sample sequence. The driver no longer
+calls the touch service directly, inspects application event queues or imposes a
+separate 33 ms motion limit. The private thread, wake semaphore and 3,072-byte
+internal stack are removed. Shared input/touch service and CST816 source are
+unchanged. Native input delivery follows stock event-queue behavior; the old
+private-worker backpressure policy is deliberately removed and needs load testing.
+
+Controller-specific behavior stays local: the CST9217 report layout, scaling
+of the 466-pixel coordinates, panel mirroring, IRQ/reset pins, 100 kHz bus and
+5/50 ms reset timing are preserved. A native mutex serializes hardware operations;
+input listeners run without it to avoid inversion with the touch-service lock.
+Callbacks carry an enable-generation token so old queued/timer work cannot read
+or reset a newly disabled/re-enabled controller. Read errors release contact via
+native input, as CST816 does; the existing three-failure reset threshold and
+80/1,000 ms retry intervals remain.
+
+Unlike CST816's controller-specific idle-reset watchdog, CST9217 retains a
+one-shot 20 ms contact/asserted-line fallback to recover lost liftoff edges. A
+one-second shared regular timer retries a dropped callback or a missed asserted
+IRQ only when no fallback is armed. It reads the IRQ pad but does no idle I2C or
+periodic reset. Both timers only enqueue KernelBG work; no I2C, sleep or reset
+runs on ISR/NewTimer. The retry timer uses one slot from the existing fixed timer
+pool; the shared regular callback uses a static 24-byte registration.
+
+Candidate build `69549c57d6ef588a96516b36640d53b18e705d20` builds/packages and
+passes 287 tooling tests with two skips. Four rebuilt native touch/input suites
+also pass (57 cases). Five full-driver host cases cover coalescing, input framing/coordinates/liftoff,
+queue rejection and timer recovery, I2C failures/reset, interrupts during reads,
+and stale callback/timer cancellation. These are modeled interleavings, not real
+scheduler tests. Static RAM falls from 104,896 B to 101,728 B (3,168 B saved);
+linker heap grows from 22,080 B to 25,248 B. Flash grows by 104 B to 1,596,984 B.
+This does not measure peak heap, stack depth or latency. Exact candidate ID,
+images, source, tests and limits:
+`/home/baz/Documents/ChatGPT/pebble/artifacts/cst92xx-kernelbg-20261018/validation.txt`.
+
+The candidate is flashed AP-only with its boot ID verified. The operator reports
+normal taps, drags/swipes, clean liftoff and touch after sleep/wake, and confirms
+normal touch again after a KernelBG watchdog warning/recovery. Encrypted bonding
+and phone session restoration pass. A 5,952 ms KernelBG feed delay triggered App
+throttling for FdF Time and then recovered; no later AP boot was decoded. The
+first-failure prefix and complete capture are retained. A later watchdog channel
+warning lacks matching feed-age/recovery records before capture ends. This does not identify
+causation or close the existing watchdog finding; the combined run is not clean.
+Capture is stopped. Exact flash scope, observations and warnings:
+`/home/baz/Documents/ChatGPT/pebble/artifacts/cst92xx-kernelbg-20261018/flash/report.txt`.
+
+Queue saturation, measured latency, forced I2C reset recovery, enable/disable under
+load, cold power-cycle, peak heap and KernelBG stack high-water remain open. The
+current image has neither shell nor the T5AI BulkIO memory endpoint available for
+stack inspection; no bypass was attempted. Raised-priority callbacks still wait
+behind existing KernelBG work. Broader hardware qualification remains incomplete.
 
 ## PFS system resources — 2026-10-18
 

@@ -6,14 +6,36 @@ records dependency, build, packaging and flash procedures.
 
 ## Tuya private workers — 2026-10-18
 
-Heartbeat consolidation was explicitly resumed on 2026-10-18. Touch and battery
-remain deferred. Native object ownership does not establish that every dedicated
+Heartbeat and touch consolidation were explicitly resumed on 2026-10-18. Battery
+remains deferred. Native object ownership does not establish that every dedicated
 worker or its current stack capacity is necessary.
 
-- **Touch — 3,072 B internal stack:** compare the CST92xx private worker with
-  stock CST816's IRQ-to-KernelBG callback approach. Evaluate shared-task delivery
-  before retaining a dedicated thread. Verify touch latency, backpressure,
-  finger-up delivery, lost-edge recovery and I2C reset behavior under BG load.
+- **Touch — implemented and flashed; broader qualification pending:** CST92xx now follows stock CST816's
+  coalesced raised-priority KernelBG callback and synchronized native input reports.
+  The private thread, semaphore and 3,072-byte stack are removed, along with direct
+  app/worker/kernel queue inspection and the driver-specific 33 ms motion throttle.
+  A native mutex serializes controller reads/reset with enable/disable; input
+  listeners run after that lock is released. Generation checks reject stale work.
+  CST9217-specific report decoding, mirrored coordinates, reset timing and bounded
+  recovery remain local: a one-shot timer schedules the 20 ms contact/asserted-INT
+  fallback and 80/1,000 ms read/reset retries. A shared one-second regular callback
+  rescues dropped work or a missed asserted edge; idle does no I2C. Timers only
+  enqueue work. Read failures report liftoff through the stock input path.
+  Candidate `69549c57d6ef588a96516b36640d53b18e705d20` builds/packages.
+  The 287 tooling tests pass with two skips, including five full-driver cases;
+  four rebuilt native touch/input suites pass (57 cases). Static RAM falls by 3,168 B
+  to 101,728 B; linker heap becomes 25,248 B. Flashed AP-only with boot ID verified;
+  encrypted bond/phone session restored and discovery completed in 3,759 ms.
+  The operator confirms taps, drags/swipes, clean finger lifts and sleep/wake touch
+  work normally, and reconfirms touch after a KernelBG watchdog warning/recovery.
+  The new image logged a 5,952 ms BG feed delay and App throttling for FdF Time,
+  then recovery; no later AP boot was decoded. A later channel-mask warning lacks
+  matching feed-age/recovery records before capture ends. Cause remains unresolved and the
+  combined run is not clean qualification. First failure and full trace preserved;
+  capture stopped. A pre-flash recovery record is kept separate from new-image
+  findings. Queue saturation, measured latency/stack/heap, injected I2C recovery,
+  cold power-cycle and sustained watchdog checks remain open.
+  Evidence: `/home/baz/Documents/ChatGPT/pebble/artifacts/cst92xx-kernelbg-20261018/flash/report.txt`.
 - **Battery — 2,048 B internal stack:** compare the private sampling worker with
   stock battery-service system-task updates. Evaluate using the existing update
   path while preserving startup retries, cached readings and bounded CP ADC
@@ -37,14 +59,15 @@ worker or its current stack capacity is necessary.
   Evidence: `/home/baz/Documents/ChatGPT/pebble/artifacts/heartbeat-mailbox-20261018/flash/report.txt`.
 
 Before heartbeat consolidation these workers reserved **6,144 B of internal stack
-storage**; touch and battery still reserve **5,120 B**. Eliminating or
+storage**; the flashed heartbeat/touch consolidation leaves only the battery
+worker's **2,048 B**. Eliminating or
 consolidating them could save real RAM; moving their existing allocations from
 heap to static storage does not. The native-object candidate's +8,768 B static
 increase replaces 9,044 B of former heap requests, so it is not an equivalent
 increase in steady-state live RAM. Startup and peak heap headroom still need
 measurement. Keep priorities, timing and stack capacities unchanged until each
-comparison has evidence. Only heartbeat has been consolidated and flashed; touch
-and battery worker reductions remain deferred.
+comparison has evidence. Heartbeat and touch are consolidated and flashed with
+broader qualification still open; battery consolidation remains deferred.
 See the [stock comparison and accounting](/home/baz/Documents/ChatGPT/pebble/artifacts/native-kernel-objects-20261018/stock-comparison.md).
 
 ## Current disposition — 2026-10-18
