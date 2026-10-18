@@ -656,32 +656,11 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertNotIn("ble_gap_adv_start(", main)
 
         comm_build = (ROOT / "fw/comm/CMakeLists.txt").read_text()
-        self.assertIn("list(APPEND excl ble/gap_le_connect_params.c)", comm_build)
-        t5_params = (ROOT / "fw/comm/ble/gap_le_connect_params_t5ai.c").read_text()
-        self.assertIn("T5AI_FAST_INTERVAL_1_25MS 12u", t5_params)
-        self.assertNotIn("T5AI_IDLE_INTERVAL_1_25MS", t5_params)
-        self.assertNotIn("bt_driver_le_connection_parameter_update", t5_params)
-        self.assertIn(
-            "conn_mgr_handle_desired_state_granted(connection, desired_state)",
-            t5_params,
-        )
-        self.assertIn(
-            "conn_mgr_handle_desired_state_granted(connection, desired_state)",
-            t5_params,
-        )
-        self.assertIn("T5AI conn param result", t5_params)
-        update_handler = t5_params.index("pbl_bt_handle_le_conn_params_update_event")
-        self.assertLess(
-            t5_params.index(
-                "connection->param_update_info.is_request_pending = false;",
-                update_handler,
-            ),
-            t5_params.index(
-                "event->status == PBL_BT_HCI_STATUS_SUCCESS", update_handler
-            ),
-        )
-        self.assertNotIn("prv_watchdog", t5_params)
-        self.assertIn("conn_mgr_handle_desired_state_granted", t5_params)
+        self.assertNotIn("gap_le_connect_params.c", comm_build)
+        self.assertFalse((ROOT / "fw/comm/ble/gap_le_connect_params_t5ai.c").exists())
+        lower_build = (ROOT / "subsys/bluetooth/CMakeLists.txt").read_text()
+        self.assertNotIn("responsiveness.c", lower_build)
+        self.assertFalse((ROOT / "subsys/bluetooth/responsiveness_t5ai.c").exists())
 
         app_cache = (ROOT / "fw/services/app_cache/service.c").read_text()
         self.assertIn("defined(CONFIG_SOC_T5AI)", app_cache)

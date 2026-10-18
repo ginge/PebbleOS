@@ -191,6 +191,24 @@ No capture remains from the latest GATT test. Merge readiness remains unqualifie
    the current review identifies work already completed. Merge readiness remains
    unqualified.
 
+   Progress — 2026-10-18 (connection negotiation, audit items 8/9): restored
+   the shared upper state machine and stock NimBLE update adapter; removed both
+   T5AI replacement files and build selectors. Both shared C files and both
+   selection CMake files match local `origin/main`. Eight new native policy cases,
+   four connection-manager cases and 29 board checks pass. Diagnostic firmware
+   applied 15 ms/latency 0 and 30 ms/latency 30 with 6-second timeout via actual
+   controller completions. Both requested reconnects restored sessions/discovery
+   and fast updates, followed by idle-update events; repeated parameter-detail
+   records are incomplete. No port-specific forced L2CAP, timeout inflation or
+   nonzero-latency rejection remains. NimBLE retains its ordinary transport
+   choice/fallback. Final normal-logging image
+   `6974866918986203ee3d1796be87690aa9b012bd` is flashed AP-only and boot identity
+   verified, encrypted phone session restored and discovery completed in 2,691 ms.
+   Final normal-build actual-parameter records are absent; diagnostic completions
+   establish the applied tuples. Both captures are stopped. Operator responsiveness
+   confirmation, broad qualification and unrelated warnings remain open. Evidence:
+   `/home/baz/Documents/ChatGPT/pebble/artifacts/stock-conn-params-20261018/report.md`.
+
    Progress — 2026-10-18 (stock reconnect advertising, audit item 10): implemented
    and device smoke-tested. `gap_le_slave_reconnect.c` matches local `origin/main`
    byte for byte: stock 30-second short/indefinite long terms and churn handling
@@ -204,7 +222,7 @@ No capture remains from the latest GATT test. Merge readiness remains unqualifie
    `7c5d20f0aebae01dee706eb5640340c5d3381a30` is flashed AP-only; boot identity,
    phone session and discovery (3,914 ms) verified. Both captures are stopped.
    Churn-threshold, HRM, 25-cycle, cold-cycle and soak qualification remain open.
-   Next stock-convergence work is upper/lower connection policy (items 8/9).
+   Items 8/9 were subsequently restored as recorded above.
    Evidence: `/home/baz/Documents/ChatGPT/pebble/artifacts/stock-advertising-20261018/report.md`.
 
    Progress — 2026-10-18 (Getafix compositor override, audit item 3): removed
