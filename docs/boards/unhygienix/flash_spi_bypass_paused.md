@@ -1,5 +1,12 @@
 # Flash bypass paused: controller baseline retained
 
+Cleanup update — 2026-10-18: the production tree now retains only the Bluetooth
+CP hook. The old CP flash guard and SPI/volatile sources, packaging support and
+tests were removed. This document and linked evidence retain the historical
+experiment; source is available in Git and the preserved experiment branch.
+Current CP packaging rejects diagnostic manifests; rebuild from the pinned
+stock input for a Bluetooth-only image. This cleanup did not flash the watch.
+
 Date: 2026-10-11. Operator decision: pause bypass work, preserve it on a branch,
 and return to `tuya` on the current controller baseline. This decision overrides
 the next-step instructions in earlier experimental handoffs.

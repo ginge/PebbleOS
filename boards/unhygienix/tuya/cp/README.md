@@ -10,12 +10,18 @@ only the existing Bluetooth-init call. Existing addresses and the AP mailbox/HCI
 ABI stay unchanged. Unknown images and oversized hooks are rejected.
 This is source-hook integration into a pinned binary, not a full CP rebuild.
 
+Only the Bluetooth hook is supported. The optional CP flash guard, volatile
+protection and SPI bypass sources, packaging options and tests were removed on
+2026-10-18. Historical experiments remain in Git and the preserved evidence;
+CP manifests containing flash guard metadata are rejected. Rebuild a Bluetooth-only
+CP image before using the current runner with an old diagnostic artifact.
+
 Run from the repository root, with the stock image supplied under `build/inputs/`:
 
 ```sh
-./pbl configure --board unhygienix
-./pbl waf t5ai_cp --t5ai-cp-stock build/inputs/stock-cp.bin
-./pbl flash --dry-run --t5ai-cp --tyutool tyutool_cli --tyutool-tty /dev/serial/by-id/programming-uart
+pbl configure --board unhygienix -DT5AI_CP_STOCK="$PWD/build/inputs/stock-cp.bin"
+pbl build t5ai_cp
+pbl flash --dry-run --t5ai-cp --tyutool tyutool_cli --tyutool-tty /dev/serial/by-id/programming-uart
 ```
 
 The native runner updates AP and explicitly selected CP, preserving PFS.

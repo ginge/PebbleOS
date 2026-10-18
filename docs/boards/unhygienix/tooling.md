@@ -46,6 +46,12 @@ packaging. Neither submodule is upgraded implicitly.
 
 ## CP packaging
 
+As of 2026-10-18, packaging supports only the Bluetooth RF hook. The optional
+flash guard and experimental SPI/volatile code, build options and tests have
+been removed. Historical diagnostic manifests are rejected; regenerate CP from
+the pinned stock input. Earlier experiment documents describe the preserved
+historical implementation, not current build options.
+
 The stock CP is a generated vendor artifact, not tracked source in either SDK.
 Supply the validated stock `app.bin` with SHA-256
 `0edde387b5694ac6687e04d318e4f7346acd29e585b699eba28ed70540d91856`.
