@@ -37,7 +37,6 @@ extern void shell_prefs_init(void);
 // Force-compact every growable settings DB on first boot after upgrade.
 // Pre-growable-files devices keep their original full-size settings file allocation forever
 // otherwise, which on devices with many installed apps shows up as launcher scroll lag.
-#ifndef CONFIG_SOC_T5AI
 static void prv_settings_dbs_compaction_migration_cb(void *data) {
   blob_db_compact_growable_dbs();
   shell_prefs_set_settings_dbs_compacted_v1(true);
@@ -49,13 +48,10 @@ static void prv_maybe_run_settings_dbs_compaction_migration(void) {
   }
   system_task_add_callback(prv_settings_dbs_compaction_migration_cb, nullptr);
 }
-#endif
 
 void shell_event_loop_init(void) {
   shell_prefs_init();
-#ifndef CONFIG_SOC_T5AI
   prv_maybe_run_settings_dbs_compaction_migration();
-#endif
   notification_window_service_init();
   app_inbox_service_init();
   app_outbox_service_init();
@@ -68,7 +64,6 @@ void shell_event_loop_init(void) {
   }
   workout_service_init();
 
-#ifndef CONFIG_SOC_T5AI
   bool factory_reset_or_first_use = !shared_prf_storage_get_getting_started_complete();
   // We are almost done booting, welcome the user if applicable. This _must_ occur before setting
   // the getting started completed below.
@@ -79,7 +74,6 @@ void shell_event_loop_init(void) {
   // As soon as we boot normally for the first time, we've therefore completed first use mode and
   // we don't need to go through it again until we factory reset.
   shared_prf_storage_set_getting_started_complete(true /* complete */);
-#endif
 }
 
 void shell_event_loop_handle_event(PebbleEvent *e) {

@@ -219,6 +219,42 @@ No capture remains from the latest GATT test. Merge readiness remains unqualifie
    product-policy review. Battery behavior with a fitted cell stays unqualified.
    Evidence: `/home/baz/Documents/ChatGPT/pebble/artifacts/upstream-cleanup-20261017/stock-battery-ui/validation.txt`.
 
+   Flash update — 2026-10-17: the stock battery-UI candidate is now installed,
+   AP-only, build ID `36ce226a40bbc90127f02ba1505313be86977367` confirmed at boot.
+   Capture stopped. Normal Bluetooth persistence is retained. No operator visual
+   charging-modal check was collected in this flash-only run; fitted-cell battery
+   validation and broader hardware qualification stay open. Exact flash/boot
+   evidence: `build/traces/stock-battery-ui-flash-20261017-153945/analysis.md`.
+
+   Progress — 2026-10-17 (stock shell initialization, based on `30ff66be8`):
+   removed all remaining T5AI guards from `normal/shell_event_loop.c`; the file
+   now matches `origin/main` exactly. Existing first-use handling records setup
+   complete and requests phone sync once when needed; it does not launch an
+   onboarding app or require recovery graphics. The existing one-time KernelBG
+   callback compacts eligible DBs and records its preference marker. No migration
+   fork, special board flag, flash-layout or permission change was added.
+   Four new T5AI-enabled native init cases pass alongside the settings-file,
+   shared-PRF, prefs and app-state suites. Firmware builds/packages with existing
+   LTO warnings; flash +128 B, static RAM unchanged. Candidate not flashed:
+   `build/traces/stock-shell-init-candidate-20261017/`.
+   On first hardware boot, trace all per-DB compaction results and completion,
+   first-use sync, app/face retention and repeat boot. Stock marks the attempt
+   done even if a DB compaction returns an error, so check results explicitly.
+   Source exceptions are removed; physical migration qualification remains open.
+   Evidence: `/home/baz/Documents/ChatGPT/pebble/artifacts/upstream-cleanup-20261017/shell-init/validation.txt`.
+
+   Hardware update — 2026-10-17: stock shell-init candidate flashed AP-only,
+   build ID `6e39f48175667f6dce5d6e419b8581a805ebed62` confirmed on both boots.
+   Compaction completion and seven DB results (all zero) were captured; start,
+   reminder and health results are absent. Operator confirms connected/responsive
+   with the selected face working. A commanded non-writing reset reconnects;
+   no repeat compaction was observed. Startup logged a delayed force-quit/back
+   event after compaction; PFS/resource/battery/app warnings remain. No fatal or
+   watchdog event was decoded, but missing log records limit absence claims.
+   Fresh first-use state was not forced, and the two missing DB results remain
+   unverified. Capture stopped; installed image now has the complete stock shell
+   path. Evidence: `build/traces/stock-shell-init-flash-20261017-155019/analysis.md`.
+
 2. **Replace display completion polling with interrupt-driven completion where
    supported.** Audit the T5AI CO5300 QSPI/DMA path against other Pebble display
    drivers and the pinned Tuya implementation, then adopt a driver-/SoC-local

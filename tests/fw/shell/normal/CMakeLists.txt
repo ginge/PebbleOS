@@ -29,3 +29,17 @@ pbl_clar_test(test_battery_ui_fsm_percent
   DEFINES CONFIG_BATTERY_WARNING_FIRST_PERCENT=12 CONFIG_BATTERY_WARNING_SECOND_PERCENT=8
   OVERRIDES dummy_board
 )
+
+# This suite exercises initialization; discard unrelated event-dispatch sections.
+if(APPLE)
+  set(shell_init_dead_strip -Wl,-dead_strip)
+else()
+  set(shell_init_dead_strip -Wl,--gc-sections)
+endif()
+pbl_clar_test(test_shell_event_loop_init
+  SOURCES
+    fw/shell/normal/shell_event_loop.c
+  DEFINES CONFIG_SOC_T5AI=1
+  OVERRIDES dummy_board
+  LIBS ${shell_init_dead_strip}
+)

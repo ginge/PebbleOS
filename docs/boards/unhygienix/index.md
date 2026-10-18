@@ -30,8 +30,25 @@ one ARM SDK/QEMU fault-entry test skipped. The Unhygienix firmware built and
 linked, with existing LTO warnings. These are recorded checks for that candidate,
 not a fresh broad run against the later persistence experiment.
 
-The latest recorded AP flash is the default normal-persistence candidate, build
-ID `28416c29102c08546e1b83d6c23826ea3c476133`, on 2026-10-17 at 15:23 London time.
+The latest installed AP image is the stock shell-init candidate, build ID
+`6e39f48175667f6dce5d6e419b8581a805ebed62`, flashed AP-only on 2026-10-17 at
+15:51 London time. First boot logged DB compaction completion and seven successful
+individual results; reminder/health results and the start record were not captured.
+The operator confirmed connection, responsiveness and the selected face. A
+separately commanded non-writing reset reconnected without observed repeat
+compaction. Startup UI-delay and existing storage/resource/battery warnings remain.
+Capture stopped. Exact images/raw trace and limits are preserved at
+`build/traces/stock-shell-init-flash-20261017-155019/analysis.md`.
+
+The preceding installed AP image was the stock battery-UI candidate, build ID
+`36ce226a40bbc90127f02ba1505313be86977367`, flashed AP-only at 15:40 London time
+on 2026-10-17. The saved ELF matches the booted build ID. Normal Bluetooth
+persistence remains selected; battery events now use the stock UI handler.
+Capture is stopped. This run confirms flashing/boot, not visual charging-modal
+behavior or battery calibration. See
+`build/traces/stock-battery-ui-flash-20261017-153945/analysis.md`.
+
+The preceding normal-persistence candidate was flashed with build ID `28416c29102c08546e1b83d6c23826ea3c476133`, on 2026-10-17 at 15:23 London time.
 The trace restored encrypted bonding, opened reversed PPoGATT and completed GATT
 discovery in 6890 ms. The operator confirmed responsiveness and, after a requested
 USB cold power cycle, the same face selected with phone connected and responsive.
@@ -53,8 +70,17 @@ below. No merge or release qualification is established.
 Source update — 2026-10-17: battery state events now use the stock battery UI
 handler on T5AI; the SoC charging-UI bypass is removed at the operator's request.
 Both existing UI suites pass (14 cases), and firmware packaging succeeds.
-This candidate is not flashed; the installed build above still has the bypass.
+The candidate is now installed; the boot trace and limitations are linked above.
 No battery driver/calibration or charger-control changes accompany this cleanup.
+
+Source update — 2026-10-17: the remaining T5AI first-use and settings-compaction
+exceptions are removed; `normal/shell_event_loop.c` now matches upstream exactly.
+First-use handling records completion and requests sync once, without launching
+an onboarding screen. The normal one-time KernelBG DB compaction is restored.
+Four native init cases and the related storage/app-state suites pass; firmware
+packaging succeeds. The candidate is now flashed. Completion and seven DB results were observed;
+no repeat compaction appeared after the commanded reset. Missing results and
+the startup UI-delay warning remain documented in the latest flash report above.
 
 ## Top priority cleanup for main and upstream — 2026-10-17
 
