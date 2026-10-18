@@ -191,6 +191,24 @@ No capture remains from the latest GATT test. Merge readiness remains unqualifie
    the current review identifies work already completed. Merge readiness remains
    unqualified.
 
+   Progress — 2026-10-18 (retained boot/reboot consolidation, audit items 14/15):
+   implemented and AP-only boot smoke-tested. The common boot-bit API and common
+   four-word record/first-reason/restarted-safe/last-app operations now serve T5AI
+   through a small retained-storage binding. The local boot-bit API copy is gone;
+   reset snapshots, AP marker mirroring/clear and optional trace/freeze remain
+   local hooks. Store format/checksum and NOLOAD address/size are unchanged:
+   `0x280100a8`, 136 B. Thirty-five focused tests pass, including actual-store
+   corruption/warm-state cases, fault-context first-reason preservation and eight
+   stock-backend generated-code comparisons. Normal firmware builds/packages;
+   static RAM remains 99,968 B. Flashed build
+   `256a67bee969fb0415e52acf82b36f0757f7c25c` boots with matching identity,
+   reports AP/CP boot sources and restores encrypted bonding, the phone session
+   and GATT discovery (3,058 ms). Physical fault/cold-cycle/soak qualification,
+   and unrelated boot warnings remain open. Operator confirms normal watchface,
+   controls and sleep/wake; the 180.361-second capture received 23,729 bytes and
+   is stopped, with no additional boot/watchdog/assertion decoded. Evidence:
+   `/home/baz/Documents/ChatGPT/pebble/artifacts/retained-consolidation-20261018/report.md`.
+
    Progress — 2026-10-18 (connection negotiation, audit items 8/9): restored
    the shared upper state machine and stock NimBLE update adapter; removed both
    T5AI replacement files and build selectors. Both shared C files and both

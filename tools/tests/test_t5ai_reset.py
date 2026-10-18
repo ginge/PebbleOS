@@ -8,6 +8,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 HEADERS = {
+    "pbl/kernel/sched.h": '#pragma once\n#include <pbl/kernel/kernel.h>\n',
+    "pbl/kernel/types.h": '#pragma once\n',
+
     "pbl/kernel/compiler.h": """
 #pragma once
 #define PBL_PACKED __attribute__((packed))
@@ -19,7 +22,8 @@ HEADERS = {
 #define __DSB() ((void)0)
 void test_wfi(void);
 #define __WFI() test_wfi()
-#define __get_BASEPRI() 0
+extern unsigned test_basepri;
+#define __get_BASEPRI() test_basepri
 """,
     "pbl/soc/t5ai/state_trace.h": """
 #pragma once
@@ -28,17 +32,20 @@ static inline void t5ai_state_trace_freeze(uint32_t reason) { (void)reason; }
 """,
     "pbl/kernel/kernel.h": """
 #pragma once
-static inline int pbl_kernel_is_running(void) { return 1; }
+extern unsigned test_kernel_running;
+static inline int pbl_kernel_is_running(void) { return test_kernel_running; }
 """,
     "pbl/mcu/interrupts.h": """
 #pragma once
 #include <cmsis_core.h>
-static inline int mcu_state_is_isr(void) { return 0; }
+extern unsigned test_isr;
+static inline int mcu_state_is_isr(void) { return test_isr; }
 """,
     "pbl/logging/logging.h": """
 #pragma once
 #define PBL_LOG_MODULE_DEFINE(...)
-#define PBL_LOG_WRN(...) ((void)0)
+#define PBL_LOG_WRN(...) (++warnings)
+extern unsigned warnings;
 #define PBL_LOG_INFO(...) (++reports)
 extern unsigned reports;
 """,
@@ -52,9 +59,11 @@ RESET_HARNESS = r"""
 #include <setjmp.h>
 static jmp_buf reset_done;
 void test_wfi(void) { longjmp(reset_done, 1); }
-unsigned reports;
+unsigned reports, warnings;
+unsigned test_basepri, test_isr, test_kernel_running = 1;
 #include WATCHDOG_SOURCE
 #include REBOOT_SOURCE
+#include COMMON_REBOOT_SOURCE
 #ifdef CONFIG_T5AI_REBOOT_TRACE
 static uint32_t last_reset_event;
 void t5ai_reboot_trace_watchdog(bool running) { (void)running; }
@@ -62,15 +71,25 @@ void t5ai_reboot_trace_event(T5RebootTraceEvent event, uint32_t value) {
   if (event == T5RebootTrace_ForceReset) last_reset_event = value;
 }
 #endif
+#ifdef RETAINED_SOURCE
+#include RETAINED_SOURCE
+#else
 static uint32_t retained[32];
 uint32_t t5ai_retained_read(uint8_t index) { return retained[index]; }
 void t5ai_retained_write(uint8_t index, uint32_t value) { retained[index] = value; }
+#endif
 static void boot(uint8_t ap, uint8_t cp) {
+#ifdef RETAINED_SOURCE
+  memset(&s_retained, 0, sizeof(s_retained));
+  t5ai_retained_init();
+#else
   memset(retained, 0, sizeof(retained));
+#endif
   s_boot_reason_pending = true;
   s_initialized = false;
   s_boot_captured = false;
-  reports = 0;
+  reports = warnings = test_basepri = test_isr = 0;
+  test_kernel_running = 1;
   // CP has consumed the PMU fields; its shared copies hold decoded causes.
   T5AI_AON_PMU_R0 = 0;
   *(volatile uint32_t *)0x440001e8u = 3;
@@ -131,6 +150,39 @@ int main(void) {
   reboot_reason_get(&reason);
   assert(reason.code == RebootReasonCode_Unknown); // CP cause is not an AP fault.
   assert(!watchdog_check_reset_flag());
+  // Preserve all four words and the first hardware marker in fault contexts.
+  boot(0, 0);
+  RebootReason first = {.code = RebootReasonCode_HardFault, .data16 = 0xbeef};
+  first.hard_fault.pc = 0x12345678;
+  first.hard_fault.lr = 0x87654321;
+  first.hard_fault.xpsr = 0x0100000b;
+  reboot_reason_set(&first);
+  const uint8_t first_marker = t5ai_reset_reason_get_ap();
+  RebootReason later = {.code = RebootReasonCode_Watchdog};
+  test_isr = 1;
+  reboot_reason_set(&later);
+  test_isr = 0; test_basepri = 1;
+  reboot_reason_set(&later);
+  test_basepri = 0; test_kernel_running = 0;
+  reboot_reason_set(&later);
+  assert(warnings == 0);
+  test_kernel_running = 1;
+  reboot_reason_set(&later);
+  assert(warnings == 1);
+  reboot_reason_get(&reason);
+  assert(memcmp(&reason, &first, sizeof(reason)) == 0);
+  assert(t5ai_reset_reason_get_ap() == first_marker);
+  reboot_reason_set_restarted_safely();
+  first.restarted_safely = true;
+  reboot_reason_get(&reason);
+  assert(memcmp(&reason, &first, sizeof(reason)) == 0);
+  reboot_set_slot_of_last_launched_app(123);
+  reboot_reason_clear();
+  reboot_reason_get(&reason);
+  RebootReason empty = {0};
+  assert(memcmp(&reason, &empty, sizeof(reason)) == 0);
+  assert(reboot_get_slot_of_last_launched_app() == 123);
+  assert(t5ai_reset_reason_get_ap() == 0);
   const uint8_t existing[] = {0, 2, 0x4f, 0x50, 0x53, 0x5f, 0x60, 0x61,
       0x70, 0x71, 0x78, 0x60 + RebootReasonCode_MailboxTimeout, 0x7f};
   for (unsigned i=0; i<sizeof(existing); ++i) {
@@ -219,6 +271,7 @@ class T5AIResetTest(unittest.TestCase):
                     f"-DCONFIG_WATCHDOG_TIMEOUT_MS={period}",
                     f'-DWATCHDOG_SOURCE="{ROOT / "drivers/watchdog/t5ai.c"}"',
                     f'-DREBOOT_SOURCE="{ROOT / "soc/t5ai/reboot_reason.c"}"',
+            f'-DCOMMON_REBOOT_SOURCE="{ROOT / "fw/system/reboot_reason.c"}"',
                 ))
 
     def test_reset_reason_without_diagnostics(self):
@@ -227,6 +280,7 @@ class T5AIResetTest(unittest.TestCase):
             "-DCONFIG_WATCHDOG_TIMEOUT_MS=30000",
             f'-DWATCHDOG_SOURCE="{ROOT / "drivers/watchdog/t5ai.c"}"',
             f'-DREBOOT_SOURCE="{ROOT / "soc/t5ai/reboot_reason.c"}"',
+            f'-DCOMMON_REBOOT_SOURCE="{ROOT / "fw/system/reboot_reason.c"}"',
         ))
 
     def test_heartbeat_late_execution_and_tick_wrap(self):

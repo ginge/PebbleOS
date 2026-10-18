@@ -26,6 +26,8 @@ extern void RTC_WriteBackupRegister(uint32_t reg_id, uint32_t value);
 extern uint32_t RTC_ReadBackupRegister(uint32_t reg_id);
 #endif
 
+#include <system/retained_storage.h>
+
 #include <inttypes.h>
 #include <stdint.h>
 
@@ -152,40 +154,40 @@ uint32_t boot_version_read(void) {
 #else
 
 void boot_bit_init(void) {
-  rtc_init();
+  retained_storage_init();
 
   if (!boot_bit_test(BOOT_BIT_INITIALIZED)) {
-    RTC_WriteBackupRegister(RTC_BKP_BOOTBIT_DR, BOOT_BIT_INITIALIZED);
+    retained_storage_write(RTC_BKP_BOOTBIT_DR, BOOT_BIT_INITIALIZED);
   }
 }
 
 void boot_bit_set(BootBitValue bit) {
-  uint32_t current_value = RTC_ReadBackupRegister(RTC_BKP_BOOTBIT_DR);
+  uint32_t current_value = retained_storage_read(RTC_BKP_BOOTBIT_DR);
   current_value |= bit;
-  RTC_WriteBackupRegister(RTC_BKP_BOOTBIT_DR, current_value);
+  retained_storage_write(RTC_BKP_BOOTBIT_DR, current_value);
 }
 
 void boot_bit_clear(BootBitValue bit) {
-  uint32_t current_value = RTC_ReadBackupRegister(RTC_BKP_BOOTBIT_DR);
+  uint32_t current_value = retained_storage_read(RTC_BKP_BOOTBIT_DR);
   current_value &= ~bit;
-  RTC_WriteBackupRegister(RTC_BKP_BOOTBIT_DR, current_value);
+  retained_storage_write(RTC_BKP_BOOTBIT_DR, current_value);
 }
 
 bool boot_bit_test(BootBitValue bit) {
-  uint32_t current_value = RTC_ReadBackupRegister(RTC_BKP_BOOTBIT_DR);
+  uint32_t current_value = retained_storage_read(RTC_BKP_BOOTBIT_DR);
   return (current_value & bit);
 }
 
 void boot_bit_dump(void) {
-  PBL_LOG_DBG("0x%" PRIx32, RTC_ReadBackupRegister(RTC_BKP_BOOTBIT_DR));
+  PBL_LOG_DBG("0x%" PRIx32, retained_storage_read(RTC_BKP_BOOTBIT_DR));
 }
 
 uint32_t boot_bits_get(void) {
-  return RTC_ReadBackupRegister(RTC_BKP_BOOTBIT_DR);
+  return retained_storage_read(RTC_BKP_BOOTBIT_DR);
 }
 
 uint32_t boot_version_read(void) {
-  return RTC_ReadBackupRegister(BOOTLOADER_VERSION_REGISTER);
+  return retained_storage_boot_version_read();
 }
 
 #endif

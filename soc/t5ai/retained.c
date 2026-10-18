@@ -34,3 +34,7 @@ void t5ai_retained_write(uint8_t index, uint32_t value) {
   s_retained.values[index] = value;
   s_retained.checksum = prv_checksum();
 }
+
+uint32_t t5ai_boot_version_read(void) {
+  return 0;
+}
