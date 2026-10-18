@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <pbl/drivers/uart/t5ai.h>
-#include <pbl/soc/t5ai/kernel.h>
+#include <pbl/kernel/kernel.h>
 #include <cmsis_core.h>
 #include "system/passert.h"
 

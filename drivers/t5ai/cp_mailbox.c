@@ -1,20 +1,17 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/soc/t5ai/reboot_trace.h>
-#include <pbl/soc/t5ai/rtc.h>
-#include <pbl/soc/t5ai/memory.h>
-
-#include <pbl/mcu/cache.h>
-#include <pbl/mcu/interrupts.h>
-#include <pbl/soc/t5ai/kernel.h>
-#include <pbl/soc/t5ai/cp_mailbox.h>
-#include <pbl/soc/t5ai/mailbox_channel.h>
-
-#include <pbl/soc/t5ai/kernel.h>
-
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+
+#include <pbl/kernel/kernel.h>
+#include <pbl/mcu/cache.h>
+#include <pbl/mcu/interrupts.h>
+#include <pbl/soc/t5ai/cp_mailbox.h>
+#include <pbl/soc/t5ai/mailbox_channel.h>
+#include <pbl/soc/t5ai/memory.h>
+#include <pbl/soc/t5ai/reboot_trace.h>
+#include <pbl/soc/t5ai/rtc.h>
 
 #define CP_LOG_TAG_SHIFT 16u
 
@@ -51,7 +48,7 @@
 #define CP_FLASH_NOTIFY_ACK 2u
 #define CP_RUNTIME_TIMEOUT_MS 5000u
 #define CP_HEARTBEAT_PERIOD_MS 1000u
-#define CP_HEARTBEAT_TASK_STACK_WORDS 256u
+#define CP_HEARTBEAT_TASK_STACK_SIZE 1024u
 #define CP_HEARTBEAT_TASK_PRIORITY (CONFIG_KERNEL_NUM_PRIORITIES - 2u)
 #define CP_PM_TIMEOUT_MS 100u
 #define CP_STARTUP_TIMEOUT_MS 2000u
@@ -61,7 +58,7 @@ typedef struct {
   T5AICPMailboxFrame frames[CP_QUEUE_DEPTH];
   uint8_t head;
   uint8_t count;
-  struct pbl_sem * ready;
+  struct pbl_sem ready;
 } ReceiveQueue;
 
 typedef struct {
@@ -73,10 +70,10 @@ static Route s_routes[T5AI_MAILBOX_CHANNEL_COUNT];
 /* Only the PM protocol has a blocking compatibility consumer. Routed clients
  * (MIPC, HCI, flash notifications, and logging) own their receive state and
  * must not allocate dormant per-channel queues. */
-static ReceiveQueue s_pm_queue;
-static struct pbl_mutex *s_control_mutex;
-static struct pbl_mutex *s_pm_mutex;
-static struct pbl_mutex *s_log_mutex;
+static ReceiveQueue s_pm_queue = {.ready = PBL_SEM_INITIALIZER(0, CP_QUEUE_DEPTH)};
+static PBL_MUTEX_DEFINE(s_control_mutex);
+static PBL_MUTEX_DEFINE(s_pm_mutex);
+static PBL_MUTEX_DEFINE(s_log_mutex);
 static T5AIMailboxMessage s_control_message __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
 static T5AIMailboxMessage s_pm_message __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
 static T5AIMailboxMessage s_log_message __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
@@ -84,7 +81,9 @@ static uint8_t s_log_buffer[CP_LOG_BUFFER_SIZE] __attribute__((aligned(T5AI_SHAR
 static uint32_t s_heartbeat_parameter __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
 static uint8_t s_control_sequence;
 static bool s_heartbeat_in_flight;
-static struct pbl_thread * s_heartbeat_task;
+static struct pbl_thread s_heartbeat_task;
+PBL_THREAD_STACK_DEFINE(s_heartbeat_stack, CP_HEARTBEAT_TASK_STACK_SIZE);
+static bool s_heartbeat_started;
 static bool s_runtime_initialized;
 static bool s_pm_faulted;
 static bool s_log_faulted;
@@ -92,15 +91,23 @@ static bool s_log_faulted;
 static void prv_heartbeat_task(void *context);
 
 static status_t prv_ensure_heartbeat_task(void) {
-  if (s_heartbeat_task != NULL) {
+  if (s_heartbeat_started) {
     return S_SUCCESS;
   }
-  return t5ai_thread_create(prv_heartbeat_task, "CPHeartbeat", CP_HEARTBEAT_TASK_STACK_WORDS, NULL,
-                     CP_HEARTBEAT_TASK_PRIORITY, &s_heartbeat_task, NULL) == 0
-             ? S_SUCCESS
-             : E_OUT_OF_MEMORY;
+  const struct pbl_thread_attr attr = {
+    .name = "CPHeartbeat",
+    .entry = prv_heartbeat_task,
+    .prio = CP_HEARTBEAT_TASK_PRIORITY,
+    .privileged = true,
+    .stack = s_heartbeat_stack,
+    .stack_size = sizeof(s_heartbeat_stack),
+  };
+  if (pbl_thread_create(&s_heartbeat_task, &attr) != 0) {
+    return E_OUT_OF_MEMORY;
+  }
+  s_heartbeat_started = true;
+  return S_SUCCESS;
 }
-
 
 bool t5ai_cp_mailbox_shared_range_valid(uintptr_t address, size_t length) {
   if (length == 0u || address > UINTPTR_MAX - length) {
@@ -128,7 +135,7 @@ static bool prv_enqueue(uint8_t channel, const T5AIMailboxMessage *message) {
   frame->length = sizeof(*message);
   ++queue->count;
   pbl_irq_unlock();
-  (void)pbl_sem_give(queue->ready);
+  (void)pbl_sem_give(&queue->ready);
   return true;
 }
 
@@ -204,16 +211,6 @@ static status_t prv_ensure_runtime(void) {
   if (s_runtime_initialized) {
     return prv_ensure_heartbeat_task();
   }
-  s_pm_queue.ready = t5ai_sem_create(CP_QUEUE_DEPTH, 0u);
-  if (s_pm_queue.ready == NULL) {
-    return E_OUT_OF_MEMORY;
-  }
-  s_control_mutex = t5ai_mutex_create();
-  s_pm_mutex = t5ai_mutex_create();
-  s_log_mutex = t5ai_mutex_create();
-  if (s_control_mutex == NULL || s_pm_mutex == NULL || s_log_mutex == NULL) {
-    return E_OUT_OF_MEMORY;
-  }
   status_t status = t5ai_mailbox_channel_init();
   if (FAILED(status)) {
     return status;
@@ -238,13 +235,13 @@ status_t t5ai_cp_mailbox_lock(void) {
   if (FAILED(status)) {
     return status;
   }
-  pbl_mutex_lock(s_control_mutex, PBL_FOREVER);
+  pbl_mutex_lock(&s_control_mutex, PBL_FOREVER);
   return S_SUCCESS;
 }
 
 void t5ai_cp_mailbox_unlock(void) {
-  if (s_control_mutex != NULL) {
-    pbl_mutex_unlock(s_control_mutex);
+  if (s_runtime_initialized) {
+    pbl_mutex_unlock(&s_control_mutex);
   }
 }
 
@@ -328,7 +325,7 @@ status_t t5ai_cp_mailbox_receive(uint8_t logical_channel, T5AICPMailboxFrame *fr
   if (logical_channel != CP_PM_RX_CHANNEL) {
     return E_INVALID_ARGUMENT;
   }
-  if (pbl_sem_take(s_pm_queue.ready, PBL_TICKS(pbl_ms_to_ticks(CP_RUNTIME_TIMEOUT_MS))) != 0) {
+  if (pbl_sem_take(&s_pm_queue.ready, PBL_TICKS(pbl_ms_to_ticks(CP_RUNTIME_TIMEOUT_MS))) != 0) {
     return E_AGAIN;
   }
   return prv_dequeue(logical_channel, frame) ? S_SUCCESS : E_AGAIN;
@@ -342,8 +339,7 @@ status_t t5ai_cp_mailbox_try_receive(uint8_t logical_channel, T5AICPMailboxFrame
   if (FAILED(status)) {
     return status;
   }
-  if (logical_channel != CP_PM_RX_CHANNEL ||
-      pbl_sem_take(s_pm_queue.ready, PBL_TICKS(0u)) != 0) {
+  if (logical_channel != CP_PM_RX_CHANNEL || pbl_sem_take(&s_pm_queue.ready, PBL_TICKS(0u)) != 0) {
     return E_AGAIN;
   }
   return prv_dequeue(logical_channel, frame) ? S_SUCCESS : E_ERROR;
@@ -357,7 +353,7 @@ void t5ai_cp_mailbox_discard_pending(void) {
   s_pm_queue.head = 0u;
   s_pm_queue.count = 0u;
   pbl_irq_unlock();
-  while (pbl_sem_take(s_pm_queue.ready, PBL_TICKS(0u)) == 0) {
+  while (pbl_sem_take(&s_pm_queue.ready, PBL_TICKS(0u)) == 0) {
   }
 }
 
@@ -384,8 +380,7 @@ void t5ai_cp_mailbox_heartbeat(void) {
   t5ai_reboot_trace_event(T5RebootTrace_HeartbeatAttempt, 0u);
   if (!s_runtime_initialized || s_heartbeat_in_flight || t5ai_mailbox_channel_faulted()) {
     t5ai_reboot_trace_event(T5RebootTrace_HeartbeatSkip,
-                           (!s_runtime_initialized ? 1u : 0u) |
-                           (s_heartbeat_in_flight ? 2u : 0u) |
+                            (!s_runtime_initialized ? 1u : 0u) | (s_heartbeat_in_flight ? 2u : 0u) |
                            (t5ai_mailbox_channel_faulted() ? 4u : 0u));
     return;
   }
@@ -400,8 +395,8 @@ void t5ai_cp_mailbox_heartbeat(void) {
   };
   dcache_flush(&s_heartbeat_parameter, sizeof(s_heartbeat_parameter));
   s_heartbeat_in_flight = true;
-  const status_t status = t5ai_mailbox_channel_send_async(
-      CP_CONTROL_CHANNEL, &s_control_message, prv_heartbeat_complete, NULL);
+  const status_t status = t5ai_mailbox_channel_send_async(CP_CONTROL_CHANNEL, &s_control_message,
+                                                          prv_heartbeat_complete, NULL);
   t5ai_reboot_trace_event(T5RebootTrace_HeartbeatSend, (uint32_t)status);
   if (FAILED(status)) {
     s_heartbeat_in_flight = false;
@@ -425,8 +420,8 @@ static status_t prv_pm_request(uint8_t command, uint32_t parameter1, uint32_t pa
   if (s_pm_faulted) {
     return E_INVALID_OPERATION;
   }
-  pbl_mutex_lock(s_pm_mutex, PBL_FOREVER);
-  while (pbl_sem_take(s_pm_queue.ready, PBL_TICKS(0u)) == 0) {
+  pbl_mutex_lock(&s_pm_mutex, PBL_FOREVER);
+  while (pbl_sem_take(&s_pm_queue.ready, PBL_TICKS(0u)) == 0) {
     T5AICPMailboxFrame stale;
     (void)prv_dequeue(CP_PM_RX_CHANNEL, &stale);
   }
@@ -442,18 +437,16 @@ static status_t prv_pm_request(uint8_t command, uint32_t parameter1, uint32_t pa
     goto out;
   }
   T5AICPMailboxFrame frame;
-  if (pbl_sem_take(s_pm_queue.ready, PBL_TICKS(pbl_ms_to_ticks(CP_PM_TIMEOUT_MS))) != 0 ||
+  if (pbl_sem_take(&s_pm_queue.ready, PBL_TICKS(pbl_ms_to_ticks(CP_PM_TIMEOUT_MS))) != 0 ||
       !prv_dequeue(CP_PM_RX_CHANNEL, &frame)) {
     status = E_AGAIN;
     s_pm_faulted = true;
     goto out;
   }
   const T5AIMailboxMessage *response = (const void *)frame.address;
-  status = (uint8_t)response->header == command && response->parameter1 == 0u
-               ? S_SUCCESS
-               : E_ERROR;
+  status = (uint8_t)response->header == command && response->parameter1 == 0u ? S_SUCCESS : E_ERROR;
 out:
-  pbl_mutex_unlock(s_pm_mutex);
+  pbl_mutex_unlock(&s_pm_mutex);
   return status;
 }
 
@@ -462,8 +455,7 @@ status_t t5ai_cp_mailbox_enable_uart0_clock(void) {
 }
 
 status_t t5ai_cp_mailbox_enable_qspi0(void) {
-  status_t status =
-      prv_pm_request(CP_PM_POWER_COMMAND, CP_PM_AHBP_QSPI_POWER, CP_PM_POWER_ON);
+  status_t status = prv_pm_request(CP_PM_POWER_COMMAND, CP_PM_AHBP_QSPI_POWER, CP_PM_POWER_ON);
   return FAILED(status)
              ? status
              : prv_pm_request(CP_PM_CLOCK_COMMAND, CP_PM_QSPI0_CLOCK, CP_PM_CLOCK_ENABLE);
@@ -529,7 +521,7 @@ status_t t5ai_cp_mailbox_log(const void *data, size_t length) {
     if (t5ai_mailbox_channel_faulted()) {
       return E_INVALID_OPERATION;
     }
-    pbl_mutex_lock(s_log_mutex, PBL_FOREVER);
+    pbl_mutex_lock(&s_log_mutex, PBL_FOREVER);
   }
   status_t final_status = prv_wait_for_log_buffer_release(scheduler_running);
   if (FAILED(final_status)) {
@@ -550,8 +542,7 @@ status_t t5ai_cp_mailbox_log(const void *data, size_t length) {
     T5AIMailboxMessage ack;
     status_t status =
         scheduler_running
-            ? t5ai_mailbox_channel_send(CP_LOG_CHANNEL, &s_log_message, &ack,
-                                        CP_RUNTIME_TIMEOUT_MS)
+            ? t5ai_mailbox_channel_send(CP_LOG_CHANNEL, &s_log_message, &ack, CP_RUNTIME_TIMEOUT_MS)
             : t5ai_mailbox_channel_bootstrap_send(CP_LOG_CHANNEL, &s_log_message, &ack,
                                                   CP_RUNTIME_TIMEOUT_MS);
     if (PASSED(status)) {
@@ -567,7 +558,7 @@ status_t t5ai_cp_mailbox_log(const void *data, size_t length) {
   }
 out:
   if (scheduler_running) {
-    pbl_mutex_unlock(s_log_mutex);
+    pbl_mutex_unlock(&s_log_mutex);
   }
   return final_status;
 }

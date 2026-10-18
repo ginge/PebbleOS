@@ -137,7 +137,7 @@ static bool prv_poll(void) {
 static int pbl_gpio_get_raw(const int *p){(void)p;return 1;}
 typedef struct {unsigned ticks;} pbl_timeout_t;
 #define PBL_TICKS(t) ((pbl_timeout_t){t})
-static int pbl_sem_take(unsigned semaphore,pbl_timeout_t timeout) {
+static int pbl_sem_take(unsigned *semaphore,pbl_timeout_t timeout) {
  (void)semaphore;
  delays[waits++]=timeout.ticks;
  if(waits==5)longjmp(done,1);

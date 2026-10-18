@@ -8,8 +8,8 @@
 
 #include <pbl/drivers/battery.h>
 #include <pbl/drivers/gpio/t5ai.h>
+#include <pbl/kernel/kernel.h>
 #include <pbl/logging/logging.h>
-#include <pbl/soc/t5ai/kernel.h>
 #include <pbl/soc/t5ai/saradc_ipc.h>
 
 PBL_LOG_MODULE_DEFINE(driver_battery_t5ai, LOG_LEVEL_INFO);
@@ -33,11 +33,14 @@ PBL_LOG_MODULE_DEFINE(driver_battery_t5ai, LOG_LEVEL_INFO);
 #define T5AI_BATTERY_SAMPLE_INTERVAL_MS  60000u
 #define T5AI_BATTERY_STARTUP_DELAY_MS    30000u
 #define T5AI_BATTERY_RETRY_DELAY_MS      5000u
-#define T5AI_BATTERY_TASK_STACK_WORDS    512u
+#define T5AI_BATTERY_TASK_STACK_SIZE     2048u
 #define T5AI_BATTERY_TASK_PRIORITY       (PBL_PRIO_IDLE + 1u)
 
 static const struct pbl_gpio s_charge =
     PBL_GPIO(&T5AI_GPIO, T5AI_BATTERY_CHARGE_PIN, PBL_GPIO_ACTIVE_LOW | PBL_GPIO_PULL_UP);
+static struct pbl_thread s_battery_task;
+PBL_THREAD_STACK_DEFINE(s_battery_stack, T5AI_BATTERY_TASK_STACK_SIZE);
+static bool s_started;
 static int s_last_millivolts = T5AI_BATTERY_DEFAULT_MV;
 
 static int prv_raw_to_millivolts(uint16_t raw) {
@@ -81,11 +84,23 @@ static void prv_battery_task(void *context) {
 }
 
 void battery_init(void) {
-  (void)pbl_gpio_configure(&s_charge, PBL_GPIO_INPUT);
-  if (t5ai_thread_create(prv_battery_task, "T5AI battery", T5AI_BATTERY_TASK_STACK_WORDS, NULL,
-                         T5AI_BATTERY_TASK_PRIORITY, NULL, NULL) != 0) {
-    PBL_LOG_ERR("Failed to create T5AI battery sampling task");
+  if (s_started) {
+    return;
   }
+  (void)pbl_gpio_configure(&s_charge, PBL_GPIO_INPUT);
+  const struct pbl_thread_attr attr = {
+    .name = "T5AI battery",
+    .entry = prv_battery_task,
+    .prio = T5AI_BATTERY_TASK_PRIORITY,
+    .privileged = true,
+    .stack = s_battery_stack,
+    .stack_size = sizeof(s_battery_stack),
+  };
+  if (pbl_thread_create(&s_battery_task, &attr) != 0) {
+    PBL_LOG_ERR("Failed to create T5AI battery sampling task");
+    return;
+  }
+  s_started = true;
 }
 
 int battery_get_millivolts(void) {

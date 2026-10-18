@@ -18,7 +18,6 @@
 #include <pbl/kernel/kernel.h>
 #include <pbl/kernel/time.h>
 #include <pbl/logging/logging.h>
-#include <pbl/soc/t5ai/kernel.h>
 #include <pbl/util/math.h>
 
 PBL_LOG_MODULE_DEFINE(driver_touch_cst92xx, CONFIG_DRIVER_TOUCH_LOG_LEVEL);
@@ -50,7 +49,7 @@ PBL_LOG_MODULE_DEFINE(driver_touch_cst92xx, CONFIG_DRIVER_TOUCH_LOG_LEVEL);
 #define CST92XX_NATIVE_SIZE        466u
 #define CST92XX_POLL_MS            20u
 #define CST92XX_MOTION_INTERVAL_MS 33u
-#define CST92XX_TASK_STACK_WORDS   768u
+#define CST92XX_TASK_STACK_SIZE    3072u
 // Stay above KernelMain so polling remains responsive, but leave NewTimer at the sole maximum
 // priority. NewTimer owns watchdog and mailbox work that must be able to preempt I2C recovery.
 #define CST92XX_TASK_PRIORITY (CONFIG_KERNEL_NUM_PRIORITIES - 2)
@@ -64,7 +63,10 @@ static int16_t s_last_y;
 static pbl_tick_t s_last_motion_ticks;
 static uint32_t s_read_failures;
 static uint8_t s_consecutive_read_failures;
-static struct pbl_sem *s_touch_wake;
+static PBL_SEM_DEFINE(s_touch_wake, 0, 1);
+static struct pbl_thread s_touch_task;
+PBL_THREAD_STACK_DEFINE(s_touch_stack, CST92XX_TASK_STACK_SIZE);
+static bool s_initialized;
 static const struct pbl_irq_spec s_interrupt =
     PBL_IRQ_SPEC(&T5AI_GPIO_INTC, CST92XX_INTERRUPT_PIN, PBL_IRQ_TYPE_EDGE_FALLING);
 static const struct pbl_gpio s_interrupt_input = PBL_GPIO(&T5AI_GPIO, CST92XX_INTERRUPT_PIN, 0);
@@ -188,7 +190,7 @@ static bool prv_poll(void) {
 }
 
 static void prv_interrupt_handler(void *arg) {
-  pbl_sem_give(s_touch_wake);
+  pbl_sem_give(&s_touch_wake);
 }
 
 static void prv_touch_task(void *context) {
@@ -197,7 +199,7 @@ static void prv_touch_task(void *context) {
     // Idle with no periodic wakeups. GPIO42's falling edge is the primary
     // source of touch work; enabling also sends one notification so a level
     // already asserted during reset cannot be missed.
-    (void)pbl_sem_take(s_touch_wake, PBL_TICKS(PBL_TICK_FOREVER));
+    (void)pbl_sem_take(&s_touch_wake, PBL_TICKS(PBL_TICK_FOREVER));
     while (s_enabled) {
       const bool read_succeeded = prv_poll();
       if (!s_enabled) {
@@ -208,7 +210,7 @@ static void prv_touch_task(void *context) {
         // After reset, retry slowly even if the controller never produces a new edge.
         const uint32_t retry_ms =
             s_consecutive_read_failures == 0u ? CST92XX_RESET_RETRY_MS : CST92XX_READ_RETRY_MS;
-        (void)pbl_sem_take(s_touch_wake, PBL_TICKS(pbl_ms_to_ticks(retry_ms)));
+        (void)pbl_sem_take(&s_touch_wake, PBL_TICKS(pbl_ms_to_ticks(retry_ms)));
         continue;
       }
 
@@ -219,12 +221,15 @@ static void prv_touch_task(void *context) {
       // CST9217 normally interrupts for each fresh report. While a contact is
       // active, use 20 ms only as a lost-edge fallback so motion and finger-up
       // cannot become stranded behind an asserted interrupt line.
-      (void)pbl_sem_take(s_touch_wake, PBL_TICKS(pbl_ms_to_ticks(CST92XX_POLL_MS)));
+      (void)pbl_sem_take(&s_touch_wake, PBL_TICKS(pbl_ms_to_ticks(CST92XX_POLL_MS)));
     }
   }
 }
 
 void touch_sensor_init(void) {
+  if (s_initialized) {
+    return;
+  }
   (void)pbl_gpio_configure(&s_reset, PBL_GPIO_OUTPUT_INACTIVE);
   prv_reset(true);
   uint8_t report[CST92XX_REPORT_LENGTH];
@@ -232,13 +237,19 @@ void touch_sensor_init(void) {
     PBL_LOG_ERR("CST92xx not detected at 0x5a");
   }
   prv_reset(false);
-  s_touch_wake = t5ai_sem_create(1, 0);
-  PBL_ASSERTN(s_touch_wake != NULL);
-  const int created = t5ai_thread_create(prv_touch_task, "CST92xx", CST92XX_TASK_STACK_WORDS, NULL,
-                                         CST92XX_TASK_PRIORITY, NULL, NULL);
+  const struct pbl_thread_attr attr = {
+    .name = "CST92xx",
+    .entry = prv_touch_task,
+    .prio = CST92XX_TASK_PRIORITY,
+    .privileged = true,
+    .stack = s_touch_stack,
+    .stack_size = sizeof(s_touch_stack),
+  };
+  const int created = pbl_thread_create(&s_touch_task, &attr);
   PBL_ASSERTN(created == 0);
   PBL_ASSERTN(pbl_gpio_configure(&s_interrupt_input, PBL_GPIO_INPUT) == 0);
   PBL_ASSERTN(pbl_intc_request(&s_interrupt, prv_interrupt_handler, nullptr) == 0);
+  s_initialized = true;
 }
 
 void touch_sensor_set_enabled(bool enabled) {
@@ -249,11 +260,11 @@ void touch_sensor_set_enabled(bool enabled) {
     prv_reset(true);
     s_enabled = true;
     (void)pbl_intc_enable(&s_interrupt);
-    (void)pbl_sem_give(s_touch_wake);
+    (void)pbl_sem_give(&s_touch_wake);
   } else {
     s_enabled = false;
     (void)pbl_intc_disable(&s_interrupt);
-    (void)pbl_sem_give(s_touch_wake);
+    (void)pbl_sem_give(&s_touch_wake);
     if (s_finger_down) {
       touch_handle_update(TouchState_FingerDown, s_last_x, s_last_y);
       touch_handle_update(TouchState_FingerUp, s_last_x, s_last_y);

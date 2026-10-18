@@ -30,7 +30,19 @@ one ARM SDK/QEMU fault-entry test skipped. The Unhygienix firmware built and
 linked, with existing LTO warnings. These are recorded checks for that candidate,
 not a fresh broad run against the later persistence experiment.
 
-The latest installed AP image is the PFS system-resource restoration candidate,
+The latest installed AP image is the native T5AI kernel-object candidate, build
+ID `e570b7959ef3ff01ffe5b51e68c35460478146fc`, flashed AP-only on 2026-10-18.
+Its booted ID matches the frozen ELF. The watch restored encrypted bonding,
+opened the phone protocol session and completed discovery in 4,275 ms. The
+operator confirmed connection, the selected face and working controls. CP,
+resource bank and persistent storage were not selected for programming.
+A KernelBG watchdog feed delay of 5,984 ms triggered app throttling, followed
+by a watchdog recovery record. The cause is unresolved; peak heap, repeated
+reconnect and broader driver qualification remain open. Capture is stopped.
+Exact images, raw trace, warnings, operator observation and limits:
+`/home/baz/Documents/ChatGPT/pebble/artifacts/native-kernel-objects-20261018/flash/report.md`.
+
+The preceding installed AP image was the PFS system-resource restoration candidate,
 build ID `50d14c63d1336e77edb840d723bfefc230982883`, flashed AP-only on 2026-10-18.
 The booted build ID matches the saved candidate. Startup accepted the system
 resource bank, registered the stored bond and opened reversed PPoGATT. CP,
@@ -383,6 +395,35 @@ four existing native GATT discovery/accessor/subscription/Service Changed
 suites also pass. The October 17 watch smoke test above additionally verifies
 one encrypted reconnect and discovery sequence. Broader reconnect and cold-boot
 qualification remain outstanding.
+
+## Native T5AI kernel objects — 2026-10-18
+
+The allocating T5AI kernel adapter is removed. Five worker threads now own native
+thread objects and aligned stacks. Mailbox/heartbeat/battery/touch keep their
+previous stack capacities in internal SRAM; HCI retains its PSRAM stack. Native
+mutexes/semaphores are embedded in their owning mailbox/socket/microphone state
+or defined statically. Common kernel code and scheduling policy are unchanged.
+
+The conversion removes 26 persistent heap allocations (9,044 requested bytes,
+excluding allocator overhead). Static RAM rises by 8,768 B to 106,048 B; available
+linker heap capacity becomes 20,928 B. That is a storage-ownership change, not a
+measured reduction in peak live RAM. Nine focused ownership/timing/touch cases,
+the broader 283-entry tooling suite (two skips) and the existing native kernel
+suite pass; firmware packaging succeeds with existing LTO warnings.
+
+Stock HCI also uses fixed native stacks/objects. Stock touch and battery instead
+reuse system-task callbacks, so T5AI's private worker count is still an open
+convergence opportunity: touch, battery and heartbeat reserve 6,144 B of internal
+stacks. The static increase is largely a heap-to-static transfer, but does not
+prove equal startup/peak headroom. See the comparison and accounting at
+`/home/baz/Documents/ChatGPT/pebble/artifacts/native-kernel-objects-20261018/stock-comparison.md`.
+
+The candidate is flashed AP-only; its exact boot ID, encrypted reconnection
+and discovery were captured. The operator confirms the selected face and controls.
+A KernelBG feed-delay warning and subsequent recovery remain documented in the
+latest flash report above. Repeated startup/reconnect, battery/microphone behavior
+and peak heap still need qualification. Exact candidate/build ID and test limits:
+`/home/baz/Documents/ChatGPT/pebble/artifacts/native-kernel-objects-20261018/validation.txt`.
 
 ## PFS system resources — 2026-10-18
 

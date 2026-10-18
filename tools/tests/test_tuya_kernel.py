@@ -125,10 +125,10 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertLess(early.index("t5ai_cp_mailbox_announce_power_up();"),
                         early.index("__enable_irq();"))
         mailbox = (ROOT / "drivers/t5ai/cp_mailbox.c").read_text()
-        self.assertIn("CP_CONTROL_CHANNEL 0x10u", mailbox)
-        self.assertIn("CP_POWER_UP_COMMAND 1u", mailbox)
-        self.assertIn("CP_HEARTBEAT_COMMAND 2u", mailbox)
-        self.assertIn("t5ai_thread_create(prv_heartbeat_task", mailbox)
+        self.assertRegex(mailbox, r"CP_CONTROL_CHANNEL\s+0x10u")
+        self.assertRegex(mailbox, r"CP_POWER_UP_COMMAND\s+1u")
+        self.assertRegex(mailbox, r"CP_HEARTBEAT_COMMAND\s+2u")
+        self.assertIn(".entry = prv_heartbeat_task", mailbox)
         self.assertIn("pbl_thread_sleep(PBL_MSEC(CP_HEARTBEAT_PERIOD_MS))", mailbox)
 
     def test_t5ai_display_preserves_qualified_panel_and_qspi_setup(self):
@@ -398,10 +398,10 @@ int main(void) {
         self.assertNotIn("NVIC_EnableIRQ", physical_init)
         self.assertIn("t5ai_force_whole_chip_reset(T5AI_RESET_REASON_MAILBOX_BASE | channel);",
                       physical)
-        self.assertIn("#define MAILBOX_ACTIVE_TIMEOUT_MS 5000u", physical)
+        self.assertRegex(physical, r"#define MAILBOX_ACTIVE_TIMEOUT_MS\s+5000u")
         self.assertIn("RebootReasonCode_MailboxTimeout", physical)
-        self.assertIn("#define MB_IPC_PHYSICAL_TIMEOUT_MS 5000u", mb_ipc)
-        self.assertIn("#define CP_RUNTIME_TIMEOUT_MS 5000u", mailbox)
+        self.assertRegex(mb_ipc, r"#define MB_IPC_PHYSICAL_TIMEOUT_MS\s+5000u")
+        self.assertRegex(mailbox, r"#define CP_RUNTIME_TIMEOUT_MS\s+5000u")
         self.assertIn("#define IPC_TIMEOUT_MS 5000u", flash)
         self.assertLess(
             mailbox.index("t5ai_mailbox_channel_register(channel"),
@@ -419,7 +419,7 @@ int main(void) {
         )[0]
         self.assertIn("__atomic_load_n", battery_get)
         self.assertNotIn("t5ai_saradc_read_peak", battery_get)
-        self.assertIn("t5ai_thread_create(prv_battery_task", battery)
+        self.assertIn(".entry = prv_battery_task", battery)
         self.assertRegex(battery, r"#define T5AI_BATTERY_STARTUP_DELAY_MS\s+30000u")
         self.assertIn("s_t5ai_mutex", dbgserial)
         self.assertIn("T5AI_AON_PMU_R2", reset)
@@ -435,8 +435,8 @@ int main(void) {
     def test_t5ai_holds_cp_awake_until_low_voltage_resume_is_supported(self):
         mailbox = (ROOT / "drivers/t5ai/cp_mailbox.c").read_text()
         board = (ROOT / "fw/board/boards/board_unhygienix.c").read_text()
-        self.assertIn("CP_PM_SLEEP_COMMAND 3u", mailbox)
-        self.assertIn("CP_PM_SLEEP_APP_MODULE 12u", mailbox)
+        self.assertRegex(mailbox, r"CP_PM_SLEEP_COMMAND\s+3u")
+        self.assertRegex(mailbox, r"CP_PM_SLEEP_APP_MODULE\s+12u")
         init = board.split("void board_init(void)", 1)[1]
         self.assertLess(init.index("t5ai_cp_mailbox_vote_app_sleep(false)"),
                         init.index("t5ai_power_init();"))

@@ -131,7 +131,7 @@ int main(void) {
 #include <stddef.h>
 #define T5AI_SHARED_ALIGNMENT 32
 #define T5AI_MAILBOX_CHANNEL_COUNT 16
-#define MAILBOX_TASK_STACK_WORDS 512
+#define MAILBOX_TASK_STACK_SIZE 2048
 #define MAILBOX_TASK_PRIORITY 4
 #define E_OUT_OF_MEMORY -1
 #define E_INVALID_ARGUMENT -2
@@ -153,19 +153,25 @@ typedef enum { TxState_Idle, TxState_Pending, TxState_Active, TxState_Complete }
 """ + tx + r"""
 static TxChannel s_tx[16];
 static bool s_initialized, s_started, s_faulted;
-static struct pbl_sem wake, *s_wake;
-static struct pbl_thread *s_task;
-static unsigned depth, allocations, creations;
+static struct pbl_sem s_wake = {.limit=1};
+static struct pbl_thread s_task;
+static _Alignas(32) unsigned char s_task_stack[MAILBOX_TASK_STACK_SIZE];
+struct pbl_thread_attr {
+ const char *name; void (*entry)(void *); void *arg; unsigned prio;
+ bool privileged; void *stack; size_t stack_size;
+};
+static unsigned depth, creations;
+static bool fail_create;
 void pbl_irq_lock(void) { ++depth; }
 void pbl_irq_unlock(void) { assert(depth); --depth; }
 void pbl_sem_init(struct pbl_sem *s, unsigned initial, unsigned limit) { assert(!depth); s->ready=initial; s->limit=limit; }
 void pbl_mutex_init(struct pbl_mutex *m) { assert(!depth); m->locked=0; }
-struct pbl_sem *t5ai_sem_create(unsigned limit, unsigned initial) { assert(!depth); ++allocations; pbl_sem_init(&wake,initial,limit); return &wake; }
 static void prv_mailbox_task(void *arg) { (void)arg; }
-int t5ai_thread_create(void (*entry)(void *), const char *name, size_t words, void *arg,
-                      unsigned prio, struct pbl_thread **out, void *stack) {
- assert(!depth && entry==prv_mailbox_task && name && words==512 && !arg && prio==4 && out && !stack);
- ++creations; return 0;
+int pbl_thread_create(struct pbl_thread *thread, const struct pbl_thread_attr *attr) {
+ assert(!depth && thread==&s_task && attr->entry==prv_mailbox_task && attr->name);
+ assert(attr->stack==s_task_stack && attr->stack_size==2048 && attr->privileged);
+ assert(!attr->arg && attr->prio==4 && ((uintptr_t)attr->stack%32)==0);
+ ++creations; return fail_create ? -1 : 0;
 }
 void pbl_mutex_lock(struct pbl_mutex *m, unsigned timeout) { assert(!depth && !m->locked && timeout==PBL_FOREVER); m->locked=1; }
 void pbl_mutex_unlock(struct pbl_mutex *m) { assert(!depth && m->locked); m->locked=0; }
@@ -175,7 +181,7 @@ int pbl_sem_take(struct pbl_sem *s, unsigned timeout) {
  assert(timeout==0); return -1;
 }
 int pbl_sem_give(struct pbl_sem *s) {
- assert(s==s_wake && !depth);
+ assert(s==&s_wake && !depth);
  for (unsigned i=0;i<16;++i) {
    if (s_tx[i].state!=TxState_Pending) continue;
    s_tx[i].ack=(T5AIMailboxMessage){.parameter1=123+i};
@@ -192,8 +198,11 @@ static void prv_reset_after_timeout(unsigned i) { (void)i; assert(0); }
         harness += function(source, "t5ai_mailbox_channel_send")
         harness += r"""
 int main(void) {
- assert(t5ai_mailbox_channel_init()==0 && allocations==1 && creations==1);
- assert(t5ai_mailbox_channel_init()==0 && allocations==1 && creations==1);
+ fail_create=true;
+ assert(t5ai_mailbox_channel_init()==E_OUT_OF_MEMORY && !s_initialized && creations==1);
+ fail_create=false;
+ assert(t5ai_mailbox_channel_init()==0 && s_initialized && creations==2);
+ assert(t5ai_mailbox_channel_init()==0 && creations==2);
  s_started=true;
  for (unsigned i=0;i<16;++i) {
    assert(s_tx[i].completion.limit==1);
@@ -202,7 +211,7 @@ int main(void) {
    assert(t5ai_mailbox_channel_send(i,&message,&ack,100)==0);
    assert(ack.parameter1==123+i && s_tx[i].state==TxState_Idle && !s_tx[i].mutex.locked);
  }
- assert(allocations==1 && !depth);
+ assert(creations==2 && !depth);
  T5AIMailboxMessage message={0}; s_tx[0].state=TxState_Active;
  assert(t5ai_mailbox_channel_send(0,&message,NULL,100)==E_BUSY && !s_tx[0].mutex.locked);
  assert(t5ai_mailbox_channel_send(16,&message,NULL,100)==E_INVALID_ARGUMENT);

@@ -26,7 +26,7 @@ void test_wfi(void);
 #include <stdint.h>
 static inline void t5ai_state_trace_freeze(uint32_t reason) { (void)reason; }
 """,
-    "pbl/soc/t5ai/kernel.h": """
+    "pbl/kernel/kernel.h": """
 #pragma once
 static inline int pbl_kernel_is_running(void) { return 1; }
 """,

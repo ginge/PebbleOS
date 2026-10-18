@@ -4,6 +4,34 @@ The [operator handoff](../../../docs/boards/unhygienix/index.md) records current
 support and implementation gaps. The [tooling guide](../../../docs/boards/unhygienix/tooling.md)
 records dependency, build, packaging and flash procedures.
 
+## Deferred follow-up: Tuya private workers — 2026-10-18
+
+Recorded at the top of the TODO at the operator's request; defer implementation
+until this work is explicitly resumed. Native object ownership does not establish
+that every dedicated worker or its current stack capacity is necessary.
+
+- **Touch — 3,072 B internal stack:** compare the CST92xx private worker with
+  stock CST816's IRQ-to-KernelBG callback approach. Evaluate shared-task delivery
+  before retaining a dedicated thread. Verify touch latency, backpressure,
+  finger-up delivery, lost-edge recovery and I2C reset behavior under BG load.
+- **Battery — 2,048 B internal stack:** compare the private sampling worker with
+  stock battery-service system-task updates. Evaluate using the existing update
+  path while preserving startup retries, cached readings and bounded CP ADC
+  operations; measure any blocking effect on other system-task work.
+- **CP heartbeat — 1,024 B internal stack:** evaluate an existing timer/shared
+  execution context instead of a permanent thread. Establish callback-context
+  safety, asynchronous mailbox ownership and heartbeat deadlines under load;
+  do not move blocking CP operations onto the timer task.
+
+These workers reserve **6,144 B of internal stack storage**. Eliminating or
+consolidating them could save real RAM; moving their existing allocations from
+heap to static storage does not. The native-object candidate's +8,768 B static
+increase replaces 9,044 B of former heap requests, so it is not an equivalent
+increase in steady-state live RAM. Startup and peak heap headroom still need
+measurement. Keep priorities, timing and stack capacities unchanged until each
+comparison has evidence; no worker reduction has yet been implemented or flashed.
+See the [stock comparison and accounting](/home/baz/Documents/ChatGPT/pebble/artifacts/native-kernel-objects-20261018/stock-comparison.md).
+
 ## Current disposition — 2026-10-18
 
 The [2026-10-18 stock convergence review](/home/baz/Documents/ChatGPT/pebble/audits/2026-10-18-stock-convergence/review.md)
@@ -92,6 +120,40 @@ No capture remains from the latest GATT test. Merge readiness remains unqualifie
    The dated progress records below are history, not outstanding instructions;
    the current review identifies work already completed. Merge readiness remains
    unqualified.
+
+   Progress — 2026-10-18 (native kernel objects, audit item 7): removed the
+   allocating T5AI kernel adapter. Mailbox, heartbeat, HCI, battery and touch
+   threads now own native thread objects; stacks retain their byte sizes and
+   priorities. The HCI stack stays in board-cache PSRAM; the other four stacks
+   are explicitly aligned internal SRAM. Nine semaphores and eight mutexes are
+   embedded/static, including the microphone's device-owned mutex. This removes
+   26 boot-lifetime heap allocations (9,044 requested bytes before allocator
+   overhead), rather than introducing a replacement OS abstraction. Retry tests
+   cover mailbox/heartbeat/battery creation, CP/MB-IPC registration and HCI worker
+   reuse with quarantined descriptors retained. The broad tooling suite passes
+   283 entries with two skips; the existing native kernel suite passes.
+   Firmware packaging succeeds with existing LTO warnings. Static RAM rises
+   8,768 B to 106,048 B; the linker heap spans 20,928 B instead of 29,696 B,
+   while the removed allocations no longer consume that heap. Peak heap and
+   cold-boot/reconnect/touch/battery/microphone behavior still need hardware
+   qualification. Hardware update — 2026-10-18: flashed AP-only; the booted
+   build ID `e570b7959ef3ff01ffe5b51e68c35460478146fc` matches the saved candidate.
+   The encrypted bond and protocol session restored; discovery completed in
+   4,275 ms. The operator confirms connection, selected face and working controls.
+   One KernelBG feed-delay warning (5,984 ms) triggered app throttling; a watchdog
+   recovery record followed. This is an unresolved finding, not clean watchdog
+   qualification or evidence of causation by this change. Capture is stopped.
+   Flash report:
+   `/home/baz/Documents/ChatGPT/pebble/artifacts/native-kernel-objects-20261018/flash/report.md`.
+   Candidate, exact build ID and validation:
+   `/home/baz/Documents/ChatGPT/pebble/artifacts/native-kernel-objects-20261018/validation.txt`.
+   Static-RAM follow-up: stock HCI also uses static native objects/stacks, while
+   stock touch and battery reuse system-task callbacks. Native ownership does
+   not justify the existing T5AI worker count. Reassess the touch/battery/
+   heartbeat workers (6,144 B of internal stacks) and the extra CP HCI worker;
+   preserve IPC ownership/deadlines and measure boot/peak heap when comparing.
+   Detailed comparison:
+   `/home/baz/Documents/ChatGPT/pebble/artifacts/native-kernel-objects-20261018/stock-comparison.md`.
 
    Progress — 2026-10-18 (unrelated utility cleanup, audit item 6): restored
    the activity attachment download directory, BSS reporting script and

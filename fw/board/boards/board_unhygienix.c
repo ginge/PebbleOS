@@ -8,6 +8,7 @@
 #include <pbl/drivers/imu/qmi8658.h>
 #include <pbl/drivers/mic/t5ai/definitions.h>
 #include <pbl/drivers/watchdog.h>
+#include <pbl/kernel/irq.h>
 #include <pbl/logging/logging.h>
 #include <pbl/mcu/mpu.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>

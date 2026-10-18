@@ -4,7 +4,7 @@
 #include <pbl/mcu/cache.h>
 #include <pbl/logging/logging.h>
 PBL_LOG_MODULE_DEFINE(t5ai_hci_ipc, LOG_LEVEL_DEBUG);
-#include <pbl/soc/t5ai/kernel.h>
+#include <pbl/kernel/kernel.h>
 #include <pbl/soc/t5ai/memory.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/hci_ipc.h>
@@ -15,7 +15,6 @@ PBL_LOG_MODULE_DEFINE(t5ai_hci_ipc, LOG_LEVEL_DEBUG);
 #include <stdint.h>
 #include <string.h>
 
-#include <pbl/soc/t5ai/kernel.h>
 
 // Shared objects must start on a BK7258 data-cache line.
 #define T5AI_HCI_MESSAGE_WIRE_SIZE 20u
@@ -39,7 +38,7 @@ PBL_LOG_MODULE_DEFINE(t5ai_hci_ipc, LOG_LEVEL_DEBUG);
 #define T5AI_HCI_PENDING_FRAME_CAPACITY 8u
 #define T5AI_HCI_EVENT_RESPONSE_CAPACITY 8u
 #define T5AI_HCI_REQUEST_CAPACITY 8u
-#define T5AI_HCI_WORKER_STACK_WORDS 768u
+#define T5AI_HCI_WORKER_STACK_SIZE 3072u
 #define T5AI_HCI_SEND_TIMEOUT_MS 2000u
 
 // Subtype values are fixed by the pinned Tuya CP IPC ABI.
@@ -88,13 +87,14 @@ static uint16_t s_exchange_result;
 static bool s_started;
 static bool s_faulted;
 static bool s_accept_frames;
-static struct pbl_mutex *s_sync_mutex;
-static struct pbl_mutex *s_async_mutex;
-static struct pbl_sem * s_worker_wake;
-static struct pbl_sem * s_exchange_ready;
-static struct pbl_thread * s_worker_task;
-static uint32_t s_worker_stack[T5AI_HCI_WORKER_STACK_WORDS]
-    __attribute__((section(".t5ai_board_cache"), aligned(T5AI_SHARED_ALIGNMENT)));
+static PBL_MUTEX_DEFINE(s_sync_mutex);
+static PBL_MUTEX_DEFINE(s_async_mutex);
+static PBL_SEM_DEFINE(s_worker_wake, 0, 1);
+static PBL_SEM_DEFINE(s_exchange_ready, 0, 1);
+static struct pbl_thread s_worker_task;
+PBL_THREAD_STACK_DEFINE(s_worker_stack, T5AI_HCI_WORKER_STACK_SIZE)
+    __attribute__((section(".t5ai_board_cache")));
+static bool s_worker_created;
 static volatile uint8_t s_expected_subtype = T5AI_HCI_NO_EXPECTED_SUBTYPE;
 static T5AIHCIPendingFrame s_pending_frames[T5AI_HCI_PENDING_FRAME_CAPACITY]
     __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
@@ -325,7 +325,7 @@ static bool prv_dequeue_pending_frame(T5AIMIPCFrame *frame) {
 static void prv_worker(void *context) {
   (void)context;
   while (true) {
-    (void)pbl_sem_take(s_worker_wake, PBL_TICKS(PBL_TICK_FOREVER));
+    (void)pbl_sem_take(&s_worker_wake, PBL_TICKS(PBL_TICK_FOREVER));
     T5AIMIPCFrame frame;
     while (prv_dequeue_pending_frame(&frame)) {
       if (prv_retire_request(&frame) || prv_retire_event_response(&frame)) {
@@ -338,11 +338,11 @@ static void prv_worker(void *context) {
           t5ai_mipc_header(T5AI_MIPC_CPU_CP, T5AI_MIPC_TYPE_COMMAND)) {
         continue;
       }
-      pbl_mutex_lock(s_async_mutex, PBL_FOREVER);
+      pbl_mutex_lock(&s_async_mutex, PBL_FOREVER);
       bool matched = false;
       const status_t status = prv_handle_command(
           &frame, __atomic_load_n(&s_expected_subtype, __ATOMIC_ACQUIRE), &matched);
-      pbl_mutex_unlock(s_async_mutex);
+      pbl_mutex_unlock(&s_async_mutex);
       if (FAILED(status)) {
         PBL_LOG_ERR("T5AI HCI command handling failed: status=%ld header=%08lx expected=%u",
                       (long)status, (unsigned long)frame.header,
@@ -350,7 +350,7 @@ static void prv_worker(void *context) {
         prv_mark_faulted();
       }
       if (matched) {
-        (void)pbl_sem_give(s_exchange_ready);
+        (void)pbl_sem_give(&s_exchange_ready);
       }
     }
   }
@@ -375,7 +375,7 @@ static void prv_route_frame(uint8_t logical_channel, const T5AICPMailboxFrame *f
     PBL_LOG_ERR("T5AI HCI pending frame queue exhausted");
     prv_mark_faulted();
   } else {
-    (void)pbl_sem_give(s_worker_wake);
+    (void)pbl_sem_give(&s_worker_wake);
   }
 }
 
@@ -507,7 +507,7 @@ static status_t prv_exchange(uint8_t subtype, const void *payload, size_t length
   if (payload != NULL && length != 0u) {
     dcache_flush(payload, length);
   }
-  while (pbl_sem_take(s_exchange_ready, PBL_TICKS(0u)) == 0) {
+  while (pbl_sem_take(&s_exchange_ready, PBL_TICKS(0u)) == 0) {
   }
   __atomic_store_n(&s_expected_subtype, subtype, __ATOMIC_RELEASE);
   status_t status =
@@ -518,7 +518,7 @@ static status_t prv_exchange(uint8_t subtype, const void *payload, size_t length
     return status;
   }
 
-  if (pbl_sem_take(s_exchange_ready, PBL_TICKS(pbl_ms_to_ticks(T5AI_HCI_SEND_TIMEOUT_MS))) != 0) {
+  if (pbl_sem_take(&s_exchange_ready, PBL_TICKS(pbl_ms_to_ticks(T5AI_HCI_SEND_TIMEOUT_MS))) != 0) {
 #ifdef CONFIG_T5AI_HCI_PROFILE
     ++s_diagnostics.exchange_timeouts;
 #endif
@@ -532,9 +532,9 @@ static status_t prv_exchange(uint8_t subtype, const void *payload, size_t length
 }
 
 static status_t prv_locked_exchange(uint8_t subtype, const void *payload, size_t length) {
-  pbl_mutex_lock(s_sync_mutex, PBL_FOREVER);
+  pbl_mutex_lock(&s_sync_mutex, PBL_FOREVER);
   status_t status = prv_exchange(subtype, payload, length);
-  pbl_mutex_unlock(s_sync_mutex);
+  pbl_mutex_unlock(&s_sync_mutex);
   return status;
 }
 
@@ -544,34 +544,26 @@ int t5ai_hci_ipc_start(const T5AIHCICallbacks *callbacks) {
   }
   const bool recovering = prv_faulted();
   s_callbacks = *callbacks;
-  if (s_sync_mutex == NULL) {
-    s_sync_mutex = t5ai_mutex_create();
-  }
-  if (s_async_mutex == NULL) {
-    s_async_mutex = t5ai_mutex_create();
-  }
-  if (s_worker_wake == NULL) {
-    s_worker_wake = t5ai_sem_create(1, 0);
-  }
-  if (s_exchange_ready == NULL) {
-    s_exchange_ready = t5ai_sem_create(1, 0);
-  }
-  if (s_worker_task == NULL && s_worker_wake != NULL && s_exchange_ready != NULL) {
-    if (t5ai_thread_create(prv_worker, "T5AI HCI IPC", T5AI_HCI_WORKER_STACK_WORDS, NULL,
-                           T5AI_HCI_WORKER_PRIORITY, &s_worker_task, s_worker_stack) != 0) {
-      s_worker_task = NULL;
+  if (!s_worker_created) {
+    const struct pbl_thread_attr attr = {
+      .name = "T5AI HCI IPC",
+      .entry = prv_worker,
+      .prio = T5AI_HCI_WORKER_PRIORITY,
+      .privileged = true,
+      .stack = s_worker_stack,
+      .stack_size = sizeof(s_worker_stack),
+    };
+    if (pbl_thread_create(&s_worker_task, &attr) != 0) {
+      memset(&s_callbacks, 0, sizeof(s_callbacks));
+      return E_OUT_OF_MEMORY;
     }
-  }
-  if (s_sync_mutex == NULL || s_async_mutex == NULL || s_worker_wake == NULL ||
-      s_exchange_ready == NULL || s_worker_task == NULL) {
-    memset(&s_callbacks, 0, sizeof(s_callbacks));
-    return E_OUT_OF_MEMORY;
+    s_worker_created = true;
   }
   if (recovering) {
     /* Let the persistent worker consume already-snapshotted ACKs before the
      * route is replaced. Timed-out descriptor slots remain allocated: a late
      * transport ACK may retire them, but no restart may reuse their address. */
-    (void)pbl_sem_give(s_worker_wake);
+    (void)pbl_sem_give(&s_worker_wake);
     const pbl_tick_t drain_start = pbl_uptime_ticks();
     while (!prv_pending_empty() &&
            pbl_uptime_ticks() - drain_start < pbl_ms_to_ticks(T5AI_HCI_RECOVERY_DRAIN_TIMEOUT_MS)) {
@@ -579,10 +571,10 @@ int t5ai_hci_ipc_start(const T5AIHCICallbacks *callbacks) {
     }
     __atomic_store_n(&s_accept_frames, false, __ATOMIC_RELEASE);
     t5ai_cp_mailbox_unregister(T5AI_MIPC_RX_LOGICAL_CHANNEL);
-    pbl_mutex_lock(s_async_mutex, PBL_FOREVER);
+    pbl_mutex_lock(&s_async_mutex, PBL_FOREVER);
     s_pending_frame_head = 0u;
     s_pending_frame_count = 0u;
-    pbl_mutex_unlock(s_async_mutex);
+    pbl_mutex_unlock(&s_async_mutex);
   } else {
     s_pending_frame_head = 0u;
     s_pending_frame_count = 0u;
@@ -626,7 +618,7 @@ int t5ai_hci_ipc_stop(void) {
   const pbl_tick_t retirement_start = pbl_uptime_ticks();
   while (!prv_all_outbound_retired() &&
          pbl_uptime_ticks() - retirement_start < pbl_ms_to_ticks(T5AI_HCI_STOP_RETIRE_TIMEOUT_MS)) {
-    (void)pbl_sem_give(s_worker_wake);
+    (void)pbl_sem_give(&s_worker_wake);
     pbl_thread_sleep(PBL_MSEC(T5AI_HCI_OWNERSHIP_POLL_INTERVAL_MS));
   }
   if (!prv_all_outbound_retired()) {
@@ -636,13 +628,13 @@ int t5ai_hci_ipc_stop(void) {
   }
   __atomic_store_n(&s_accept_frames, false, __ATOMIC_RELEASE);
   t5ai_cp_mailbox_unregister(T5AI_MIPC_RX_LOGICAL_CHANNEL);
-  pbl_mutex_lock(s_async_mutex, PBL_FOREVER);
+  pbl_mutex_lock(&s_async_mutex, PBL_FOREVER);
   s_pending_frame_head = 0u;
   s_pending_frame_count = 0u;
   memset(s_request_in_use, 0, sizeof(s_request_in_use));
   memset(s_event_response_in_use, 0, sizeof(s_event_response_in_use));
   memset(&s_callbacks, 0, sizeof(s_callbacks));
-  pbl_mutex_unlock(s_async_mutex);
+  pbl_mutex_unlock(&s_async_mutex);
   return status;
 }
 
@@ -676,8 +668,8 @@ bool t5ai_hci_ipc_faulted(void) {
 }
 
 void t5ai_hci_ipc_poll(void) {
-  if (prv_started() && s_worker_wake != NULL) {
-    (void)pbl_sem_give(s_worker_wake);
+  if (prv_started()) {
+    (void)pbl_sem_give(&s_worker_wake);
   }
 }
 

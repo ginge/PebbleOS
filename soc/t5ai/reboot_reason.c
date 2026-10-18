@@ -11,7 +11,7 @@ PBL_LOG_MODULE_DEFINE(t5ai_reboot_reason, LOG_LEVEL_DEBUG);
 #include <pbl/soc/t5ai/reset.h>
 #include <pbl/soc/t5ai/state_trace.h>
 
-#include <pbl/soc/t5ai/kernel.h>
+#include <pbl/kernel/kernel.h>
 
 _Static_assert(sizeof(RebootReason) == sizeof(uint32_t[4]),
                "RebootReason is a funny size");

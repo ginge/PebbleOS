@@ -570,7 +570,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertIn("prv_retire_event_response", source)
         self.assertIn("s_requests[T5AI_HCI_REQUEST_CAPACITY]", source)
         self.assertIn("static void prv_worker", source)
-        self.assertIn("pbl_sem_give(s_exchange_ready)", source)
+        self.assertIn("pbl_sem_give(&s_exchange_ready)", source)
         self.assertNotIn("s_request_transport_ack", source)
         self.assertNotIn("prv_wait_for_event_response_ack", source)
 

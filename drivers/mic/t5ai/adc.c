@@ -1,18 +1,19 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/drivers/mic/t5ai/definitions.h>
-#include <pbl/logging/logging.h>
-#include <pbl/services/system_task.h>
-#include <pbl/soc/t5ai/cp_mailbox.h>
-#include <pbl/soc/t5ai/rtc.h>
 #include "board/board.h"
 #include "kernel/pbl_malloc.h"
-#include <pbl/soc/t5ai/delay.h>
 #include "system/passert.h"
-#include <pbl/soc/t5ai/kernel.h>
 
 #include <inttypes.h>
+
+#include <pbl/drivers/mic/t5ai/definitions.h>
+#include <pbl/kernel/kernel.h>
+#include <pbl/logging/logging.h>
 #include <pbl/mcu/cache.h>
+#include <pbl/services/system_task.h>
+#include <pbl/soc/t5ai/cp_mailbox.h>
+#include <pbl/soc/t5ai/delay.h>
+#include <pbl/soc/t5ai/rtc.h>
 
 PBL_LOG_MODULE_DEFINE(driver_mic_t5ai, CONFIG_DRIVER_MIC_LOG_LEVEL);
 
@@ -206,7 +207,7 @@ static bool prv_power_up(MicDevice *device) {
 static void prv_dispatch(void *context) {
   MicDevice *device = context;
   MicDeviceState *state = device->state;
-  pbl_mutex_lock(state->mutex, PBL_FOREVER);
+  pbl_mutex_lock(&state->mutex, PBL_FOREVER);
   // Bound encoder work so other KernelBG callbacks can run.
   for (unsigned frame = 0; frame < 2u && state->running; ++frame) {
     pbl_irq_lock();
@@ -232,7 +233,7 @@ static void prv_dispatch(void *context) {
   pbl_irq_lock();
   state->pending = false;
   pbl_irq_unlock();
-  pbl_mutex_unlock(state->mutex);
+  pbl_mutex_unlock(&state->mutex);
 }
 
 static bool prv_dma_writing_second(const MicDeviceState *state) {
@@ -307,7 +308,6 @@ void t5ai_mic_dma_irq_handler(MicDevice *device) {
       state->pending = false;
     }
   }
-
 }
 
 void mic_init(MicDevice *device) {
@@ -315,8 +315,7 @@ void mic_init(MicDevice *device) {
   if (state->initialized) {
     return;
   }
-  state->mutex = t5ai_mutex_create();
-  PBL_ASSERTN(state->mutex);
+  pbl_mutex_init(&state->mutex);
   state->gain = AUD_ADC_GAIN_DEFAULT;
   NVIC_DisableIRQ(device->irq);
   NVIC_SetPriority(device->irq, device->irq_priority);
@@ -325,13 +324,13 @@ void mic_init(MicDevice *device) {
 
 void mic_set_volume(MicDevice *device, uint16_t volume) {
   MicDeviceState *state = device->state;
-  pbl_mutex_lock(state->mutex, PBL_FOREVER);
+  pbl_mutex_lock(&state->mutex, PBL_FOREVER);
   if (!state->running) {
     state->gain = volume == (uint16_t)MIC_DEFAULT_VOLUME
                       ? AUD_ADC_GAIN_DEFAULT
                       : (volume > 100u ? 100u : volume) * AUD_ADC_GAIN_MAX / 100u;
   }
-  pbl_mutex_unlock(state->mutex);
+  pbl_mutex_unlock(&state->mutex);
 }
 
 bool mic_start(MicDevice *device, MicDataHandlerCB handler, void *context, int16_t *buffer,
@@ -341,9 +340,9 @@ bool mic_start(MicDevice *device, MicDataHandlerCB handler, void *context, int16
       buffer_len > T5AI_MIC_RING_SAMPLES) {
     return false;
   }
-  pbl_mutex_lock(state->mutex, PBL_FOREVER);
+  pbl_mutex_lock(&state->mutex, PBL_FOREVER);
   if (state->running || state->faulted || (*prv_dma(DMA_CTRL) & 1u)) {
-    pbl_mutex_unlock(state->mutex);
+    pbl_mutex_unlock(&state->mutex);
     return false;
   }
   // Each half occupies whole cache lines; maintenance cannot touch the other half.
@@ -356,7 +355,7 @@ bool mic_start(MicDevice *device, MicDataHandlerCB handler, void *context, int16
     state->dma_allocation = NULL;
     state->dma_buffer = NULL;
     state->ring = NULL;
-    pbl_mutex_unlock(state->mutex);
+    pbl_mutex_unlock(&state->mutex);
     return false;
   }
   prv_dma_start(device);
@@ -376,14 +375,14 @@ bool mic_start(MicDevice *device, MicDataHandlerCB handler, void *context, int16
   NVIC_EnableIRQ(device->irq);
   *prv_reg(device, AUD_CONFIG) |= AUD_ADC_ENABLE;
   pbl_irq_unlock();
-  pbl_mutex_unlock(state->mutex);
+  pbl_mutex_unlock(&state->mutex);
   PBL_LOG_DBG("Microphone started: 16000 Hz mono, gain=%u", state->gain);
   return true;
 }
 
 void mic_stop(MicDevice *device) {
   MicDeviceState *state = device->state;
-  pbl_mutex_lock(state->mutex, PBL_FOREVER);
+  pbl_mutex_lock(&state->mutex, PBL_FOREVER);
   if (state->running) {
     pbl_irq_lock();
     NVIC_DisableIRQ(device->irq);
@@ -401,13 +400,13 @@ void mic_stop(MicDevice *device) {
     PBL_LOG_DBG("Microphone stopped: dropped=%" PRIu32 " fifo_full=%" PRIu32,
                 state->dropped_samples, state->fifo_full_events);
   }
-  pbl_mutex_unlock(state->mutex);
+  pbl_mutex_unlock(&state->mutex);
 }
 
 bool mic_is_running(MicDevice *device) {
-  pbl_mutex_lock(device->state->mutex, PBL_FOREVER);
+  pbl_mutex_lock(&device->state->mutex, PBL_FOREVER);
   const bool running = device->state->running;
-  pbl_mutex_unlock(device->state->mutex);
+  pbl_mutex_unlock(&device->state->mutex);
   return running;
 }
 

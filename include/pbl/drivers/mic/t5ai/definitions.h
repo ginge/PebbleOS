@@ -2,7 +2,8 @@
 #pragma once
 
 #include <pbl/drivers/mic.h>
-#include <pbl/soc/t5ai/kernel.h>
+#include <pbl/kernel/mutex.h>
+
 #include <cmsis_core.h>
 
 #define T5AI_MIC_DMA_HALF_SAMPLES 320u
@@ -10,7 +11,7 @@
 #define T5AI_MIC_RING_SAMPLES (8u * T5AI_MIC_DMA_HALF_SAMPLES)
 
 typedef struct {
-  struct pbl_mutex *mutex;
+  struct pbl_mutex mutex;
   int16_t *ring;
   void *dma_allocation;
   uint32_t *dma_buffer;

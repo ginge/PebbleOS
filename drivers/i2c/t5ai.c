@@ -8,7 +8,7 @@
 
 #include <pbl/drivers/i2c/t5ai.h>
 #include <pbl/soc/t5ai/delay.h>
-#include <pbl/soc/t5ai/kernel.h>
+#include <pbl/kernel/kernel.h>
 #include <pbl/util/misc.h>
 
 #include <cmsis_core.h>

@@ -195,7 +195,7 @@ int main(void) {
         self.assertIn("prv_flash_transaction(FLASH_READ_DONE)", flash)
         self.assertIn("t5ai_mb_ipc_discard(s_flash_socket)", flash)
         self.assertNotIn("FLASH_CONNECT_ATTEMPTS", flash)
-        self.assertIn("CP_FLASH_NOTIFY_RX_CHANNEL 0x4bu", compatibility)
+        self.assertRegex(compatibility, r"CP_FLASH_NOTIFY_RX_CHANNEL\s+0x4bu")
         self.assertIn("message->parameter1 = CP_FLASH_NOTIFY_ACK", compatibility)
 
     @unittest.skipUnless(shutil.which("cc"), "host C compiler required")

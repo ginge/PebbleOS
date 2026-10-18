@@ -1,21 +1,19 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <pbl/kernel/time.h>
-#include <pbl/mcu/cache.h>
 #include <pbl/logging/logging.h>
+#include <pbl/mcu/cache.h>
 PBL_LOG_MODULE_DEFINE(t5ai_mb_ipc, LOG_LEVEL_DEBUG);
-#include <pbl/soc/t5ai/kernel.h>
-#include <pbl/soc/t5ai/memory.h>
+#include <pbl/kernel/kernel.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/mailbox_channel.h>
 #include <pbl/soc/t5ai/mb_ipc.h>
+#include <pbl/soc/t5ai/memory.h>
 #include <pbl/soc/t5ai/rtc.h>
 #ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
 #include <pbl/kernel/sched.h>
 #include <pbl/soc/t5ai/io_trace.h>
 #endif
-
-#include <pbl/soc/t5ai/kernel.h>
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -75,13 +73,14 @@ struct T5AIMbIpcSocket {
   T5AIMailboxMessage tx_message __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
   T5AIMailboxMessage rx_message;
   status_t tx_status;
-  struct pbl_mutex *mutex;
-  struct pbl_sem * tx_ready;
-  struct pbl_sem * rx_ready;
+  struct pbl_mutex mutex;
+  struct pbl_sem tx_ready;
+  struct pbl_sem rx_ready;
 };
 
 static T5AIMbIpcSocket s_sockets[MB_IPC_SOCKET_COUNT];
 static bool s_initialized;
+static bool s_sync_initialized;
 
 static uint8_t prv_crc8(const void *data, size_t length) {
   const uint8_t *bytes = data;
@@ -96,8 +95,8 @@ static uint8_t prv_crc8(const void *data, size_t length) {
   return crc;
 }
 
-static uint32_t prv_address(uint8_t destination_cpu, uint8_t destination_port,
-                            uint8_t source_cpu, uint8_t source_port, uint8_t tag) {
+static uint32_t prv_address(uint8_t destination_cpu, uint8_t destination_port, uint8_t source_cpu,
+                            uint8_t source_port, uint8_t tag) {
   return (destination_port & MB_IPC_PORT_MASK) |
          ((uint32_t)(destination_cpu & MB_IPC_CPU_MASK) << MB_IPC_DEST_CPU_SHIFT) |
          ((uint32_t)(source_port & MB_IPC_PORT_MASK) << MB_IPC_SOURCE_PORT_SHIFT) |
@@ -142,8 +141,7 @@ static void prv_set_route_status(T5AIMailboxMessage *message, uint8_t route_stat
 static T5AIMbIpcSocket *prv_find_receiver(const T5AIMailboxMessage *message) {
   for (size_t i = 0; i < MB_IPC_SOCKET_COUNT; ++i) {
     T5AIMbIpcSocket *socket = &s_sockets[i];
-    if (socket->allocated && !socket->poisoned &&
-        prv_destination_cpu(message) == MB_IPC_CPU_AP &&
+    if (socket->allocated && !socket->poisoned && prv_destination_cpu(message) == MB_IPC_CPU_AP &&
         prv_source_cpu(message) == MB_IPC_CPU_CP &&
         prv_destination_port(message) == socket->client_port &&
         prv_source_port(message) == socket->server_port) {
@@ -180,7 +178,7 @@ static void prv_receive_callback(uint8_t channel, const T5AICPMailboxFrame *fram
     }
     socket->tx_status = prv_api_status(message) == 0u ? S_SUCCESS : E_ERROR;
     socket->tx_in_process = false;
-    (void)pbl_sem_give(socket->tx_ready);
+    (void)pbl_sem_give(&socket->tx_ready);
     prv_set_route_status(message, MB_IPC_ROUTE_OK);
     return;
   }
@@ -191,7 +189,7 @@ static void prv_receive_callback(uint8_t channel, const T5AICPMailboxFrame *fram
   }
   socket->rx_message = *message;
   socket->rx_in_process = true;
-  (void)pbl_sem_give(socket->rx_ready);
+  (void)pbl_sem_give(&socket->rx_ready);
   prv_set_route_status(message, MB_IPC_ROUTE_OK);
 }
 
@@ -199,14 +197,13 @@ status_t t5ai_mb_ipc_init(void) {
   if (s_initialized) {
     return S_SUCCESS;
   }
-  for (size_t i = 0; i < MB_IPC_SOCKET_COUNT; ++i) {
-    s_sockets[i].mutex = t5ai_mutex_create();
-    s_sockets[i].tx_ready = t5ai_sem_create(1, 0);
-    s_sockets[i].rx_ready = t5ai_sem_create(1, 0);
-    if (s_sockets[i].mutex == NULL || s_sockets[i].tx_ready == NULL ||
-        s_sockets[i].rx_ready == NULL) {
-      return E_OUT_OF_MEMORY;
+  if (!s_sync_initialized) {
+    for (size_t i = 0; i < MB_IPC_SOCKET_COUNT; ++i) {
+      pbl_mutex_init(&s_sockets[i].mutex);
+      pbl_sem_init(&s_sockets[i].tx_ready, 0, 1);
+      pbl_sem_init(&s_sockets[i].rx_ready, 0, 1);
     }
+    s_sync_initialized = true;
   }
   status_t status = t5ai_cp_mailbox_register(MB_IPC_RX_CHANNEL, prv_receive_callback, NULL);
   if (FAILED(status) && status != E_INVALID_OPERATION) {
@@ -217,7 +214,7 @@ status_t t5ai_mb_ipc_init(void) {
 }
 
 static status_t prv_wait_for_logical_response(T5AIMbIpcSocket *socket, uint32_t timeout_ms) {
-  if (pbl_sem_take(socket->tx_ready, PBL_TICKS(pbl_ms_to_ticks(timeout_ms))) != 0) {
+  if (pbl_sem_take(&socket->tx_ready, PBL_TICKS(pbl_ms_to_ticks(timeout_ms))) != 0) {
     socket->tx_in_process = false;
     socket->connected = false;
     socket->poisoned = true;
@@ -229,12 +226,11 @@ static status_t prv_wait_for_logical_response(T5AIMbIpcSocket *socket, uint32_t 
 
 static status_t prv_transmit(T5AIMbIpcSocket *socket, uint8_t command, uint8_t user_command,
                              const void *data, size_t length, uint32_t timeout_ms) {
-  if (socket->poisoned ||
-      (data != NULL && length != 0u &&
+  if (socket->poisoned || (data != NULL && length != 0u &&
        !t5ai_cp_mailbox_shared_range_valid((uintptr_t)data, length))) {
     return socket->poisoned ? E_INVALID_OPERATION : E_RANGE;
   }
-  while (pbl_sem_take(socket->tx_ready, PBL_TICKS(0u)) == 0) {
+  while (pbl_sem_take(&socket->tx_ready, PBL_TICKS(0u)) == 0) {
   }
   ++socket->tx_tag;
   socket->tx_command = command;
@@ -291,8 +287,7 @@ static status_t prv_transmit(T5AIMbIpcSocket *socket, uint8_t command, uint8_t u
   return status;
 }
 
-status_t t5ai_mb_ipc_open(uint8_t client_port, uint8_t server_port,
-                          T5AIMbIpcSocket **socket_out) {
+status_t t5ai_mb_ipc_open(uint8_t client_port, uint8_t server_port, T5AIMbIpcSocket **socket_out) {
   if (client_port < MB_IPC_CLIENT_PORT_MIN || client_port > MB_IPC_CLIENT_PORT_MAX ||
       server_port == 0u || server_port > MB_IPC_SERVER_PORT_MAX || socket_out == NULL) {
     return E_INVALID_ARGUMENT;
@@ -317,7 +312,7 @@ status_t t5ai_mb_ipc_open(uint8_t client_port, uint8_t server_port,
   if (socket == NULL) {
     return E_OUT_OF_RESOURCES;
   }
-  pbl_mutex_lock(socket->mutex, PBL_FOREVER);
+  pbl_mutex_lock(&socket->mutex, PBL_FOREVER);
   socket->allocated = true;
   socket->connected = false;
   socket->poisoned = false;
@@ -326,7 +321,7 @@ status_t t5ai_mb_ipc_open(uint8_t client_port, uint8_t server_port,
   socket->rx_in_process = false;
   status = prv_transmit(socket, MB_IPC_COMMAND_CONNECT, 0u, NULL, 0u, MB_IPC_CONNECT_TIMEOUT_MS);
   socket->connected = PASSED(status);
-  pbl_mutex_unlock(socket->mutex);
+  pbl_mutex_unlock(&socket->mutex);
   if (FAILED(status)) {
     return status;
   }
@@ -334,15 +329,15 @@ status_t t5ai_mb_ipc_open(uint8_t client_port, uint8_t server_port,
   return S_SUCCESS;
 }
 
-status_t t5ai_mb_ipc_send(T5AIMbIpcSocket *socket, uint8_t command, const void *data,
-                          size_t length, uint32_t timeout_ms) {
+status_t t5ai_mb_ipc_send(T5AIMbIpcSocket *socket, uint8_t command, const void *data, size_t length,
+                          uint32_t timeout_ms) {
   if (socket == NULL || data == NULL || length == 0u || length > MB_IPC_MAX_PAYLOAD_BYTES) {
     return E_INVALID_ARGUMENT;
   }
 #ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
   uint32_t lock_start = pbl_uptime_ticks();
 #endif
-  pbl_mutex_lock(socket->mutex, PBL_FOREVER);
+  pbl_mutex_lock(&socket->mutex, PBL_FOREVER);
 #ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
   if (socket->server_port == 1u && command == 5u) {
     t5ai_io_trace_sample(T5IO_WRITE_SOCKET_LOCK, pbl_uptime_ticks() - lock_start);
@@ -352,24 +347,22 @@ status_t t5ai_mb_ipc_send(T5AIMbIpcSocket *socket, uint8_t command, const void *
   if (socket->connected) {
     status = prv_transmit(socket, MB_IPC_COMMAND_SEND, command, data, length, timeout_ms);
   } else {
-    PBL_LOG_ERR("T5AI MIPC send on disconnected socket: user=%u port=%u>%u generation=%lu",
-                  command, socket->client_port, socket->server_port,
-                  (unsigned long)socket->generation);
+    PBL_LOG_ERR("T5AI MIPC send on disconnected socket: user=%u port=%u>%u generation=%lu", command,
+                socket->client_port, socket->server_port, (unsigned long)socket->generation);
     status = E_INVALID_OPERATION;
   }
-  pbl_mutex_unlock(socket->mutex);
+  pbl_mutex_unlock(&socket->mutex);
   return status;
 }
 
 static status_t prv_respond(T5AIMbIpcSocket *socket, T5AIMailboxMessage *request) {
   T5AIMailboxMessage response = *request;
   response.header = ((uint8_t)request->header) | MB_IPC_RESPONSE_FLAG;
-  response.parameter1 =
-      prv_address(MB_IPC_CPU_CP, socket->server_port, MB_IPC_CPU_AP, socket->client_port,
-                  prv_tag(request));
+  response.parameter1 = prv_address(MB_IPC_CPU_CP, socket->server_port, MB_IPC_CPU_AP,
+                                    socket->client_port, prv_tag(request));
   T5AIMailboxMessage ack;
-  status_t status = t5ai_mailbox_channel_send(MB_IPC_TX_CHANNEL, &response, &ack,
-                                              MB_IPC_PHYSICAL_TIMEOUT_MS);
+  status_t status =
+      t5ai_mailbox_channel_send(MB_IPC_TX_CHANNEL, &response, &ack, MB_IPC_PHYSICAL_TIMEOUT_MS);
   if (FAILED(status)) {
     PBL_LOG_ERR("T5AI MIPC response physical send failed: status=%ld user=%u tag=%u port=%u>%u",
                   (long)status, (unsigned)(request->parameter2 >> MB_IPC_USER_COMMAND_SHIFT),
@@ -384,8 +377,8 @@ static status_t prv_respond(T5AIMbIpcSocket *socket, T5AIMailboxMessage *request
   return status;
 }
 
-status_t t5ai_mb_ipc_receive(T5AIMbIpcSocket *socket, uint8_t *command, void *data,
-                             size_t length, uint32_t timeout_ms) {
+status_t t5ai_mb_ipc_receive(T5AIMbIpcSocket *socket, uint8_t *command, void *data, size_t length,
+                             uint32_t timeout_ms) {
   if (socket == NULL) {
     return E_INVALID_ARGUMENT;
   }
@@ -393,8 +386,8 @@ status_t t5ai_mb_ipc_receive(T5AIMbIpcSocket *socket, uint8_t *command, void *da
   uint32_t wait_start = pbl_uptime_ticks();
 #endif
   if (socket->rx_in_process) {
-    (void)pbl_sem_take(socket->rx_ready, PBL_TICKS(0u));
-  } else if (pbl_sem_take(socket->rx_ready, PBL_TICKS(pbl_ms_to_ticks(timeout_ms))) != 0) {
+    (void)pbl_sem_take(&socket->rx_ready, PBL_TICKS(0u));
+  } else if (pbl_sem_take(&socket->rx_ready, PBL_TICKS(pbl_ms_to_ticks(timeout_ms))) != 0) {
     /* The CP may still publish a completion which references the caller's
      * transaction storage. Do not permit that storage to be reused. */
     socket->connected = false;
@@ -407,9 +400,11 @@ status_t t5ai_mb_ipc_receive(T5AIMbIpcSocket *socket, uint8_t *command, void *da
   }
   T5AIMailboxMessage request = socket->rx_message;
 #ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
-  const bool trace_write = socket->server_port == 1u &&
-      (uint8_t)(request.parameter2 >> MB_IPC_USER_COMMAND_SHIFT) == 5u;
-  if (trace_write) { t5ai_io_trace_sample(T5IO_WRITE_WAIT, pbl_uptime_ticks() - wait_start); }
+  const bool trace_write =
+      socket->server_port == 1u && (uint8_t)(request.parameter2 >> MB_IPC_USER_COMMAND_SHIFT) == 5u;
+  if (trace_write) {
+    t5ai_io_trace_sample(T5IO_WRITE_WAIT, pbl_uptime_ticks() - wait_start);
+  }
 #endif
   const size_t received_length = (uint16_t)request.parameter2;
   status_t status = S_SUCCESS;
@@ -447,7 +442,9 @@ status_t t5ai_mb_ipc_receive(T5AIMbIpcSocket *socket, uint8_t *command, void *da
     status = ack_status;
   }
 #ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
-  if (trace_write) { t5ai_io_trace_sample(T5IO_WRITE_ACK, pbl_uptime_ticks() - ack_start); }
+  if (trace_write) {
+    t5ai_io_trace_sample(T5IO_WRITE_ACK, pbl_uptime_ticks() - ack_start);
+  }
 #endif
   socket->rx_in_process = false;
   return status;
@@ -466,7 +463,7 @@ void t5ai_mb_ipc_discard(T5AIMbIpcSocket *socket) {
     (void)prv_respond(socket, &request);
     socket->rx_in_process = false;
   }
-  while (pbl_sem_take(socket->rx_ready, PBL_TICKS(0u)) == 0) {
+  while (pbl_sem_take(&socket->rx_ready, PBL_TICKS(0u)) == 0) {
   }
 }
 

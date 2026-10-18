@@ -128,7 +128,7 @@ class T5AII2CRecoveryTest(unittest.TestCase):
 
                 "pbl/drivers/i2c/t5ai.h",
 
-                "pbl/soc/t5ai/kernel.h",
+                "pbl/kernel/kernel.h",
                 "pbl/soc/t5ai/delay.h",
                 "semphr.h",
                 "system/passert.h",

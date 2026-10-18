@@ -8,7 +8,7 @@ PBL_LOG_MODULE_DEFINE(hci_t5ai, LOG_LEVEL_DEBUG);
 
 #include <kernel/pebble_tasks.h>
 
-#include <pbl/soc/t5ai/kernel.h>
+#include <pbl/kernel/kernel.h>
 
 #include <stdbool.h>
 #include <stddef.h>

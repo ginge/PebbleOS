@@ -1,22 +1,21 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/soc/t5ai/interrupt_profile.h>
-#include <pbl/soc/t5ai/reboot_trace.h>
-#include <pbl/soc/t5ai/rtc.h>
-#include <pbl/soc/t5ai/memory.h>
-
-#include <pbl/mcu/cache.h>
-#include <pbl/soc/t5ai/kernel.h>
-#include <pbl/soc/t5ai/mailbox_channel.h>
-#include <pbl/soc/t5ai/reset.h>
-
-#include <pbl/soc/t5ai/kernel.h>
 #include "system/reboot_reason.h"
-#include <cmsis_core.h>
 
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+
+#include <pbl/kernel/kernel.h>
+#include <pbl/mcu/cache.h>
+#include <pbl/soc/t5ai/interrupt_profile.h>
+#include <pbl/soc/t5ai/mailbox_channel.h>
+#include <pbl/soc/t5ai/memory.h>
+#include <pbl/soc/t5ai/reboot_trace.h>
+#include <pbl/soc/t5ai/reset.h>
+#include <pbl/soc/t5ai/rtc.h>
+
+#include <cmsis_core.h>
 
 // Physical mailbox header: command[7:0], status[11:8], control[15:12],
 // sequence[23:16], logical channel[31:24]. Values are pinned vendor ABI.
@@ -50,9 +49,8 @@
 #define MAILBOX_IRQ ((IRQn_Type)63)
 
 /* Tuya's full AP mailbox worker reserves 2048 bytes. uint32_t is 32-bit on
- * T5AI, so 512 words preserves the vendor-qualified capacity without wasting
- * a further 1 KiB of the scarce internal kernel heap. */
-#define MAILBOX_TASK_STACK_WORDS 512u
+ * T5AI. Keep the same capacity in an aligned, caller-owned SRAM stack. */
+#define MAILBOX_TASK_STACK_SIZE       2048u
 #define MAILBOX_TASK_PRIORITY (CONFIG_KERNEL_NUM_PRIORITIES - 1u)
 #define MAILBOX_BOOT_POLL_MS 100u
 #define MAILBOX_BOOTSTRAP_DRAIN_LIMIT 8u
@@ -101,8 +99,9 @@ static RxChannel s_rx[T5AI_MAILBOX_CHANNEL_COUNT];
  * by unrelated HCI and flash channels before the CP dereferences it. */
 static MailboxOwnedSlot s_ack_slots[T5AI_MAILBOX_CHANNEL_COUNT];
 static T5AIMailboxMessage s_reset_slot __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
-static struct pbl_sem * s_wake;
-static struct pbl_thread * s_task;
+static PBL_SEM_DEFINE(s_wake, 0, 1);
+static struct pbl_thread s_task;
+PBL_THREAD_STACK_DEFINE(s_task_stack, MAILBOX_TASK_STACK_SIZE);
 static uint8_t s_sequence;
 static uint8_t s_next_tx_channel;
 static uint16_t s_pending_ack_mask;
@@ -111,8 +110,7 @@ static bool s_started;
 static bool s_faulted;
 static bool s_reset_sent;
 
-_Static_assert(sizeof(T5AIMailboxMessage) == T5AI_MAILBOX_FRAME_SIZE,
-               "T5AI mailbox ABI changed");
+_Static_assert(sizeof(T5AIMailboxMessage) == T5AI_MAILBOX_FRAME_SIZE, "T5AI mailbox ABI changed");
 
 static void prv_send_reset(void);
 static uint32_t prv_bootstrap_ticks(uint32_t milliseconds);
@@ -141,8 +139,7 @@ static int prv_expired_channel(void) {
   for (uint8_t index = 0u; index < T5AI_MAILBOX_CHANNEL_COUNT; ++index) {
     TxChannel *tx = &s_tx[index];
     if (tx->state == TxState_Active &&
-        (uint32_t)(now - tx->active_start) >=
-            prv_bootstrap_ticks(MAILBOX_ACTIVE_TIMEOUT_MS)) {
+        (uint32_t)(now - tx->active_start) >= prv_bootstrap_ticks(MAILBOX_ACTIVE_TIMEOUT_MS)) {
       return index;
     }
   }
@@ -269,8 +266,7 @@ static void prv_process_command(T5AIMailboxMessage *message) {
 
 static bool prv_drain_rx(void) {
   for (uint8_t drained = 0u;
-       drained < MAILBOX_RUNTIME_DRAIN_LIMIT &&
-       (MBOX_CH1_CTRL & MBOX_FIFO_NOT_EMPTY) != 0u;
+       drained < MAILBOX_RUNTIME_DRAIN_LIMIT && (MBOX_CH1_CTRL & MBOX_FIFO_NOT_EMPTY) != 0u;
        ++drained) {
     T5AIMailboxMessage message;
     if (!prv_snapshot_rx(&message)) {
@@ -334,10 +330,9 @@ static status_t prv_schedule_tx(void) {
 static void prv_mailbox_task(void *context) {
   (void)context;
   while (true) {
-    const pbl_tick_t wait = !prv_any_active()
-                                ? PBL_TICK_FOREVER
-                                : prv_milliseconds_to_ticks(MAILBOX_FAULT_POLL_MS);
-    (void)pbl_sem_take(s_wake, PBL_TICKS(wait));
+    const pbl_tick_t wait =
+        !prv_any_active() ? PBL_TICK_FOREVER : prv_milliseconds_to_ticks(MAILBOX_FAULT_POLL_MS);
+    (void)pbl_sem_take(&s_wake, PBL_TICKS(wait));
     const bool rx_pending = prv_drain_rx();
     const int expired_channel = rx_pending ? -1 : prv_expired_channel();
     if (expired_channel >= 0) {
@@ -360,13 +355,13 @@ static void prv_mailbox_task(void *context) {
        * not starve the tasks whose timeouts make mailbox failures recoverable,
        * even if CP traffic never leaves the receive FIFO empty. */
       pbl_thread_sleep(PBL_MSEC(MAILBOX_BUSY_RETRY_MS));
-      (void)pbl_sem_give(s_wake);
+      (void)pbl_sem_give(&s_wake);
       continue;
     }
     /* Close the IRQ-mask race if a frame arrived between drain and enable. */
     if ((MBOX_CH1_CTRL & MBOX_FIFO_NOT_EMPTY) != 0u) {
       MBOX_CH1_CTRL &= ~MBOX_INTERRUPT_ENABLE;
-      (void)pbl_sem_give(s_wake);
+      (void)pbl_sem_give(&s_wake);
     }
   }
 }
@@ -375,8 +370,8 @@ void MAILBOX_IRQHandler(void) {
   const uint32_t irq_start = t5ai_interrupt_profile_irq_enter();
   MBOX_CH1_CTRL &= ~MBOX_INTERRUPT_ENABLE;
   bool task_woken = false;
-  if (s_wake != NULL) {
-    (void)pbl_sem_give(s_wake);
+  if (s_initialized) {
+    (void)pbl_sem_give(&s_wake);
   }
   (void)(task_woken);
   t5ai_interrupt_profile_irq_exit(2, irq_start);
@@ -442,15 +437,18 @@ status_t t5ai_mailbox_channel_init(void) {
     pbl_sem_init(&s_tx[i].completion, 0, 1);
     pbl_mutex_init(&s_tx[i].mutex);
   }
-  s_wake = t5ai_sem_create(1, 0);
-  if (s_wake == NULL) {
-    return E_OUT_OF_MEMORY;
-  }
   /* The mailbox must run before the CP powers PSRAM for the compositor. Keep
    * this bootstrap task's stack in internal SRAM; touching a board-cache stack
    * here would stall while the native kernel builds the initial stack frame. */
-  if (t5ai_thread_create(prv_mailbox_task, "T5AI mailbox", MAILBOX_TASK_STACK_WORDS, NULL,
-                  MAILBOX_TASK_PRIORITY, &s_task, NULL) != 0) {
+  const struct pbl_thread_attr attr = {
+    .name = "T5AI mailbox",
+    .entry = prv_mailbox_task,
+    .prio = MAILBOX_TASK_PRIORITY,
+    .privileged = true,
+    .stack = s_task_stack,
+    .stack_size = sizeof(s_task_stack),
+  };
+  if (pbl_thread_create(&s_task, &attr) != 0) {
     return E_OUT_OF_MEMORY;
   }
   s_initialized = true;
@@ -470,7 +468,7 @@ status_t t5ai_mailbox_channel_start(void) {
   NVIC_SetPriority(MAILBOX_IRQ, (PBL_IRQ_PRIO_MAX_SYSCALL >> (8u - __NVIC_PRIO_BITS)));
   NVIC_EnableIRQ(MAILBOX_IRQ);
   MBOX_CH1_CTRL |= MBOX_INTERRUPT_ENABLE;
-  (void)pbl_sem_give(s_wake);
+  (void)pbl_sem_give(&s_wake);
   return S_SUCCESS;
 }
 
@@ -518,7 +516,7 @@ status_t t5ai_mailbox_channel_send_async(uint8_t channel, const T5AIMailboxMessa
   tx->synchronous = false;
   tx->state = TxState_Pending;
   pbl_irq_unlock();
-  (void)pbl_sem_give(s_wake);
+  (void)pbl_sem_give(&s_wake);
   return S_SUCCESS;
 }
 
@@ -544,11 +542,10 @@ status_t t5ai_mailbox_channel_send(uint8_t channel, const T5AIMailboxMessage *me
   tx->context = NULL;
   tx->state = TxState_Pending;
   pbl_irq_unlock();
-  (void)pbl_sem_give(s_wake);
+  (void)pbl_sem_give(&s_wake);
 
-  const bool taken =
-      pbl_sem_take(&tx->completion, PBL_TICKS(timeout_ms == UINT32_MAX
-                                        ? PBL_TICK_FOREVER
+  const bool taken = pbl_sem_take(
+      &tx->completion, PBL_TICKS(timeout_ms == UINT32_MAX ? PBL_TICK_FOREVER
                                         : prv_milliseconds_to_ticks(timeout_ms)));
   if (taken != 0) {
     /* Returning would let the caller reuse memory which may still be visible
@@ -573,8 +570,7 @@ bool t5ai_mailbox_channel_faulted(void) {
   return s_faulted;
 }
 
-status_t t5ai_mailbox_channel_bootstrap_send(uint8_t channel,
-                                             const T5AIMailboxMessage *message,
+status_t t5ai_mailbox_channel_bootstrap_send(uint8_t channel, const T5AIMailboxMessage *message,
                                              T5AIMailboxMessage *ack, uint32_t timeout_ms) {
   uint8_t index;
   if (!prv_tx_channel(channel, &index) || message == NULL) {

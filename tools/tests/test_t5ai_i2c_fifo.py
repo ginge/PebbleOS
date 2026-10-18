@@ -136,7 +136,7 @@ class T5AII2CFifoTest(unittest.TestCase):
 
                     "pbl/drivers/i2c/t5ai.h",
 
-                    "pbl/soc/t5ai/kernel.h",
+                    "pbl/kernel/kernel.h",
                     "pbl/soc/t5ai/delay.h",
                     "system/passert.h",
                     "cmsis_core.h",
