@@ -15,8 +15,8 @@ bundles, bulk erase and unsupported raw-flash operations remain disabled.
 
 ## Latest implementation status — 2026-10-18
 
-Source baseline: `tuya` at `ab3616d5e`, with an uncommitted normal Bluetooth
-persistence selection in the working tree. The port merged newer upstream
+Source baseline: `2e2dcc732`, with heartbeat worker consolidation in the working
+tree. The port merged newer upstream
 `main` in `9b6537971`; `a53522389` adapts GPIO, I2C, RTC, battery, touch and
 QMI8658 integration to the current driver APIs. It also corrects the Armv8-M
 MPU restore selection and bounds native unregistered-task logging state.
@@ -30,7 +30,18 @@ one ARM SDK/QEMU fault-entry test skipped. The Unhygienix firmware built and
 linked, with existing LTO warnings. These are recorded checks for that candidate,
 not a fresh broad run against the later persistence experiment.
 
-The latest installed AP image is the native T5AI kernel-object candidate, build
+The latest installed AP image is the heartbeat-consolidation candidate, build ID
+`c42b19caafdddfeef102c7d1eec3182da1fc0fcb`, flashed AP-only on 2026-10-18.
+The booted ID matches the frozen ELF. Stored bond keys registered, the phone
+protocol session opened and discovery completed in 4,213 ms. The operator confirms
+connection, the selected watchface and working touch/buttons. Filesystem,
+pindb-mutex, dropped-event, battery ADC and AppInbox warnings/errors were retained.
+No later boot or task-watchdog expiry was decoded in the bounded capture; this
+does not close the earlier watchdog finding or qualify heartbeat timing/stack
+headroom. Capture is stopped. Exact images, raw trace and limits:
+`/home/baz/Documents/ChatGPT/pebble/artifacts/heartbeat-mailbox-20261018/flash/report.txt`.
+
+The preceding installed AP image was the native T5AI kernel-object candidate, build
 ID `e570b7959ef3ff01ffe5b51e68c35460478146fc`, flashed AP-only on 2026-10-18.
 Its booted ID matches the frozen ELF. The watch restored encrypted bonding,
 opened the phone protocol session and completed discovery in 4,275 ms. The
@@ -424,6 +435,44 @@ A KernelBG feed-delay warning and subsequent recovery remain documented in the
 latest flash report above. Repeated startup/reconnect, battery/microphone behavior
 and peak heap still need qualification. Exact candidate/build ID and test limits:
 `/home/baz/Documents/ChatGPT/pebble/artifacts/native-kernel-objects-20261018/validation.txt`.
+
+## CP heartbeat worker consolidation — 2026-10-18
+
+The private CP heartbeat thread and its 1,024-byte internal stack are removed.
+The existing mailbox worker services the heartbeat deadline before each wait,
+including busy RX/ACK/reset/TX retry iterations. Runtime initialization explicitly
+wakes the owner; its wait is bounded by the heartbeat deadline and the existing
+physical-transaction timeout polling interval. The first heartbeat is immediately
+eligible after runtime readiness. Late scheduling skips missed intervals rather
+than issuing catch-up bursts.
+
+Heartbeat submission and physical/logical completion now share the mailbox task.
+The wire format, one-second interval, asynchronous channel-owned message copy,
+pending-response parameter lifetime and fault handling are preserved. There is
+no timer-service dependency or added blocking operation. Touch, battery, HCI and
+the mailbox worker's stack size and priority are unchanged; common kernel code
+is unchanged.
+
+The packaged candidate is `c42b19caafdddfeef102c7d1eec3182da1fc0fcb`.
+Compared with the saved native-object image, static RAM falls by 1,152 B to
+104,896 B and linker heap capacity grows from 20,928 B to 22,080 B. Flash remains
+1,596,880 B. This includes object/state/alignment changes as well as the stack;
+boot/peak heap and the combined mailbox stack high-water remain unmeasured.
+
+Host validation: 284 tooling entries pass with two skips, including a new harness
+using the actual mailbox loop, heartbeat functions and async submission. It covers
+idle activation, busy RX/ACK/reset/TX paths, physical polling, pending logical
+responses, channel-busy rejection, fault suppression, late execution and 32-bit
+tick-boundary crossing. These are host models, not physical scheduler or deadline
+measurements. Firmware build and measured RAM accounting are recorded at
+`/home/baz/Documents/ChatGPT/pebble/artifacts/heartbeat-mailbox-20261018/validation.txt`.
+
+This candidate is flashed AP-only with its boot ID verified. The operator confirms
+connection, the selected face and controls. Phone protocol reconnection/discovery
+passes in the bounded startup trace; warnings/errors remain recorded in the latest
+flash report above. Verify cold power-cycle behavior, encryption changes, heartbeat
+gaps during traffic/UI load, mailbox stack high-water and sustained watchdog
+behavior. The earlier KernelBG feed-delay finding remains open.
 
 ## PFS system resources — 2026-10-18
 

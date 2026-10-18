@@ -24,6 +24,8 @@ typedef void (*T5AIMailboxTransmitHandler)(const T5AIMailboxMessage *ack, status
  * retire a CP transaction which survived an AP reset. */
 status_t t5ai_mailbox_channel_init(void);
 status_t t5ai_mailbox_channel_start(void);
+/* Recheck owner work after CP runtime initialization. Does not wait. */
+void t5ai_mailbox_channel_wake(void);
 
 /* A receive handler is deliberately bounded: it may copy state and edit the
  * returned ACK, but must not wait or perform service work. */

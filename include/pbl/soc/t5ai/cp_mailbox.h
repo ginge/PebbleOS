@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <pbl/kernel/types.h>
 #include <pbl/soc/t5ai/mailbox_channel.h>
 
 typedef struct {
@@ -46,7 +47,8 @@ status_t t5ai_cp_mailbox_receive(uint8_t logical_channel, T5AICPMailboxFrame *fr
 status_t t5ai_cp_mailbox_try_receive(uint8_t logical_channel, T5AICPMailboxFrame *frame);
 void t5ai_cp_mailbox_discard_pending(void);
 void t5ai_cp_mailbox_announce_power_up(void);
-void t5ai_cp_mailbox_heartbeat(void);
+/* Mailbox-task only: service a due heartbeat and return ticks until the next one. */
+pbl_tick_t t5ai_cp_mailbox_heartbeat_poll(void);
 status_t t5ai_cp_mailbox_enable_uart0_clock(void);
 status_t t5ai_cp_mailbox_enable_qspi0(void);
 status_t t5ai_cp_mailbox_enable_psram(void);

@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 """Check retry ownership and persistent synchronization in local T5AI drivers."""
-from pathlib import Path
 import re
 import unittest
+from pathlib import Path
 
 from tools.tests.test_t5ai_timing import run_c
 
@@ -71,52 +71,39 @@ static void pbl_mutex_unlock(struct pbl_mutex *m) {assert(m->locked);m->locked=0
 
 
 class T5AINativeObjectsTest(unittest.TestCase):
-    def test_cp_runtime_retries_preserve_pm_queue_and_thread(self):
+    def test_cp_runtime_activation_preserves_pm_queue_without_worker(self):
         source = (ROOT / "drivers/t5ai/cp_mailbox.c").read_text()
         declarations = source[source.index("static ReceiveQueue s_pm_queue"):
                               source.index("static T5AIMailboxMessage s_control_message")]
         harness = NATIVE + r"""
-#define CONFIG_KERNEL_NUM_PRIORITIES 5
-#define CP_HEARTBEAT_TASK_PRIORITY 3
-#define CP_HEARTBEAT_TASK_STACK_SIZE 1024
 #define CP_QUEUE_DEPTH 4
 #define T5AI_MAILBOX_CHANNEL_COUNT 16
 #define T5AI_MAILBOX_RX_CHANNEL_BASE 64
-#define prv_heartbeat_task expected_entry
 typedef struct {struct pbl_sem ready;} ReceiveQueue;
 """ + declarations + r"""
-static struct pbl_thread s_heartbeat_task;
-PBL_THREAD_STACK_DEFINE(s_heartbeat_stack,CP_HEARTBEAT_TASK_STACK_SIZE);
-static bool s_runtime_initialized,s_heartbeat_started;
-static unsigned attempts,registers,starts;
-static int stage;
+static bool s_runtime_initialized,fail_init=true;
+static unsigned attempts,registers,starts,wakes;
 static void prv_receive(void *m,void *ctx){(void)m;(void)ctx;}
-static int t5ai_mailbox_channel_init(void){++attempts;return stage==1?E_ERROR:0;}
+static int t5ai_mailbox_channel_init(void){++attempts;return fail_init?E_ERROR:0;}
 static int t5ai_mailbox_channel_register(unsigned channel,void (*f)(void *,void *),void *ctx){
- assert(channel>=64 && channel<80 && f==prv_receive && (uintptr_t)ctx==channel);
- ++registers;return stage==2 && channel==66?E_ERROR:0;
+ assert(channel==64+registers && f==prv_receive && (uintptr_t)ctx==channel);
+ ++registers;return 0;
 }
-static int t5ai_mailbox_channel_start(void){++starts;return stage==3?E_ERROR:0;}
-""" + body(source, "prv_ensure_heartbeat_task") + body(source, "prv_ensure_runtime") + r"""
+static int t5ai_mailbox_channel_start(void){++starts;return 0;}
+static void t5ai_mailbox_channel_wake(void){assert(s_runtime_initialized);++wakes;}
+""" + body(source, "prv_ensure_runtime") + r"""
 int main(void){
- (void)pbl_mutex_lock;(void)pbl_mutex_unlock;
+ (void)pbl_thread_create;(void)pbl_mutex_lock;(void)pbl_mutex_unlock;
  (void)s_control_mutex;(void)s_pm_mutex;(void)s_log_mutex;
- expected_stack_size=1024;expected_prio=3;
- assert(s_pm_queue.ready.limit==4 && !s_pm_queue.ready.count);
  s_pm_queue.ready.count=1;
- for(stage=1;stage<=3;++stage){
-  assert(prv_ensure_runtime()==E_ERROR && !s_runtime_initialized && !s_heartbeat_started);
-  assert(s_pm_queue.ready.count==1 && !creates);
- }
- stage=0;fail_create=true;
- assert(prv_ensure_runtime()==E_OUT_OF_MEMORY && s_runtime_initialized && !s_heartbeat_started);
- assert(creates==1 && s_pm_queue.ready.count==1);
- unsigned old_registers=registers,old_attempts=attempts,old_starts=starts;
- fail_create=false;
- assert(prv_ensure_runtime()==0 && s_heartbeat_started && creates==2);
- assert(prv_ensure_runtime()==0 && creates==2);
- assert(registers==old_registers && attempts==old_attempts && starts==old_starts);
- assert(s_pm_queue.ready.count==1 && !sem_inits && !mutex_inits);
+ assert(prv_ensure_runtime()==E_ERROR && !s_runtime_initialized);
+ assert(s_pm_queue.ready.count==1 && !registers && !wakes);
+ fail_init=false;
+ assert(prv_ensure_runtime()==0 && s_runtime_initialized);
+ assert(attempts==2 && registers==16 && starts==1 && wakes==1);
+ assert(prv_ensure_runtime()==0);
+ assert(attempts==2 && registers==16 && starts==1 && wakes==1);
+ assert(s_pm_queue.ready.count==1 && !sem_inits && !mutex_inits && !creates);
  return 0;
 }
 """

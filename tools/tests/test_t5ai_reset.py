@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -158,38 +158,39 @@ int main(void) {
 
 HEARTBEAT_HARNESS = r"""
 #include <assert.h>
+#include <stdbool.h>
 #include <stdint.h>
-#include <setjmp.h>
 typedef uint32_t pbl_tick_t;
-typedef struct { uint32_t ticks; } pbl_timeout_t;
 #define CP_HEARTBEAT_PERIOD_MS 1000u
-#define PBL_TICKS(t) ((pbl_timeout_t){.ticks=(t)})
-#define PBL_MSEC(t) PBL_TICKS(t)
+#define PBL_TICK_FOREVER UINT32_MAX
 #define pbl_ms_to_ticks(t) (t)
-static uint32_t now, delay, calls, sleeps;
-static jmp_buf finished;
-static inline uint32_t pbl_uptime_ticks(void) { return now; }
-static void t5ai_cp_mailbox_heartbeat(void) { ++calls; now += delay; }
-static void pbl_thread_sleep(pbl_timeout_t timeout) {
-  assert(timeout.ticks > 0 && timeout.ticks <= CP_HEARTBEAT_PERIOD_MS);
-  now += timeout.ticks + delay; // Late wakeups as well as delayed sends.
-  if (++sleeps == 5) longjmp(finished, 1);
-}
+static uint64_t now,s_next_heartbeat_ticks;
+static bool s_runtime_initialized;
+static unsigned calls,delay;
+static uint64_t pbl_uptime_ticks(void) { return now; }
+static void prv_heartbeat(void) { ++calls; now += delay; }
 FUNCTION
 int main(void) {
-  const uint32_t delays[] = {0, 999, 1000, 1001, 6300};
-  const uint32_t starts[] = {0, UINT32_MAX - 500};
+  const unsigned delays[] = {0, 999, 1000, 1001, 6300};
+  const uint64_t starts[] = {0, UINT32_MAX - 500ull, (1ull<<32) + 123};
   for (unsigned i = 0; i < sizeof(delays)/sizeof(delays[0]); ++i) {
     for (unsigned j = 0; j < sizeof(starts)/sizeof(starts[0]); ++j) {
-      now = starts[j]; delay = delays[i]; calls = sleeps = 0;
-      if (!setjmp(finished)) prv_heartbeat_task(0);
-      assert(calls == 5 && sleeps == 5);
+      now = starts[j]; delay = delays[i]; calls = 0;
+      s_next_heartbeat_ticks=0;s_runtime_initialized=false;
+      assert(t5ai_cp_mailbox_heartbeat_poll()==PBL_TICK_FOREVER && !calls);
+      s_runtime_initialized=true;
+      for(unsigned n=0;n<5;++n){
+        assert(t5ai_cp_mailbox_heartbeat_poll()==1000 && calls==n+1);
+        assert(t5ai_cp_mailbox_heartbeat_poll()==1000 && calls==n+1);
+        now+=999;
+        assert(t5ai_cp_mailbox_heartbeat_poll()==1 && calls==n+1);
+        now+=1+delay;
+      }
     }
   }
   return 0;
 }
 """
-
 
 class T5AIResetTest(unittest.TestCase):
     def compile_run(self, source, headers=None, flags=()):
@@ -230,7 +231,7 @@ class T5AIResetTest(unittest.TestCase):
 
     def test_heartbeat_late_execution_and_tick_wrap(self):
         source = (ROOT / "drivers/t5ai/cp_mailbox.c").read_text()
-        start = source.index("static void prv_heartbeat_task(void *context) {")
+        start = source.index("pbl_tick_t t5ai_cp_mailbox_heartbeat_poll(void) {")
         end = source.index("\nstatic status_t prv_pm_request", start)
         self.compile_run(HEARTBEAT_HARNESS.replace("FUNCTION", source[start:end]))
 

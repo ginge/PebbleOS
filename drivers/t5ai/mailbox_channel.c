@@ -8,6 +8,7 @@
 
 #include <pbl/kernel/kernel.h>
 #include <pbl/mcu/cache.h>
+#include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/interrupt_profile.h>
 #include <pbl/soc/t5ai/mailbox_channel.h>
 #include <pbl/soc/t5ai/memory.h>
@@ -330,8 +331,10 @@ static status_t prv_schedule_tx(void) {
 static void prv_mailbox_task(void *context) {
   (void)context;
   while (true) {
-    const pbl_tick_t wait =
+    const pbl_tick_t heartbeat_wait = t5ai_cp_mailbox_heartbeat_poll();
+    const pbl_tick_t fault_wait =
         !prv_any_active() ? PBL_TICK_FOREVER : prv_milliseconds_to_ticks(MAILBOX_FAULT_POLL_MS);
+    const pbl_tick_t wait = heartbeat_wait < fault_wait ? heartbeat_wait : fault_wait;
     (void)pbl_sem_take(&s_wake, PBL_TICKS(wait));
     const bool rx_pending = prv_drain_rx();
     const int expired_channel = rx_pending ? -1 : prv_expired_channel();
@@ -453,6 +456,10 @@ status_t t5ai_mailbox_channel_init(void) {
   }
   s_initialized = true;
   return S_SUCCESS;
+}
+
+void t5ai_mailbox_channel_wake(void) {
+  (void)pbl_sem_give(&s_wake);
 }
 
 status_t t5ai_mailbox_channel_start(void) {

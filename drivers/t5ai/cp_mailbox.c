@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include <pbl/kernel/kernel.h>
+#include <pbl/kernel/time.h>
 #include <pbl/mcu/cache.h>
 #include <pbl/mcu/interrupts.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
@@ -48,8 +49,6 @@
 #define CP_FLASH_NOTIFY_ACK 2u
 #define CP_RUNTIME_TIMEOUT_MS 5000u
 #define CP_HEARTBEAT_PERIOD_MS 1000u
-#define CP_HEARTBEAT_TASK_STACK_SIZE 1024u
-#define CP_HEARTBEAT_TASK_PRIORITY (CONFIG_KERNEL_NUM_PRIORITIES - 2u)
 #define CP_PM_TIMEOUT_MS 100u
 #define CP_STARTUP_TIMEOUT_MS 2000u
 #define CP_QUEUE_DEPTH 4u
@@ -81,33 +80,10 @@ static uint8_t s_log_buffer[CP_LOG_BUFFER_SIZE] __attribute__((aligned(T5AI_SHAR
 static uint32_t s_heartbeat_parameter __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
 static uint8_t s_control_sequence;
 static bool s_heartbeat_in_flight;
-static struct pbl_thread s_heartbeat_task;
-PBL_THREAD_STACK_DEFINE(s_heartbeat_stack, CP_HEARTBEAT_TASK_STACK_SIZE);
-static bool s_heartbeat_started;
+static uint64_t s_next_heartbeat_ticks;
 static bool s_runtime_initialized;
 static bool s_pm_faulted;
 static bool s_log_faulted;
-
-static void prv_heartbeat_task(void *context);
-
-static status_t prv_ensure_heartbeat_task(void) {
-  if (s_heartbeat_started) {
-    return S_SUCCESS;
-  }
-  const struct pbl_thread_attr attr = {
-    .name = "CPHeartbeat",
-    .entry = prv_heartbeat_task,
-    .prio = CP_HEARTBEAT_TASK_PRIORITY,
-    .privileged = true,
-    .stack = s_heartbeat_stack,
-    .stack_size = sizeof(s_heartbeat_stack),
-  };
-  if (pbl_thread_create(&s_heartbeat_task, &attr) != 0) {
-    return E_OUT_OF_MEMORY;
-  }
-  s_heartbeat_started = true;
-  return S_SUCCESS;
-}
 
 bool t5ai_cp_mailbox_shared_range_valid(uintptr_t address, size_t length) {
   if (length == 0u || address > UINTPTR_MAX - length) {
@@ -208,8 +184,8 @@ static void prv_transmit_complete(const T5AIMailboxMessage *ack, status_t status
 }
 
 static status_t prv_ensure_runtime(void) {
-  if (s_runtime_initialized) {
-    return prv_ensure_heartbeat_task();
+  if (__atomic_load_n(&s_runtime_initialized, __ATOMIC_ACQUIRE)) {
+    return S_SUCCESS;
   }
   status_t status = t5ai_mailbox_channel_init();
   if (FAILED(status)) {
@@ -226,8 +202,9 @@ static status_t prv_ensure_runtime(void) {
   if (FAILED(status)) {
     return status;
   }
-  s_runtime_initialized = true;
-  return prv_ensure_heartbeat_task();
+  __atomic_store_n(&s_runtime_initialized, true, __ATOMIC_RELEASE);
+  t5ai_mailbox_channel_wake();
+  return S_SUCCESS;
 }
 
 status_t t5ai_cp_mailbox_lock(void) {
@@ -240,7 +217,7 @@ status_t t5ai_cp_mailbox_lock(void) {
 }
 
 void t5ai_cp_mailbox_unlock(void) {
-  if (s_runtime_initialized) {
+  if (__atomic_load_n(&s_runtime_initialized, __ATOMIC_ACQUIRE)) {
     pbl_mutex_unlock(&s_control_mutex);
   }
 }
@@ -346,7 +323,7 @@ status_t t5ai_cp_mailbox_try_receive(uint8_t logical_channel, T5AICPMailboxFrame
 }
 
 void t5ai_cp_mailbox_discard_pending(void) {
-  if (!s_runtime_initialized) {
+  if (!__atomic_load_n(&s_runtime_initialized, __ATOMIC_ACQUIRE)) {
     return;
   }
   pbl_irq_lock();
@@ -376,11 +353,13 @@ static void prv_heartbeat_complete(const T5AIMailboxMessage *ack, status_t statu
   }
 }
 
-void t5ai_cp_mailbox_heartbeat(void) {
+static void prv_heartbeat(void) {
   t5ai_reboot_trace_event(T5RebootTrace_HeartbeatAttempt, 0u);
-  if (!s_runtime_initialized || s_heartbeat_in_flight || t5ai_mailbox_channel_faulted()) {
+  if (!__atomic_load_n(&s_runtime_initialized, __ATOMIC_ACQUIRE) || s_heartbeat_in_flight ||
+      t5ai_mailbox_channel_faulted()) {
     t5ai_reboot_trace_event(T5RebootTrace_HeartbeatSkip,
-                            (!s_runtime_initialized ? 1u : 0u) | (s_heartbeat_in_flight ? 2u : 0u) |
+                            (!__atomic_load_n(&s_runtime_initialized, __ATOMIC_ACQUIRE) ? 1u : 0u) |
+                                (s_heartbeat_in_flight ? 2u : 0u) |
                            (t5ai_mailbox_channel_faulted() ? 4u : 0u));
     return;
   }
@@ -403,13 +382,19 @@ void t5ai_cp_mailbox_heartbeat(void) {
   }
 }
 
-static void prv_heartbeat_task(void *context) {
-  (void)context;
-  for (;;) {
-    t5ai_cp_mailbox_heartbeat();
-    // A missed absolute deadline must not underflow into an unbounded sleep.
-    pbl_thread_sleep(PBL_MSEC(CP_HEARTBEAT_PERIOD_MS));
+pbl_tick_t t5ai_cp_mailbox_heartbeat_poll(void) {
+  if (!__atomic_load_n(&s_runtime_initialized, __ATOMIC_ACQUIRE)) {
+    return PBL_TICK_FOREVER;
   }
+  const uint64_t now = pbl_uptime_ticks();
+  if (now < s_next_heartbeat_ticks) {
+    return (pbl_tick_t)(s_next_heartbeat_ticks - now);
+  }
+  prv_heartbeat();
+  const pbl_tick_t period = pbl_ms_to_ticks(CP_HEARTBEAT_PERIOD_MS);
+  // Late execution skips missed periods instead of bursting or underflowing.
+  s_next_heartbeat_ticks = pbl_uptime_ticks() + period;
+  return period;
 }
 
 static status_t prv_pm_request(uint8_t command, uint32_t parameter1, uint32_t parameter2) {

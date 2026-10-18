@@ -128,8 +128,8 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertRegex(mailbox, r"CP_CONTROL_CHANNEL\s+0x10u")
         self.assertRegex(mailbox, r"CP_POWER_UP_COMMAND\s+1u")
         self.assertRegex(mailbox, r"CP_HEARTBEAT_COMMAND\s+2u")
-        self.assertIn(".entry = prv_heartbeat_task", mailbox)
-        self.assertIn("pbl_thread_sleep(PBL_MSEC(CP_HEARTBEAT_PERIOD_MS))", mailbox)
+        self.assertIn("t5ai_cp_mailbox_heartbeat_poll", mailbox)
+        self.assertNotIn("prv_heartbeat_task", mailbox)
 
     def test_t5ai_display_preserves_qualified_panel_and_qspi_setup(self):
         display = (ROOT / "drivers/display/t5ai/display_co5300.c").read_text()
@@ -176,7 +176,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
         mailbox = (ROOT / "drivers/t5ai/cp_mailbox.c").read_text()
         callback = mailbox.split("static void prv_heartbeat_complete(", 1)[1]
         callback = "static void prv_heartbeat_complete(" + callback.split(
-            "\nvoid t5ai_cp_mailbox_heartbeat", 1
+            "\nstatic void prv_heartbeat", 1
         )[0]
         harness = r"""
 #include <assert.h>

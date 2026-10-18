@@ -4,11 +4,11 @@ The [operator handoff](../../../docs/boards/unhygienix/index.md) records current
 support and implementation gaps. The [tooling guide](../../../docs/boards/unhygienix/tooling.md)
 records dependency, build, packaging and flash procedures.
 
-## Deferred follow-up: Tuya private workers — 2026-10-18
+## Tuya private workers — 2026-10-18
 
-Recorded at the top of the TODO at the operator's request; defer implementation
-until this work is explicitly resumed. Native object ownership does not establish
-that every dedicated worker or its current stack capacity is necessary.
+Heartbeat consolidation was explicitly resumed on 2026-10-18. Touch and battery
+remain deferred. Native object ownership does not establish that every dedicated
+worker or its current stack capacity is necessary.
 
 - **Touch — 3,072 B internal stack:** compare the CST92xx private worker with
   stock CST816's IRQ-to-KernelBG callback approach. Evaluate shared-task delivery
@@ -18,18 +18,33 @@ that every dedicated worker or its current stack capacity is necessary.
   stock battery-service system-task updates. Evaluate using the existing update
   path while preserving startup retries, cached readings and bounded CP ADC
   operations; measure any blocking effect on other system-task work.
-- **CP heartbeat — 1,024 B internal stack:** evaluate an existing timer/shared
-  execution context instead of a permanent thread. Establish callback-context
-  safety, asynchronous mailbox ownership and heartbeat deadlines under load;
-  do not move blocking CP operations onto the timer task.
+- **CP heartbeat — implemented and flashed; broader qualification pending:**
+  This consolidation was not required for correctness, but removes one dedicated
+  thread and its 1,024-byte stack, saving 1,152 B of static RAM overall. The existing
+  mailbox worker now services the one-second heartbeat deadline. Runtime readiness
+  explicitly wakes it; idle waits are bounded by the next heartbeat or physical
+  fault check, and busy-loop iterations also check the deadline. Submission and
+  physical/logical completion share the mailbox context. The private thread and
+  1,024-byte stack are removed; no timer-service dependency or blocking heartbeat
+  operation was added. Late execution skips missed intervals without catch-up
+  bursts. Firmware builds/packages; 284 tooling entries pass with two skips.
+  Static RAM falls by 1,152 B, restoring linker heap capacity to 22,080 B. This is
+  not measured peak heap headroom. Flashed AP-only; boot ID
+  `c42b19caafdddfeef102c7d1eec3182da1fc0fcb` verified. Phone protocol
+  reconnection/discovery and operator face/control checks pass. Capture is stopped;
+  warnings/errors remain recorded. Heartbeat timing, mailbox stack high-water,
+  cold power-cycle and sustained watchdog behavior still need device checks.
+  Evidence: `/home/baz/Documents/ChatGPT/pebble/artifacts/heartbeat-mailbox-20261018/flash/report.txt`.
 
-These workers reserve **6,144 B of internal stack storage**. Eliminating or
+Before heartbeat consolidation these workers reserved **6,144 B of internal stack
+storage**; touch and battery still reserve **5,120 B**. Eliminating or
 consolidating them could save real RAM; moving their existing allocations from
 heap to static storage does not. The native-object candidate's +8,768 B static
 increase replaces 9,044 B of former heap requests, so it is not an equivalent
 increase in steady-state live RAM. Startup and peak heap headroom still need
 measurement. Keep priorities, timing and stack capacities unchanged until each
-comparison has evidence; no worker reduction has yet been implemented or flashed.
+comparison has evidence. Only heartbeat has been consolidated and flashed; touch
+and battery worker reductions remain deferred.
 See the [stock comparison and accounting](/home/baz/Documents/ChatGPT/pebble/artifacts/native-kernel-objects-20261018/stock-comparison.md).
 
 ## Current disposition — 2026-10-18
