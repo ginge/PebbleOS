@@ -1,16 +1,173 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/soc/t5ai/display_profile.h>
-#include <pbl/soc/t5ai/rtc.h>
-#include <pbl/logging/logging.h>
 #include "system/profiler.h"
 
+#include <pbl/logging/logging.h>
+#include <pbl/soc/t5ai/display_profile.h>
+#include <pbl/soc/t5ai/rtc.h>
+
+#ifdef CONFIG_T5AI_DRAW_PROFILE
+#include <pbl/kernel/irq.h>
+#include <pbl/kernel/thread.h>
+#include <pbl/kernel/time.h>
+#endif
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 
 PBL_LOG_MODULE_DEFINE(t5ai_display_profile, LOG_LEVEL_DEBUG);
+
+typedef enum {
+  Log_T5CADENCE,
+  Log_T5FRAME,
+  Log_T5PEAK,
+  Log_T5DRAW,
+  Log_T5PHASE,
+  Log_T5XFER,
+  Log_T5PREP,
+  Log_T5DMA,
+  Log_Count
+} LogKind;
+typedef struct {
+  uint32_t kind, args[7];
+} LogRecord;
+static void prv_emit(const LogRecord *record) {
+  switch (record->kind) {
+    case Log_T5CADENCE:
+      PBL_LOG_DBG("T5CADENCE frame=%lu tick=%lu elapsed=%lu hz=%lu dma_fail=%lu",
+                  (unsigned long)record->args[0], (unsigned long)record->args[1],
+                  (unsigned long)record->args[2], (unsigned long)record->args[3],
+                  (unsigned long)record->args[4]);
+      break;
+    case Log_T5FRAME:
+      PBL_LOG_DBG(
+          "T5FRAME seq=%lu frames=%lu intervals=%lu span_lo=%lu span_hi=%lu min=%lu max=%lu",
+          (unsigned long)record->args[0], (unsigned long)record->args[1],
+          (unsigned long)record->args[2], (unsigned long)record->args[3],
+          (unsigned long)record->args[4], (unsigned long)record->args[5],
+          (unsigned long)record->args[6]);
+      break;
+    case Log_T5PEAK:
+      PBL_LOG_DBG(
+          "T5PEAK seq=%lu count250=%lu count1000=%lu min_ticks=%lu overflow=%lu local250=%lu local1000=%lu",
+          (unsigned long)record->args[0], (unsigned long)record->args[1],
+          (unsigned long)record->args[2], (unsigned long)record->args[3],
+          (unsigned long)record->args[4], (unsigned long)record->args[5],
+          (unsigned long)record->args[6]);
+      break;
+    case Log_T5DRAW:
+      PBL_LOG_DBG(
+          "T5DRAW seq=%lu update_us=%lu update_max_us=%lu over30=%lu dma_fail=%lu invalid=%lu hz=%lu",
+          (unsigned long)record->args[0], (unsigned long)record->args[1],
+          (unsigned long)record->args[2], (unsigned long)record->args[3],
+          (unsigned long)record->args[4], (unsigned long)record->args[5],
+          (unsigned long)record->args[6]);
+      break;
+    case Log_T5PHASE:
+      PBL_LOG_DBG(
+          "T5PHASE seq=%lu render_n=%lu render_us=%lu comp_n=%lu comp_us=%lu font_n=%lu font_us=%lu",
+          (unsigned long)record->args[0], (unsigned long)record->args[1],
+          (unsigned long)record->args[2], (unsigned long)record->args[3],
+          (unsigned long)record->args[4], (unsigned long)record->args[5],
+          (unsigned long)record->args[6]);
+      break;
+    case Log_T5XFER:
+      PBL_LOG_DBG(
+          "T5XFER seq=%lu rows=%lu panel_rows=%lu bytes=%lu dma_n=%lu dma_frames=%lu cpu_frames=%lu",
+          (unsigned long)record->args[0], (unsigned long)record->args[1],
+          (unsigned long)record->args[2], (unsigned long)record->args[3],
+          (unsigned long)record->args[4], (unsigned long)record->args[5],
+          (unsigned long)record->args[6]);
+      break;
+    case Log_T5PREP:
+      PBL_LOG_DBG(
+          "T5PREP seq=%lu convert_us=%lu copy_us=%lu clean_us=%lu next_us=%lu command_us=%lu cpu_us=%lu",
+          (unsigned long)record->args[0], (unsigned long)record->args[1],
+          (unsigned long)record->args[2], (unsigned long)record->args[3],
+          (unsigned long)record->args[4], (unsigned long)record->args[5],
+          (unsigned long)record->args[6]);
+      break;
+    case Log_T5DMA:
+      PBL_LOG_DBG(
+          "T5DMA seq=%lu wait_us=%lu kick_us=%lu observed_us=%lu wait_max_us=%lu lock_us=%lu",
+          (unsigned long)record->args[0], (unsigned long)record->args[1],
+          (unsigned long)record->args[2], (unsigned long)record->args[3],
+          (unsigned long)record->args[4], (unsigned long)record->args[5]);
+      break;
+    default:
+      break;
+  }
+}
+#ifdef CONFIG_T5AI_DRAW_PROFILE
+#ifdef CONFIG_T5AI_DRAW_PROFILE_DETAIL
+#define LOG_CAPACITY 64u
+#else
+#define LOG_CAPACITY 192u
+#endif
+static LogRecord s_records[LOG_CAPACITY] __attribute__((section(".t5ai_board_cache"), aligned(32)));
+static uint32_t s_log_head, s_log_count, s_log_dropped, s_log_startup;
+static bool s_log_ready;
+void t5ai_display_profile_buffer_ready(void) {
+  // Called on first privileged App use, after CP PSRAM initialization.
+  pbl_irq_lock();
+  s_log_head = s_log_count = s_log_dropped = 0u;
+  s_log_ready = true;
+  pbl_irq_unlock();
+}
+#endif
+static void prv_record(LogKind kind, const uint32_t *arguments, unsigned count) {
+  if (kind >= Log_Count || count > 7u)
+    return;
+  LogRecord record = {.kind = kind};
+  for (unsigned i = 0; i < count; ++i)
+    record.args[i] = arguments[i];
+#ifdef CONFIG_T5AI_DRAW_PROFILE
+  pbl_irq_lock();
+  if (!s_log_ready) {
+    ++s_log_startup;
+    pbl_irq_unlock();
+    return;
+  }
+  if (s_log_count == LOG_CAPACITY) {
+    s_log_head = (s_log_head + 1u) % LOG_CAPACITY;
+    --s_log_count;
+    ++s_log_dropped;
+  }
+  s_records[(s_log_head + s_log_count++) % LOG_CAPACITY] = record;
+  pbl_irq_unlock();
+#else
+  prv_emit(&record);
+#endif
+}
+#ifdef CONFIG_T5AI_DRAW_PROFILE
+void t5ai_display_profile_dump(void) {
+  pbl_irq_lock();
+  const uint32_t count = s_log_count, dropped = s_log_dropped, startup = s_log_startup;
+  pbl_irq_unlock();
+  PBL_LOG_DBG("T5BUFFER begin=%lu dropped=%lu startup=%lu", (unsigned long)count,
+              (unsigned long)dropped, (unsigned long)startup);
+  unsigned emitted = 0u;
+  for (; emitted < count; ++emitted) {
+    extern bool t5ai_draw_profile_gesture_active(void);
+    if (t5ai_draw_profile_gesture_active())
+      break;
+    pbl_irq_lock();
+    if (!s_log_count) {
+      pbl_irq_unlock();
+      break;
+    }
+    const LogRecord record = s_records[s_log_head];
+    s_log_head = (s_log_head + 1u) % LOG_CAPACITY;
+    --s_log_count;
+    pbl_irq_unlock();
+    prv_emit(&record);
+    // Keep the post-gesture burst below the runtime UART's throughput.
+    pbl_thread_sleep(PBL_MSEC(2));
+  }
+  PBL_LOG_DBG("T5BUFFER end=%u dropped=%lu", emitted, (unsigned long)s_log_dropped);
+}
+#endif
 
 #define PROFILE_FRAMES 16u
 #define PEAK_HISTORY   128u
@@ -129,9 +286,12 @@ void t5ai_display_profile_frame(uint32_t start, uint32_t elapsed, uint32_t hz,
   // A cumulative counter makes dropped UART records visible to the reporter.
   ++s_frame;
   if ((s_frame & 15u) == 1u) {
-    PBL_LOG_DBG("T5CADENCE frame=%lu tick=%lu elapsed=%lu hz=%lu dma_fail=%lu",
-                (unsigned long)s_frame, (unsigned long)start, (unsigned long)elapsed,
-                (unsigned long)hz, (unsigned long)dma_failures);
+    prv_record(Log_T5CADENCE,
+               (const uint32_t[]){
+                 (unsigned long)s_frame, (unsigned long)start, (unsigned long)elapsed,
+                 (unsigned long)hz, (unsigned long)dma_failures
+               },
+               5u);
   }
   if (!s_window.frames) {
     s_window.hz = hz;
@@ -174,40 +334,56 @@ void t5ai_display_profile_frame(uint32_t start, uint32_t elapsed, uint32_t hz,
   const uint32_t compositor = prv_u32(s_compositor.us);
   const uint32_t font = prv_u32(s_font.us);
   ++s_sequence;
-  PBL_LOG_DBG("T5FRAME seq=%lu frames=%lu intervals=%lu span_lo=%lu span_hi=%lu min=%lu max=%lu",
-              (unsigned long)s_sequence, (unsigned long)s_window.frames,
-              (unsigned long)s_window.intervals, (unsigned long)(uint32_t)s_window.span_ticks,
-              (unsigned long)(s_window.span_ticks >> 32), (unsigned long)s_window.min_ticks,
-              (unsigned long)s_window.max_ticks);
-  PBL_LOG_DBG(
-      "T5PEAK seq=%lu count250=%lu count1000=%lu min_ticks=%lu overflow=%lu local250=%lu local1000=%lu",
-      (unsigned long)s_sequence, (unsigned long)s_peak250, (unsigned long)s_peak1000,
-      (unsigned long)s_peak_interval, (unsigned long)s_peak_overflow, (unsigned long)s_local250,
-      (unsigned long)s_local1000);
-  PBL_LOG_DBG(
-      "T5DRAW seq=%lu update_us=%lu update_max_us=%lu over30=%lu dma_fail=%lu invalid=%lu hz=%lu",
-      (unsigned long)s_sequence, (unsigned long)update, (unsigned long)s_window.update_max_us,
-      (unsigned long)s_window.over30, (unsigned long)dma_failures, (unsigned long)s_window.invalid,
-      (unsigned long)hz);
-  PBL_LOG_DBG(
-      "T5PHASE seq=%lu render_n=%lu render_us=%lu comp_n=%lu comp_us=%lu font_n=%lu font_us=%lu",
-      (unsigned long)s_sequence, (unsigned long)s_render.count, (unsigned long)render,
-      (unsigned long)s_compositor.count, (unsigned long)compositor, (unsigned long)s_font.count,
-      (unsigned long)font);
+  prv_record(Log_T5FRAME,
+             (const uint32_t[]){
+               (unsigned long)s_sequence, (unsigned long)s_window.frames,
+               (unsigned long)s_window.intervals, (unsigned long)(uint32_t)s_window.span_ticks,
+               (unsigned long)(s_window.span_ticks >> 32), (unsigned long)s_window.min_ticks,
+               (unsigned long)s_window.max_ticks
+             },
+             7u);
+  prv_record(Log_T5PEAK,
+             (const uint32_t[]){
+               (unsigned long)s_sequence, (unsigned long)s_peak250, (unsigned long)s_peak1000,
+               (unsigned long)s_peak_interval, (unsigned long)s_peak_overflow,
+               (unsigned long)s_local250, (unsigned long)s_local1000
+             },
+             7u);
+  prv_record(Log_T5DRAW,
+             (const uint32_t[]){
+               (unsigned long)s_sequence, (unsigned long)update,
+               (unsigned long)s_window.update_max_us, (unsigned long)s_window.over30,
+               (unsigned long)dma_failures, (unsigned long)s_window.invalid, (unsigned long)hz
+             },
+             7u);
+  prv_record(Log_T5PHASE,
+             (const uint32_t[]){
+               (unsigned long)s_sequence, (unsigned long)s_render.count, (unsigned long)render,
+               (unsigned long)s_compositor.count, (unsigned long)compositor,
+               (unsigned long)s_font.count, (unsigned long)font
+             },
+             7u);
   const T5AITransferProfile *t = &s_transfer_window;
 #define US(field) (unsigned long)prv_u32(hz ? t->field * 1000000u / hz : 0u)
-  PBL_LOG_DBG(
-      "T5XFER seq=%lu rows=%lu panel_rows=%lu bytes=%lu dma_n=%lu dma_frames=%lu cpu_frames=%lu",
-      (unsigned long)s_sequence, (unsigned long)t->rows, (unsigned long)t->panel_rows,
-      (unsigned long)t->bytes, (unsigned long)t->dma_submits, (unsigned long)t->dma_frames,
-      (unsigned long)t->cpu_frames);
-  PBL_LOG_DBG(
-      "T5PREP seq=%lu convert_us=%lu copy_us=%lu clean_us=%lu next_us=%lu command_us=%lu cpu_us=%lu",
-      (unsigned long)s_sequence, US(convert_cycles), US(copy_cycles), US(clean_cycles),
-      US(next_cycles), US(command_cycles), US(cpu_cycles));
-  PBL_LOG_DBG("T5DMA seq=%lu wait_us=%lu kick_us=%lu observed_us=%lu wait_max_us=%lu lock_us=%lu",
-              (unsigned long)s_sequence, US(wait_cycles), US(kick_cycles), US(observed_cycles),
-              (unsigned long)prv_cycles_us(t->wait_max_cycles, hz), US(lock_cycles));
+  prv_record(Log_T5XFER,
+             (const uint32_t[]){
+               (unsigned long)s_sequence, (unsigned long)t->rows, (unsigned long)t->panel_rows,
+               (unsigned long)t->bytes, (unsigned long)t->dma_submits, (unsigned long)t->dma_frames,
+               (unsigned long)t->cpu_frames
+             },
+             7u);
+  prv_record(Log_T5PREP,
+             (const uint32_t[]){
+               (unsigned long)s_sequence, US(convert_cycles), US(copy_cycles), US(clean_cycles),
+               US(next_cycles), US(command_cycles), US(cpu_cycles)
+             },
+             7u);
+  prv_record(Log_T5DMA,
+             (const uint32_t[]){
+               (unsigned long)s_sequence, US(wait_cycles), US(kick_cycles), US(observed_cycles),
+               (unsigned long)prv_cycles_us(t->wait_max_cycles, hz), US(lock_cycles)
+             },
+             6u);
 #undef US
   memset(&s_transfer_window, 0, sizeof(s_transfer_window));
   s_local250 = s_local1000 = 0u;

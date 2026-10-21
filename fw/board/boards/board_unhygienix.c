@@ -104,7 +104,31 @@ static const MicDevice s_mic_device = {
   .analog_gain = 8u,
 };
 MicDevice *const MIC = &s_mic_device;
+#ifndef CONFIG_T5AI_DISPLAY_DMA_IRQ
+#ifdef CONFIG_T5AI_DRAW_PROFILE
+static void prv_profile_mic_irq(void) {
+  const uint32_t start = t5ai_interrupt_profile_irq_enter();
+  t5ai_mic_dma_irq_handler(MIC);
+  t5ai_interrupt_profile_irq_exit(5u, start);
+}
+PBL_IRQ_CONNECT(GDMA, 6, prv_profile_mic_irq, , 0);
+#else
 PBL_IRQ_CONNECT(GDMA, 6, t5ai_mic_dma_irq_handler, MIC, 0);
+#endif
+#endif
+#endif
+
+#ifdef CONFIG_T5AI_DISPLAY_DMA_IRQ
+void display_co5300_dma_irq(void);
+static void prv_shared_gdma_irq(void) {
+  const uint32_t start = t5ai_interrupt_profile_irq_enter();
+  display_co5300_dma_irq();
+#ifdef CONFIG_MIC
+  t5ai_mic_dma_irq_handler(MIC);
+#endif
+  t5ai_interrupt_profile_irq_exit(3u, start);
+}
+PBL_IRQ_CONNECT(GDMA, 6, prv_shared_gdma_irq, , 0);
 #endif
 
 static UARTDeviceState s_dbg_uart_state;
@@ -120,7 +144,16 @@ static UARTDevice s_dbg_uart_device = {
 };
 
 UARTDevice *const DBG_UART = &s_dbg_uart_device;
+#ifdef CONFIG_T5AI_DRAW_PROFILE
+static void prv_profile_uart_irq(void) {
+  const uint32_t start = t5ai_interrupt_profile_irq_enter();
+  uart_irq_handler(DBG_UART);
+  t5ai_interrupt_profile_irq_exit(4u, start);
+}
+PBL_IRQ_CONNECT(UART0, 5, prv_profile_uart_irq, , 0);
+#else
 PBL_IRQ_CONNECT(UART0, 5, uart_irq_handler, DBG_UART, 0);
+#endif
 
 // Shared touch/RTC/IMU bus is qualified at 100 kHz.
 PBL_I2C_T5AI_DEFINE(T5AI_I2C0, 0x45850000u, I2C0_IRQn, 100000u, 20, 21);

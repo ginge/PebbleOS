@@ -420,7 +420,7 @@ def main(argv=None):
                     "Host timestamps include UART buffering and decode latency.",
                     "Intervals include idle time and logging/scheduling overhead.",
                     "Phase times are elapsed cycle equivalents, including preemption.",
-                    "Font time is nested within rendering; do not add it to frame time.",
+                    "Font time covers resource reads only, not all text layout or rasterization; it is nested within rendering.",
                     "Incomplete final windows (fewer than 16 updates) are not emitted.",
                 ],
             },

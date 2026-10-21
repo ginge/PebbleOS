@@ -256,3 +256,89 @@ if(CONFIG_T5AI_TASK_CPU_METRICS)
   endfunction()
   cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_task_cpu_metrics_call_boundaries)
 endif()
+
+if(CONFIG_T5AI_DRAW_PROFILE)
+  pbl_library_sources(draw_profile.c)
+  foreach(symbol system_task_timer_init window_render graphics_draw_text pbl_mutex_lock_lr SysTick_Handler sched_block)
+    pbl_link_options(-Wl,--wrap=${symbol})
+  endforeach()
+  function(t5ai_draw_profile_boundaries)
+    foreach(pair
+        "fw/applib|ui/window.c"
+        "fw/applib|graphics/text_layout.c"
+        "kernel|mutex.c"
+        "kernel|sched.c"
+        "kernel|arch/arm/vector_table.c"
+        "soc/t5ai|tick.c"
+        "fw/services/system_task|service.c")
+      string(REPLACE "|" ";" parts "${pair}")
+      list(GET parts 0 directory)
+      list(GET parts 1 source)
+      set_property(SOURCE ${PBL_BASE}/${directory}/${source}
+        DIRECTORY ${PBL_BASE}/${directory} APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+    endforeach()
+    if(CONFIG_T5AI_DRAW_PROFILE_DETAIL)
+    foreach(pair
+        "fw/applib|ui/menu_layer.c"
+        "fw/apps/system|launcher/default/app_glance_structured.c"
+        "fw/apps/system|timeline/text_node.c")
+      string(REPLACE "|" ";" parts "${pair}")
+      list(GET parts 0 directory)
+      list(GET parts 1 source)
+      set_property(SOURCE ${PBL_BASE}/${directory}/${source}
+        DIRECTORY ${PBL_BASE}/${directory} APPEND PROPERTY COMPILE_OPTIONS
+        -fno-lto -finstrument-functions -finstrument-functions-exclude-file-list=.h)
+    endforeach()
+    endif()
+  endfunction()
+  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_draw_profile_boundaries)
+endif()
+
+if(CONFIG_T5AI_TOUCH_QUEUE_COALESCE)
+  pbl_library_sources(touch_queue.c)
+  foreach(symbol event_put pbl_msgq_put pbl_msgq_get recognizer_manager_handle_touch_event)
+    pbl_link_options(-Wl,--wrap=${symbol})
+  endforeach()
+  function(t5ai_touch_queue_boundaries)
+    set_property(SOURCE ${PBL_BASE}/fw/kernel/events.c
+      DIRECTORY ${PBL_BASE}/fw/kernel APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+    set_property(SOURCE ${PBL_BASE}/kernel/msgq.c
+      DIRECTORY ${PBL_BASE}/kernel APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+    set_property(SOURCE ${PBL_BASE}/fw/applib/ui/recognizer/recognizer_manager.c
+      DIRECTORY ${PBL_BASE}/fw/applib APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+    set_property(SOURCE ${PBL_BASE}/fw/applib/ui/recognizer/pan.c
+      DIRECTORY ${PBL_BASE}/fw/applib APPEND PROPERTY COMPILE_DEFINITIONS
+      sys_get_ticks=t5ai_touch_sample_ticks)
+  endfunction()
+  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_touch_queue_boundaries)
+endif()
+
+if(CONFIG_T5AI_COMPOSITOR_FAST_PATH)
+  pbl_library_sources(compositor_fast.c)
+  function(t5ai_compositor_fast_boundaries)
+    set_property(SOURCE ${PBL_BASE}/fw/applib/graphics/8_bit/bitblt_private.c
+      DIRECTORY ${PBL_BASE}/fw/applib APPEND PROPERTY COMPILE_DEFINITIONS
+      bitblt_bitmap_into_bitmap_tiled=t5ai_stock_bitblt_bitmap_into_bitmap_tiled)
+    set_property(SOURCE ${PBL_BASE}/fw/services/compositor/compositor.c
+      DIRECTORY ${PBL_BASE}/fw/services/compositor APPEND PROPERTY COMPILE_DEFINITIONS
+      memset=t5ai_compositor_memset)
+  endfunction()
+  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_compositor_fast_boundaries)
+endif()
+
+if(CONFIG_T5AI_TEXT_NODE_CACHE)
+  pbl_library_sources(text_node_cache.c)
+  function(t5ai_text_node_cache_boundaries)
+    set_property(SOURCE ${PBL_BASE}/fw/apps/system/timeline/text_node.c
+      DIRECTORY ${PBL_BASE}/fw/apps/system APPEND PROPERTY COMPILE_DEFINITIONS
+      graphics_text_layout_get_max_used_size=t5ai_text_node_cached_size)
+    set_property(SOURCE ${PBL_BASE}/fw/applib/ui/window.c
+      DIRECTORY ${PBL_BASE}/fw/applib APPEND PROPERTY COMPILE_DEFINITIONS
+      window_render=t5ai_cache_stock_window_render)
+  endfunction()
+  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_text_node_cache_boundaries)
+endif()
+
+if(CONFIG_T5AI_IO_PROFILE)
+  pbl_library_sources(io_profile.c)
+endif()

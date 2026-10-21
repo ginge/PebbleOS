@@ -154,6 +154,9 @@ class T5AITouchTest(unittest.TestCase):
             for name in re.findall(r'#include [<"]([^>"\n]+)[>"]', DRIVER.read_text())
             if "/" in name
         }
+        headers["pbl/soc/t5ai/draw_profile.h"] = (
+            ROOT / "include/pbl/soc/t5ai/draw_profile.h"
+        ).read_text()
         source = HARNESS.replace("DRIVER_SOURCE", '"' + str(DRIVER) + '"')
         # Assert lock ordering at the synchronous input boundary.
         source = source.replace(

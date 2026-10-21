@@ -86,6 +86,143 @@ config T5AI_FLASH_PROFILE
       Keep lock-free read/write/erase timing and active-operation samples.
       Disabled builds contain no sampling counters or timestamp reads.
 
+config T5AI_DISPLAY_MEMORY_BENCH
+    bool "Benchmark T5 display row memory at initialization"
+    depends on BOARD_UNHYGIENIX
+    default n
+    help
+      Compare linked libc and wide row operations over 1024 repetitions.
+      Diagnostic only; reports elapsed AON ticks before display DMA starts.
+
+config T5AI_DRAW_PROFILE
+    bool "Buffer drawing function and scheduler timing until UI idle"
+    depends on BOARD_UNHYGIENIX && !T5AI_APP_TRACE && !T5AI_BG_TRACE && !T5AI_INTERRUPT_PROFILE && !T5AI_TASK_CPU_METRICS
+    default n
+    help
+      Instrument launcher/menu/text-node functions and window rendering only.
+      Report bounded address-keyed inclusive wall/scheduled-time counters after
+      two seconds without rendering. Scheduler time includes IRQ execution;
+      it is not exclusive drawing CPU time. No PC sampling or per-frame logs.
+
+config T5AI_DRAW_PROFILE_DETAIL
+    bool "Time individual menu, glance and text-node functions"
+    depends on T5AI_DRAW_PROFILE
+    default n
+    help
+      Adds translation-unit function instrumentation and larger buffers.
+      Measure its overhead against the default coarse recorder before using
+      the detailed results to attribute normal-build drawing time.
+
+config T5AI_DISPLAY_BATCH_ROWS
+    int "Logical rows per T5 DMA staging batch"
+    depends on BOARD_UNHYGIENIX
+    range 1 3
+    default 1
+    help
+      Two buffers each reserve up to two physical rows per logical row.
+      Keep one for the established transport; compare two and three in
+      separate hardware experiments before changing the default.
+
+config T5AI_TOUCH_QUEUE_COALESCE
+    bool "Coalesce queued builtin-app touch motion with acquisition timestamps"
+    depends on BOARD_UNHYGIENIX
+    default n
+    help
+      Experimental: keep the two newest consecutive queued motion samples.
+      Never coalesce down/up, cross other event types or affect unprivileged apps.
+      Pan velocity uses acquisition time rather than queue-drain time.
+
+config T5AI_COMPOSITOR_FAST_PATH
+    bool "Specialize native T5 compositor memory operations"
+    depends on BOARD_UNHYGIENIX
+    default n
+    help
+      Experimental full native assignment copies only intersecting row spans.
+      Preserve the full clear and delegate legacy/scaled/overlay modes to stock.
+
+config T5AI_TEXT_NODE_CACHE
+    bool "Reuse repeated text-node measurements within one privileged App render"
+    depends on BOARD_UNHYGIENIX
+    default n
+    help
+      Experimental 16-entry bounded cache, reset every render. Match exact text,
+      font, box, overflow, alignment, spacing and flow attributes. Only text-node
+      measurement uses it; long text, other tasks and unprivileged apps stay stock.
+
+config T5AI_DISPLAY_DMA_IRQ
+    bool "Sleep for batched T5 display DMA completion"
+    depends on BOARD_UNHYGIENIX && T5AI_DISPLAY_BATCH_ROWS >= 2
+    default n
+    help
+      Experimental channel-zero completion on the shared secure GDMA IRQ.
+      Keep microphone channel-one dispatch and the elapsed-time deadline.
+
+config T5AI_DISPLAY_WORKER
+    bool "Transport T5 display frames on a board-local worker"
+    depends on BOARD_UNHYGIENIX
+    default n
+    help
+      Experimental: snapshot borrowed row descriptors on the caller, retain
+      framebuffer ownership until completion on KernelMain, and serialize
+      physical display controls against transport. Adds a 2 KB worker stack
+      and 2080 bytes of descriptors in reserved PSRAM; no full-frame copy.
+
+config T5AI_IO_PROFILE
+    bool "Buffer T5 touch, shared-bus and resource-read measurements"
+    depends on T5AI_DRAW_PROFILE
+    default n
+    help
+      Count callback queue/lock/bus waits, wire reads, immutable XIP copies,
+      cache hits, CP reads, App queue age and coalesced moves. Emit only after
+      physical gestures. Elapsed times include preemption; categories overlap.
+
+config T5AI_IO_CPU_PROFILE
+    bool "Snapshot T5 gesture CPU duty without periodic sampling"
+    depends on T5AI_IO_PROFILE
+    default n
+    help
+      Snapshot scheduler idle/App/Main runtime at first contact and last release,
+      then report after the gesture. Includes time between contacts, excluding
+      the final quiet-report delay. Thread runtime includes IRQ interference.
+
+config T5AI_RESOURCE_WIDE_COPY
+    bool "Use aligned word copying for immutable T5 resource reads"
+    depends on BOARD_UNHYGIENIX
+    default n
+    help
+      Experimental scoped copy after the existing immutable-bank range check.
+      Preserve byte fallback/tails, CP ownership, leases, PFS and flash writes.
+
+config T5AI_DISPLAY_ROTATED_DMA
+    bool "Batch sorted rotated T5 rows with DMA"
+    depends on BOARD_UNHYGIENIX
+    default n
+    help
+      Experimental reverse traversal of borrowed row descriptors, retaining
+      existing pixel reversal/scaling. Unsorted/duplicate/gapped rows retain
+      their order using individual DMA windows. Uses 2080 bytes of reserved
+      PSRAM, with no full-frame pixel copy.
+
+config T5AI_DISPLAY_RECOVERY
+    bool "Replay failed T5 DMA updates and retry bounded recovery"
+    depends on BOARD_UNHYGIENIX && T5AI_DISPLAY_ROTATED_DMA
+    default n
+    help
+      Experimental: preserve borrowed dirty row descriptors, stop DMA on error,
+      retry a memory self-test and DMA repaint at most three times per boot,
+      one second apart after the first attempt. Retain buffer ownership during
+      retries. Persistent failure stops output and reports outside the lock;
+      no CPU repaint is used. Reuses worker descriptors or reserves 2080 bytes
+      of PSRAM otherwise.
+
+config T5AI_DISPLAY_FAULT_TEST
+    bool "Inject one completed-transfer failure for T5 recovery qualification"
+    depends on T5AI_DISPLAY_RECOVERY
+    default n
+    help
+      Diagnostic only. After eight seconds uptime, report one successfully
+      completed DMA transfer as failed to exercise replay and recovery safely.
+
 config T5AI_DISPLAY_PROFILE
     bool "Measure T5 display frame durations"
     depends on BOARD_UNHYGIENIX

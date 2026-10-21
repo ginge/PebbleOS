@@ -1,190 +1,205 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/soc/t5ai/rtc.h>
-#include <pbl/soc/t5ai/display_profile.h>
-
-#include <pbl/soc/t5ai/memory.h>
+#include "board/board.h"
+#include "system/passert.h"
 
 #include <pbl/drivers/display/display.h>
 #include <pbl/drivers/display/t5ai.h>
-
-#include "board/board.h"
-#include <pbl/soc/t5ai/delay.h>
 #include <pbl/drivers/gpio/t5ai.h>
 #include <pbl/logging/logging.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
-#include "system/passert.h"
+#include <pbl/soc/t5ai/delay.h>
+#include <pbl/soc/t5ai/display_profile.h>
+#include <pbl/soc/t5ai/memory.h>
+#include <pbl/soc/t5ai/rtc.h>
 #ifdef CONFIG_T5AI_DISPLAY_PROFILE
 #endif
 
-#include <pbl/kernel/mutex.h>
-
-#include <cmsis_core.h>
+#include "kernel/event_loop.h"
+#include "row_memory.h"
 
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 
+#include <pbl/kernel/mutex.h>
+#include <pbl/kernel/sem.h>
+#include <pbl/kernel/thread.h>
+
+#include <cmsis_core.h>
+#ifdef CONFIG_T5AI_IO_PROFILE
+#include <pbl/soc/t5ai/io_profile.h>
+#else
+#define T5_IO_BEGIN(name)
+#define T5_IO_END(kind, name, amount) \
+  do {                                \
+  } while (0)
+#define T5_IO_ADD(kind, elapsed, amount) \
+  do {                                   \
+  } while (0)
+#endif
+
 PBL_LOG_MODULE_DEFINE(driver_display_co5300, LOG_LEVEL_DEBUG);
 
-#define DISPLAY_CACHE_LINE_MASK (T5AI_SHARED_ALIGNMENT - 1u)
-#define PANEL_RGB565_BYTES_PER_PIXEL 2u
-#define PANEL_RESET_PRECHARGE_US 20000u
-#define PANEL_RESET_ASSERT_US 200000u
-#define PANEL_RESET_SETTLE_US 120000u
-#define PANEL_SLEEP_OUT_SETTLE_US 200000u
-#define PANEL_DCS_SLEEP_OUT 0x11u
-#define PANEL_DCS_NORMAL_MODE 0x13u
-#define PANEL_DCS_INVERSION_OFF 0x20u
-#define PANEL_DCS_DISPLAY_OFF 0x28u
-#define PANEL_DCS_DISPLAY_ON 0x29u
-#define PANEL_DCS_COLUMN_ADDRESS 0x2au
-#define PANEL_DCS_ROW_ADDRESS 0x2bu
-#define PANEL_DCS_MEMORY_WRITE 0x2cu
-#define PANEL_DCS_BRIGHTNESS 0x51u
-#define PANEL_DCS_PIXEL_FORMAT 0x3au
-#define PANEL_DCS_TEARING_ON 0x35u
-#define PANEL_DCS_CONTROL_DISPLAY 0x53u
-#define PANEL_PIXEL_FORMAT_RGB565 0x55u
-#define PANEL_CONTROL_BRIGHTNESS_ENABLE 0x20u
-#define PANEL_SPI_REGISTER_WRITE 0x02u
-#define PANEL_SPI_QUAD_WRITE 0x32u
-#define QSPI_COMMAND_BYTE_SHIFT 16u
-#define QSPI_COMMAND_C_FIFO_CONFIG 0x300u
-#define QSPI_COMMAND_A_LINE_CONFIG 0x3u
-#define QSPI_COMMAND_LENGTH_SHIFT 2u
-#define QSPI_COMMAND_POLL_COUNT 10000u
-#define QSPI_COMMAND_POLL_DELAY_US 1u
-#define QSPI_CLOCK_DIVIDER_SHIFT 6u
-#define QSPI_CLOCK_DIVIDER_MASK (0x0fu << QSPI_CLOCK_DIVIDER_SHIFT)
-#define QSPI_CLOCK_DIVIDER_80MHZ 5u
-#define QSPI_CLOCK_SOURCE_PLL (1u << 10)
-#define QSPI0_CLOCK_ENABLE (1u << 20)
-#define QSPI0_INTERRUPT_ENABLE (1u << 20)
-#define QSPI_RESET_RELEASE (1u << 0)
-#define DISPLAY_POWER_SETTLE_US 10u
-#define DISPLAY_BACKUP_POWER_DOWN (1u << 4)
-#define DISPLAY_GDMA_POWER_DOWN (1u << 30)
-#define DISPLAY_QSPI_POWER_DOWN (1u << 6)
-#define DISPLAY_GPIO_CONFIG_MASK 0x3fffu
-#define DISPLAY_GPIO_OUTPUT_DISABLE (1u << 3)
-#define DISPLAY_GPIO_PULL_UP (1u << 4)
-#define DISPLAY_GPIO_PULL_ENABLE (1u << 5)
-#define DISPLAY_GPIO_SECOND_FUNCTION (1u << 6)
-#define DISPLAY_GPIO_DRIVE_MAX (3u << 8)
-#define DISPLAY_GPIO_FUNCTION_MASK 0x0fu
-#define DISPLAY_GPIO_FUNCTION_BITS 4u
+#define DISPLAY_CACHE_LINE_MASK             (T5AI_SHARED_ALIGNMENT - 1u)
+#define PANEL_RGB565_BYTES_PER_PIXEL        2u
+#define PANEL_RESET_PRECHARGE_US            20000u
+#define PANEL_RESET_ASSERT_US               200000u
+#define PANEL_RESET_SETTLE_US               120000u
+#define PANEL_SLEEP_OUT_SETTLE_US           200000u
+#define PANEL_DCS_SLEEP_OUT                 0x11u
+#define PANEL_DCS_NORMAL_MODE               0x13u
+#define PANEL_DCS_INVERSION_OFF             0x20u
+#define PANEL_DCS_DISPLAY_OFF               0x28u
+#define PANEL_DCS_DISPLAY_ON                0x29u
+#define PANEL_DCS_COLUMN_ADDRESS            0x2au
+#define PANEL_DCS_ROW_ADDRESS               0x2bu
+#define PANEL_DCS_MEMORY_WRITE              0x2cu
+#define PANEL_DCS_BRIGHTNESS                0x51u
+#define PANEL_DCS_PIXEL_FORMAT              0x3au
+#define PANEL_DCS_TEARING_ON                0x35u
+#define PANEL_DCS_CONTROL_DISPLAY           0x53u
+#define PANEL_PIXEL_FORMAT_RGB565           0x55u
+#define PANEL_CONTROL_BRIGHTNESS_ENABLE     0x20u
+#define PANEL_SPI_REGISTER_WRITE            0x02u
+#define PANEL_SPI_QUAD_WRITE                0x32u
+#define QSPI_COMMAND_BYTE_SHIFT             16u
+#define QSPI_COMMAND_C_FIFO_CONFIG          0x300u
+#define QSPI_COMMAND_A_LINE_CONFIG          0x3u
+#define QSPI_COMMAND_LENGTH_SHIFT           2u
+#define QSPI_COMMAND_POLL_COUNT             10000u
+#define QSPI_COMMAND_POLL_DELAY_US          1u
+#define QSPI_CLOCK_DIVIDER_SHIFT            6u
+#define QSPI_CLOCK_DIVIDER_MASK             (0x0fu << QSPI_CLOCK_DIVIDER_SHIFT)
+#define QSPI_CLOCK_DIVIDER_80MHZ            5u
+#define QSPI_CLOCK_SOURCE_PLL               (1u << 10)
+#define QSPI0_CLOCK_ENABLE                  (1u << 20)
+#define QSPI0_INTERRUPT_ENABLE              (1u << 20)
+#define QSPI_RESET_RELEASE                  (1u << 0)
+#define DISPLAY_POWER_SETTLE_US             10u
+#define DISPLAY_BACKUP_POWER_DOWN           (1u << 4)
+#define DISPLAY_GDMA_POWER_DOWN             (1u << 30)
+#define DISPLAY_QSPI_POWER_DOWN             (1u << 6)
+#define DISPLAY_GPIO_CONFIG_MASK            0x3fffu
+#define DISPLAY_GPIO_OUTPUT_DISABLE         (1u << 3)
+#define DISPLAY_GPIO_PULL_UP                (1u << 4)
+#define DISPLAY_GPIO_PULL_ENABLE            (1u << 5)
+#define DISPLAY_GPIO_SECOND_FUNCTION        (1u << 6)
+#define DISPLAY_GPIO_DRIVE_MAX              (3u << 8)
+#define DISPLAY_GPIO_FUNCTION_MASK          0x0fu
+#define DISPLAY_GPIO_FUNCTION_BITS          4u
 #define DISPLAY_GPIO_PINS_PER_FUNCTION_WORD 8u
-#define DISPLAY_QSPI_GPIO_FUNCTION 3u
-#define DISPLAY_QSPI_CLOCK_PIN 22u
-#define DISPLAY_QSPI_LAST_PIN 27u
-#define DISPLAY_DRAW_LOG_FRAME_MASK 15u  // One diagnostic sample per 16 frames.
-#define DISPLAY_SCB_DCCMVAC (*(volatile uint32_t *)0xe000ef68u)
-#define DISPLAY_SCB_DCIMVAC (*(volatile uint32_t *)0xe000ef5cu)
+#define DISPLAY_QSPI_GPIO_FUNCTION          3u
+#define DISPLAY_QSPI_CLOCK_PIN              22u
+#define DISPLAY_QSPI_LAST_PIN               27u
+#define DISPLAY_DRAW_LOG_FRAME_MASK         15u // One diagnostic sample per 16 frames.
+#define DISPLAY_SCB_DCCMVAC                 (*(volatile uint32_t *)0xe000ef68u)
+#define DISPLAY_SCB_DCIMVAC                 (*(volatile uint32_t *)0xe000ef5cu)
 // GColor8 stores three two-bit components; the panel consumes RGB565.
-#define DISPLAY_COLOR_MASK 0x3fu
-#define DISPLAY_COLOR_COUNT 64u
+#define DISPLAY_COLOR_MASK           0x3fu
+#define DISPLAY_COLOR_COUNT          64u
 #define DISPLAY_COLOR_COMPONENT_MASK 3u
-#define DISPLAY_COLOR_RED_SHIFT 4u
-#define DISPLAY_COLOR_GREEN_SHIFT 2u
-#define DISPLAY_RGB565_RED_SHIFT 11u
-#define DISPLAY_RGB565_GREEN_SHIFT 5u
-#define DISPLAY_RGB565_GREEN_STEP 21u
-#define DISPLAY_DMA_BUFFER_COUNT 2u
-#define DISPLAY_DMA_TEST_WORDS 8u
+#define DISPLAY_COLOR_RED_SHIFT      4u
+#define DISPLAY_COLOR_GREEN_SHIFT    2u
+#define DISPLAY_RGB565_RED_SHIFT     11u
+#define DISPLAY_RGB565_GREEN_SHIFT   5u
+#define DISPLAY_RGB565_GREEN_STEP    21u
+#define DISPLAY_DMA_BUFFER_COUNT     2u
+#define DISPLAY_DMA_TEST_WORDS       8u
 // Fixed pattern exercises different bytes and every word of one cache line.
-#define DISPLAY_DMA_TEST_TAG 0x5a000000u
+#define DISPLAY_DMA_TEST_TAG  0x5a000000u
 #define DISPLAY_DMA_TEST_STEP 0x010101u
 #define DISPLAY_DMA_TEST_SEED 0x1234u
 // DMA length is encoded as byte count minus one in a 16-bit field.
 #define DISPLAY_DMA_MAX_TRANSFER_BYTES 65536u
-#define DISPLAY_DMA_POLL_COUNT 1000000u
-#define DISPLAY_DMA_LENGTH_SHIFT 16u
-#define DISPLAY_DMA_ENABLE (1u << 0)
-#define DISPLAY_DMA_RESET_RELEASE (1u << 0)
-#define DISPLAY_DMA_CLOCK_GATE_BYPASS (1u << 1)
+#define DISPLAY_DMA_TIMEOUT_TICKS      (T5AI_AON_RTC_HZ / 50u) // 20 ms at every CPU clock.
+#define DISPLAY_DMA_LENGTH_SHIFT       16u
+#define DISPLAY_DMA_ENABLE             (1u << 0)
+#define DISPLAY_DMA_RESET_RELEASE      (1u << 0)
+#define DISPLAY_DMA_CLOCK_GATE_BYPASS  (1u << 1)
 #define DISPLAY_DMA_CHANNEL0_ATTRIBUTE (1u << 0)
-#define DISPLAY_DMA_SRC_WIDTH_32 (2u << 4)
-#define DISPLAY_DMA_DEST_WIDTH_32 (2u << 6)
-#define DISPLAY_DMA_SRC_INCREMENT (1u << 8)
-#define DISPLAY_DMA_DEST_INCREMENT (1u << 9)
-#define DISPLAY_DMA_SRC_LOOP (1u << 10)
-#define DISPLAY_DMA_DEST_LOOP (1u << 11)
-#define DISPLAY_DMA_SRC_SECURE (1u << 20)
-#define DISPLAY_DMA_DEST_SECURE (1u << 21)
-#define DISPLAY_DMA_SRC_BURST_INC16 (3u << 24)
-#define DISPLAY_DMA_DEST_BURST_INC16 (3u << 26)
-#define DISPLAY_DMA_STATUS_FINISH (1u << 18)
+#define DISPLAY_DMA_SRC_WIDTH_32       (2u << 4)
+#define DISPLAY_DMA_DEST_WIDTH_32      (2u << 6)
+#define DISPLAY_DMA_SRC_INCREMENT      (1u << 8)
+#define DISPLAY_DMA_DEST_INCREMENT     (1u << 9)
+#define DISPLAY_DMA_SRC_LOOP           (1u << 10)
+#define DISPLAY_DMA_DEST_LOOP          (1u << 11)
+#define DISPLAY_DMA_SRC_SECURE         (1u << 20)
+#define DISPLAY_DMA_DEST_SECURE        (1u << 21)
+#define DISPLAY_DMA_SRC_BURST_INC16    (3u << 24)
+#define DISPLAY_DMA_DEST_BURST_INC16   (3u << 26)
+#define DISPLAY_DMA_STATUS_FINISH      (1u << 18)
 #define DISPLAY_DMA_STATUS_HALF_FINISH (1u << 19)
-#define DISPLAY_DMA_STATUS_BUS_ERROR (1u << 20)
+#define DISPLAY_DMA_STATUS_BUS_ERROR   (1u << 20)
 #define DISPLAY_DMA_STATUS_CLEAR \
   (DISPLAY_DMA_STATUS_FINISH | DISPLAY_DMA_STATUS_HALF_FINISH | DISPLAY_DMA_STATUS_BUS_ERROR)
 #define DISPLAY_DMA_TRANSFER_CONTROL                                                  \
   (DISPLAY_DMA_SRC_WIDTH_32 | DISPLAY_DMA_DEST_WIDTH_32 | DISPLAY_DMA_SRC_INCREMENT | \
    DISPLAY_DMA_DEST_INCREMENT | DISPLAY_DMA_SRC_LOOP | DISPLAY_DMA_DEST_LOOP)
 
-#define PANEL_WIDTH 466u
-#define PANEL_HEIGHT 466u
+#define PANEL_WIDTH     466u
+#define PANEL_HEIGHT    466u
 #define PANEL_ROW_BYTES (PANEL_WIDTH * PANEL_RGB565_BYTES_PER_PIXEL)
-#define PANEL_DMA_ROWS ((PANEL_HEIGHT + PBL_DISPLAY_HEIGHT - 1u) / PBL_DISPLAY_HEIGHT)
-#define PANEL_DMA_BUFFER_BYTES \
-  ((PANEL_ROW_BYTES * PANEL_DMA_ROWS + DISPLAY_CACHE_LINE_MASK) & ~DISPLAY_CACHE_LINE_MASK)
-#define PANEL_X_OFFSET 6u
+#define PANEL_DMA_ROWS  ((PANEL_HEIGHT + PBL_DISPLAY_HEIGHT - 1u) / PBL_DISPLAY_HEIGHT)
+#define PANEL_DMA_BUFFER_BYTES                                                                     \
+  ((PANEL_ROW_BYTES * PANEL_DMA_ROWS * CONFIG_T5AI_DISPLAY_BATCH_ROWS + DISPLAY_CACHE_LINE_MASK) & \
+   ~DISPLAY_CACHE_LINE_MASK)
+#define PANEL_X_OFFSET  6u
 #define PANEL_RESET_PIN 29u
-#define QSPI_BASE 0x46040000u
-#define QSPI_GLB_CTRL 0x08u
-#define QSPI_CMD_A_L 0x20u
-#define QSPI_CMD_A_H 0x24u
+#define QSPI_BASE       0x46040000u
+#define QSPI_GLB_CTRL   0x08u
+#define QSPI_CMD_A_L    0x20u
+#define QSPI_CMD_A_H    0x24u
 #define QSPI_CMD_A_CFG1 0x28u
 #define QSPI_CMD_A_CFG2 0x2cu
-#define QSPI_CMD_C_L 0x40u
-#define QSPI_CMD_C_H 0x44u
+#define QSPI_CMD_C_L    0x40u
+#define QSPI_CMD_C_H    0x44u
 #define QSPI_CMD_C_CFG1 0x48u
 #define QSPI_CMD_C_CFG2 0x4cu
-#define QSPI_CONFIG 0x60u
-#define QSPI_RST_CFG 0x64u
+#define QSPI_CONFIG     0x60u
+#define QSPI_RST_CFG    0x64u
 #define QSPI_STATUS_CLR 0x6cu
-#define QSPI_STATUS 0x70u
-#define QSPI_FIFO_DATA 0x100u
+#define QSPI_STATUS     0x70u
+#define QSPI_FIFO_DATA  0x100u
 
-#define QSPI_CMD_DONE (1u << 2)
-#define QSPI_CMD_START (1u << 0)
-#define QSPI_DATA_LINE_4 (2u << 14)
-#define QSPI_ENABLE (1u << 0)
-#define QSPI_IO23_ENABLE (1u << 3)
-#define QSPI_FORCE_CS_LOW (1u << 6)
-#define QSPI_DISABLE_CMD_SCK (1u << 16)
+#define QSPI_CMD_DONE          (1u << 2)
+#define QSPI_CMD_START         (1u << 0)
+#define QSPI_DATA_LINE_4       (2u << 14)
+#define QSPI_ENABLE            (1u << 0)
+#define QSPI_IO23_ENABLE       (1u << 3)
+#define QSPI_FORCE_CS_LOW      (1u << 6)
+#define QSPI_DISABLE_CMD_SCK   (1u << 16)
 #define QSPI_IO_CPU_MEM_SELECT (1u << 22)
-#define QSPI_CS_HIGH_WAIT (8u << 24)
-#define QSPI_DATA_APERTURE ((volatile uint32_t *)0x64000000u)
+#define QSPI_CS_HIGH_WAIT      (8u << 24)
+#define QSPI_DATA_APERTURE     ((volatile uint32_t *)0x64000000u)
 
-#define DMA_BASE 0x45020000u
-#define DMA_GLOBAL_CTRL (*(volatile uint32_t *)(DMA_BASE + 0x08u))
-#define DMA_SECURE_ATTR (*(volatile uint32_t *)(DMA_BASE + 0x10u))
+#define DMA_BASE            0x45020000u
+#define DMA_GLOBAL_CTRL     (*(volatile uint32_t *)(DMA_BASE + 0x08u))
+#define DMA_SECURE_ATTR     (*(volatile uint32_t *)(DMA_BASE + 0x10u))
 #define DMA_PRIVILEGED_ATTR (*(volatile uint32_t *)(DMA_BASE + 0x14u))
-#define DMA_CTRL (*(volatile uint32_t *)(DMA_BASE + 0x40u))
-#define DMA_DEST (*(volatile uint32_t *)(DMA_BASE + 0x44u))
-#define DMA_SRC (*(volatile uint32_t *)(DMA_BASE + 0x48u))
-#define DMA_DEST_LOOP_END (*(volatile uint32_t *)(DMA_BASE + 0x4cu))
+#define DMA_CTRL            (*(volatile uint32_t *)(DMA_BASE + 0x40u))
+#define DMA_DEST            (*(volatile uint32_t *)(DMA_BASE + 0x44u))
+#define DMA_SRC             (*(volatile uint32_t *)(DMA_BASE + 0x48u))
+#define DMA_DEST_LOOP_END   (*(volatile uint32_t *)(DMA_BASE + 0x4cu))
 #define DMA_DEST_LOOP_START (*(volatile uint32_t *)(DMA_BASE + 0x50u))
-#define DMA_SRC_LOOP_END (*(volatile uint32_t *)(DMA_BASE + 0x54u))
-#define DMA_SRC_LOOP_START (*(volatile uint32_t *)(DMA_BASE + 0x58u))
-#define DMA_REQ (*(volatile uint32_t *)(DMA_BASE + 0x5cu))
-#define DMA_STATUS (*(volatile uint32_t *)(DMA_BASE + 0x70u))
+#define DMA_SRC_LOOP_END    (*(volatile uint32_t *)(DMA_BASE + 0x54u))
+#define DMA_SRC_LOOP_START  (*(volatile uint32_t *)(DMA_BASE + 0x58u))
+#define DMA_REQ             (*(volatile uint32_t *)(DMA_BASE + 0x5cu))
+#define DMA_STATUS          (*(volatile uint32_t *)(DMA_BASE + 0x70u))
 
-#define SYSTEM_CLK_MODE2 (*(volatile uint32_t *)0x44010024u)
-#define SYSTEM_DEVICE_CLK_ENABLE (*(volatile uint32_t *)0x44010030u)
-#define SYSTEM_DEVICE_MEM_CTRL1 (*(volatile uint32_t *)0x44010038u)
-#define SYSTEM_DEVICE_MEM_CTRL2 (*(volatile uint32_t *)0x4401003cu)
-#define SYSTEM_POWER_SLEEP_WAKEUP (*(volatile uint32_t *)0x44010040u)
+#define SYSTEM_CLK_MODE2             (*(volatile uint32_t *)0x44010024u)
+#define SYSTEM_DEVICE_CLK_ENABLE     (*(volatile uint32_t *)0x44010030u)
+#define SYSTEM_DEVICE_MEM_CTRL1      (*(volatile uint32_t *)0x44010038u)
+#define SYSTEM_DEVICE_MEM_CTRL2      (*(volatile uint32_t *)0x4401003cu)
+#define SYSTEM_POWER_SLEEP_WAKEUP    (*(volatile uint32_t *)0x44010040u)
 #define SYSTEM_CPU1_INTERRUPT_ENABLE (*(volatile uint32_t *)0x44010088u)
-#define SYSTEM_GPIO_FUNCTION_BASE ((volatile uint32_t *)0x440100c0u)
-#define GPIO_BASE ((volatile uint32_t *)0x44000400u)
+#define SYSTEM_GPIO_FUNCTION_BASE    ((volatile uint32_t *)0x440100c0u)
+#define GPIO_BASE                    ((volatile uint32_t *)0x44000400u)
 
 static bool s_initialized;
 static bool s_enabled;
-static bool s_updating;
+static volatile bool s_updating;
 static bool s_rotated;
 static uint8_t s_brightness;
 static PBL_MUTEX_DEFINE(s_panel_mutex);
@@ -198,8 +213,36 @@ static uint32_t s_dma_test_destination[DISPLAY_DMA_TEST_WORDS]
 static uint16_t s_panel_source_x[PANEL_WIDTH];
 static uint8_t s_dma_rows[DISPLAY_DMA_BUFFER_COUNT][PANEL_DMA_BUFFER_BYTES]
     __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
-static bool s_dma_pending;
+static volatile bool s_dma_pending;
+static uint32_t s_dma_started_ticks;
+#ifdef CONFIG_T5AI_DISPLAY_FAULT_TEST
+static uint32_t s_dma_fault_armed_at;
+#endif
+#ifdef CONFIG_T5AI_DISPLAY_DMA_IRQ
+static PBL_SEM_DEFINE(s_dma_done, 0, 1);
+static volatile uint32_t s_dma_irq_status;
+#ifdef CONFIG_T5AI_DRAW_PROFILE
+static volatile uint32_t s_dma_irq_count, s_dma_sleep_count;
+void t5ai_display_dma_profile_dump(void) {
+  PBL_LOG_DBG("T5DMAIRQ interrupts=%lu sleeps=%lu", (unsigned long)s_dma_irq_count,
+              (unsigned long)s_dma_sleep_count);
+}
+#endif
+void display_co5300_dma_irq(void) {
+  const uint32_t status = DMA_STATUS & DISPLAY_DMA_STATUS_CLEAR;
+  if (!s_dma_pending || !status)
+    return;
+#ifdef CONFIG_T5AI_DRAW_PROFILE
+  ++s_dma_irq_count;
+#endif
+  s_dma_irq_status |= status;
+  DMA_STATUS = status;
+  pbl_sem_give(&s_dma_done);
+}
+#endif
 static unsigned s_dma_buffer;
+static size_t s_batch_bytes;
+static unsigned s_batch_rows;
 
 #ifdef CONFIG_T5AI_DISPLAY_PROFILE
 // Opt-in counters and per-update UART timing diagnostics.
@@ -222,6 +265,81 @@ static uint32_t prv_draw_ticks(void) {
 static uint16_t s_rgb565[DISPLAY_COLOR_COUNT];
 static bool s_dma_display_enabled;
 static bool s_dma_display_failed;
+#ifdef CONFIG_T5AI_DISPLAY_ROTATED_DMA
+static DisplayRow s_rotated_rows[PBL_DISPLAY_HEIGHT]
+    __attribute__((section(".t5ai_board_cache"), aligned(32)));
+static unsigned s_rotated_count, s_rotated_next;
+static bool s_rotated_reverse;
+static bool prv_rotated_next_row(DisplayRow *row) {
+  if (s_rotated_next == s_rotated_count)
+    return false;
+  const unsigned i = s_rotated_reverse ? s_rotated_count - 1u - s_rotated_next : s_rotated_next;
+  *row = s_rotated_rows[i];
+  ++s_rotated_next;
+  return true;
+}
+#endif
+#ifdef CONFIG_T5AI_DISPLAY_WORKER
+static PBL_SEM_DEFINE(s_display_work, 0, 1);
+static PBL_SEM_DEFINE(s_display_gate, 1, 1);
+static struct pbl_thread s_display_worker;
+PBL_THREAD_STACK_DEFINE(s_display_stack, 2048);
+static DisplayRow s_worker_rows[PBL_DISPLAY_HEIGHT]
+    __attribute__((section(".t5ai_board_cache"), aligned(32)));
+static unsigned s_worker_count, s_worker_next;
+#ifdef CONFIG_T5AI_IO_PROFILE
+static uint32_t s_worker_queued_at;
+#endif
+static UpdateCompleteCallback s_worker_complete;
+static bool s_worker_ready;
+static void prv_display_worker(void *arg);
+#endif
+#ifdef CONFIG_T5AI_DISPLAY_RECOVERY
+#ifdef CONFIG_T5AI_DISPLAY_WORKER
+#define s_replay_rows s_worker_rows
+#else
+static DisplayRow s_replay_rows[PBL_DISPLAY_HEIGHT]
+    __attribute__((section(".t5ai_board_cache"), aligned(32)));
+#endif
+static unsigned s_replay_count, s_replay_next;
+static uint32_t s_dma_retry_at, s_dma_retry_count, s_dma_recoveries, s_dma_errors;
+static bool prv_replay_next_row(DisplayRow *row) {
+  if (s_replay_next == s_replay_count)
+    return false;
+  *row = s_replay_rows[s_replay_next++];
+  return true;
+}
+#endif
+static void prv_dma_failed(void) {
+  s_dma_display_failed = true;
+  s_dma_display_enabled = false;
+#ifdef CONFIG_T5AI_DISPLAY_RECOVERY
+  s_dma_retry_at = T5AI_AON_RTC_COUNT_LOW;
+  ++s_dma_errors;
+#endif
+}
+static bool prv_dma_requested(void) {
+#ifdef CONFIG_T5AI_DISPLAY_RECOVERY
+  return true;
+#else
+  return s_dma_display_enabled && !s_dma_display_failed;
+#endif
+}
+
+static void prv_panel_lock(void) {
+#ifdef CONFIG_T5AI_DISPLAY_WORKER
+  if (s_worker_ready)
+    (void)pbl_sem_take(&s_display_gate, PBL_FOREVER);
+#endif
+  pbl_mutex_lock(&s_panel_mutex, PBL_FOREVER);
+}
+static void prv_panel_unlock(void) {
+  pbl_mutex_unlock(&s_panel_mutex);
+#ifdef CONFIG_T5AI_DISPLAY_WORKER
+  if (s_worker_ready)
+    pbl_sem_give(&s_display_gate);
+#endif
+}
 
 static volatile uint32_t *prv_qspi(uint32_t offset) {
   return (volatile uint32_t *)(QSPI_BASE + offset);
@@ -311,28 +429,28 @@ static void prv_apply_brightness(void) {
 void display_co5300_set_brightness(uint8_t level) {
   // Before display_init(), only cache the requested level.
   if (s_panel_mutex_ready) {
-    pbl_mutex_lock(&s_panel_mutex, PBL_FOREVER);
+    prv_panel_lock();
   }
   s_brightness = level;
   s_brightness_dirty = true;
   prv_apply_brightness();
   if (s_panel_mutex_ready) {
-    pbl_mutex_unlock(&s_panel_mutex);
+    prv_panel_unlock();
   }
 }
 
 static bool prv_set_window(uint16_t x0, uint16_t y0, uint16_t x1, uint16_t y1) {
   const uint8_t columns[] = {
-      (uint8_t)(x0 >> 8),
-      (uint8_t)x0,
-      (uint8_t)(x1 >> 8),
-      (uint8_t)x1,
+    (uint8_t)(x0 >> 8),
+    (uint8_t)x0,
+    (uint8_t)(x1 >> 8),
+    (uint8_t)x1,
   };
   const uint8_t rows[] = {
-      (uint8_t)(y0 >> 8),
-      (uint8_t)y0,
-      (uint8_t)(y1 >> 8),
-      (uint8_t)y1,
+    (uint8_t)(y0 >> 8),
+    (uint8_t)y0,
+    (uint8_t)(y1 >> 8),
+    (uint8_t)y1,
   };
   return prv_register(PANEL_DCS_COLUMN_ADDRESS, columns, sizeof(columns)) &&
          prv_register(PANEL_DCS_ROW_ADDRESS, rows, sizeof(rows));
@@ -360,9 +478,8 @@ static void prv_init_conversion_tables(void) {
   }
 }
 
-static void __attribute__((section(".t5ai_ramfunc"), noinline, optimize("O3")))
-prv_convert_row(uint8_t *destination, const uint8_t *source, bool reverse,
-                bool invert_colors) {
+static void __attribute__((section(".t5ai_ramfunc"), noinline, optimize("O3"))) prv_convert_row(
+    uint8_t *destination, const uint8_t *source, bool reverse, bool invert_colors) {
   TRANSFER_BEGIN(convert_start);
   uint16_t *output = (uint16_t *)destination;
   unsigned previous_source_x = PBL_DISPLAY_WIDTH;
@@ -432,7 +549,7 @@ static void prv_dcache_clean(const void *address, size_t size) {
       ((uintptr_t)address + size + DISPLAY_CACHE_LINE_MASK) & ~(uintptr_t)DISPLAY_CACHE_LINE_MASK;
   __asm volatile("dsb 0xf" ::: "memory");
   for (uintptr_t line = first; line < end; line += T5AI_SHARED_ALIGNMENT) {
-    DISPLAY_SCB_DCCMVAC = (uint32_t)line;  // SCB DCCMVAC
+    DISPLAY_SCB_DCCMVAC = (uint32_t)line; // SCB DCCMVAC
   }
   __asm volatile("dsb 0xf\nisb 0xf" ::: "memory");
 }
@@ -446,7 +563,7 @@ static void prv_dcache_invalidate(const void *address, size_t size) {
       ((uintptr_t)address + size + DISPLAY_CACHE_LINE_MASK) & ~(uintptr_t)DISPLAY_CACHE_LINE_MASK;
   __asm volatile("dsb 0xf" ::: "memory");
   for (uintptr_t line = first; line < end; line += T5AI_SHARED_ALIGNMENT) {
-    DISPLAY_SCB_DCIMVAC = (uint32_t)line;  // SCB DCIMVAC
+    DISPLAY_SCB_DCIMVAC = (uint32_t)line; // SCB DCIMVAC
   }
   __asm volatile("dsb 0xf\nisb 0xf" ::: "memory");
 }
@@ -485,15 +602,17 @@ static bool prv_dma_self_test(void) {
   __asm volatile("dsb 0xf" ::: "memory");
   DMA_CTRL |= DISPLAY_DMA_ENABLE;
 
-  unsigned timeout = DISPLAY_DMA_POLL_COUNT;
-  while ((DMA_CTRL & DISPLAY_DMA_ENABLE) && --timeout) {
+  const uint32_t wait_started = T5AI_AON_RTC_COUNT_LOW;
+  while ((DMA_CTRL & DISPLAY_DMA_ENABLE) &&
+         (uint32_t)(T5AI_AON_RTC_COUNT_LOW - wait_started) < DISPLAY_DMA_TIMEOUT_TICKS) {
   }
+  const bool timed_out = (DMA_CTRL & DISPLAY_DMA_ENABLE) != 0u;
   const uint32_t status = DMA_STATUS;
   DMA_CTRL = 0u;
   prv_dcache_invalidate(s_dma_test_destination, sizeof(s_dma_test_destination));
-  const bool matches = memcmp(s_dma_test_source, s_dma_test_destination,
-                              sizeof(s_dma_test_source)) == 0;
-  return matches && timeout != 0u && (status & DISPLAY_DMA_STATUS_BUS_ERROR) == 0u;
+  const bool matches =
+      memcmp(s_dma_test_source, s_dma_test_destination, sizeof(s_dma_test_source)) == 0;
+  return matches && !timed_out && (status & DISPLAY_DMA_STATUS_BUS_ERROR) == 0u;
 }
 
 static void prv_pixel_stream_start_dma(const uint8_t *data, size_t length) {
@@ -521,9 +640,16 @@ static void prv_pixel_stream_start_dma(const uint8_t *data, size_t length) {
   DMA_REQ = prv_dma_request_configuration();
   DMA_CTRL = ((uint32_t)(length - 1u) << DISPLAY_DMA_LENGTH_SHIFT) | DISPLAY_DMA_TRANSFER_CONTROL;
   __asm volatile("dsb 0xf" ::: "memory");
-  DMA_CTRL |= DISPLAY_DMA_ENABLE;
-
+#ifdef CONFIG_T5AI_DISPLAY_DMA_IRQ
+  while (pbl_sem_take(&s_dma_done, PBL_NO_WAIT) == 0) {
+  }
+  s_dma_irq_status = 0u;
+  DMA_CTRL |= 1u << 1; // Finish interrupt, pinned BK7258 AP DMA CTRL bit 1.
+#endif
+  s_dma_started_ticks = T5AI_AON_RTC_COUNT_LOW;
   s_dma_pending = true;
+  __asm volatile("dsb 0xf" ::: "memory");
+  DMA_CTRL |= DISPLAY_DMA_ENABLE;
 #ifdef CONFIG_T5AI_DISPLAY_PROFILE
   s_dma_started_cycles = DWT->CYCCNT;
   s_transfer.bytes += length;
@@ -538,9 +664,20 @@ static bool prv_pixel_stream_finish_dma(size_t *aperture_word, size_t length) {
     return true;
   }
   TRANSFER_BEGIN(wait_start);
-  unsigned timeout = DISPLAY_DMA_POLL_COUNT;
-  while ((DMA_CTRL & DISPLAY_DMA_ENABLE) && --timeout) {
+  while ((DMA_CTRL & DISPLAY_DMA_ENABLE) &&
+         (uint32_t)(T5AI_AON_RTC_COUNT_LOW - s_dma_started_ticks) < DISPLAY_DMA_TIMEOUT_TICKS) {
+#ifdef CONFIG_T5AI_DISPLAY_DMA_IRQ
+#ifdef CONFIG_T5AI_DRAW_PROFILE
+    ++s_dma_sleep_count;
+#endif
+    (void)pbl_sem_take(&s_dma_done, PBL_MSEC(1));
+#endif
   }
+  const bool timed_out = (DMA_CTRL & DISPLAY_DMA_ENABLE) != 0u;
+  uint32_t completion_status = DMA_STATUS;
+#ifdef CONFIG_T5AI_DISPLAY_DMA_IRQ
+  completion_status |= s_dma_irq_status;
+#endif
 #ifdef CONFIG_T5AI_DISPLAY_PROFILE
   const uint32_t waited = DWT->CYCCNT - wait_start;
   s_transfer.wait_cycles += waited;
@@ -548,7 +685,16 @@ static bool prv_pixel_stream_finish_dma(size_t *aperture_word, size_t length) {
     s_transfer.wait_max_cycles = waited;
   s_transfer.observed_cycles += (uint32_t)(DWT->CYCCNT - s_dma_started_cycles);
 #endif
-  const bool complete = timeout != 0u && (DMA_STATUS & DISPLAY_DMA_STATUS_BUS_ERROR) == 0u;
+  bool complete = !timed_out && (completion_status & DISPLAY_DMA_STATUS_BUS_ERROR) == 0u;
+#ifdef CONFIG_T5AI_DISPLAY_FAULT_TEST
+  static bool injected;
+  if (complete && !injected &&
+      (uint32_t)(T5AI_AON_RTC_COUNT_LOW - s_dma_fault_armed_at) > 8u * T5AI_AON_RTC_HZ) {
+    // Synthetic completion failure only after real DMA has stopped successfully.
+    injected = true;
+    complete = false;
+  }
+#endif
   DMA_CTRL = 0u;
   s_dma_pending = false;
   if (complete) {
@@ -563,22 +709,30 @@ static bool prv_pixel_stream_finish_dma(size_t *aperture_word, size_t length) {
 
 static size_t s_dma_pending_bytes;
 
-static bool prv_finish_row_dma(size_t *aperture_word) {
-  return prv_pixel_stream_finish_dma(aperture_word, s_dma_pending_bytes);
-}
-
-static bool prv_send_panel_row(void) {
-  if (!prv_pixel_stream_begin()) {
+static bool prv_flush_dma_batch(size_t *aperture_word) {
+  if (!s_batch_bytes)
+    return true;
+  if (!prv_pixel_stream_finish_dma(aperture_word, s_dma_pending_bytes)) {
+    s_batch_bytes = s_batch_rows = 0u;
     return false;
   }
-  size_t aperture_word = 0u;
-  aperture_word = prv_pixel_stream_write(s_panel_row, sizeof(s_panel_row), aperture_word);
-  prv_pixel_stream_end();
+  uint8_t *buffer = s_dma_rows[s_dma_buffer];
+  TRANSFER_BEGIN(clean_start);
+  prv_dcache_clean(buffer, s_batch_bytes);
+  TRANSFER_END(clean_cycles, clean_start);
+  prv_pixel_stream_start_dma(buffer, s_batch_bytes);
+  s_dma_pending_bytes = s_batch_bytes;
+  s_batch_bytes = s_batch_rows = 0u;
+  s_dma_buffer ^= 1u;
   return true;
 }
 
-static bool prv_send_logical_row(uint16_t logical_y, const uint8_t *data,
-                                 bool invert_colors) {
+static bool prv_finish_row_dma(size_t *aperture_word) {
+  return prv_flush_dma_batch(aperture_word) &&
+         prv_pixel_stream_finish_dma(aperture_word, s_dma_pending_bytes);
+}
+
+static bool prv_send_logical_row(uint16_t logical_y, const uint8_t *data, bool invert_colors) {
   const uint16_t mapped_y = s_rotated ? PBL_DISPLAY_HEIGHT - 1u - logical_y : logical_y;
   const uint16_t y0 = (mapped_y * PANEL_HEIGHT + PBL_DISPLAY_HEIGHT - 1u) / PBL_DISPLAY_HEIGHT;
   const uint16_t y1 =
@@ -587,23 +741,74 @@ static bool prv_send_logical_row(uint16_t logical_y, const uint8_t *data,
   if (!prv_set_window(PANEL_X_OFFSET, y0, PANEL_X_OFFSET + PANEL_WIDTH - 1u, y1)) {
     return false;
   }
-  for (uint16_t y = y0; y <= y1; ++y) {
-    if (!prv_send_panel_row()) {
-      return false;
-    }
+  if (!prv_pixel_stream_begin()) {
+    return false;
   }
+  size_t aperture_word = 0u;
+  for (uint16_t y = y0; y <= y1; ++y) {
+    aperture_word = prv_pixel_stream_write(s_panel_row, sizeof(s_panel_row), aperture_word);
+  }
+  prv_pixel_stream_end();
   return true;
 }
 
-static bool prv_stream_logical_row(uint16_t logical_y, const uint8_t *data,
-                                   size_t *aperture_word, bool use_dma,
-                                   bool invert_colors) {
-  const uint16_t y0 =
-      (logical_y * PANEL_HEIGHT + PBL_DISPLAY_HEIGHT - 1u) / PBL_DISPLAY_HEIGHT;
+static uint16_t prv_panel_row_start(uint16_t y);
+#if defined(CONFIG_T5AI_DISPLAY_RECOVERY) || defined(CONFIG_T5AI_DISPLAY_ROTATED_DMA)
+static bool prv_replay_dma_row(const DisplayRow *row, bool invert_colors) {
+  const uint16_t y = s_rotated ? PBL_DISPLAY_HEIGHT - 1u - row->address : row->address;
+  const uint16_t y0 = prv_panel_row_start(y), y1 = prv_panel_row_start(y + 1u) - 1u;
+  prv_convert_row(s_dma_rows[0], row->data, s_rotated, invert_colors);
+  const size_t length = (y1 - y0 + 1u) * PANEL_ROW_BYTES;
+  if (y1 != y0)
+    t5_row_copy(s_dma_rows[0] + PANEL_ROW_BYTES, s_dma_rows[0], PANEL_ROW_BYTES);
+  if (!prv_set_window(PANEL_X_OFFSET, y0, PANEL_X_OFFSET + PANEL_WIDTH - 1u, y1) ||
+      !prv_pixel_stream_begin())
+    return false;
+  prv_dcache_clean(s_dma_rows[0], length);
+  prv_pixel_stream_start_dma(s_dma_rows[0], length);
+  size_t aperture = 0u;
+  const bool complete = prv_pixel_stream_finish_dma(&aperture, length);
+  prv_pixel_stream_end();
+  return complete;
+}
+#endif
+#ifdef CONFIG_T5AI_DISPLAY_RECOVERY
+static bool prv_recover_dma_frame(bool invert_colors) {
+  s_batch_bytes = s_batch_rows = 0u;
+  while (s_dma_retry_count < 3u) {
+    if (s_dma_retry_count) {
+      while ((uint32_t)(T5AI_AON_RTC_COUNT_LOW - s_dma_retry_at) < T5AI_AON_RTC_HZ) {
+        pbl_thread_sleep(PBL_MSEC(1));
+      }
+    }
+    s_dma_retry_at = T5AI_AON_RTC_COUNT_LOW;
+    ++s_dma_retry_count;
+    prv_dma_init();
+    if (!prv_dma_self_test())
+      continue;
+    unsigned i = 0u;
+    for (; i < s_replay_count; ++i) {
+      if (!prv_replay_dma_row(&s_replay_rows[i], invert_colors))
+        break;
+    }
+    if (i != s_replay_count)
+      continue;
+    s_dma_display_failed = false;
+    s_dma_display_enabled = true;
+    ++s_dma_recoveries;
+    return true;
+  }
+  return false;
+}
+#endif
+
+static bool prv_stream_logical_row(uint16_t logical_y, const uint8_t *data, size_t *aperture_word,
+                                   bool use_dma, bool invert_colors, bool reverse) {
+  const uint16_t y0 = (logical_y * PANEL_HEIGHT + PBL_DISPLAY_HEIGHT - 1u) / PBL_DISPLAY_HEIGHT;
   const uint16_t y1 =
       ((logical_y + 1u) * PANEL_HEIGHT + PBL_DISPLAY_HEIGHT - 1u) / PBL_DISPLAY_HEIGHT - 1u;
   if (!use_dma) {
-    prv_convert_row(s_panel_row, data, false, invert_colors);
+    prv_convert_row(s_panel_row, data, reverse, invert_colors);
     for (uint16_t y = y0; y <= y1; ++y) {
       *aperture_word = prv_pixel_stream_write(s_panel_row, sizeof(s_panel_row), *aperture_word);
     }
@@ -611,24 +816,18 @@ static bool prv_stream_logical_row(uint16_t logical_y, const uint8_t *data,
   }
 
   // The other buffer remains owned by GDMA while this row is prepared.
-  uint8_t *buffer = s_dma_rows[s_dma_buffer];
+  uint8_t *buffer = s_dma_rows[s_dma_buffer] + s_batch_bytes;
   const size_t length = (y1 - y0 + 1u) * PANEL_ROW_BYTES;
-  prv_convert_row(buffer, data, false, invert_colors);
+  prv_convert_row(buffer, data, reverse, invert_colors);
   TRANSFER_BEGIN(copy_start);
   for (uint16_t y = y0 + 1u; y <= y1; ++y) {
-    memcpy(buffer + (y - y0) * PANEL_ROW_BYTES, buffer, PANEL_ROW_BYTES);
+    t5_row_copy(buffer + (y - y0) * PANEL_ROW_BYTES, buffer, PANEL_ROW_BYTES);
   }
   TRANSFER_END(copy_cycles, copy_start);
-  TRANSFER_BEGIN(clean_start);
-  prv_dcache_clean(buffer, length);
-  TRANSFER_END(clean_cycles, clean_start);
-  if (!prv_finish_row_dma(aperture_word)) {
-    return false;
-  }
-  prv_pixel_stream_start_dma(buffer, length);
-  s_dma_pending_bytes = length;
-  s_dma_buffer ^= 1u;
-  return true;
+  s_batch_bytes += length;
+  ++s_batch_rows;
+  PBL_ASSERTN(s_batch_bytes <= PANEL_DMA_BUFFER_BYTES);
+  return s_batch_rows < CONFIG_T5AI_DISPLAY_BATCH_ROWS || prv_flush_dma_batch(aperture_word);
 }
 
 static uint16_t prv_panel_row_start(uint16_t logical_y) {
@@ -671,7 +870,7 @@ static bool prv_qspi_init(void) {
   *prv_qspi(QSPI_CONFIG) = QSPI_CS_HIGH_WAIT | QSPI_ENABLE | QSPI_IO23_ENABLE;
   SYSTEM_CLK_MODE2 = (SYSTEM_CLK_MODE2 & ~(QSPI_CLOCK_DIVIDER_MASK | QSPI_CLOCK_SOURCE_PLL)) |
                      (QSPI_CLOCK_DIVIDER_80MHZ << QSPI_CLOCK_DIVIDER_SHIFT) |
-                     QSPI_CLOCK_SOURCE_PLL;  // 480 MHz / (5 + 1) = 80 MHz.
+                     QSPI_CLOCK_SOURCE_PLL; // 480 MHz / (5 + 1) = 80 MHz.
   *prv_qspi(QSPI_CMD_A_L) = 0;
   *prv_qspi(QSPI_CMD_A_H) = 0;
   *prv_qspi(QSPI_CMD_A_CFG1) = QSPI_COMMAND_A_LINE_CONFIG;
@@ -695,17 +894,17 @@ static bool prv_panel_init(void) {
     uint8_t command;
     uint8_t value;
   } init[] = {
-      // Pinned Waveshare CO5300 page/tuning sequence; vendor bytes remain table data.
-      {0xfe, 0x20},
-      {0x19, 0x10},
-      {0x1c, 0xa0},
-      {0xfe, 0x00},
-      {0xc4, 0x80},
-      {PANEL_DCS_PIXEL_FORMAT, PANEL_PIXEL_FORMAT_RGB565},
-      {PANEL_DCS_TEARING_ON, 0x00},
-      {PANEL_DCS_CONTROL_DISPLAY, PANEL_CONTROL_BRIGHTNESS_ENABLE},
-      {PANEL_DCS_BRIGHTNESS, s_brightness},
-      {0x63, 0xff},
+    // Pinned Waveshare CO5300 page/tuning sequence; vendor bytes remain table data.
+    {0xfe, 0x20},
+    {0x19, 0x10},
+    {0x1c, 0xa0},
+    {0xfe, 0x00},
+    {0xc4, 0x80},
+    {PANEL_DCS_PIXEL_FORMAT, PANEL_PIXEL_FORMAT_RGB565},
+    {PANEL_DCS_TEARING_ON, 0x00},
+    {PANEL_DCS_CONTROL_DISPLAY, PANEL_CONTROL_BRIGHTNESS_ENABLE},
+    {PANEL_DCS_BRIGHTNESS, s_brightness},
+    {0x63, 0xff},
   };
   for (unsigned i = 0; i < sizeof(init) / sizeof(init[0]); ++i) {
     if (!prv_register(init[i].command, &init[i].value, 1)) {
@@ -724,6 +923,31 @@ static bool prv_panel_init(void) {
          prv_register(PANEL_DCS_DISPLAY_ON, NULL, 0);
 }
 
+#ifdef CONFIG_T5AI_DISPLAY_MEMORY_BENCH
+static void prv_memory_benchmark(void) {
+  // Volatile function pointer keeps the exact linked libc implementation callable.
+  void *(*volatile stock_copy)(void *, const void *, size_t) = memcpy;
+  void *(*volatile stock_fill)(void *, int, size_t) = memset;
+  for (unsigned mode = 0; mode < 4u; ++mode) {
+    uint32_t start = (uint32_t)t5ai_rtc_get_raw_ticks();
+    for (unsigned i = 0; i < 1024u; ++i) {
+      if (mode == 0u)
+        stock_copy(s_dma_rows[1], s_dma_rows[0], PANEL_ROW_BYTES);
+      if (mode == 1u)
+        t5_row_copy(s_dma_rows[1], s_dma_rows[0], PANEL_ROW_BYTES);
+      if (mode == 2u)
+        stock_fill(s_dma_rows[1], i, PANEL_ROW_BYTES);
+      if (mode == 3u)
+        t5_row_fill(s_dma_rows[1], i, PANEL_ROW_BYTES);
+      __asm volatile("" ::: "memory");
+    }
+    const uint32_t elapsed = (uint32_t)t5ai_rtc_get_raw_ticks() - start;
+    PBL_LOG_DBG("T5MEM mode=%u bytes=%u repeats=%u ticks=%lu", mode, (unsigned)PANEL_ROW_BYTES,
+                1024u, (unsigned long)elapsed);
+  }
+}
+#endif
+
 void display_init(void) {
   s_panel_mutex_ready = true;
   pbl_mutex_lock(&s_panel_mutex, PBL_FOREVER);
@@ -734,8 +958,25 @@ void display_init(void) {
   if (!s_brightness_dirty) {
     s_brightness = T5AI_AMOLED_MIN_BRIGHTNESS;
   }
+#ifdef CONFIG_T5AI_DISPLAY_MEMORY_BENCH
+  prv_memory_benchmark();
+#endif
   prv_dma_init();
   s_dma_display_enabled = prv_dma_self_test();
+#ifdef CONFIG_T5AI_DISPLAY_FAULT_TEST
+  s_dma_fault_armed_at = T5AI_AON_RTC_COUNT_LOW;
+#endif
+#ifdef CONFIG_T5AI_DISPLAY_RECOVERY
+  if (!s_dma_display_enabled)
+    prv_dma_failed();
+#endif
+#ifdef CONFIG_T5AI_DISPLAY_DMA_IRQ
+  *(volatile uint32_t *)(DMA_BASE + 0x28u) &= ~1u; // Only channel zero routes to secure GDMA IRQ0.
+  SYSTEM_CPU1_INTERRUPT_ENABLE |= 1u << 11;
+  NVIC_ClearPendingIRQ(GDMA_IRQn);
+  NVIC_SetPriority(GDMA_IRQn, 6u);
+  NVIC_EnableIRQ(GDMA_IRQn);
+#endif
   prv_init_conversion_tables();
   s_initialized = prv_qspi_init() && prv_panel_init();
   s_enabled = s_initialized;
@@ -744,15 +985,31 @@ void display_init(void) {
     PBL_LOG_ERR("CO5300 initialization failed");
   }
   pbl_mutex_unlock(&s_panel_mutex);
+  if (!s_dma_display_enabled) {
+    PBL_LOG_WRN("T5 display DMA self-test failed");
+  }
+#ifdef CONFIG_T5AI_DISPLAY_WORKER
+  if (!s_worker_ready && s_initialized) {
+    const struct pbl_thread_attr attr = {
+      .name = "Display",
+      .entry = prv_display_worker,
+      .prio = PBL_PRIO_IDLE + 3,
+      .privileged = true,
+      .stack = s_display_stack,
+      .stack_size = sizeof(s_display_stack)
+    };
+    PBL_ASSERTN(pbl_thread_create(&s_display_worker, &attr) == 0);
+    s_worker_ready = true;
+  }
+#endif
 }
 
 static void prv_display_clear(void) {
   if (!s_initialized) {
     return;
   }
-  memset(s_panel_row, 0, sizeof(s_panel_row));
-  if (!prv_set_window(PANEL_X_OFFSET, 0u, PANEL_X_OFFSET + PANEL_WIDTH - 1u,
-                      PANEL_HEIGHT - 1u) ||
+  t5_row_fill(s_panel_row, 0, sizeof(s_panel_row));
+  if (!prv_set_window(PANEL_X_OFFSET, 0u, PANEL_X_OFFSET + PANEL_WIDTH - 1u, PANEL_HEIGHT - 1u) ||
       !prv_pixel_stream_begin()) {
     return;
   }
@@ -764,9 +1021,9 @@ static void prv_display_clear(void) {
 }
 
 void display_clear(void) {
-  pbl_mutex_lock(&s_panel_mutex, PBL_FOREVER);
+  prv_panel_lock();
   prv_display_clear();
-  pbl_mutex_unlock(&s_panel_mutex);
+  prv_panel_unlock();
 }
 
 static void prv_display_set_enabled(bool enabled) {
@@ -779,13 +1036,15 @@ static void prv_display_set_enabled(bool enabled) {
 }
 
 void display_set_enabled(bool enabled) {
-  pbl_mutex_lock(&s_panel_mutex, PBL_FOREVER);
+  prv_panel_lock();
   prv_display_set_enabled(enabled);
-  pbl_mutex_unlock(&s_panel_mutex);
+  prv_panel_unlock();
 }
 
 void display_set_rotated(bool rotated) {
+  prv_panel_lock();
   s_rotated = rotated;
+  prv_panel_unlock();
 }
 
 static bool prv_profile_next_row(NextRowCallback callback, DisplayRow *row) {
@@ -798,18 +1057,37 @@ static bool prv_profile_next_row(NextRowCallback callback, DisplayRow *row) {
   return result;
 }
 
-static void prv_display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb,
-                               bool use_dma, bool invert_colors) {
+static void prv_display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb, bool use_dma,
+                               bool invert_colors, bool queued) {
   TRANSFER_BEGIN(lock_start);
   pbl_mutex_lock(&s_panel_mutex, PBL_FOREVER);
+  PBL_ASSERTN(queued || !s_updating);
+  s_updating = true;
+#ifndef CONFIG_T5AI_DISPLAY_RECOVERY
+  const bool was_failed = s_dma_display_failed;
+#endif
+#ifdef CONFIG_T5AI_DISPLAY_RECOVERY
+  const uint32_t errors_before = s_dma_errors, recoveries_before = s_dma_recoveries;
+  const uint32_t retries_before = s_dma_retry_count;
+  const bool dma_requested = use_dma;
+  use_dma = use_dma && s_dma_display_enabled && !s_dma_display_failed;
+  const bool transport_blocked = dma_requested && !use_dma;
+  s_replay_count = s_replay_next = 0u;
+  DisplayRow saved;
+  while (s_initialized && nrcb(&saved)) {
+    if (saved.address >= PBL_DISPLAY_HEIGHT)
+      break;
+    PBL_ASSERTN(s_replay_count < PBL_DISPLAY_HEIGHT);
+    s_replay_rows[s_replay_count++] = saved;
+  }
+  nrcb = prv_replay_next_row;
+#endif
 #ifdef CONFIG_T5AI_DISPLAY_PROFILE
   memset(&s_transfer, 0, sizeof(s_transfer));
   s_transfer.dma_frames = use_dma && !s_rotated;
   s_transfer.cpu_frames = !use_dma || s_rotated;
 #endif
   TRANSFER_END(lock_cycles, lock_start);
-  PBL_ASSERTN(!s_updating);
-  s_updating = true;
 #ifdef CONFIG_T5AI_DISPLAY_PROFILE
   const uint32_t frame_start = prv_draw_ticks();
   if (s_have_frame_start) {
@@ -819,10 +1097,44 @@ static void prv_display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb
   s_last_frame_start = frame_start;
 #endif
   DisplayRow row;
+  bool rotated_stream = false;
+#ifdef CONFIG_T5AI_DISPLAY_ROTATED_DMA
+  if (s_initialized && s_rotated) {
+    TRANSFER_BEGIN(rotated_prepare);
+    s_rotated_count = s_rotated_next = 0u;
+    s_rotated_reverse = true;
+    uint16_t previous = 0u;
+    while (nrcb(&row)) {
+      if (row.address >= PBL_DISPLAY_HEIGHT)
+        break;
+      PBL_ASSERTN(s_rotated_count < PBL_DISPLAY_HEIGHT);
+      if (s_rotated_count && row.address <= previous)
+        s_rotated_reverse = false;
+      previous = row.address;
+      s_rotated_rows[s_rotated_count++] = row;
+    }
+    nrcb = prv_rotated_next_row;
+    rotated_stream = s_rotated_reverse;
+    TRANSFER_END(next_cycles, rotated_prepare);
+  }
+#endif
+#ifdef CONFIG_T5AI_DISPLAY_PROFILE
+#ifdef CONFIG_T5AI_DISPLAY_ROTATED_DMA
+  s_transfer.dma_frames = use_dma;
+  s_transfer.cpu_frames = !use_dma;
+#else
+  s_transfer.dma_frames = use_dma && !s_rotated;
+  s_transfer.cpu_frames = !use_dma || s_rotated;
+#endif
+#endif
   bool full_stream = false;
   size_t aperture_word = 0u;
   uint16_t expected_row = 0u;
-  while (s_initialized && prv_profile_next_row(nrcb, &row)) {
+  while (s_initialized &&
+#ifdef CONFIG_T5AI_DISPLAY_RECOVERY
+         !transport_blocked &&
+#endif
+         prv_profile_next_row(nrcb, &row)) {
     if (row.address >= PBL_DISPLAY_HEIGHT) {
       break;
     }
@@ -830,44 +1142,55 @@ static void prv_display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb
     // Compositor updates commonly begin below row zero. Start one continuous
     // stream at the first dirty row instead of paying three polled register
     // commands and a separate pixel transaction for every logical row.
-    if (!s_rotated && !full_stream) {
-      const uint16_t panel_y = prv_panel_row_start(row.address);
-      full_stream = prv_set_window(PANEL_X_OFFSET, panel_y,
-                                   PANEL_X_OFFSET + PANEL_WIDTH - 1u,
+    const uint16_t stream_y = rotated_stream ? PBL_DISPLAY_HEIGHT - 1u - row.address : row.address;
+    if ((!s_rotated || rotated_stream) && !full_stream) {
+      const uint16_t panel_y = prv_panel_row_start(stream_y);
+      full_stream = prv_set_window(PANEL_X_OFFSET, panel_y, PANEL_X_OFFSET + PANEL_WIDTH - 1u,
                                    PANEL_HEIGHT - 1u) &&
                     prv_pixel_stream_begin();
-      expected_row = row.address;
+      expected_row = stream_y;
     }
-    if (full_stream && row.address == expected_row) {
-      if (!prv_stream_logical_row(row.address, row.data, &aperture_word, use_dma,
-                                  invert_colors)) {
-        s_dma_display_failed = true;
-        s_dma_display_enabled = false;
+    if (full_stream && stream_y == expected_row) {
+      if (!prv_stream_logical_row(stream_y, row.data, &aperture_word, use_dma, invert_colors,
+                                  rotated_stream)) {
+        prv_dma_failed();
         break;
       }
       expected_row++;
     } else {
       if (full_stream) {
         if (!prv_finish_row_dma(&aperture_word)) {
-          s_dma_display_failed = true;
-          s_dma_display_enabled = false;
+          prv_dma_failed();
           break;
         }
         prv_pixel_stream_end();
         full_stream = false;
       }
-      if (!prv_send_logical_row(row.address, row.data, invert_colors)) {
+#ifdef CONFIG_T5AI_DISPLAY_ROTATED_DMA
+      if (use_dma) {
+        if (!prv_replay_dma_row(&row, invert_colors)) {
+          prv_dma_failed();
+          break;
+        }
+      } else
+#endif
+          if (!prv_send_logical_row(row.address, row.data, invert_colors)) {
         break;
       }
     }
   }
   if (full_stream) {
     if (!prv_finish_row_dma(&aperture_word)) {
-      s_dma_display_failed = true;
-      s_dma_display_enabled = false;
+      prv_dma_failed();
     }
     prv_pixel_stream_end();
   }
+#ifdef CONFIG_T5AI_DISPLAY_RECOVERY
+  if (dma_requested && s_dma_display_failed) {
+    // Retain ownership throughout bounded retries; never use the unqualified CPU path.
+    (void)prv_recover_dma_frame(invert_colors);
+  }
+#endif
 #ifdef CONFIG_T5AI_DISPLAY_PROFILE
   const uint32_t elapsed = prv_draw_ticks() - frame_start;
   ++g_t5ai_draw_stats.frames;
@@ -876,22 +1199,93 @@ static void prv_display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb
   if (elapsed > g_t5ai_draw_stats.max_update_ticks) {
     g_t5ai_draw_stats.max_update_ticks = elapsed;
   }
+#endif
+  if (!queued)
+    s_updating = false;
+  prv_apply_brightness();
+  pbl_mutex_unlock(&s_panel_mutex);
+#ifdef CONFIG_T5AI_DISPLAY_PROFILE
   t5ai_display_profile_frame(frame_start, elapsed, SystemCoreClock, g_t5ai_draw_stats.dma_failures,
                              &s_transfer);
 #endif
-  s_updating = false;
-  prv_apply_brightness();
-  pbl_mutex_unlock(&s_panel_mutex);
   uccb();
+#ifndef CONFIG_T5AI_DISPLAY_RECOVERY
+  if (!was_failed && s_dma_display_failed) {
+    PBL_LOG_WRN("T5 display DMA failed; CPU fallback active until reboot");
+  }
+#endif
+#ifdef CONFIG_T5AI_DISPLAY_RECOVERY
+  if (s_dma_errors != errors_before || s_dma_recoveries != recoveries_before ||
+      s_dma_retry_count != retries_before) {
+    PBL_LOG_WRN("T5 DMA health: failed=%u errors=%lu retries=%lu recovered=%lu",
+                s_dma_display_failed, (unsigned long)s_dma_errors, (unsigned long)s_dma_retry_count,
+                (unsigned long)s_dma_recoveries);
+  }
+#endif
 }
 
+#ifdef CONFIG_T5AI_DISPLAY_WORKER
+static bool prv_worker_next_row(DisplayRow *row) {
+  if (s_worker_next == s_worker_count)
+    return false;
+  *row = s_worker_rows[s_worker_next++];
+  return true;
+}
+static void prv_worker_complete_on_main(void *arg) {
+  (void)arg;
+  prv_panel_lock();
+  s_updating = false;
+  prv_apply_brightness();
+  const UpdateCompleteCallback complete = s_worker_complete;
+  s_worker_complete = NULL;
+  prv_panel_unlock();
+  T5_IO_ADD(T5IO_WORKER_COMPLETE, T5AI_AON_RTC_COUNT_LOW - s_worker_queued_at, s_worker_count);
+  complete();
+}
+static void prv_worker_finished(void) {
+  // Release physical controls before posting: KernelMain may be waiting on the gate.
+  pbl_sem_give(&s_display_gate);
+  launcher_task_add_callback(prv_worker_complete_on_main, NULL);
+}
+static void prv_display_worker(void *arg) {
+  (void)arg;
+  for (;;) {
+    (void)pbl_sem_take(&s_display_work, PBL_FOREVER);
+    T5_IO_ADD(T5IO_WORKER_QUEUE, T5AI_AON_RTC_COUNT_LOW - s_worker_queued_at, s_worker_count);
+    prv_display_update(prv_worker_next_row, prv_worker_finished, prv_dma_requested(), false, true);
+  }
+}
+#endif
+
 void display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
-  const bool use_dma = s_dma_display_enabled && !s_dma_display_failed;
-  prv_display_update(nrcb, uccb, use_dma, false);
+#ifdef CONFIG_T5AI_DISPLAY_WORKER
+  if (s_worker_ready) {
+    T5_IO_BEGIN(prepare_at);
+    prv_panel_lock();
+    PBL_ASSERTN(!s_updating);
+    s_worker_count = s_worker_next = 0u;
+    DisplayRow row;
+    while (nrcb(&row)) {
+      PBL_ASSERTN(s_worker_count < PBL_DISPLAY_HEIGHT && row.address < PBL_DISPLAY_HEIGHT);
+      s_worker_rows[s_worker_count++] = row;
+    }
+    s_worker_complete = uccb;
+    s_updating = true;
+    pbl_mutex_unlock(&s_panel_mutex); // The gate remains held for physical transport.
+    T5_IO_END(T5IO_WORKER_PREP, prepare_at, s_worker_count);
+#ifdef CONFIG_T5AI_IO_PROFILE
+    s_worker_queued_at = T5AI_AON_RTC_COUNT_LOW;
+#endif
+    pbl_sem_give(&s_display_work);
+    return;
+  }
+#endif
+  const bool use_dma = prv_dma_requested();
+  prv_display_update(nrcb, uccb, use_dma, false, false);
 }
 
 void display_co5300_update_cpu(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
-  prv_display_update(nrcb, uccb, false, false);
+  prv_display_update(nrcb, uccb, false, false, false);
 }
 
 bool display_update_in_progress(void) {
@@ -902,18 +1296,17 @@ void display_update_boot_frame(uint8_t *framebuffer) {
   if (framebuffer == NULL) {
     return;
   }
-  pbl_mutex_lock(&s_panel_mutex, PBL_FOREVER);
+  prv_panel_lock();
   if (!s_initialized) {
     goto done;
   }
-  if (!prv_set_window(PANEL_X_OFFSET, 0u, PANEL_X_OFFSET + PANEL_WIDTH - 1u,
-                      PANEL_HEIGHT - 1u) ||
+  if (!prv_set_window(PANEL_X_OFFSET, 0u, PANEL_X_OFFSET + PANEL_WIDTH - 1u, PANEL_HEIGHT - 1u) ||
       !prv_pixel_stream_begin()) {
     goto done;
   }
   size_t aperture_word = 0u;
   for (uint16_t y = 0; y < PBL_DISPLAY_HEIGHT; ++y) {
-    if (!prv_stream_logical_row(y, framebuffer + y * PBL_DISPLAY_WIDTH, &aperture_word,
+    if (!prv_stream_logical_row(y, framebuffer + y * PBL_DISPLAY_WIDTH, &aperture_word, false,
                                 false, false)) {
       break;
     }
@@ -921,5 +1314,5 @@ void display_update_boot_frame(uint8_t *framebuffer) {
   (void)prv_finish_row_dma(&aperture_word);
   prv_pixel_stream_end();
 done:
-  pbl_mutex_unlock(&s_panel_mutex);
+  prv_panel_unlock();
 }

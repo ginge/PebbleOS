@@ -84,3 +84,12 @@ CONFIG_NIMBLE_BLE_TRANSPORT_ISO_FROM_LL_COUNT=0
 # Let app throttling run before an overdue task forces a reset.
 CONFIG_TASK_WDT_CHECK_PERIOD_MS=1000
 CONFIG_TASK_WDT_GRACE_MS=2000
+
+# Qualified display transport and native copy paths; diagnostics stay off.
+CONFIG_T5AI_DISPLAY_BATCH_ROWS=2
+CONFIG_T5AI_TOUCH_QUEUE_COALESCE=y
+CONFIG_T5AI_COMPOSITOR_FAST_PATH=y
+# Keep the worker experimental pending longer mixed-workload qualification.
+# CONFIG_T5AI_DISPLAY_WORKER is not set
+CONFIG_T5AI_DISPLAY_ROTATED_DMA=y
+CONFIG_T5AI_DISPLAY_RECOVERY=y

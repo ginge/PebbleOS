@@ -1,6 +1,20 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include <pbl/soc/t5ai/draw_profile.h>
+
+#ifdef CONFIG_T5AI_IO_PROFILE
+#include <pbl/soc/t5ai/io_profile.h>
+#else
+#define T5_IO_BEGIN(name)
+#define T5_IO_END(kind, name, amount) \
+  do {                                \
+  } while (0)
+#define T5_IO_ADD(kind, elapsed, amount) \
+  do {                                   \
+  } while (0)
+#endif
+
 #include "board/board.h"
 #include "system/passert.h"
 
@@ -46,6 +60,9 @@ PBL_LOG_MODULE_DEFINE(driver_touch_cst92xx, CONFIG_DRIVER_TOUCH_LOG_LEVEL);
 #define CST92XX_NATIVE_SIZE             466u
 #define CST92XX_POLL_MS                 20u
 
+#ifdef CONFIG_T5AI_IO_PROFILE
+static uint32_t s_queued_at;
+#endif
 static bool s_enabled;
 static bool s_initialized;
 static bool s_callback_scheduled;
@@ -82,12 +99,16 @@ static bool prv_read_report(uint8_t report[CST92XX_REPORT_LENGTH]) {
     (uint8_t)(CST92XX_DATA_REGISTER >> 8),
     (uint8_t)CST92XX_DATA_REGISTER,
   };
+  T5_IO_BEGIN(bus_at);
   pbl_i2c_use(I2C_CST92XX);
+  T5_IO_END(T5IO_I2C_WAIT, bus_at, 0u);
+  T5_IO_BEGIN(read_at);
   bool result = (pbl_i2c_write_block(I2C_CST92XX, sizeof(address), address) == 0);
   if (result) {
     result = (pbl_i2c_read_block(I2C_CST92XX, CST92XX_REPORT_LENGTH, report) == 0);
   }
   pbl_i2c_release(I2C_CST92XX);
+  T5_IO_END(T5IO_TOUCH_READ, read_at, CST92XX_REPORT_LENGTH);
   return result;
 }
 
@@ -96,6 +117,7 @@ static int16_t prv_map_coordinate(uint16_t coordinate, int16_t display_size) {
 }
 
 static void prv_report_sample(bool down, int16_t x, int16_t y) {
+  t5ai_draw_profile_touch(down);
   pbl_input_report_key(PBL_INPUT_BTN_TOUCH, down, false);
   pbl_input_report_abs(PBL_INPUT_ABS_X, x, false);
   pbl_input_report_abs(PBL_INPUT_ABS_Y, y, true);
@@ -105,6 +127,9 @@ static void prv_schedule(uint32_t generation) {
   pbl_irq_lock();
   if (s_enabled && generation == s_generation && !s_callback_scheduled) {
     s_callback_scheduled = true;
+#ifdef CONFIG_T5AI_IO_PROFILE
+    s_queued_at = T5AI_AON_RTC_COUNT_LOW;
+#endif
     s_retry_pending = !system_task_add_callback_from_isr_droppable_raised(
         prv_process_pending_messages, (void *)(uintptr_t)generation);
     if (s_retry_pending) {
@@ -142,13 +167,20 @@ static void prv_watchdog_cb(void *context) {
 
 static void prv_process_pending_messages(void *context) {
   const uint32_t generation = (uint32_t)(uintptr_t)context;
+  T5_IO_BEGIN(callback_at);
+#ifdef CONFIG_T5AI_IO_PROFILE
+  const uint32_t queued_at = s_queued_at;
+#endif
+  T5_IO_BEGIN(lock_at);
   pbl_mutex_lock(&s_i2c_lock, PBL_FOREVER);
+  T5_IO_END(T5IO_TOUCH_LOCK, lock_at, 0u);
   pbl_irq_lock();
   if (!s_enabled || generation != s_generation) {
     pbl_irq_unlock();
     pbl_mutex_unlock(&s_i2c_lock);
     return;
   }
+  T5_IO_ADD(T5IO_TOUCH_QUEUE, callback_at - queued_at, 0u);
   s_callback_scheduled = false;
   s_poll_scheduled = false;
   pbl_irq_unlock();
@@ -213,6 +245,7 @@ static void prv_process_pending_messages(void *context) {
   if (current) {
     prv_report_sample(down, x, y);
   }
+  T5_IO_END(T5IO_TOUCH_CALLBACK, callback_at, 0u);
 }
 
 void touch_sensor_init(void) {
