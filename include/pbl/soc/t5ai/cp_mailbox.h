@@ -52,6 +52,7 @@ void t5ai_cp_mailbox_announce_power_up(void);
 pbl_tick_t t5ai_cp_mailbox_heartbeat_poll(void);
 status_t t5ai_cp_mailbox_enable_uart0_clock(void);
 status_t t5ai_cp_mailbox_enable_qspi0(void);
+status_t t5ai_cp_mailbox_enable_sd(void);
 status_t t5ai_cp_mailbox_enable_psram(void);
 status_t t5ai_cp_mailbox_set_audio_power(bool enabled);
 status_t t5ai_cp_mailbox_set_audio_clock(bool enabled);

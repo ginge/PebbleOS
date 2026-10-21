@@ -135,14 +135,20 @@ static bool prv_power_down(MicDevice *device) {
   if (!state->powered) {
     return true;
   }
+#ifndef CONFIG_T5AI_SD_PFS
   NVIC_DisableIRQ(device->irq);
+#endif
   *prv_reg(device, AUD_CONFIG) &= ~AUD_ADC_ENABLE;
   prv_dma_stop();
   *prv_reg(device, AUD_FIFO_CONFIG) = 0u;
   pbl_irq_lock();
+#ifndef CONFIG_T5AI_SD_PFS
   SYS_CPU1_IRQ_ENABLE &= ~SYS_DMA_IRQ;
+#endif
   pbl_irq_unlock();
+#ifndef CONFIG_T5AI_SD_PFS
   NVIC_ClearPendingIRQ(device->irq);
+#endif
   const bool mic_off = prv_analog_write(SYS_MIC1_INDEX, SYS_MIC1_DEFAULT);
   const bool bias_off = prv_analog_write(SYS_AUDIO_BIAS_INDEX, SYS_AUDIO_BIAS_DEFAULT);
   const status_t clock = t5ai_cp_mailbox_set_audio_clock(false);
@@ -318,7 +324,9 @@ void mic_init(MicDevice *device) {
   }
   pbl_mutex_init(&state->mutex);
   state->gain = AUD_ADC_GAIN_DEFAULT;
+#ifndef CONFIG_T5AI_SD_PFS
   NVIC_DisableIRQ(device->irq);
+#endif
   NVIC_SetPriority(device->irq, device->irq_priority);
   state->initialized = true;
 }
@@ -372,7 +380,9 @@ bool mic_start(MicDevice *device, MicDataHandlerCB handler, void *context, int16
   state->dma_irq_ticks = t5ai_rtc_get_raw_ticks();
   SYS_CPU1_IRQ_ENABLE |= SYS_DMA_IRQ;
   *prv_reg(device, AUD_FIFO_CONFIG) = AUD_FIFO_THRESHOLD;
+#ifndef CONFIG_T5AI_SD_PFS
   NVIC_ClearPendingIRQ(device->irq);
+#endif
   NVIC_EnableIRQ(device->irq);
   *prv_reg(device, AUD_CONFIG) |= AUD_ADC_ENABLE;
   pbl_irq_unlock();
@@ -386,7 +396,9 @@ void mic_stop(MicDevice *device) {
   pbl_mutex_lock(&state->mutex, PBL_FOREVER);
   if (state->running) {
     pbl_irq_lock();
+#ifndef CONFIG_T5AI_SD_PFS
     NVIC_DisableIRQ(device->irq);
+#endif
     state->running = false;
     pbl_irq_unlock();
     (void)prv_power_down(device);

@@ -4,6 +4,9 @@
 #include "system/passert.h"
 
 #include <pbl/device.h>
+#ifdef CONFIG_T5AI_SD_PFS
+#include <pbl/drivers/t5ai/sd.h>
+#endif
 #include <pbl/drivers/battery/t5ai.h>
 #include <pbl/drivers/gpio/t5ai.h>
 #include <pbl/drivers/i2c/t5ai.h>
@@ -23,6 +26,9 @@
 #include <cmsis_core.h>
 
 PBL_LOG_MODULE_DEFINE(board_unhygienix, LOG_LEVEL_DEBUG);
+#ifdef CONFIG_T5AI_SD_PFS
+PBL_IRQ_CONNECT(SDIO, 6, t5ai_sd_irq, , 0);
+#endif
 
 #define T5AI_GPIO_BASE             0x44000400u
 #define T5AI_GPIO_OUTPUT           (1u << 1)
@@ -104,7 +110,7 @@ static const MicDevice s_mic_device = {
   .analog_gain = 8u,
 };
 MicDevice *const MIC = &s_mic_device;
-#ifndef CONFIG_T5AI_DISPLAY_DMA_IRQ
+#if !defined(CONFIG_T5AI_DISPLAY_DMA_IRQ) && !defined(CONFIG_T5AI_SD_PFS)
 #ifdef CONFIG_T5AI_DRAW_PROFILE
 static void prv_profile_mic_irq(void) {
   const uint32_t start = t5ai_interrupt_profile_irq_enter();
@@ -118,11 +124,16 @@ PBL_IRQ_CONNECT(GDMA, 6, t5ai_mic_dma_irq_handler, MIC, 0);
 #endif
 #endif
 
-#ifdef CONFIG_T5AI_DISPLAY_DMA_IRQ
+#if defined(CONFIG_T5AI_DISPLAY_DMA_IRQ) || defined(CONFIG_T5AI_SD_PFS)
 void display_co5300_dma_irq(void);
 static void prv_shared_gdma_irq(void) {
   const uint32_t start = t5ai_interrupt_profile_irq_enter();
+#ifdef CONFIG_T5AI_DISPLAY_DMA_IRQ
   display_co5300_dma_irq();
+#endif
+#ifdef CONFIG_T5AI_SD_PFS
+  t5ai_sd_dma_irq();
+#endif
 #ifdef CONFIG_MIC
   t5ai_mic_dma_irq_handler(MIC);
 #endif

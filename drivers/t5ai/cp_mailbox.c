@@ -34,6 +34,9 @@
 #define CP_PM_PSRAM_POWER_COMMAND 7u
 #define CP_PM_CPU_FREQUENCY_COMMAND 4u
 #define CP_PM_QSPI0_CLOCK 20u
+#define CP_PM_SDIO_CLOCK 22u
+#define CP_PM_BAKP_SDIO_POWER 91u
+#define CP_PM_BAKP_DMA0_POWER 93u
 #define CP_PM_AHBP_QSPI_POWER 101u
 #define CP_PM_AUDP_AUDIO_POWER 122u
 #define CP_PM_AUDIO_CLOCK 30u
@@ -438,6 +441,16 @@ out:
 
 status_t t5ai_cp_mailbox_enable_uart0_clock(void) {
   return prv_pm_request(CP_PM_CLOCK_COMMAND, CP_PM_UART0_CLOCK, CP_PM_CLOCK_ENABLE);
+}
+
+status_t t5ai_cp_mailbox_enable_sd(void) {
+  status_t status = prv_pm_request(CP_PM_POWER_COMMAND, CP_PM_BAKP_SDIO_POWER, CP_PM_POWER_ON);
+  if (FAILED(status))
+    return status;
+  status = prv_pm_request(CP_PM_POWER_COMMAND, CP_PM_BAKP_DMA0_POWER, CP_PM_POWER_ON);
+  return FAILED(status)
+             ? status
+             : prv_pm_request(CP_PM_CLOCK_COMMAND, CP_PM_SDIO_CLOCK, CP_PM_CLOCK_ENABLE);
 }
 
 status_t t5ai_cp_mailbox_enable_qspi0(void) {

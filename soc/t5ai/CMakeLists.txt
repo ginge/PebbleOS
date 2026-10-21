@@ -342,3 +342,24 @@ endif()
 if(CONFIG_T5AI_IO_PROFILE)
   pbl_library_sources(io_profile.c)
 endif()
+
+# Keep stock PFS and its NOR implementation intact on every other target.
+if(CONFIG_T5AI_SD_PFS)
+  pbl_library_sources(sd_pfs.c)
+  # GNU --wrap needs unresolved calls at link time, including with release LTO.
+  function(t5ai_sd_pfs_call_boundaries)
+    foreach(pair "fw/services/filesystem|pfs.c" "fw/services/filesystem|flash_translation.c"
+                 "fw/flash_region|filesystem_regions.c")
+      string(REPLACE "|" ";" parts "${pair}")
+      list(GET parts 0 directory)
+      list(GET parts 1 source)
+      set_property(SOURCE ${PBL_BASE}/${directory}/${source}
+        DIRECTORY ${PBL_BASE}/${directory} APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+    endforeach()
+  endfunction()
+  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_sd_pfs_call_boundaries)
+  foreach(symbol pfs_init ftl_read ftl_write ftl_erase_sector ftl_erase_subsector
+                 ftl_get_size ftl_format ftl_populate_region_list filesystem_regions_erase_all)
+    pbl_link_options(-Wl,--wrap=${symbol})
+  endforeach()
+endif()

@@ -51,6 +51,10 @@ static T5AIUartRegisters *prv_regs(UARTDevice *dev) {
 }
 
 static void prv_configure_pins(UARTDevice *dev) {
+#if defined(CONFIG_T5AI_SD_PFS) && defined(CONFIG_T5AI_SD_4BIT)
+  // Runtime logs use the CP UART1; never reclaim SD D2/D3 for AP UART0.
+  return;
+#endif
   volatile uint32_t *gpio = UART_GPIO_BASE;
   volatile uint32_t *const function_select = UART_GPIO_FUNCTION_BASE;
   const uint32_t peripheral_mode = UART_GPIO_OUTPUT_DISABLE | UART_GPIO_SECOND_FUNCTION;

@@ -8,6 +8,27 @@ config BOARD_UNHYGIENIX
       Unhygienix (The village fishmonger).
       Waveshare T5-E1 Touch AMOLED 1.75 using the PebbleOS kernel.
 
+config T5AI_SD_PFS
+    bool "Use a disposable 32 MiB TF-card PFS (AP SDIO/DMA)"
+    depends on BOARD_UNHYGIENIX && SERVICE_FILESYSTEM
+    default n
+    help
+      Use a private card area instead of internal-flash PFS. Initializing an
+      unrecognized volume overwrites that area. Requires a card at every boot;
+      I/O failure asserts because the stock FTL cannot propagate errors.
+      Four-bit SD uses GPIO10/11, disabling the direct AP UART0 path.
+      Runtime logs continue through the CP mailbox on the onboard USB if02.
+      No migration, live removal, or interrupted-sector-write recovery.
+
+config T5AI_SD_4BIT
+    bool "Use four SD data lines"
+    depends on T5AI_SD_PFS
+    default y
+    help
+      D2/D3 share GPIO10/11 with the programming UART. Runtime logs use
+      the other onboard USB UART through the CP mailbox. Disable this
+      option for one-bit DMA diagnostics and electrical-coexistence checks.
+
 config T5AI_TASK_CPU_METRICS
     bool "Report task CPU counters every five seconds"
     depends on BOARD_UNHYGIENIX && !T5AI_BG_TRACE && !T5AI_APP_TRACE && !T5AI_BG_PICK_TRACE
