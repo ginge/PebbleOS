@@ -172,9 +172,15 @@ void t5ai_sd_irq(void) {
   if (pending & (CMD_END | CMD_TIMEOUT)) {
     s_command_status |= status & (CMD_END | CMD_TIMEOUT | CMD_CRC_FAIL);
   }
-  s_data_status |= pending & (DATA_END | TX_EMPTY | DATA_ERROR);
+  s_data_status |= pending & (DATA_END | DATA_ERROR);
   if (pending & DATA_END) {
     s_data_status |= status & DATA_ERROR;
+  }
+  // SD completion may precede the DMA ISR that unmasks TX_EMPTY. Preserve
+  // the latched final empty event before W1C, but ignore gaps during DMA.
+  const bool tx_finished = ((s_dma_status | CH(TX_CHANNEL, DMA_CHANNEL_STATUS)) & DMA_FINISH) != 0u;
+  if ((status & TX_EMPTY) && tx_finished) {
+    s_data_status |= TX_EMPTY;
   }
   if (pending & TX_EMPTY)
     SD(SD_INTERRUPT_MASK) &= ~TX_EMPTY;
@@ -328,7 +334,8 @@ static int prv_transfer(uint32_t sector, void *buffer, uint32_t count, bool writ
   SD(SD_FIFO_CONTROL) =
       (SD(SD_FIFO_CONTROL) & ~SD_FIFO_THRESHOLD_MASK) | SD_FIFO_DEFAULT_THRESHOLDS;
   SD(SD_DATA_TIMER) = SD_DATA_TIMER_LIMIT;
-  const uint32_t data_control = (512u << 4) | (1u << 17) | DATA_WIDTH | ((count > 1 || write) ? 8u : 0u);
+  const uint32_t data_control =
+      (512u << 4) | (1u << 17) | DATA_WIDTH | ((count > 1 || write) ? 8u : 0u);
   SD(SD_INTERRUPT_MASK) = CMD_END | CMD_TIMEOUT | DATA_END | (1u << 5) | (1u << 8);
   const unsigned channel = write ? TX_CHANNEL : RX_CHANNEL;
   const uint32_t argument = s_high_capacity ? sector : sector * 512u;
