@@ -27,11 +27,6 @@ config SOC_T5AI
     select ARMV8_M_DSP
     select CPU_HAS_FPU
 
-config T5AI_PFS_HEADER_CACHE
-    bool "Cache T5AI PFS headers per page"
-    depends on SOC_T5AI
-    default y
-
 config SOC_QEMU
     bool "QEMU emulated"
 
@@ -89,10 +84,4 @@ config SOC_QEMU_CORTEX_M33
 
 endchoice
 
-config T5AI_CORE_CLOCK_HZ
-    int
-    default 120000000
-    depends on SOC_T5AI
-config T5AI_CP_HCI_VALIDATED
-    bool "Use validated Tuya CP HCI transport"
-    depends on SOC_T5AI
+rsource "t5ai/Kconfig"

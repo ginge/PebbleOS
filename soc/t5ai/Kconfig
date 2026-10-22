@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+if SOC_T5AI
+
+config T5AI_PFS_HEADER_CACHE
+    bool "Cache T5AI PFS headers per page"
+    default y
+
+config T5AI_CORE_CLOCK_HZ
+    int
+    default 120000000
+
+config T5AI_CP_HCI_VALIDATED
+    bool "Use validated Tuya CP HCI transport"
+
+endif
