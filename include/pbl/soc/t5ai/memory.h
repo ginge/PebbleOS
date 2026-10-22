@@ -18,3 +18,8 @@
 // The boot-stage map leaves fixed regions 8..9 active, so region 10 is the
 // first fixed region available to the native Pebble image.
 #define T5AI_DISPLAY_PSRAM_MPU_REGION 10u
+
+// Native AP owns this part of the vendor audio slab; CP heap starts at 0x60700000.
+#define T5AI_PFS_FLAGS_PSRAM_BASE 0x60020000u
+#define T5AI_PFS_FLAGS_PSRAM_SIZE 8192u
+#define T5AI_PFS_FLAGS_MPU_REGION 11u

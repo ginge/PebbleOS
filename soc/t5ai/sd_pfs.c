@@ -1,6 +1,7 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include "kernel/pbl_malloc.h"
 #include "system/passert.h"
 
 #include <string.h>
@@ -9,6 +10,7 @@
 #include <pbl/kernel/kernel.h>
 #include <pbl/logging/logging.h>
 #include <pbl/services/filesystem/pfs.h>
+#include <pbl/soc/t5ai/memory.h>
 
 #define VOLUME_SIZE    (32u * 1024u * 1024u)
 #define HEADER_SECTOR  2048u
@@ -24,6 +26,30 @@ static uint32_t s_tags[CACHE_LINES];
 static unsigned s_next;
 static uint8_t *s_work;
 static bool s_new_volume;
+static uint8_t s_page_flags[T5AI_PFS_FLAGS_PSRAM_SIZE]
+    __attribute__((section(".t5ai_pfs_flags"), aligned(32)));
+static bool s_page_flags_requested, s_page_flags_in_use;
+_Static_assert(sizeof(s_page_flags) == VOLUME_SIZE / 4096u, "SD PFS flags capacity");
+
+// Only PFS's calls are redirected; other kernel allocations keep their allocator.
+void *t5ai_sd_pfs_malloc_check(size_t bytes) {
+  if (s_page_flags_requested) {
+    PBL_ASSERTN(bytes == sizeof(s_page_flags) && !s_page_flags_in_use);
+    s_page_flags_requested = false;
+    s_page_flags_in_use = true;
+    return s_page_flags;
+  }
+  return kernel_malloc_check(bytes);
+}
+
+void t5ai_sd_pfs_free(void *ptr) {
+  if (ptr == s_page_flags) {
+    PBL_ASSERTN(s_page_flags_in_use);
+    s_page_flags_in_use = false;
+    return;
+  }
+  kernel_free(ptr);
+}
 
 typedef struct {
   char magic[8];
@@ -168,7 +194,10 @@ void __wrap_ftl_format(void) {
 
 void __wrap_ftl_populate_region_list(void) {
   // Never probe NOR regions or grow the card volume using flash addresses.
+  PBL_ASSERTN(!s_page_flags_requested);
+  s_page_flags_requested = true;
   pfs_set_size(VOLUME_SIZE, false);
+  PBL_ASSERTN(!s_page_flags_requested && s_page_flags_in_use);
   if (s_new_volume) {
     pfs_format(true);
   } else if (pfs_active()) {

@@ -348,6 +348,9 @@ if(CONFIG_T5AI_SD_PFS)
   pbl_library_sources(sd_pfs.c)
   # GNU --wrap needs unresolved calls at link time, including with release LTO.
   function(t5ai_sd_pfs_call_boundaries)
+    set_property(SOURCE ${PBL_BASE}/fw/services/filesystem/pfs.c
+      DIRECTORY ${PBL_BASE}/fw/services/filesystem APPEND PROPERTY COMPILE_DEFINITIONS
+      kernel_malloc_check=t5ai_sd_pfs_malloc_check kernel_free=t5ai_sd_pfs_free)
     foreach(pair "fw/services/filesystem|pfs.c" "fw/services/filesystem|flash_translation.c"
                  "fw/flash_region|filesystem_regions.c")
       string(REPLACE "|" ";" parts "${pair}")

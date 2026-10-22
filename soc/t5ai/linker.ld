@@ -15,3 +15,11 @@ ASSERT(__t5ai_framebuffer_end__ <= ORIGIN(T5AI_DISPLAY_RAM) + LENGTH(T5AI_DISPLA
        "T5AI framebuffer exceeds its PSRAM reservation")
 ASSERT(__t5ai_board_cache_end__ <= ORIGIN(T5AI_DISPLAY_RAM) + LENGTH(T5AI_DISPLAY_RAM),
        "T5AI board cache exceeds its PSRAM reservation")
+
+#ifdef CONFIG_T5AI_SD_PFS
+ASSERT(ORIGIN(T5AI_PFS_RAM) == 0x60020000 && LENGTH(T5AI_PFS_RAM) == 8192,
+       "Unexpected SD PFS metadata reservation")
+ASSERT(__t5ai_pfs_flags_start__ == ORIGIN(T5AI_PFS_RAM) &&
+       __t5ai_pfs_flags_end__ == ORIGIN(T5AI_PFS_RAM) + LENGTH(T5AI_PFS_RAM),
+       "SD PFS flags must fill their private PSRAM reservation")
+#endif

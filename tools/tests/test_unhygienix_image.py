@@ -59,6 +59,22 @@ FLASH            0x02120000         0x00190000         xr
         )
         self.assertEqual(MODULE.validate_map(text), [])
 
+    def test_sd_pfs_flags_have_a_separate_bounded_ap_region(self):
+        base = ("FLASH 0x02120000 0x00190000 xr\n"
+                ".isr_vector 0x02120000 0x140\n" + self.LAYOUT)
+        flags = ("T5AI_PFS_RAM 0x60020000 0x2000 rw\n"
+                 ".t5ai_pfs_flags 0x60020000 0x2000\n")
+        self.assertEqual(MODULE.validate_map(base + flags), [])
+        wrapped = flags.replace(".t5ai_pfs_flags 0x", ".t5ai_pfs_flags\n                0x")
+        self.assertEqual(MODULE.validate_map(base + wrapped), [])
+        for bad in (flags.replace("0x60020000", "0x60700000"),
+                    flags.replace("0x2000 rw", "0x4000 rw"),
+                    flags.replace(".t5ai_pfs_flags 0x60020000 0x2000",
+                                  ".t5ai_pfs_flags 0x60020000 0x2004"),
+                    flags.splitlines()[1] + "\n", flags.splitlines()[0] + "\n"):
+            with self.subTest(layout=bad):
+                self.assertTrue(any("SD PFS" in e for e in MODULE.validate_map(base + bad)))
+
     def test_rejects_broader_flash_region(self):
         text = (
             """\

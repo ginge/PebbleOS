@@ -48,12 +48,25 @@ static const MpuRegion s_display_psram_region = {
   .permissions = MpuPermissions_PrivRW,
 };
 
+#ifdef CONFIG_T5AI_SD_PFS
+static const MpuRegion s_pfs_flags_psram_region = {
+  .region_num = T5AI_PFS_FLAGS_MPU_REGION,
+  .enabled = true,
+  .executable = false,
+  .base_address = T5AI_PFS_FLAGS_PSRAM_BASE,
+  .size = T5AI_PFS_FLAGS_PSRAM_SIZE,
+  .cache_policy = MpuCachePolicy_WriteBackWriteAllocate,
+  .permissions = MpuPermissions_PrivRW,
+};
+#endif
+
 static void prv_enable_display_psram_cache(void) {
-  // This slab contains only the compositor framebuffer and board-local DMA
-  // staging. It has not been accessed yet, so there are no old cache lines to
-  // reconcile when its explicit write-back mapping replaces the background
-  // memory attributes. Display GDMA cleans its staging range before transfer.
+  // Neither AP-private PSRAM window has been accessed yet. Display GDMA
+  // cleans its staging range before transfer; PFS flags are CPU-only.
   mpu_set_region(&s_display_psram_region);
+#ifdef CONFIG_T5AI_SD_PFS
+  mpu_set_region(&s_pfs_flags_psram_region);
+#endif
   __DSB();
   __ISB();
 }

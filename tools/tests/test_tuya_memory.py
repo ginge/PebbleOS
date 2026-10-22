@@ -30,6 +30,32 @@ class TuyaMemoryLayoutTest(unittest.TestCase):
         compositor = (ROOT / "fw/services/compositor/compositor.c").read_text()
         self.assertIn('section(".t5ai_framebuffer")', compositor)
 
+    def test_pfs_flags_reservation_stays_in_vendor_ap_audio_slab(self):
+        layout = ROOT / ("third_party/hal_tuya/TuyaOpen-T5AI/t5_os/projects/"
+                         "tuya_app/partitions/bk7258/ram_regions.csv")
+        regions = {}
+        cursor = 0
+        for line in layout.read_text().splitlines():
+            fields = [field.strip() for field in line.split(",")]
+            if len(fields) != 4 or fields[1] != "PSRAM":
+                continue
+            start = int(fields[2], 0) if fields[2] else cursor
+            cursor = start + int(fields[3], 0)
+            regions[fields[0]] = (start, cursor)
+        header = (ROOT / "include/pbl/soc/t5ai/memory.h").read_text()
+        def constant(name):
+            return int(re.search(r"#define " + name + r" (0x[0-9a-fA-F]+|[0-9]+)u",
+                                 header).group(1), 0)
+        begin = constant("T5AI_PFS_FLAGS_PSRAM_BASE")
+        end = begin + constant("T5AI_PFS_FLAGS_PSRAM_SIZE")
+        audio_begin, audio_end = regions["PSRAM_MEM_SLAB_AUDIO"]
+        self.assertGreaterEqual(begin, audio_begin)
+        self.assertLessEqual(end, audio_end)
+        self.assertEqual(regions["CP_PSRAM_HEAP"][0], 0x60700000)
+        self.assertLessEqual(end, regions["CP_PSRAM_HEAP"][0])
+        self.assertNotEqual(constant("T5AI_PFS_FLAGS_MPU_REGION"),
+                            constant("T5AI_DISPLAY_PSRAM_MPU_REGION"))
+
     def test_ap_only_nimble_pool_storage_uses_t5ai_psram(self):
         sections = (ROOT / "soc/t5ai/framebuffer.ld").read_text()
         self.assertIn("KEEP(*(.bss.os_msys_1_data))", sections)

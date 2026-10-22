@@ -22,3 +22,11 @@
         KEEP(*(.t5ai_board_cache))
         __t5ai_board_cache_end__ = .;
     } >T5AI_DISPLAY_RAM
+
+#ifdef CONFIG_T5AI_SD_PFS
+    .t5ai_pfs_flags (NOLOAD) : ALIGN(32) {
+        __t5ai_pfs_flags_start__ = .;
+        KEEP(*(.t5ai_pfs_flags))
+        __t5ai_pfs_flags_end__ = .;
+    } >T5AI_PFS_RAM
+#endif

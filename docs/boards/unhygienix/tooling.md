@@ -1118,3 +1118,30 @@ clock configuration was unchanged. This is an instrumented AP idle measurement,
 not an exclusive accelerometer pipeline cost or a matched comparison with FdF.
 Evidence and reproduction: `build/traces/task-cpu-idle-20261014/README.md` and
 `analysis.json`. Both bounded captures ended; no live UART monitor remains.
+
+## SD PFS metadata heap fix — 2026-10-22
+
+The 32 MiB card PFS needs 8,192 page-flag bytes. Keeping that cache on the
+21 KiB kernel heap caused fragmentation and a captured notification-rendering
+OOM reset (`prv_draw_text_node_tree`, 352-byte allocation, largest block 296).
+The SD adapter now supplies those bytes from an AP-only reservation at
+`0x60020000..0x60022000`, with a privileged, non-executable MPU mapping in
+region 11. The first 128 KiB framebuffer/board-cache reservation stays bounded.
+
+The pinned `tuya_app/partitions/bk7258/ram_regions.csv` puts that reservation
+inside the vendor AP audio slab (`0x60019000..0x60032000`); the CP PSRAM heap
+starts at `0x60700000`. Native Pebble does not link the vendor AP slab allocator.
+This reservation is separate from CP allocations and from app/worker SRAM.
+
+Only `pfs.c` receives allocator-name substitutions from the T5AI SD CMake
+configuration. During the adapter's size setup, the stock page-cache builder
+receives the dedicated buffer; freeing/rebuilding it releases/reuses that same
+buffer. Other PFS allocations still use the kernel heap. Shared PFS source,
+32 MiB on-card layout, installed apps and notification data remain unchanged.
+Linker and image-map checks reject an overlapping or incorrectly sized region.
+The host adapter test executes the stock cache builder with caching enabled,
+covering initial allocation, rebuild, ordinary-allocation fallback and misuse.
+
+Failure evidence: `/home/baz/Documents/ChatGPT/pebble/artifacts/random-reboot-20261022/`.
+Fix build, tests and hardware validation:
+`/home/baz/Documents/ChatGPT/pebble/artifacts/sd-pfs-heap-fix-20261022/`.

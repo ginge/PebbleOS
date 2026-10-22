@@ -45,6 +45,8 @@ static inline void pbl_sem_give(void *s) {(void)s;}
 static inline void dcache_flush(const void *p, size_t n) {(void)p;(void)n;}
 static inline void dcache_flush_invalidate(const void *p, size_t n) {(void)p;(void)n;}
 static inline void dcache_invalidate(void *p, size_t n) {(void)p;(void)n;}
+void *kernel_malloc_check(size_t);
+void kernel_free(void *);
 void delay_us(unsigned n);
 uint64_t pbl_uptime_ms(void);
 int pbl_sem_take(void *, int);
@@ -63,7 +65,10 @@ ADAPTER = r"""
 #include <sys/resource.h>
 #include "SOURCE"
 static uint8_t card[35u*1024u*1024u];
-static unsigned reads, writes, formats, cleanups;
+static unsigned reads, writes, formats, cleanups, heap_allocs, heap_frees;
+static void *flags;
+void *kernel_malloc_check(size_t bytes) { ++heap_allocs; void *p=malloc(bytes); assert(p); return p; }
+void kernel_free(void *p) { ++heap_frees; free(p); }
 static uint8_t workspace[ERASE_BYTES];
 static unsigned workspace_depth;
 uint8_t *t5ai_sd_lock_workspace(void) { ++workspace_depth; return workspace; }
@@ -85,7 +90,22 @@ int t5ai_sd_write(uint32_t lba, const void *buf, uint32_t n) {
   assert(n && n <= T5AI_SD_MAX_BLOCKS && (uint64_t)lba+n <= capacity);
   memcpy(card+lba*512u, buf, n*512u); ++writes; return 0;
 }
-void pfs_set_size(uint32_t size, bool erased) { assert(!erased); volume_size=size; }
+static uint8_t *s_pfs_page_flags_cache;
+static uint16_t s_pfs_page_count;
+static void prv_invalidate_page_flags_cache_all(void) {
+  assert(s_pfs_page_flags_cache);
+  memset(s_pfs_page_flags_cache,0xfe,s_pfs_page_count);
+}
+#define kernel_malloc_check t5ai_sd_pfs_malloc_check
+#define kernel_free t5ai_sd_pfs_free
+CACHE_BUILDER
+#undef kernel_malloc_check
+#undef kernel_free
+void pfs_set_size(uint32_t size, bool erased) {
+  assert(!erased); volume_size=size; s_pfs_page_count=size/4096u;
+  prv_build_page_flags_cache(); flags=s_pfs_page_flags_cache;
+  assert(flags==s_page_flags && (uintptr_t)flags%32==0);
+}
 bool pfs_active(void) { return card[FIRST_SECTOR*512u] == 0x50; }
 void pfs_reboot_cleanup(void) { ++cleanups; }
 void pfs_format(bool headers) {
@@ -104,6 +124,13 @@ static void expect_abort(unsigned scenario) {
     if (scenario==1) { fault=-5; __wrap_ftl_write(s_work, 1, 17); }
     if (scenario==2) { capacity=FIRST_SECTOR+VOLUME_SIZE/512-1; __wrap_pfs_init(true); }
     if (scenario==3) { fault=-5; __wrap_pfs_init(true); }
+    if (scenario==4) {
+      t5ai_sd_pfs_free(flags); t5ai_sd_pfs_free(flags);
+    }
+    if (scenario==5) {
+      t5ai_sd_pfs_free(flags); s_page_flags_requested=true;
+      t5ai_sd_pfs_malloc_check(sizeof(s_page_flags)-1);
+    }
     _exit(0);
   }
   int status; assert(waitpid(child,&status,0)==child);
@@ -116,8 +143,16 @@ int main(void) {
   assert(__wrap_ftl_get_size()==volume_size);
   assert(card[HEADER_SECTOR*512u-1]==0x6e);
   assert(card[(FIRST_SECTOR+VOLUME_SIZE/512u)*512u]==0x6e);
+  assert(flags==s_page_flags && s_page_flags_in_use && !s_page_flags_requested);
+  assert(!heap_allocs && !heap_frees);
+  void *ordinary=t5ai_sd_pfs_malloc_check(sizeof(s_page_flags));
+  assert(ordinary!=flags && heap_allocs==1);
+  t5ai_sd_pfs_free(ordinary); t5ai_sd_pfs_free(NULL);
+  assert(heap_frees==2);
   unsigned old_formats=formats;
   assert(__wrap_pfs_init(true)==0 && formats==old_formats && cleanups==1);
+  assert(heap_allocs==1 && heap_frees==2 && flags==s_page_flags);
+  for (size_t i=0;i<sizeof(s_page_flags);++i) assert(s_page_flags[i]==0xfe);
   uint8_t input[20001], output[20001];
   for (unsigned i=0;i<sizeof(input);++i) input[i]=(uint8_t)(i*17u+3u);
   __wrap_ftl_write(input,sizeof(input),511);
@@ -141,7 +176,7 @@ int main(void) {
   __wrap_ftl_read(output,1,4096); __wrap_ftl_read(output,1,4097);
   assert(reads==old_reads+1);
   assert(workspace_depth==0);
-  for(unsigned i=0;i<4;++i) expect_abort(i);
+  for(unsigned i=0;i<6;++i) expect_abort(i);
   printf("PASS: provision, reopen, boundaries, partial/multi-sector I/O, NOR semantics, cache, erase, faults (%u writes)\n",writes);
 }
 """
@@ -295,13 +330,18 @@ class SDTests(unittest.TestCase):
                 "pbl/logging/logging.h",
                 "pbl/services/filesystem/pfs.h",
                 "system/passert.h",
+                "kernel/pbl_malloc.h",
             ]
             for name in headers:
                 path = tmp / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text('#include "common.h"\n')
+            pfs = (ROOT / "fw/services/filesystem/pfs.c").read_text()
+            builder = pfs[pfs.index("static void prv_build_page_flags_cache(void)") :
+                          pfs.index("static void update_curr_state")]
             (tmp / "harness.c").write_text(
                 harness.replace('"SOURCE"', '"' + str(ROOT / source) + '"')
+                .replace("CACHE_BUILDER", builder)
             )
             subprocess.run(
                 [

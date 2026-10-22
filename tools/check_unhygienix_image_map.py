@@ -53,6 +53,15 @@ def validate_map(text: str) -> list[str]:
     symbols = {}
     saw_flash_section = False
     vector_section = None
+    # GNU ld places long output-section names on a line of their own.
+    pfs_flags = re.search(
+        r"^\.t5ai_pfs_flags\s+0x([0-9a-fA-F]+)\s+0x([0-9a-fA-F]+)",
+        text, re.MULTILINE,
+    )
+    pfs_flags_section = (
+        (int(pfs_flags.group(1), 16), int(pfs_flags.group(2), 16))
+        if pfs_flags else None
+    )
 
     for line in text.splitlines():
         memory = MEMORY_RE.match(line)
@@ -76,6 +85,8 @@ def validate_map(text: str) -> list[str]:
 
         if name == ".isr_vector":
             vector_section = (address, size)
+        if name == ".t5ai_pfs_flags":
+            pfs_flags_section = (address, size)
 
         if NOR_BEGIN <= address < NOR_END:
             saw_flash_section = True
@@ -100,6 +111,14 @@ def validate_map(text: str) -> list[str]:
                 f"{name} region is 0x{actual[0]:08x} length 0x{actual[1]:x}; "
                 f"expected 0x{expected[0]:08x} length 0x{expected[1]:x}"
             )
+    pfs_ram = memory_regions.get("T5AI_PFS_RAM")
+    if pfs_ram is not None or pfs_flags_section is not None:
+        expected = (0x60020000, 8192)
+        if pfs_ram != expected:
+            errors.append("SD PFS metadata has an invalid private PSRAM region")
+        if pfs_flags_section != expected:
+            errors.append("SD PFS flags do not fill their private PSRAM region")
+
     if not saw_flash_section:
         errors.append("map has no output section in the T5AI firmware slot")
     if vector_section != (SLOT_BEGIN, 0x140):
