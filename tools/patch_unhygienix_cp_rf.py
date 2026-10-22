@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
-"""Build and install the Unhygienix BLE/BT-PLL initialization hook in pinned CP.
+"""Build the Unhygienix RF initialization and interval-transition fixes in pinned CP.
 
 Refuses unknown images and verifies the original complete reset function.
 Compile the source hook into unused CP flash and redirect only the reset's
-Bluetooth-init call. Preserve every existing code/data address and AP ABI.
+Bluetooth-init call, then add the guarded interval-transition correction.
+Preserve every existing code/data address and AP ABI.
 """
 import argparse
 import hashlib
-from pathlib import Path
 import shutil
 import struct
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -100,11 +101,14 @@ def main():
     address = CP_XIP + ((len(stock) + 15) & ~15)
     hook = compile_hook(address, args.cc)
     image = install_hook(stock, hook)
+    from tools.patch_unhygienix_cp_latency import add_fix
+
+    image = add_fix(image, args.cc)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_bytes(image)
     args.out.with_suffix(".crc.bin").write_bytes(encode_protected_blocks(image))
     print(f"BLE PLL CP: {len(image)} bytes sha256={hashlib.sha256(image).hexdigest()}")
-    print(f"Source hook: {len(hook)} bytes at 0x{address:x}; stock reset BL replaced")
+    print(f"Source hook: {len(hook)} bytes at 0x{address:x}; RF init and interval-transition correction installed")
 
 
 if __name__ == "__main__":

@@ -3,9 +3,9 @@
 """Verify Bluetooth-only CP manifests and rejection of retired diagnostics."""
 
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
 from tools import unhygienix_cp as cp
 
@@ -26,6 +26,7 @@ class CPManifestTest(unittest.TestCase):
             "stock_sha256": cp.STOCK_SHA256,
             "vendor_revisions": json.loads(cp.LOCK.read_text()),
             "hook_sha256": cp.digest(cp.SOURCE.read_bytes()),
+            "latency_fix_sha256": cp.digest(cp.LATENCY_SOURCE.read_bytes()),
             "artifacts": artifacts,
         }
 
@@ -49,3 +50,9 @@ class CPManifestTest(unittest.TestCase):
         (self.output / "pebbleos.t5ai-cp.bin").write_bytes(b"modified")
         with self.assertRaisesRegex(ValueError, "CP manifest hash mismatch"):
             self.validate()
+
+    def test_missing_or_stale_latency_fix_source_is_rejected(self):
+        for value in (None, "stale"):
+            self.manifest["latency_fix_sha256"] = value
+            with self.assertRaisesRegex(ValueError, "pinned Unhygienix inputs"):
+                self.validate()

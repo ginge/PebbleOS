@@ -5,8 +5,13 @@
 import hashlib
 import json
 import subprocess
+import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from tools.patch_unhygienix_cp_latency import SOURCE as LATENCY_SOURCE
+from tools.patch_unhygienix_cp_latency import add_fix
 from tools.patch_unhygienix_cp_rf import (
     CP_XIP,
     ROOT,
@@ -55,6 +60,7 @@ def build_cp(stock_path, output, compiler, objcopy):
     verify_stock(stock)
     hook = compile_hook(CP_XIP + ((len(stock) + 15) & ~15), compiler, objcopy)
     image = install_hook(stock, hook)
+    image = add_fix(image, compiler, objcopy)
     protected = encode_protected_blocks(image)
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
@@ -71,6 +77,7 @@ def build_cp(stock_path, output, compiler, objcopy):
         "vendor_revisions": revisions,
         "stock_sha256": STOCK_SHA256,
         "hook_sha256": digest(SOURCE.read_bytes()),
+        "latency_fix_sha256": digest(LATENCY_SOURCE.read_bytes()),
         "compatibility": "pinned Unhygienix CP mailbox/HCI ABI; BLE/BT PLL 0x0202",
         "artifacts": {name: digest(data) for name, data in artifacts.items()},
     }
@@ -89,6 +96,7 @@ def validate_manifest(output):
         or manifest.get("stock_sha256") != STOCK_SHA256
         or manifest.get("vendor_revisions") != json.loads(LOCK.read_text())
         or manifest.get("hook_sha256") != digest(SOURCE.read_bytes())
+        or manifest.get("latency_fix_sha256") != digest(LATENCY_SOURCE.read_bytes())
     ):
         raise ValueError("CP manifest does not match the pinned Unhygienix inputs")
     if manifest.get("flash_guard") is not None:

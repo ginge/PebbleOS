@@ -160,6 +160,7 @@ static uint64_t ticks;
 static uint8_t card[1024u*1024u];
 static unsigned transfer_sector, transfer_count, ready_polls, fail_data, legacy, transfer_argument;
 static bool card_missing;
+static unsigned completion_order;
 void delay_us(unsigned n) {
   // Model the GPIO input bit, which is read-only in the real peripheral.
   if(n==5000) REG(MODEL_CARD_DETECT_ADDRESS)=(REG(MODEL_CARD_DETECT_ADDRESS)&~1u)|(card_missing?1u:0u);
@@ -211,10 +212,25 @@ int pbl_sem_take(void *unused, int timeout) {
     if(fail_data==2) return 0;
     if(write) memcpy(card+transfer_sector*512u,memory,bytes);
     else memcpy(memory,card+transfer_sector*512u,bytes);
+    if(write && completion_order==2) {
+      // FIFO empty between blocks is not final completion while DMA is active.
+      SD(SD_INTERRUPT_STATUS)=(1u<<4)|(1u<<9)|(2u<<20);
+      t5ai_sd_irq(); SD(SD_INTERRUPT_STATUS)=0;
+      assert(!(s_data_status & TX_EMPTY));
+    }
     CH(channel,DMA_CHANNEL_CONTROL)&=~1u; CH(channel,DMA_CHANNEL_STATUS)=DMA_FINISH;
-    t5ai_sd_dma_irq(); CH(channel,DMA_CHANNEL_STATUS)=0;
-    SD(SD_INTERRUPT_STATUS)=write ? (1u<<4)|(1u<<9)|(2u<<20) : (1u<<3)|(1u<<12);
-    t5ai_sd_irq(); SD(SD_INTERRUPT_STATUS)=0; ++transfer_count;
+    if(write && completion_order==1) {
+      // Hardware finished DMA, but the SD ISR runs before the DMA ISR.
+      assert(!(SD(SD_INTERRUPT_MASK)&TX_EMPTY));
+      SD(SD_INTERRUPT_STATUS)=(1u<<4)|(1u<<9)|(2u<<20);
+      t5ai_sd_irq(); SD(SD_INTERRUPT_STATUS)=0;
+      t5ai_sd_dma_irq(); CH(channel,DMA_CHANNEL_STATUS)=0;
+    } else {
+      t5ai_sd_dma_irq(); CH(channel,DMA_CHANNEL_STATUS)=0;
+      SD(SD_INTERRUPT_STATUS)=write ? (1u<<4)|(1u<<9)|(2u<<20) : (1u<<3)|(1u<<12);
+      t5ai_sd_irq(); SD(SD_INTERRUPT_STATUS)=0;
+    }
+    ++transfer_count;
   }
   return 0;
 }
@@ -235,6 +251,11 @@ int main(void) {
   assert(t5ai_sd_write(4,input+1,8)==0);
   assert(t5ai_sd_read(4,output+1,8)==0);
   assert(!memcmp(input+1,output+1,4096) && transfer_count==2 && ready_polls>=4);
+  completion_order=1;
+  assert(t5ai_sd_write(4,input+1,1)==0);
+  completion_order=2;
+  assert(t5ai_sd_write(4,input+1,8)==0);
+  completion_order=0;
   assert(t5ai_sd_read(0,output,0)==-EINVAL);
   assert(t5ai_sd_read(0,output,9)==-EINVAL);
   assert(t5ai_sd_read(131072,output,1)==-EINVAL);
