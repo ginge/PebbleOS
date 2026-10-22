@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import hashlib
 import json
+import struct
 import tempfile
 import unittest
 from pathlib import Path
@@ -26,10 +27,22 @@ class UnhygienixRunnerTest(unittest.TestCase):
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
         self.raw = self.root / "pebbleos.bin"
+        self.revision = {
+            "TIMESTAMP": "1234567890", "TAG": "v4.41.0-1-g123456789",
+            "COMMIT": "123456789",
+        }
+        revision_patch = patch(
+            "tools.flash_unhygienix_firmware.current_revision", return_value=self.revision
+        )
+        revision_patch.start()
+        self.addCleanup(revision_patch.stop)
         self.image = (
             (0x28066000).to_bytes(4, "little")
             + (0x02120141).to_bytes(4, "little")
             + bytes(64)
+            + struct.pack("<I32s8sBBB", 1234567890, b"v4.41.0-1-g123456789",
+                          b"1234567", 0, 21, 1)
+            + b"later ROM section"
         )
         self.raw.write_bytes(self.image)
         self.protected = self.root / "pebbleos.t5ai-crc.bin"
@@ -105,6 +118,21 @@ class UnhygienixRunnerTest(unittest.TestCase):
         commands = self.commands(self.runner(resources=True, provision=True))
         self.assertEqual(len(commands), 2)
         self.assertIn("-s " + hex(PEBBLE_FILESYSTEM_PHYSICAL_OFFSET), commands[1])
+
+    def test_stale_phone_version_rejected_before_any_write(self):
+        for field, value in (("TAG", "v4.41.2"), ("COMMIT", "abcdef012"),
+                             ("TIMESTAMP", "1234567891")):
+            with self.subTest(field=field):
+                revision = dict(self.revision, **{field: value})
+                runner = self.runner(resources=True, provision=True, cp=True)
+                with (
+                    patch("tools.flash_unhygienix_firmware.current_revision",
+                          return_value=revision),
+                    patch.object(runner, "call") as call,
+                    self.assertRaisesRegex(RunnerError, "rebuild"),
+                ):
+                    runner.run("flash")
+                call.assert_not_called()
 
     def test_corrupt_firmware_rejected_before_write(self):
         self.protected.write_bytes(b"corrupt")

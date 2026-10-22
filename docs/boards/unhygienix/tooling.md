@@ -83,6 +83,18 @@ Serial ports are explicit; prefer the stable programming UART `if00` by-id path.
 pbl flash --dry-run --tyutool tyutool_cli --tyutool-tty /dev/serial/by-id/usb-1a86_USB_Dual_Serial_5C75025844-if00
 ```
 
+Build the selected directory with `pbl build` immediately before flashing.
+Both the runner and dedicated AP script check that the binary's phone-facing
+version tag, commit and timestamp match the current checkout, and print the
+expected phone version before any write. A mismatch stops all selected writes;
+rebuild the selected directory rather than relabelling an old image. This
+metadata check does not detect every source edit within an already-dirty tree,
+so a fresh build remains required. After flashing, verify the boot build ID
+against the selected ELF and reconnect the phone to refresh its version display.
+Release tags outside this branch's history are not a basis for its version.
+For deliberate rollback only, the dedicated AP script accepts
+`--allow-older-version`; the normal runner always checks the current version.
+
 Remove `--dry-run` to write. Default is AP firmware only. `--resources` includes
 system resources. `--t5ai-provision --resources` also formats PFS, destroying
 stored apps/data. `--t5ai-cp` includes CP from the build directory after vector,

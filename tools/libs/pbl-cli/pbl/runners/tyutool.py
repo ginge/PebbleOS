@@ -3,8 +3,8 @@
 
 from pathlib import Path
 
-from tools.flash_unhygienix_firmware import validate_firmware
 from tools.flash_unhygienix_cp_firmware import validate_firmware as validate_cp
+from tools.flash_unhygienix_firmware import validate_current_version, validate_firmware
 from tools.unhygienix_image import (
     PEBBLE_AP_PHYSICAL_OFFSET,
     PEBBLE_FILESYSTEM_PHYSICAL_OFFSET,
@@ -70,6 +70,7 @@ class TyuToolRunner(Runner):
         # Validate every selected input before issuing any device command.
         try:
             firmware, ap_image = validate_firmware(raw, protected)
+            print(f"Phone firmware version: {validate_current_version(firmware)}")
             ap_output = protected
             if self.cfg.resources_file:
                 ap_image = build_pebble_flash_image(

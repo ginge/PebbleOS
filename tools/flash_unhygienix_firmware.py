@@ -6,6 +6,8 @@
 
 import argparse
 import hashlib
+import json
+import struct
 import subprocess
 import sys
 from pathlib import Path
@@ -17,8 +19,8 @@ if str(ROOT) not in sys.path:
 from tools.unhygienix_image import (
     PADDING_BYTE,
     PEBBLE_AP_PHYSICAL_OFFSET,
-    PEBBLE_AP_SLOT_SIZE,
     PEBBLE_AP_SLOT_PHYSICAL_SIZE,
+    PEBBLE_AP_SLOT_SIZE,
     PRIMARY_AP_APP_XIP_BASE,
     verify_protected_blocks,
 )
@@ -51,6 +53,35 @@ def validate_firmware(raw_path: Path, protected_path: Path) -> tuple[bytes, byte
     return raw, protected
 
 
+def current_revision() -> dict:
+    # Resolve git from the source tree even when invoked from another directory.
+    output = subprocess.check_output(
+        [sys.executable, "-c",
+         ("import json; from tools.gitinfo import get_git_revision; "
+          "print(json.dumps(get_git_revision()))")],
+        cwd=ROOT, text=True,
+    )
+    return json.loads(output)
+
+
+def validate_current_version(raw: bytes) -> str:
+    """Require the phone-facing metadata to match this checkout's version."""
+    revision = current_revision()
+    tag = revision["TAG"][:31]
+    commit = revision["COMMIT"][:7]
+    prefix = struct.pack(
+        "<I32s8s", int(revision["TIMESTAMP"]), tag.encode(), commit.encode()
+    )
+    offset = raw.find(prefix)
+    # Metadata may precede other ROM sections, so do not assume a binary footer.
+    if offset < 0 or raw[offset + len(prefix):offset + len(prefix) + 3] != bytes((0, 21, 1)):
+        raise ValueError(
+            f"firmware version does not match checkout ({tag}, {commit}); "
+            "rebuild this Unhygienix build directory with pbl build before flashing"
+        )
+    return f"{tag} (commit {commit})"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--raw", type=Path, default=Path("build/pebbleos.bin"))
@@ -63,9 +94,17 @@ def main() -> int:
         "--flash", action="store_true",
         help="perform the write; without this flag validation is read-only",
     )
+    parser.add_argument(
+        "--allow-older-version", action="store_true",
+        help="Explicit rollback: allow metadata from an older checkout",
+    )
     args = parser.parse_args()
 
     raw, protected = validate_firmware(args.raw, args.protected)
+    if not args.allow_older_version:
+        print(f"Phone firmware version: {validate_current_version(raw)}")
+    else:
+        print("Explicit rollback: current-version check bypassed")
     start = PEBBLE_AP_PHYSICAL_OFFSET
     end = start + len(protected)
     print(f"raw:       {len(raw):7d} bytes  sha256={hashlib.sha256(raw).hexdigest()}")
