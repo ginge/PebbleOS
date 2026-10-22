@@ -121,15 +121,6 @@ void factory_reset_fast(void *unused) {
 }
 #endif // !defined(CONFIG_RECOVERY_FW)
 
-//! Used by the mfg flow to kick us out the MFG firmware and into the conumer PRF that's stored
-//! on the external flash.
-void command_enter_consumer_mode(void) {
-#ifndef CONFIG_SOC_T5AI
-  boot_bit_set(BOOT_BIT_FORCE_PRF);
-#endif
-  factory_reset(true /* should_shutdown */);
-}
-
 bool factory_reset_ongoing(void) {
   return s_in_factory_reset;
 }

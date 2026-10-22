@@ -459,17 +459,6 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertLess(prf_bit, prf_end)
         self.assertLess(prf_end, format_call)
 
-        consumer_mode = factory_reset.index("void command_enter_consumer_mode")
-        consumer_bit = factory_reset.index(
-            "boot_bit_set(BOOT_BIT_FORCE_PRF)", consumer_mode
-        )
-        consumer_guard = factory_reset.rfind(
-            "#ifndef CONFIG_SOC_T5AI", consumer_mode, consumer_bit
-        )
-        consumer_end = factory_reset.index("#endif", consumer_bit)
-        self.assertGreaterEqual(consumer_guard, consumer_mode)
-        self.assertLess(consumer_bit, consumer_end)
-
     def test_unhygienix_shared_prf_storage_uses_reserved_writable_data_partition(self):
         shared_prf = (
             ROOT / "fw/services/shared_prf_storage/shared_prf_storage.c"
