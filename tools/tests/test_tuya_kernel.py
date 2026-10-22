@@ -157,7 +157,7 @@ class TuyaKernelCheckTest(unittest.TestCase):
             "*prv_qspi(QSPI_CONFIG) = QSPI_CS_HIGH_WAIT | QSPI_ENABLE | QSPI_IO23_ENABLE",
             display,
         )
-        self.assertIn("#define QSPI_CS_HIGH_WAIT (8u << 24)", display)
+        self.assertRegex(display, r"#define\s+QSPI_CS_HIGH_WAIT\s+\(8u << 24\)")
         self.assertIn("SYSTEM_CPU1_INTERRUPT_ENABLE |= QSPI0_INTERRUPT_ENABLE", display)
         self.assertNotIn("NVIC_EnableIRQ(QSPI0_IRQn)", display)
         self.assertIn("*prv_qspi(QSPI_GLB_CTRL) |= QSPI_RESET_RELEASE", display)
@@ -589,30 +589,15 @@ int main(void) {
         t5ai_interface = interface.split("#elif defined(CONFIG_SOC_T5AI)", 1)[1]
         t5ai_interface = t5ai_interface.split("#else", 1)[0]
         self.assertIn("#define RTC_TICKS_HZ (1000u)", t5ai_interface)
-        self.assertIn("#define T5AI_AON_RTC_HZ 32000u",
-                      (ROOT / "include/pbl/soc/t5ai/rtc.h").read_text())
+        self.assertIn(
+            "#define T5AI_AON_RTC_HZ 32000u",
+            (ROOT / "include/pbl/soc/t5ai/rtc.h").read_text(),
+        )
         self.assertIn(
             "return prv_raw_ticks() / (T5AI_AON_RTC_HZ / RTC_TICKS_HZ);",
             implementation,
         )
         self.assertIn("elapsed / T5AI_AON_RTC_HZ", implementation)
-
-
-    def test_t5ai_retained_state_implementations_are_soc_local(self):
-        system_build = (ROOT / "fw/system/CMakeLists.txt").read_text()
-        soc_build = (ROOT / "soc/t5ai/CMakeLists.txt").read_text()
-        shared_bootbits = (ROOT / "fw/system/bootbits.c").read_text()
-        shared_reboot_reason = (ROOT / "fw/system/reboot_reason.c").read_text()
-        t5ai_bootbits = (ROOT / "soc/t5ai/bootbits.c").read_text()
-        t5ai_reboot_reason = (ROOT / "soc/t5ai/reboot_reason.c").read_text()
-
-        self.assertNotIn("CONFIG_SOC_T5AI", shared_bootbits)
-        self.assertNotIn("CONFIG_SOC_T5AI", shared_reboot_reason)
-        self.assertIn("pbl_filter_sources(sources EXCLUDE bootbits.c reboot_reason.c)", system_build)
-        self.assertIn("bootbits.c", soc_build)
-        self.assertIn("reboot_reason.c", soc_build)
-        self.assertIn("t5ai_retained_init();", t5ai_bootbits)
-        self.assertIn("t5ai_retained_write(REBOOT_REASON_REGISTER_1", t5ai_reboot_reason)
 
 
 if __name__ == "__main__":

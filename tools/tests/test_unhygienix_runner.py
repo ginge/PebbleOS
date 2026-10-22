@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
-import json
 import hashlib
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,13 +9,14 @@ from unittest.mock import patch
 
 from pbl.runners.core import RunnerConfig, RunnerError
 from pbl.runners.tyutool import TyuToolRunner
+
 from tools.unhygienix_image import (
+    PEBBLE_AP_PHYSICAL_OFFSET,
+    PEBBLE_AP_SLOT_PHYSICAL_SIZE,
+    PEBBLE_FILESYSTEM_PHYSICAL_OFFSET,
+    PEBBLE_RESOURCES_SIZE,
     encode_pebble_application,
     encode_protected_blocks,
-    PEBBLE_AP_PHYSICAL_OFFSET,
-    PEBBLE_FILESYSTEM_PHYSICAL_OFFSET,
-    PEBBLE_AP_SLOT_PHYSICAL_SIZE,
-    PEBBLE_RESOURCES_SIZE,
 )
 
 
@@ -52,6 +53,7 @@ class UnhygienixRunnerTest(unittest.TestCase):
 
     def test_cli_supplies_binary_to_board_runner(self):
         from types import SimpleNamespace
+
         from pbl.device import make_runner
 
         build = SimpleNamespace(
@@ -131,7 +133,7 @@ class UnhygienixRunnerTest(unittest.TestCase):
         call.assert_not_called()
 
     def test_valid_cp_is_first_and_tampering_prevents_all_writes(self):
-        from tools.unhygienix_cp import LOCK, SOURCE, STOCK_SHA256
+        from tools.unhygienix_cp import LATENCY_SOURCE, LOCK, SOURCE, STOCK_SHA256
 
         cp = (
             (0x28010000).to_bytes(4, "little")
@@ -150,6 +152,9 @@ class UnhygienixRunnerTest(unittest.TestCase):
             "stock_sha256": STOCK_SHA256,
             "vendor_revisions": json.loads(LOCK.read_text()),
             "hook_sha256": hashlib.sha256(SOURCE.read_bytes()).hexdigest(),
+            "latency_fix_sha256": hashlib.sha256(
+                LATENCY_SOURCE.read_bytes()
+            ).hexdigest(),
             "artifacts": {
                 name: hashlib.sha256(data).hexdigest()
                 for name, data in artifacts.items()
@@ -160,6 +165,16 @@ class UnhygienixRunnerTest(unittest.TestCase):
         self.assertEqual(len(commands), 2)
         self.assertIn("-s 0x22000", commands[0])
         self.assertIn("-s 0x132000", commands[1])
+        # A missing latency-patch hash must stop all writes, even with valid CRCs.
+        manifest_path = self.root / "pebbleos.t5ai-cp.json"
+        latency_hash = manifest.pop("latency_fix_sha256")
+        manifest_path.write_text(json.dumps(manifest))
+        runner = self.runner(cp=True)
+        with patch.object(runner, "call") as call, self.assertRaises(RunnerError):
+            runner.run("flash")
+        call.assert_not_called()
+        manifest["latency_fix_sha256"] = latency_hash
+        manifest_path.write_text(json.dumps(manifest))
         # CRC-valid replacement still fails provenance before either write.
         replacement = cp + b"changed"
         (self.root / "pebbleos.t5ai-cp.bin").write_bytes(replacement)

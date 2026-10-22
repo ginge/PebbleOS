@@ -647,7 +647,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertIn("if (FAILED(status))", blank_check)
         self.assertIn("return S_FALSE;", blank_check)
 
-    def test_unhygienix_uses_normal_bluetooth_control_with_shared_prf_storage(self):
+    def test_unhygienix_uses_stock_bluetooth_control_and_persistence(self):
         main = (ROOT / "fw/main.c").read_text()
         services = (ROOT / "fw/services/services_common/service.c").read_text()
         self.assertIn("bt_persistent_storage_init();", services)
@@ -664,17 +664,25 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertFalse((ROOT / "subsys/bluetooth/responsiveness_t5ai.c").exists())
 
         app_cache = (ROOT / "fw/services/app_cache/service.c").read_text()
-        self.assertIn("defined(CONFIG_SOC_T5AI)", app_cache)
         self.assertIn("#define APP_SPACE_BUFFER PBL_KIB(300)", app_cache)
 
         build = (ROOT / "fw/services/bluetooth/CMakeLists.txt").read_text()
         self.assertIn("if(NOT CONFIG_RECOVERY_FW)", build)
-        self.assertIn("list(APPEND sources bluetooth_persistent_storage_prf.c)", build)
+        self.assertIn(
+            "if(NOT CONFIG_RECOVERY_FW)\n"
+            "  list(APPEND sources bluetooth_persistent_storage_normal.c)\n"
+            "else()\n"
+            "  list(APPEND sources bluetooth_persistent_storage_prf.c)",
+            build,
+        )
 
         shared_prf = (
             ROOT / "fw/services/shared_prf_storage/shared_prf_storage.c"
         ).read_text()
-        self.assertIn("flash_write_bytes(field, prv_current_page_flash_addr() + offset, field_size);", shared_prf)
+        self.assertIn(
+            "flash_write_bytes(field, prv_current_page_flash_addr() + offset, field_size);",
+            shared_prf,
+        )
         self.assertNotIn("keep PRF-backed Bluetooth state volatile", shared_prf)
 
         board_source = (ROOT / "fw/board/boards/board_unhygienix.c").read_text()

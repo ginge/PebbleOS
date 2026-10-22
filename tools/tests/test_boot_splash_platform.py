@@ -14,7 +14,7 @@ enum pbl_thread_state { PBL_THREAD_READY=1, PBL_THREAD_DEAD=2 };
 struct pbl_thread { int state, id; };
 struct pbl_thread_attr { const char *name; void (*entry)(void *); int prio;
  bool privileged; void *stack; unsigned stack_size; };
-#define PBL_THREAD_STACK_DEFINE(name,n) unsigned char name[n]
+#define PBL_THREAD_STACK_DEFINE(name,n) unsigned char name[n] __attribute__((aligned(CONFIG_KERNEL_STACK_ALIGN)))
 #define PBL_PRIO_MAX 5
 #define PBL_MSEC(n) (n)
 int pbl_thread_create(struct pbl_thread *, const struct pbl_thread_attr *);
@@ -58,15 +58,10 @@ static ucontext_t main_context, task_context;
 static unsigned char host_stack[65536];
 static void (*entry)(void *);
 static unsigned inits, frames, allocs, frees, live;
-static bool fail_thread, fail_alloc, fail_context, stopping;
+static bool fail_thread, fail_alloc, stopping;
 static bool created, thread_exited, in_worker;
-static unsigned context_allocs, context_frees, exit_checks;
-static void *context_allocation;
-static size_t context_size;
 void *kernel_zalloc(size_t n) {
- if (fail_context) return NULL;
- assert(!context_allocation); context_allocation=calloc(1,n); assert(context_allocation);
- context_size=n; ++context_allocs; return context_allocation;
+ (void)n; assert(!"splash thread storage must be static"); return NULL;
 }
 void *kernel_malloc(size_t n) {
 #ifdef TEST_T5
@@ -76,11 +71,6 @@ void *kernel_malloc(size_t n) {
  void *p=malloc(n); assert(p); ++live; return p;
 }
 void kernel_free(void *p) {
- if (p==context_allocation) {
-   assert(!in_worker && (!created || thread_exited));
-   if (created) assert(((struct pbl_thread *)p)->state==PBL_THREAD_DEAD);
-   ++context_frees; context_allocation=NULL; free(p); return;
- }
  assert(p && live); --live; ++frees; free(p);
 }
 void display_init(void) { ++inits; }
@@ -90,23 +80,16 @@ void pbl_thread_sleep(unsigned n) {
 }
 void pbl_sleep_ms(unsigned n) { assert(n==10); resume(); }
 void pbl_thread_abort(struct pbl_thread *t) {
- assert(!t && s_boot_splash_task==context_allocation && !s_boot_splash_fb);
- // Buffer release is not thread exit. Let stop observe this intermediate state.
- in_worker=false; swapcontext(&task_context,&main_context); in_worker=true;
- assert(!context_frees);
- s_boot_splash_task->state=PBL_THREAD_DEAD;
+ assert(!t && created && in_worker && !s_boot_splash_task && !s_boot_splash_fb);
+ s_boot_splash_thread.state=PBL_THREAD_DEAD;
  thread_exited=true; in_worker=false; setcontext(&main_context); abort();
-}
-enum pbl_thread_state pbl_thread_state(const struct pbl_thread *t) {
- assert(!in_worker && t==context_allocation); ++exit_checks; return t->state;
 }
 static void trampoline(void) { in_worker=true; entry(NULL); abort(); }
 int pbl_thread_create(struct pbl_thread *t,const struct pbl_thread_attr *a) {
- assert(t==s_boot_splash_task && t==context_allocation && !t->id && !t->state);
+ assert(t==&s_boot_splash_thread && !created && !s_boot_splash_task);
+ assert(a->stack==s_boot_splash_stack && a->stack_size==sizeof(s_boot_splash_stack));
  assert(a->stack_size==2048 && a->privileged);
  assert((uintptr_t)a->stack % CONFIG_KERNEL_STACK_ALIGN==0);
- assert((uintptr_t)a->stack >= (uintptr_t)(t+1));
- assert((uintptr_t)a->stack+a->stack_size <= (uintptr_t)t+context_size);
  if (fail_thread) return -1;
  created=true; t->state=PBL_THREAD_READY;
  entry=a->entry; getcontext(&task_context);
@@ -144,7 +127,7 @@ int main(int argc,char **argv) {
 #ifdef TEST_T5
  memset(framebuffer.metadata,0xa5,sizeof(framebuffer.metadata));
 #else
- fail_thread=scenario==2; fail_alloc=scenario==3; fail_context=scenario==4;
+ fail_thread=scenario==2; fail_alloc=scenario==3;
 #endif
  boot_splash_start();
 #ifdef TEST_T5
@@ -153,27 +136,28 @@ int main(int argc,char **argv) {
    boot_splash_stop(); t5ai_boot_splash_render();
    assert(!inits && !s_borrowed); return 0;
  }
- fail_thread=scenario==2; fail_context=scenario==4;
+ fail_thread=scenario==2;
  t5ai_boot_splash_render();
- if (scenario==2 || scenario==4) {
-   assert(!context_allocation && context_allocs==context_frees);
+ if (scenario==2) {
+   assert(!created);
    assert(!s_borrowed && !s_boot_splash_fb && !s_boot_splash_running);
    boot_splash_stop(); assert(!frames); return 0;
  }
 #else
- if (scenario==2 || scenario==3 || scenario==4) {
-   assert(!context_allocation && context_allocs==context_frees);
+ if (scenario==2 || scenario==3) {
+   assert(!created);
    assert(!s_boot_splash_task && !s_boot_splash_fb && !s_boot_splash_running && !live);
-   assert(allocs==(scenario!=4) && frees==(scenario==2)); boot_splash_stop(); return 0;
+   assert(allocs==1 && frees==(scenario==2)); boot_splash_stop(); return 0;
  }
 #endif
  assert(inits==1 && s_boot_splash_task);
- boot_splash_start(); assert(inits==1 && context_allocs==1);
+#ifdef TEST_T5
+ assert(boot_splash_platform_alloc(1)==NULL); // Do not borrow an in-use framebuffer.
+#endif
  for (unsigned i=0;i<201;++i) resume();
  assert(frames==21); stopping=true; boot_splash_stop();
  assert(frames==22 && !s_boot_splash_task && !s_boot_splash_fb && !live);
- assert(!context_allocation && context_allocs==1 && context_frees==1);
- assert(thread_exited && exit_checks>=3);
+ assert(created && thread_exited && s_boot_splash_thread.state==PBL_THREAD_DEAD);
 #ifdef TEST_T5
  assert(!s_borrowed && !allocs && !frees);
  for (unsigned i=0;i<sizeof(framebuffer.metadata);++i)
@@ -229,7 +213,7 @@ class BootSplashPlatformTest(unittest.TestCase):
                 subprocess.run(
                     cmd + [str(source), "-o", str(binary)], check=True, timeout=30
                 )
-                for scenario in (0, 1, 2, 4) if t5 else (0, 2, 3, 4):
+                for scenario in (0, 1, 2) if t5 else (0, 2, 3):
                     with self.subTest(t5=t5, argb=argb, scenario=scenario):
                         subprocess.run(
                             [str(binary), str(scenario)], check=True, timeout=10
@@ -257,6 +241,11 @@ class BootSplashPlatformTest(unittest.TestCase):
     def test_display_boot_transfer_serialization(self):
         source = (ROOT / "drivers/display/t5ai/display_co5300.c").read_text()
         function = source[source.index("void display_update_boot_frame(") :]
+        locks = source[
+            source.index("static void prv_panel_lock(void)") : source.index(
+                "static volatile uint32_t *prv_qspi("
+            )
+        ]
         harness = (
             r"""
 #include <assert.h>
@@ -281,12 +270,13 @@ static bool prv_set_window(unsigned x0,unsigned y0,unsigned x1,unsigned y1) {
  assert(locked && x0==0 && y0==0 && x1==259 && y1==259); return mode!=2;
 }
 static bool prv_pixel_stream_begin(void) { assert(locked); return mode!=3; }
-static bool prv_stream_logical_row(unsigned y,const uint8_t *p,size_t *word,bool dma,bool invert) {
- (void)word; assert(locked && !dma && !invert && p==pixels+y*260); ++rows; return mode!=4;
+static bool prv_stream_logical_row(unsigned y,const uint8_t *p,size_t *word,bool dma,bool invert,bool rotated) {
+ (void)word; assert(locked && !dma && !invert && !rotated && p==pixels+y*260); ++rows; return mode!=4;
 }
 static bool prv_finish_row_dma(size_t *word) { (void)word; assert(locked); return true; }
 static void prv_pixel_stream_end(void) { assert(locked); ++ends; }
 """
+            + locks
             + function
             + r"""
 int main(void) {
