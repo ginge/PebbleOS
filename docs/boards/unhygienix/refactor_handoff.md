@@ -1,7 +1,9 @@
 # Unhygienix stock-code refactor handoff — 2026-10-09
 
+> Current project status (22 October 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
+
 Current-status update — 2026-10-17: this is a historical investigation and
-refactor record. Use the [operator handoff](index.md#latest-implementation-status--2026-10-17)
+refactor record. Use the [operator handoff](current-status.md)
 for the latest recorded flash/configuration and the
 [remaining-work list](../../../boards/unhygienix/tuya/REMAINING_TASKS.md#current-disposition--2026-10-18)
 for current scope. The upstream merge/driver API adaptation, restored stock

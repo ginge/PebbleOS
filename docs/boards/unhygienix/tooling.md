@@ -1,5 +1,7 @@
 # Unhygienix dependency, build and flash tooling
 
+> Current project status (22 October 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
+
 Unhygienix means "The village fishmonger." The independent hardware target is
 `unhygienix` (`CONFIG_BOARD_UNHYGIENIX`), with `PLATFORM_GABBRO` apps and the
 existing Round 2/Getafix DVT2 companion identity. Getafix DVT/DVT2 hardware
@@ -10,7 +12,7 @@ generated validation artifacts under `build/`.
 
 ## Current validation baseline — 2026-10-17
 
-The [operator handoff](index.md#latest-implementation-status--2026-10-17)
+The [operator handoff](current-status.md)
 records source `ab3616d5e`, the latest AP-only GATT flash and its stopped capture.
 The upstream merge and driver adaptation use the current `drivers/` APIs;
 older diagnostic sections below retain the paths/configurations of their dates.
@@ -1145,3 +1147,12 @@ covering initial allocation, rebuild, ordinary-allocation fallback and misuse.
 Failure evidence: `/home/baz/Documents/ChatGPT/pebble/artifacts/random-reboot-20261022/`.
 Fix build, tests and hardware validation:
 `/home/baz/Documents/ChatGPT/pebble/artifacts/sd-pfs-heap-fix-20261022/`.
+
+Final validation: AP build `c0e283f0b861e0d0fbcb70fb9c5fae6e86b84065` was flashed
+AP-only and its boot/live identities verified. Seventeen focused checks passed.
+Existing SD volume and 48 apps were preserved; notifications displayed normally.
+The resumed 25.56-minute continuous capture had no reboot/fatal OOM/SD error or
+watchdog report. Final free heap was 11,992 B; largest block 9,948 B; recorded
+peak use 13,540 B. Seven BLE timeouts recovered and one oversized optional image
+was safely dropped. An initial USB gap is retained in the evidence; capture was
+stopped. These results do not establish overnight or worst-case qualification.

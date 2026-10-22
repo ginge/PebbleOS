@@ -1,5 +1,7 @@
 # Optional TF-card PFS
 
+> Current project status (22 October 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
+
 The experimental `CONFIG_T5AI_SD_PFS` backend stores a 32 MiB PFS volume
 on the TF card. Internal-flash PFS remains the default and is not migrated.
 All production code is board/SoC/driver-local; linker wrapping selects the
@@ -71,8 +73,9 @@ ordinary desktop filesystems overlapping the private area will be destroyed.
 Returning to an internal-flash build exposes its previous independent state.
 
 PFS reserves 64 KiB for bookkeeping and applies its existing 80% capacity policy,
-leaving approximately 25.55 MiB before allocated files. Page flags consume 8 KiB
-of kernel heap. The adapter's 4 KiB sector cache and a shared aligned 4 KiB DMA workspace
+leaving approximately 25.55 MiB before allocated files. Page flags use a dedicated 8 KiB AP-owned PSRAM reservation at
+`0x60020000..0x60022000` after the 2026-10-22 heap-exhaustion fix; they no longer
+consume kernel heap. The adapter's 4 KiB sector cache and a shared aligned 4 KiB DMA workspace
 use the existing private board PSRAM reservation. The recursive driver lock
 covers each adapter read/modify/write, preventing raw block callers from
 reusing the workspace between its read and write.
@@ -128,7 +131,8 @@ The selected SD, console, display DMA, CP-manifest and packaging suites passed
 | Static kernel RAM | 105,664 bytes | 105,760 bytes |
 | Private PSRAM | 122,432 bytes | 130,624 bytes |
 
-The SD build has 21,216 bytes of linker-provided kernel heap before runtime
+Historical October 21 allocation, superseded by the October 22 fix below:
+the SD build had 21,216 bytes of linker-provided kernel heap before runtime
 allocations. Its 8,192-byte page-flags allocation leaves 13,024 bytes before
 other runtime allocations. This is not a measured runtime low-water mark.
 The private PSRAM reservation has only 448 bytes unused; configurations adding
@@ -164,3 +168,29 @@ full-volume handling and measured throughput remain unqualified. The final
 capture later recorded a BLE connection timeout (`0x0208`) and a put-bytes
 failure, without an SD I/O error or filesystem assertion. The cause has not
 been established; sustained phone/app-transfer stability is not qualified.
+
+## Metadata heap correction and current validation — 2026-10-22
+
+The October 21 8,192-byte kernel allocation exhausted/fragmented the heap during
+notification rendering. The SD-only adapter now supplies the stock PFS cache
+builder with dedicated privileged, non-executable PSRAM at `0x60020000..0x60022000`.
+This lies inside the pinned vendor AP audio slab and outside the original display
+reservation and CP heap. Linker/MPU/image-map checks enforce bounds; other PFS
+allocations still use the normal heap. Shared PFS source and on-card format are
+unchanged. No whole-heap PSRAM move is implemented.
+
+AP `c0e283f0b861e0d0fbcb70fb9c5fae6e86b84065` was flashed AP-only and verified.
+The volume reopened without formatting, 48 apps were found, and notifications
+displayed normally. Seventeen focused checks passed. Final observed free heap
+was 11,992 B, largest block 9,948 B; recorded peak use was 13,540 of 21,216 B.
+These live unpaused walks have cache/concurrency limitations.
+
+After an initial USB capture gap, 25.56 minutes of continuous capture recorded
+no reboot, fatal OOM, SD I/O error or watchdog report. Seven BLE supervision
+timeouts recovered; one optional 12,508-byte image was safely dropped because
+contiguous space was insufficient. These remain separate open issues. Capture
+stopped. Performance, full-volume, interruption/corruption recovery and extended
+concurrency/soak qualification remain open. Language-pack work is closed by
+operator direction, not a remaining SD task.
+
+[Exact build, tests, heap walks and UART evidence](/home/baz/Documents/ChatGPT/pebble/artifacts/sd-pfs-heap-fix-20261022/results.txt).

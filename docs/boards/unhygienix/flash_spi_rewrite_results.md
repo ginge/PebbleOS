@@ -1,5 +1,7 @@
 # Flash SPI rewrite: implementation and qualification record
 
+> Current project status (22 October 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
+
 Date: 2026-10-11. **Paused by operator; incomplete qualification; controller baseline retained.**
 
 See [pause decision, branch locations and tradeoffs](flash_spi_bypass_paused.md).

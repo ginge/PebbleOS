@@ -1,5 +1,7 @@
 # Unhygienix battery subsystem review — 2026-10-18
 
+> Current project status (22 October 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
+
 ## Decision
 
 The working tree now uses stock voltage-service demand with a nonblocking,

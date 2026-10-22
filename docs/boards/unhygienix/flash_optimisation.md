@@ -1,5 +1,7 @@
 # T5 flash optimisation and robustness audit — 2026-10-11
 
+> Current project status (22 October 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
+
 Status: the 2026-10-11 SPI correctness review below supersedes the earlier
 bypass safety assumptions. The controller-based diagnostic CP baseline has been
 restored and verified against its sealed hash. Experimental SPI bypass packaging

@@ -1,5 +1,32 @@
 # Unhygienix validation and remaining work
 
+## Current disposition — 2026-10-22
+
+Use the [current status](../../../docs/boards/unhygienix/current-status.md) for
+latest firmware, measured results and remaining priorities. AP `c0e283f0` is the
+latest verified image: four-bit DMA SD PFS, dedicated 8 KiB PSRAM metadata cache,
+about 12 KiB observed free kernel heap and normal notification display. The
+25.56-minute resumed capture had no reboot; seven recovered BLE timeouts and
+one nonfatal oversized-image drop remain open. Capture stopped.
+
+**Language-pack work is complete and closed by operator direction.** Remove
+language/font install, replacement/removal and glyph qualification from active
+work. No new tests are claimed. Historical language-switch watchdog evidence
+remains under general stability investigation, not a language-pack blocker.
+Full bank CRC/table validation and explicit no-update-bank handling are implemented.
+
+The October 19 display implementation/measurement pass is complete; polling is
+retained after IRQ measured slower. The October 21 CP latency-transition fix is
+installed, with recorder/zero-latency workaround removed. Remaining priorities:
+Bluetooth transfer/reconnect/soak, general watchdog/full-sync stalls, SD performance
+and interruption recovery, peak heap/stack and image allocation, low power/wake,
+fitted-cell battery/RTC checks, upstream cleanup and safe OTA/recovery design.
+A whole-heap PSRAM move still needs benchmarks and is not implemented.
+
+The dated sections below are historical progress records. This disposition
+supersedes their older open/installed-image claims; retain original failed traces.
+
+
 The [operator handoff](../../../docs/boards/unhygienix/index.md) records current hardware
 support and implementation gaps. The [tooling guide](../../../docs/boards/unhygienix/tooling.md)
 records dependency, build, packaging and flash procedures.
@@ -137,12 +164,12 @@ local `origin/main` at `b3a2dcb88`; the review did not fetch upstream.
   transient I2C/touch errors remain unresolved. Flash bypass remains paused.
 
 Latest recorded installed image and configuration are summarized in the
-[operator handoff](../../../docs/boards/unhygienix/index.md#latest-implementation-status--2026-10-17).
+[operator handoff](../../../docs/boards/unhygienix/current-status.md).
 No capture remains from the latest GATT test. Merge readiness remains unqualified.
 
 <a id="next-priorities--2026-10-14"></a>
 
-## Next priorities — 2026-10-18
+## Historical priorities — 2026-10-18
 
 1. **Top priority: stock convergence and readiness to merge to main.**
    Follow the [2026-10-18 stock convergence review](/home/baz/Documents/ChatGPT/pebble/audits/2026-10-18-stock-convergence/review.md)
@@ -160,10 +187,10 @@ No capture remains from the latest GATT test. Merge readiness remains unqualifie
      2026-10-18. The T5AI GATT discovery lease override is removed; stock zero
      is inherited without a build override. Keep its broader device qualification
      and later real connection-parameter negotiation checks separate.
-   - Remeasure stock full-pack validation before accepting reduced integrity
-     checks. PFS system-file routing and watch/unwatch are restored as recorded
-     below; qualify language/font changes on the device. Preserve the physical
-     single-bank layout and reject unsupported resource updates.
+   - Full-pack CRC/table validation and explicit no-update-bank handling are
+     implemented. PFS system-file routing and watch/unwatch are restored;
+     language-pack work is closed by operator direction on 2026-10-22.
+     Shared-bank backend consolidation remains separate cleanup.
    - Test stock reconnect advertising transitions, then stock connection-parameter
      negotiation, independently on the RF-corrected CP. Record actual parameters
      and update completions. Retain only reproduced controller limitations at a
@@ -432,12 +459,12 @@ No capture remains from the latest GATT test. Merge readiness remains unqualifie
    valid system resources, restored bond registration and an open reversed
    PPoGATT session. CP, resource bank and persistent storage were not selected
    for programming. Capture is stopped; existing PFS/app warnings remain.
-   Device language/font install, replacement, removal, heap use and UI checks
-   remain open. Flash evidence:
+   Language/font follow-ups are closed by operator direction on 2026-10-22;
+   these original capture limits remain historical evidence. Flash evidence:
    `/home/baz/Documents/ChatGPT/pebble/artifacts/pfs-system-resources-20261018/flash/report.md`.
    Build evidence and candidate details:
    `/home/baz/Documents/ChatGPT/pebble/artifacts/pfs-system-resources-20261018/validation.txt`.
-   Full-pack integrity validation remains a separate open item.
+   Full-pack integrity validation was subsequently implemented; see current status.
 
    Follow-up — 2026-10-18 (marker warning): the startup layout probe temporarily
    restores a zero-page PFS, triggering the stock marker warning without reading
@@ -638,22 +665,13 @@ No capture remains from the latest GATT test. Merge readiness remains unqualifie
    unverified. Capture stopped; installed image now has the complete stock shell
    path. Evidence: `build/traces/stock-shell-init-flash-20261017-155019/analysis.md`.
 
-2. **Replace display completion polling with interrupt-driven completion where
-   supported.** Audit the T5AI CO5300 QSPI/DMA path against other Pebble display
-   drivers and the pinned Tuya implementation, then adopt a driver-/SoC-local
-   completion interrupt and blocking wait if the hardware supports it. Current
-   `drivers/display/t5ai/display_co5300.c` busy-polls DMA enable in
-   `prv_pixel_stream_finish_dma()` and polls QSPI command completion; the QSPI0
-   system interrupt route is enabled, but its NVIC line remains disabled.
-   Establish which DMA/QSPI event proves the full transfer has finished before
-   releasing buffers or starting the next transaction. Preserve cache coherency,
-   dirty-row streaming, transfer ordering, bounded timeout/error recovery and
-   shared Pebble display semantics; qualify IRQ ownership against the pinned CP.
-   Measure CPU time, draw latency and BG progress before/after on the same face
-   and configuration, and validate repeated partial/full redraws without hangs,
-   corruption or lost completions. Keep this distinct from the SDK compatibility
-   cache TODO below: eliminating transfer waits may not fix software render cost
-   or KernelBG starvation.
+2. **Display implementation pass complete — 2026-10-19.** Wide copy/fill,
+   native compositor, two-row DMA, timestamped touch coalescing, rotated DMA and
+   bounded recovery are implemented. IRQ completion was implemented and measured
+   slower; polling remains selected and the worker stays off. Do not repeat the
+   original IRQ investigation. Longer stability qualification, rendering costs,
+   unqualified scalar fallback and deferred DMA2D remain documented in the
+   [display handoff](/home/baz/Documents/ChatGPT/pebble/artifacts/t5-display-implementation-20261019/HANDOFF.md).
 3. **Investigate further accelerometer CPU-cost reduction — exploratory (2026-10-14).**
    Measure how much CPU the accelerometer pipeline costs while the watch is idle
    and while an accelerometer-using watchface is active, then determine whether
@@ -824,7 +842,8 @@ contains superseded startup/kernel work. The remaining candidates are:
   implementation and review only deviations still present.
 - Stock file-store routing and resource-watch ownership were restored on
   2026-10-18 and verified with real PFS integration cases. Complete the device
-  checks listed above; full-pack validation remains open.
+  checks listed above; language-pack work is closed and full-pack validation
+  is implemented. Shared bank-backend consolidation remains open.
 - Select unavailable update, recovery, coredump and reset implementations or
   explicit capabilities at build time, reducing shared T5 conditionals without
   enabling unsupported operations.

@@ -1,5 +1,7 @@
 # Flash bypass paused: controller baseline retained
 
+> Current project status (22 October 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
+
 Cleanup update — 2026-10-18: the production tree now retains only the Bluetooth
 CP hook. The old CP flash guard and SPI/volatile sources, packaging support and
 tests were removed. This document and linked evidence retain the historical
@@ -16,7 +18,7 @@ Current-status update — 2026-10-17: the pause decision still applies. The
 adaptation and shared GATT consolidation (`ab3616d5e`). References to
 `c0327d426` below describe the shelving checkpoint, not the current production
 HEAD or installed AP. The latest recorded flash is the controller-path GATT
-candidate; see the [operator handoff](index.md#latest-implementation-status--2026-10-17).
+candidate; see the [operator handoff](current-status.md).
 No qualified bypass speed or stability result has been added.
 
 ## Branches and scope

@@ -1,5 +1,7 @@
 # Unhygienix Bluetooth RF PLL initialization hook
 
+> Current project status: [22 October update](../../../../docs/boards/unhygienix/current-status.md). The recorder and zero-latency workaround remain archived; later radio timeouts are still open.
+
 `ble_rf_init.c` calls the vendor RF configurator with `0x0202` immediately after
 successful Bluetooth initialization in the CP HCI-reset thread. The hook calls
 the original initializer first and leaves RF unchanged if initialization fails.
@@ -66,3 +68,12 @@ The diagnostic recorder, its build flags and zero-latency workaround were
 removed from production source. Their source, exact paired firmware, tests,
 manifests and captures are archived outside this repository under
 `/home/baz/Documents/ChatGPT/pebble/artifacts/bt-latency-recorder-20261021/`.
+
+## Later radio qualification — 2026-10-22
+
+The AP-only SD heap correction did not modify CP. Its resumed 25.56-minute
+capture recorded seven supervision-timeout disconnects (`0x208`); all reconnected
+and reopened the phone session without a watch reboot. The two successful
+October 21 transfer tests remain valid bounded evidence, not complete radio
+qualification. Sustained transfers, reconnect churn, cold boot, long soak and
+energy impact remain open. [Evidence](/home/baz/Documents/ChatGPT/pebble/artifacts/sd-pfs-heap-fix-20261022/results.txt).

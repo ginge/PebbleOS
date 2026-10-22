@@ -1,5 +1,7 @@
 # Unhygienix: The village fishmonger
 
+> Current project status (22 October 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
+
 `unhygienix` is the PebbleOS target for the Waveshare
 [T5-E1-Touch-AMOLED-1.75](https://www.waveshare.com/wiki/T5-E1-Touch-AMOLED-1.75),
 using the Tuya T5AI/BK7258. Run commands from the PebbleOS repository root.
@@ -23,7 +25,19 @@ BOM, battery choices, provisional clearances and unresolved fit requirements.
 Use the [case-design handoff prompt](../../../boards/unhygienix/hardware/docs/case-design-handoff.md) to continue enclosure
 work. These documents describe a preliminary design, not verified hardware.
 
-## Latest implementation status — 2026-10-18
+## Latest implementation status — 2026-10-22
+
+The latest recorded AP is `c0e283f0b861e0d0fbcb70fb9c5fae6e86b84065`, with
+32 MiB four-bit DMA SD PFS and its 8 KiB metadata cache in dedicated PSRAM.
+Notifications display normally; final observed free kernel heap is 11,992 B.
+The resumed 25.56-minute capture contained no reboot, fatal OOM, SD error or
+watchdog report, but seven recovered BLE supervision timeouts and one nonfatal
+oversized-image drop remain open. Capture stopped. Display optimisation and CP
+latency-transition work are implemented. **Language-pack work is closed by
+operator direction on 2026-10-22.** See [current status](current-status.md) for
+measurements, evidence and remaining work.
+
+## Historical implementation status — 2026-10-18
 
 Source baseline: `08a8212e8`, with the battery validity/ADC repair and worker
 consolidation in the working tree. The port merged newer upstream
@@ -40,7 +54,7 @@ one ARM SDK/QEMU fault-entry test skipped. The Unhygienix firmware built and
 linked, with existing LTO warnings. These are recorded checks for that candidate,
 not a fresh broad run against the later persistence experiment.
 
-The latest installed AP image is battery build
+The latest AP image recorded in this October 18 section was battery build
 `779f3e5a1bcaeed66d06043ead303ab3c91254ed`, flashed AP-only on 2026-10-18.
 ADC and operator control checks pass; KernelBG watchdog stalls remain open.
 See the battery section below for the final capture and limitations.
@@ -88,7 +102,8 @@ build ID `50d14c63d1336e77edb840d723bfefc230982883`, flashed AP-only on 2026-10-
 The booted build ID matches the saved candidate. Startup accepted the system
 resource bank, registered the stored bond and opened reversed PPoGATT. CP,
 resources and persistent storage were not selected for programming. Capture is
-stopped; PFS/app warnings and device pack/heap/UI qualification remain open.
+stopped; PFS/app warnings were retained. Language-pack follow-ups are now closed
+by operator direction; the original capture did not qualify peak heap/UI behavior.
 Exact images, raw trace, matching dictionary and limits:
 `/home/baz/Documents/ChatGPT/pebble/artifacts/pfs-system-resources-20261018/flash/report.md`.
 
@@ -208,9 +223,10 @@ runs Pebble's NimBLE host against the CP-owned Bluetooth controller.
 | Pebble GATT service discovery | Shared engine installed; October 17 bounded reconnect/discovery smoke test passed (6499 ms); broader qualification pending |
 | Pairing, bonding, reconnect, and Pebble protocol session setup | Physical RF PLL fix installed; 15-minute connected run, bonded hardware-reset reconnection and 10-hour connected-idle observation passed; broader reconnect and cold-boot qualification pending |
 | Device identity | Phone recognizes the watch as Round 2; further compatibility remains under test |
-| Sustained phone sync and watchface transfer | Six transfers completed and all faces loaded; clean-image startup verified |
+| Sustained phone sync and watchface transfer | CP latency-transition fix passed two Pebblecraft transfers on October 21; seven recovered supervision timeouts remain in the October 22 capture. Sustained stability remains open. |
+| Language packs and optional fonts | Complete; closed by operator direction on October 22. Historical watchdog evidence remains under general stability. |
 | Sleep/wake and low-power operation | Shake wakes the timed-out display; deeper sleep, wake interrupts and low-power operation remain unvalidated |
-| Writable PFS | NOR cache corruption fixed; 2.75 MiB PFS migrated and readback verified |
+| Writable PFS | Internal NOR PFS preserved; latest image uses optional 32 MiB four-bit DMA SD PFS. Metadata cache moved to PSRAM on October 22; performance/recovery qualification remains. |
 | OTA, recovery, and general writable flash | Deliberately disabled pending a safe storage/recovery contract |
 
 The fitted CO5300/panel assembly presents inverted polarity on all three RGB222
@@ -635,8 +651,9 @@ pack is unchanged. Candidate build ID: `50d14c63d1336e77edb840d723bfefc230982883
 The candidate was flashed AP-only on 2026-10-18; its booted build ID matches.
 Startup accepted the system resource bank and opened a phone protocol session
 with the stored bond registered. Capture is stopped; the flash report above
-records remaining warnings and evidence limits. Device pack installation/removal,
-selected-face/UI behavior and peak heap use remain unqualified. Matching candidate and validation records are at
+records remaining warnings and evidence limits. Language-pack work, including installation/removal and language/font UI follow-ups,
+is closed by operator direction on 2026-10-22. This adds no new device measurements;
+general peak-heap and stability qualification remain separate. Matching candidate and validation records are at
 `/home/baz/Documents/ChatGPT/pebble/artifacts/pfs-system-resources-20261018/`.
 
 The startup "Couldn't resolve last written pg" warning can be emitted by a

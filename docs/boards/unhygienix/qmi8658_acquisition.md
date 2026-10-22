@@ -1,5 +1,7 @@
 # QMI8658 acquisition on Unhygienix
 
+> Current project status (22 October 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
+
 Status: **complete for now**, closed at the operator’s request on 2026-10-14.
 The implementation iteration is closed. The
 [remaining-work TODO](../../../boards/unhygienix/tuya/REMAINING_TASKS.md) now tracks

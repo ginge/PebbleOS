@@ -1,5 +1,7 @@
 # Unhygienix flash SPI rewrite handoff
 
+> Current project status (22 October 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
+
 Date: 2026-10-11  
 Status: the unsupported-owner diagnostic now probes at most once per CP boot;
 its finite hardware test completed 1920 controller writes with no unexpected reset

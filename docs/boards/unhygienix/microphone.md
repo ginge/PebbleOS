@@ -1,5 +1,7 @@
 # Microphone integration
 
+> Current project status (22 October 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
+
 Unhygienix uses the native T5AI audio ADC driver for 16 kHz signed 16-bit mono
 capture. The board enables `CONFIG_MIC`, selecting `CONFIG_MIC_T5AI` and the
 voice service. Speaker playback remains disabled.

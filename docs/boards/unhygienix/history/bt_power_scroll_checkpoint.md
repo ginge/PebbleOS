@@ -1,5 +1,7 @@
 # Unhygienix: Bluetooth, power and scrolling checkpoint
 
+> Current project status (22 October 2026): [implementation, completed work and remaining tasks](../current-status.md). Dated results below retain their original evidence limits.
+
 This retained report records dated observations, not current operating instructions.
 Use the [operator handoff](../index.md) and [tooling guide](../tooling.md)
 for current procedures. Obsolete commands and machine-specific paths have been
