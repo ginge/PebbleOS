@@ -36,6 +36,7 @@ pbl_clar_test(test_health_card_view
     fw/apps/system/health/activity_detail_card.c
     fw/apps/system/health/activity_summary_card.c
     fw/apps/system/health/hr_detail_card.c
+    fw/apps/system/health/hr_chart.c
     fw/apps/system/health/hr_summary_card.c
     fw/apps/system/health/sleep_detail_card.c
     fw/apps/system/health/sleep_summary_card.c
@@ -43,7 +44,7 @@ pbl_clar_test(test_health_card_view
     fw/apps/system/health/card_view.c
     fw/applib/pbl_std/strftime.c
     fw/applib/pbl_std/timelocal.c
-  PLATFORMS obelix gabbro asterix
+  PLATFORMS emery gabbro flint
   DEFINES USE_DISPLAY_PERIMETER_ON_FONT_LAYOUT=1
   OVERRIDES dummy_board
   TEST_IMAGES
@@ -86,7 +87,7 @@ pbl_clar_test(test_health_activity_summary_card
     fw/apps/system/health/activity_summary_card.c
     fw/applib/pbl_std/strftime.c
     fw/applib/pbl_std/timelocal.c
-  PLATFORMS obelix gabbro asterix
+  PLATFORMS emery gabbro flint
   DEFINES USE_DISPLAY_PERIMETER_ON_FONT_LAYOUT=1
   OVERRIDES dummy_board
   TEST_IMAGES
@@ -129,7 +130,7 @@ pbl_clar_test(test_health_sleep_summary_card
     fw/apps/system/health/sleep_summary_card.c
     fw/applib/pbl_std/strftime.c
     fw/applib/pbl_std/timelocal.c
-  PLATFORMS obelix gabbro asterix
+  PLATFORMS emery gabbro flint
   DEFINES USE_DISPLAY_PERIMETER_ON_FONT_LAYOUT=1
   OVERRIDES dummy_board
   TEST_IMAGES
@@ -169,10 +170,11 @@ pbl_clar_test(test_health_hr_summary_card
     tests/fixtures/resources/timeline_resource_table.auto.c
     fw/apps/system/health/detail_card.c
     fw/apps/system/health/hr_detail_card.c
+    fw/apps/system/health/hr_chart.c
     fw/apps/system/health/hr_summary_card.c
     fw/applib/pbl_std/strftime.c
     fw/applib/pbl_std/timelocal.c
-  PLATFORMS asterix
+  PLATFORMS flint
   DEFINES USE_DISPLAY_PERIMETER_ON_FONT_LAYOUT=1
   OVERRIDES dummy_board
   TEST_IMAGES
@@ -214,7 +216,7 @@ pbl_clar_test(test_health_activity_detail_card
     fw/apps/system/health/activity_detail_card.c
     fw/applib/pbl_std/strftime.c
     fw/applib/pbl_std/timelocal.c
-  PLATFORMS obelix gabbro asterix
+  PLATFORMS emery gabbro flint
   DEFINES USE_DISPLAY_PERIMETER_ON_FONT_LAYOUT=1
   OVERRIDES dummy_board
   TEST_IMAGES
@@ -256,7 +258,7 @@ pbl_clar_test(test_health_sleep_detail_card
     fw/apps/system/health/sleep_detail_card.c
     fw/applib/pbl_std/strftime.c
     fw/applib/pbl_std/timelocal.c
-  PLATFORMS obelix gabbro asterix
+  PLATFORMS emery gabbro flint
   DEFINES USE_DISPLAY_PERIMETER_ON_FONT_LAYOUT=1
   OVERRIDES dummy_board
   TEST_IMAGES
@@ -296,9 +298,10 @@ pbl_clar_test(test_health_hr_detail_card
     tests/fixtures/resources/timeline_resource_table.auto.c
     fw/apps/system/health/detail_card.c
     fw/apps/system/health/hr_detail_card.c
+    fw/apps/system/health/hr_chart.c
     fw/applib/pbl_std/strftime.c
     fw/applib/pbl_std/timelocal.c
-  PLATFORMS obelix gabbro asterix
+  PLATFORMS emery gabbro flint
   DEFINES USE_DISPLAY_PERIMETER_ON_FONT_LAYOUT=1
   OVERRIDES dummy_board
   TEST_IMAGES
@@ -339,8 +342,22 @@ pbl_clar_test(test_health_detail_card
     fw/apps/system/health/detail_card.c
     fw/applib/pbl_std/strftime.c
     fw/applib/pbl_std/timelocal.c
-  PLATFORMS obelix gabbro asterix
+  PLATFORMS emery gabbro flint
   DEFINES USE_DISPLAY_PERIMETER_ON_FONT_LAYOUT=1
   OVERRIDES dummy_board
   TEST_IMAGES
+)
+
+pbl_clar_test(test_health_hr_chart
+  MODULES resources graphics_bitdepth gdraw text_render png time
+  SOURCES
+    fw/applib/graphics/text_resources.c
+    fw/applib/pbl_std/strftime.c
+    fw/applib/pbl_std/timelocal.c
+    fw/apps/system/health/hr_chart.c
+    tests/fakes/fake_clock.c
+    tests/fakes/fake_gbitmap_get_data_row.c
+  PLATFORMS emery gabbro flint
+  DEFINES USE_DISPLAY_PERIMETER_ON_FONT_LAYOUT=1
+  OVERRIDES dummy_board
 )

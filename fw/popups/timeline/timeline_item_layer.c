@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <time.h>
 
+#include <pbl/kernel/assert.h>
 #include <pbl/services/timeline/layout_layer.h>
 #include <pbl/services/timeline/timeline_actions.h>
 #include <pbl/util/math.h>
@@ -20,7 +21,6 @@
 #include <kernel/ui/kernel_ui.h>
 #include <kernel/ui/modals/modal_manager.h>
 #include <process_state/app_state/app_state.h>
-#include <system/passert.h>
 
 ///////////////////////////////////////////////////////////
 // Drawing functions
@@ -73,12 +73,14 @@ static int16_t prv_get_max_scroll_offset(TimelineItemLayer *item_layer) {
   }
 }
 
-static void prv_scroll_offset_setter(TimelineItemLayer *item_layer, int16_t value) {
+static void prv_scroll_offset_setter(void *subject, int16_t value) {
+  TimelineItemLayer *item_layer = subject;
   item_layer->scroll_offset_pixels = value;
   layer_mark_dirty(&item_layer->layer);
 }
 
-static int16_t prv_scroll_offset_getter(TimelineItemLayer *item_layer) {
+static int16_t prv_scroll_offset_getter(void *subject) {
+  TimelineItemLayer *item_layer = subject;
   return item_layer->scroll_offset_pixels;
 }
 
@@ -92,9 +94,9 @@ static void prv_update_scroll_offset(TimelineItemLayer *item_layer, int16_t new_
     .accessors = {
       .setter =
           {
-            .int16 = (const Int16Setter)prv_scroll_offset_setter,
+            .int16 = prv_scroll_offset_setter,
           },
-      .getter = {.int16 = (const Int16Getter)prv_scroll_offset_getter},
+      .getter = {.int16 = prv_scroll_offset_getter},
     },
   };
 

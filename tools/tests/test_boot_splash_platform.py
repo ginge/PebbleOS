@@ -38,7 +38,7 @@ FrameBuffer *compositor_get_framebuffer(void);
     "applib/graphics/framebuffer.h": """#pragma once
 typedef struct { uint8_t buffer[260*260]; uint32_t metadata[4]; } FrameBuffer;
 """,
-    "system/passert.h": "#include <assert.h>\n#define PBL_ASSERTN(x) assert(x)\n",
+    "pbl/kernel/assert.h": "#include <assert.h>\n#define PBL_ASSERTN(x) assert(x)\n",
 }
 HARNESS = r"""
 #include <assert.h>

@@ -1,32 +1,35 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <pbl/drivers/backlight.h>
+#include <pbl/drivers/backlight/t5ai.h>
 #include <pbl/drivers/display/t5ai.h>
-#include <pbl/services/boot_splash/t5ai.h>
-#include "board/board.h"
 
-static uint8_t s_brightness;
-
-void backlight_init(void) {
-  s_brightness = 0u;
-  backlight_refresh();
-  t5ai_boot_splash_render();
-  backlight_set_brightness(BOARD_CONFIG.backlight_on_percent);
-}
-
-uint8_t backlight_get_level(uint8_t brightness) {
-  if (brightness > 100u) {
-    brightness = 100u;
-  }
+static uint8_t prv_get_level(const struct pbl_backlight *bl, uint8_t brightness) {
   const uint8_t level = ((uint16_t)brightness * UINT8_MAX + 99u) / 100u;
   return level < T5AI_AMOLED_MIN_BRIGHTNESS ? T5AI_AMOLED_MIN_BRIGHTNESS : level;
 }
 
-void backlight_set_brightness(uint8_t brightness) {
-  s_brightness = brightness;
-  display_co5300_set_brightness(backlight_get_level(brightness));
+static int prv_set_brightness(const struct pbl_backlight *bl, uint8_t brightness) {
+  display_co5300_set_brightness(prv_get_level(bl, brightness));
+  return 0;
 }
 
-void backlight_refresh(void) {
-  backlight_set_brightness(s_brightness);
+static int prv_init(const struct pbl_backlight *bl) {
+  return prv_set_brightness(bl, 0u);
 }
+
+static int prv_refresh(const struct pbl_backlight *bl) {
+  return prv_set_brightness(bl, bl->state->brightness);
+}
+
+static const struct pbl_backlight_ops s_ops = {
+  .init = prv_init,
+  .set_brightness = prv_set_brightness,
+  .get_level = prv_get_level,
+  .refresh = prv_refresh,
+};
+
+PBL_BACKLIGHT_STATE_DEFINE(pbl_backlight_t5ai);
+const struct pbl_backlight pbl_backlight_t5ai =
+    PBL_BACKLIGHT_INIT(pbl_backlight_t5ai, "backlight", nullptr, &s_ops);
+PBL_DEVICE_REGISTER(pbl_backlight_t5ai, &pbl_backlight_t5ai.dev);

@@ -15,20 +15,24 @@ add_custom_command(
 )
 add_custom_target(pbl_timezone_fixture DEPENDS ${timezone_fixture})
 
+pbl_clar_test(test_language_pack_protocol
+  SOURCES fw/kernel/language_pack_protocol.c
+)
+
 pbl_clar_test(test_pfs
   MODULES pfs
   SOURCES
     fw/system/hexdump.c
     tests/fakes/fake_rtc.c
-  PLATFORMS obelix
+  PLATFORMS emery
   DEFINES DUMA_DISABLED
   OVERRIDES dummy_board
 )
 
 pbl_clar_test(test_put_bytes
   SOURCES
-    fw/services/put_bytes/put_bytes.c
     fw/services/put_bytes/put_bytes_job_buffer.c
+    fw/services/put_bytes/put_bytes.c
     fw/services/put_bytes/put_bytes_storage.c
     tests/fakes/fake_session.c
     tests/fakes/fake_events.c
@@ -36,13 +40,35 @@ pbl_clar_test(test_put_bytes
     tests/fakes/fake_resource_storage.c
     tests/fakes/fake_rtc.c
     tests/fakes/fake_spi_flash.c
-  # This suite exercises the supported update protocol; rejection combinations
-  # are covered separately by test_update_capabilities.py.
+  # Rejection combinations are covered by test_update_capabilities.py.
   DEFINES
     CONFIG_FIRMWARE_UPDATE_SUPPORTED
     CONFIG_RECOVERY_UPDATE_SUPPORTED
     CONFIG_SYSTEM_RESOURCE_UPDATE_SUPPORTED
-  PLATFORMS obelix gabbro asterix
+  PLATFORMS emery gabbro flint
+  OVERRIDES dummy_board
+)
+
+pbl_clar_test(test_language_pack_storage
+  SOURCES
+    fw/services/put_bytes/put_bytes_storage_file.c
+    fw/services/i18n/i18n.c
+    fw/resource/resource.c
+    fw/resource/resource_storage.c
+    fw/resource/resource_storage_builtin.c
+    fw/resource/resource_storage_file.c
+    fw/resource/resource_storage_flash.c
+    fw/services/filesystem/flash_translation.c
+    fw/services/filesystem/pfs.c
+    fw/services/filesystem/app_file.c
+    fw/flash_region/flash_region.c
+    fw/flash_region/filesystem_regions.c
+    drivers/flash/flash_crc.c
+    tests/fakes/fake_bootbits.c
+    tests/fakes/fake_spi_flash.c
+    tests/fakes/fake_rtc.c
+    tests/fixtures/resources/builtin_resources.auto.c
+    tests/fixtures/resources/pfs_resource_table.c
   OVERRIDES dummy_board
 )
 
@@ -106,6 +132,10 @@ pbl_clar_test(test_compass_cal
 pbl_clar_test(test_light
   SOURCES
     fw/services/light/service.c
+    subsys/cron/cron.c
+    tests/fakes/fake_rtc.c
+  MODULES time
+  DEFINES CONFIG_BACKLIGHT_HAS_COLOR CONFIG_ALS_SCREEN_COMPENSATION
   OVERRIDES getafix_backlight
 )
 
@@ -295,6 +325,7 @@ pbl_clar_test(test_process_loader_storage
     fw/process_management/pebble_process_md.c
     fw/services/process_management/app_storage.c
     fw/services/process_management/process_loader_storage.c
+    fw/process_management/process_runtime.c
   OVERRIDES dummy_board
 )
 
@@ -325,7 +356,7 @@ pbl_clar_test(test_shared_prf_storage_v3
     fw/services/shared_prf_storage/shared_prf_storage.c
     tests/fakes/fake_flash_region.c
     tests/fakes/fake_spi_flash.c
-  PLATFORMS obelix
+  PLATFORMS emery
   OVERRIDES shared_prf_storage_v3
 )
 

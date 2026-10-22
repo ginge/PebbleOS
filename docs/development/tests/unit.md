@@ -21,7 +21,7 @@ its selection and reporting options are all available:
 
 - `-R REGEX`: run the tests whose name matches, e.g. `pbl test -R animation`
 - `-L LABEL`: run by label; every test is labelled with its directory
-  (`tests/fw/ui`) and its platform (`obelix`, `gabbro`, `asterix`)
+  (`tests/fw/ui`) and its platform (`emery`, `gabbro`, `flint`)
 - `-N`: list the tests that would run instead of running them
 - `--rerun-failed`: re-run only what failed last time
 - `-j N`: run N tests at once (the default is one per core)
@@ -132,7 +132,7 @@ arguments:
 - `SOURCES`: code under test plus any fakes from `tests/fakes/`;
   `@PLATFORM@` and `@BITDEPTH@` in a path expand per platform
 - `PLATFORMS`: build the test once per listed platform (e.g.
-  `obelix gabbro`); the default is a single generic platform
+  `emery gabbro`); the default is a single generic platform
 - `DEFINES`, `INCLUDES`, `LIBS`: extra compile defines, include paths and
   link libraries
 - `OVERRIDES`: opt-in header override directories (see below)
@@ -199,9 +199,3 @@ These mechanisms replace dependencies of the code under test:
 `pbl_test_broken()` in `tests/CMakeLists.txt` lists tests that are not
 built. Their `pbl_clar_test()` declarations stay where they are, so what
 the test needs is still on record when someone picks it back up.
-
-## JavaScript tests
-
-The JavaScript sources in `sdk/include/` have their own mocha-based tests in
-`sdk/tests/include/`; they are not run by `pbl test`. See
-`sdk/tests/include/README.md` for how to run them with `npm test`.

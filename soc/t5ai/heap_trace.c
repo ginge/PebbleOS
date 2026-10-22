@@ -7,7 +7,7 @@
 #include <pbl/kernel/thread.h>
 #include <pbl/logging/logging.h>
 #include "kernel/kernel_heap.h"
-#include "system/passert.h"
+#include <pbl/kernel/assert.h>
 #include <inttypes.h>
 
 PBL_LOG_MODULE_DEFINE(t5ai_heap_trace, LOG_LEVEL_DEBUG);
@@ -113,9 +113,9 @@ void t5ai_heap_trace_dump(void) {
   s_last_dump = now;
   prv_dump(false);
 }
-[[noreturn]] void __real_croak_oom(size_t, int, Heap *);
-[[noreturn]] void __wrap_croak_oom(size_t bytes, int client, Heap *heap) {
+[[noreturn]] void __real_pbl_malloc_oom(size_t, uintptr_t, Heap *);
+[[noreturn]] void __wrap_pbl_malloc_oom(size_t bytes, uintptr_t lr, Heap *heap) {
   if (heap == kernel_heap_get())
     prv_dump(true);
-  __real_croak_oom(bytes, client, heap);
+  __real_pbl_malloc_oom(bytes, lr, heap);
 }

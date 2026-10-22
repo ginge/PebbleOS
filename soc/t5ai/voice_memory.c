@@ -1,7 +1,7 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "system/passert.h"
+#include <pbl/kernel/assert.h>
 
 #include <pbl/kernel/mutex.h>
 #include <pbl/soc/t5ai/voice_memory.h>

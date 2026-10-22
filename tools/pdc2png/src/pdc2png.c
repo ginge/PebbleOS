@@ -20,20 +20,19 @@
 static char *s_pbi2png_path;
 
 // Stubs
-void passert_failed(const char *filename, int line_number, const char *message, ...) {
+void pbl_panic_at(const char *filename, int line_number, const char *message, ...) {
   exit(EXIT_FAILURE);
 }
 
-void passert_failed_no_message(const char *filename, int line_number) {
-  exit(EXIT_FAILURE);
-}
-
-void wtf(void) {
+void pbl_panic_bare_at(const char *filename, int line_number) {
   exit(EXIT_FAILURE);
 }
 
 bool process_manager_compiled_with_legacy2_sdk(void) {
   return false;
+}
+
+void text_resources_reset_cache(FontCache *font_cache) {
 }
 
 const uint8_t *resource_get_builtin_bytes(ResAppNum app_num, uint32_t resource_id,

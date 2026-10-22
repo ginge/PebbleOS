@@ -5,6 +5,8 @@
 
 #include "content_indicator_private.h"
 
+#include <pbl/kernel/assert.h>
+#include <pbl/kernel/fatal.h>
 #include <pbl/util/buffer.h>
 #include <pbl/util/size.h>
 #include <pbl/util/testing.h>
@@ -14,7 +16,6 @@
 #include <applib/graphics/gpath.h>
 #include <applib/graphics/graphics.h>
 #include <kernel/ui/kernel_ui.h>
-#include <system/passert.h>
 
 //! Signature for callbacks provided to prv_content_indicator_iterate()
 //! @param content_indicator The current ContentIndicator in the iteration.
@@ -130,7 +131,8 @@ static bool prv_content_indicator_find_buffer_offset_bytes_cb(ContentIndicator *
   return true;
 }
 
-static void prv_content_indicator_reset_direction(ContentIndicatorDirectionData *direction_data) {
+static void prv_content_indicator_reset_direction(void *data) {
+  ContentIndicatorDirectionData *direction_data = data;
   // Cancel the timeout timer, if necessary
   if (direction_data->timeout_timer) {
     app_timer_cancel(direction_data->timeout_timer);
@@ -276,7 +278,7 @@ void content_indicator_draw_arrow(GContext *ctx, const GRect *frame,
       arrow_path_info = &arrow_down_path_info;
       break;
     default:
-      WTF;
+      pbl_panic();
   }
 
   // Draw the arrow
@@ -343,8 +345,7 @@ void content_indicator_set_content_available(ContentIndicator *content_indicator
     // If the arrow should time out and a timer isn't already scheduled, register a timeout timer
     if (config->times_out && !direction_data->timeout_timer) {
       direction_data->timeout_timer = app_timer_register(
-          CONTENT_INDICATOR_TIMEOUT_MS, (AppTimerCallback)prv_content_indicator_reset_direction,
-          direction_data);
+          CONTENT_INDICATOR_TIMEOUT_MS, prv_content_indicator_reset_direction, direction_data);
     }
   }
 }

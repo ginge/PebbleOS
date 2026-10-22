@@ -66,8 +66,7 @@ static const TimelineLayoutStyle s_style_large = {
   .fat_time_margin_h = -3,
   .thin_time_margin_h = -6,
   .primary_list_margin_h = 2,
-  // PBL-42540: This property is dependent on the screen size. Whether there can be a secondary
-  // depends on whether the remaining screen space after fat permits.
+  // Whether there can be a secondary depends on the screen space remaining after fat
   .primary_secondary_peek_margin_h = -5,
   .thin_can_have_secondary = true,
   .thin_future_title_offset_y = 45,
@@ -441,8 +440,7 @@ static GTextNode *prv_create_all_day_text_node(const TimelineLayout *layout) {
   };
   GTextNodeText *text_node = (GTextNodeText *)layout_create_text_node_from_config(
       &layout->layout_layer, &s_all_day_config.text.extent.node);
-  // TODO: PBL-30522 Enable timeline list view text flow
-  // Remove when text flow is enabled
+  // TODO: remove once timeline list view text flow is enabled
   if (PBL_IF_ROUND_ELSE(layout->layout_layer.mode == LayoutLayerModePinnedThin, false)) {
     const bool is_future = (layout->info->scroll_direction == TimelineScrollDirectionDown);
     const int padding_left = is_future ? 25 : 29;
@@ -636,8 +634,7 @@ static GTextNode *prv_create_pin_view_node(TimelineLayout *layout) {
     secondary_node->overflow = overflow;
     graphics_text_node_container_add_child(&vertical_node->container, &secondary_node->node);
 
-    // TODO: PBL-30522 Enable timeline list view text flow
-    // Remove when text flow is enabled
+    // TODO: remove once timeline list view text flow is enabled
     if (PBL_IF_ROUND_ELSE(!is_future && !is_peek, false)) {
       const int padding_left = 8;
       secondary_node->node.offset.x += padding_left;
@@ -699,11 +696,18 @@ static void prv_get_pin_view_bounds(TimelineLayout *layout, GRect *box_out) {
   } else if (layout->layout_layer.mode == LayoutLayerModePinnedFat) {
     box_out->size.h -= PBL_IF_ROUND_ELSE(30, 20);
 #if PBL_ROUND
-    // The title's glyph center is anchored to the icon, including during scrolling.
-    GRect icon_frame, layout_frame;
-    layer_get_global_frame(&layout->icon_layer.layer, &icon_frame);
-    layer_get_global_frame(&layout->layout_layer.layer, &layout_frame);
-    box_out->origin.y = icon_frame.origin.y + icon_frame.size.h / 2 - layout_frame.origin.y;
+    // Round pins keep the display's height, so make room for a time header larger than default
+    const int time_growth_h =
+        fonts_get_font_height(system_theme_get_font(TextStyleFont_TimeHeaderNumbers)) -
+        fonts_get_font_height(
+            system_theme_get_font_for_default_size(TextStyleFont_TimeHeaderNumbers));
+    box_out->size.h += MAX(time_growth_h, 0);
+    // The title's glyph center is anchored to the icon's resting position within the pin, so
+    // the title scrolls with the pin while the icon animates separately.
+    const GRect pin_frame = {{0, timeline_layer_get_icon_offset_y()}, box_out->size};
+    GRect icon_frame;
+    timeline_layout_get_icon_frame(&pin_frame, layout->info->scroll_direction, &icon_frame);
+    box_out->origin.y = icon_frame.origin.y + icon_frame.size.h / 2;
 #endif
   }
 }

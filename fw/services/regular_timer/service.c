@@ -4,13 +4,12 @@
 #include <time.h>
 
 #include <pbl/drivers/rtc.h>
+#include <pbl/kernel/assert.h>
 #include <pbl/kernel/mutex.h>
 #include <pbl/logging/logging.h>
 #include <pbl/services/new_timer/new_timer.h>
 #include <pbl/services/regular_timer.h>
 #include <pbl/util/math.h>
-
-#include <system/passert.h>
 
 PBL_LOG_MODULE_DEFINE(service_regular_timer, CONFIG_SERVICE_REGULAR_TIMER_LOG_LEVEL);
 
@@ -164,8 +163,8 @@ static void timer_callback(void *data) {
     // Keep the logging to detect large time jumps (multiple minutes skipped)
     const time_t now_ts = rtc_get_ticks() / PBL_TICK_HZ;
     if ((now_ts - s_last_minute_fire_ts) > MISSING_MINUTE_CB_LOG_THRESHOLD_S) {
-      PBL_LOG_WRN("Large time jump detected. Previous ts: %lu, Now ts: %lu", s_last_minute_fire_ts,
-                  now_ts);
+      PBL_LOG_WRN("Large time jump detected. Previous ts: %lu, Now ts: %lu",
+                  (long)s_last_minute_fire_ts, (long)now_ts);
     }
     s_last_minute_fire_ts = now_ts;
 

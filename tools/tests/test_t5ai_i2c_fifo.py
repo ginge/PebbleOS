@@ -139,7 +139,7 @@ class T5AII2CFifoTest(unittest.TestCase):
 
                     "pbl/kernel/kernel.h",
                     "pbl/soc/t5ai/delay.h",
-                    "system/passert.h",
+                    "pbl/kernel/assert.h",
                     "cmsis_core.h",
                 ):
                     header = path / name

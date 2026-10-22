@@ -1,7 +1,10 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include <pbl/kernel/assert.h>
+#include <pbl/kernel/fatal.h>
 #include <pbl/kernel/mutex.h>
+#include <pbl/kernel/syscall.h>
 #include <pbl/logging/logging.h>
 #include <pbl/services/activity/activity.h>
 #include <pbl/services/activity/activity_algorithm.h>
@@ -20,8 +23,6 @@
 #include <kernel/events.h>
 #include <kernel/pbl_malloc.h>
 #include <syscall/syscall.h>
-#include <syscall/syscall_define.h>
-#include <system/passert.h>
 
 PBL_LOG_MODULE_DECLARE(service_activity, CONFIG_SERVICE_ACTIVITY_LOG_LEVEL);
 
@@ -139,7 +140,7 @@ void activity_metrics_prv_get_metric_info(ActivityMetric metric, ActivityMetricI
       info->has_history = false;
       break;
     case ActivityMetricNumMetrics:
-      WTF;
+      pbl_panic();
       break;
   }
 }
@@ -247,7 +248,7 @@ void activity_metrics_set_metric_exact(ActivityMetric metric, int32_t value) {
 
 // ----------------------------------------------------------------------------------------------
 // Shift the history back one day and reset the current day's stats.
-// We use PBL_NOINLINE to reduce the stack requirements during the minute handler (see PBL-38130)
+// We use PBL_NOINLINE to reduce the stack requirements during the minute handler
 static void PBL_NOINLINE prv_shift_history(time_t utc_now) {
   ActivityState *state = activity_private_state();
   PBL_LOG_INFO("resetting metrics for new day");
@@ -308,7 +309,7 @@ static void prv_update_real_time_derived_metrics(void) {
 // --------------------------------------------------------------------------------------------
 // Called periodically from the minute handler to update step derived metrics that do not have to
 // be updated in real time.
-// We use PBL_NOINLINE to reduce the stack requirements during the minute handler (see PBL-38130)
+// We use PBL_NOINLINE to reduce the stack requirements during the minute handler
 static void PBL_NOINLINE prv_update_step_derived_metrics(time_t utc_sec) {
   ActivityState *state = activity_private_state();
   pbl_mutex_lock(&state->mutex, PBL_FOREVER);
@@ -798,10 +799,10 @@ PBL_SYSCALL(bool, sys_activity_get_metric, (VAL, ActivityMetric, metric),
     }
     if ((unsigned int)metric >= ActivityMetricNumMetrics ||
         (history == nullptr && history_len > 0)) {
-      syscall_failed();
+      pbl_syscall_fail();
     }
     if (history) {
-      syscall_assert_userspace_buffer(history, history_len * sizeof(*history));
+      pbl_syscall_verify_user(history, history_len * sizeof(*history));
     }
   }
 

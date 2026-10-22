@@ -149,7 +149,7 @@ void probe_log(const char *,...);
 '''
             for name in ['pbl/kernel/irq.h','pbl/kernel/mutex.h','pbl/kernel/time.h','pbl/kernel/sched.h',
                          'pbl/kernel/thread.h','pbl/logging/logging.h','pbl/services/system_task.h',
-                         'kernel/pebble_tasks.h','system/passert.h']:
+                         'kernel/pebble_tasks.h','pbl/kernel/assert.h']:
                 p=d/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('#include "stub.h"\n')
             (d/'stub.h').write_text(shared)
             (d/'test.c').write_text(HARNESS)

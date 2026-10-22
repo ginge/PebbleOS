@@ -5,12 +5,14 @@ pbl_library_named(kernel)
 pbl_library_kind(stlib)
 pbl_library_sources(
   debug.c
+  fatal.c
   irq.c
   msgq.c
   mutex.c
   poll.c
   sched.c
   sem.c
+  syscall.c
   thread.c
   tick.c
   time.c

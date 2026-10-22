@@ -132,7 +132,7 @@ class T5AII2CRecoveryTest(unittest.TestCase):
                 "pbl/kernel/kernel.h",
                 "pbl/soc/t5ai/delay.h",
                 "semphr.h",
-                "system/passert.h",
+                "pbl/kernel/assert.h",
                 "cmsis_core.h",
             ]
             for name in headers:

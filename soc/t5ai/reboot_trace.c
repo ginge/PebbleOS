@@ -10,7 +10,7 @@
 #include <pbl/kernel/thread.h>
 #include <pbl/logging/logging.h>
 #include <pbl/mcu/cache.h>
-#include "system/passert.h"
+#include <pbl/kernel/assert.h>
 #include <inttypes.h>
 #include <stddef.h>
 #include <string.h>

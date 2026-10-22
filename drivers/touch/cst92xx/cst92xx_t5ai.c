@@ -1,3 +1,4 @@
+/* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
@@ -16,7 +17,7 @@
 #endif
 
 #include "board/board.h"
-#include "system/passert.h"
+#include <pbl/kernel/assert.h>
 
 #include <stdbool.h>
 #include <stdint.h>

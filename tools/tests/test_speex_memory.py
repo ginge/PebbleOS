@@ -23,7 +23,7 @@ static inline void pbl_mutex_unlock(struct pbl_mutex *m) {
   assert(m->locked); m->locked = 0;
 }
 """,
-    "system/passert.h": """#pragma once
+    "pbl/kernel/assert.h": """#pragma once
 #include <assert.h>
 #define PBL_ASSERTN(x) assert(x)
 """,

@@ -7,6 +7,7 @@
 
 #include <string.h>
 
+#include <pbl/kernel/assert.h>
 #include <pbl/kernel/compiler.h>
 #include <pbl/logging/logging.h>
 #include <pbl/util/math.h>
@@ -24,7 +25,6 @@
 #include <kernel/pebble_tasks.h>
 #include <process_management/process_manager.h>
 #include <process_state/app_state/app_state.h>
-#include <system/passert.h>
 
 void layer_init(Layer *layer, const GRect *frame) {
   *layer = (Layer){};
@@ -524,8 +524,6 @@ void *layer_get_data(const Layer *layer) {
   }
   return ((DataLayer *)layer)->data;
 }
-
-// TODO: PBL-25368 cover the following "convert coordinates to screen space" functions with tests
 
 GPoint layer_convert_point_to_screen(const Layer *layer, GPoint point) {
   while (layer) {

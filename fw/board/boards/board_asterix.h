@@ -1,6 +1,5 @@
 #pragma once
 
-#include <pbl/drivers/backlight/pwm.h>
 #include <pbl/services/imu/units.h>
 
 #define BT_VENDOR_ID   0x0EEA
@@ -26,27 +25,18 @@ static const BoardConfigButton BOARD_CONFIG_BUTTON = {
   .buttons =
       {
         [BUTTON_ID_BACK] =
-            {"Back",
-             {NRFX_GPIOTE_INSTANCE(0), 2, NRF_GPIO_PIN_MAP(0, 28)},
-             NRF_GPIO_PIN_PULLUP,
+            {"Back", PBL_GPIO(NRF5_GPIO_P0, 28, PBL_GPIO_PULL_UP | PBL_GPIO_ACTIVE_LOW),
              PBL_INPUT_KEY_BACK},
         [BUTTON_ID_UP] =
-            {"Up",
-             {NRFX_GPIOTE_INSTANCE(0), 3, NRF_GPIO_PIN_MAP(0, 29)},
-             NRF_GPIO_PIN_PULLUP,
+            {"Up", PBL_GPIO(NRF5_GPIO_P0, 29, PBL_GPIO_PULL_UP | PBL_GPIO_ACTIVE_LOW),
              PBL_INPUT_KEY_UP},
         [BUTTON_ID_SELECT] =
-            {"Select",
-             {NRFX_GPIOTE_INSTANCE(0), 4, NRF_GPIO_PIN_MAP(0, 30)},
-             NRF_GPIO_PIN_PULLUP,
+            {"Select", PBL_GPIO(NRF5_GPIO_P0, 30, PBL_GPIO_PULL_UP | PBL_GPIO_ACTIVE_LOW),
              PBL_INPUT_KEY_SELECT},
         [BUTTON_ID_DOWN] =
-            {"Down",
-             {NRFX_GPIOTE_INSTANCE(0), 5, NRF_GPIO_PIN_MAP(0, 31)},
-             NRF_GPIO_PIN_PULLUP,
+            {"Down", PBL_GPIO(NRF5_GPIO_P0, 31, PBL_GPIO_PULL_UP | PBL_GPIO_ACTIVE_LOW),
              PBL_INPUT_KEY_DOWN},
       },
-  .active_high = false,
   .timer = NRFX_TIMER_INSTANCE(1),
 };
 
@@ -55,25 +45,11 @@ static const BoardConfigPower BOARD_CONFIG_POWER = {
   .battery_capacity_hours = 450,
 };
 
-static const BoardConfigActuator BOARD_CONFIG_VIBE = {
-  .ctl = PBL_GPIO(NRF5_GPIO_P0, 2, 0), // LRA_EN
-};
-
 static const BoardConfigAccel BOARD_CONFIG_ACCEL = {
   .default_motion_sensitivity = 55U, // Medium
 };
 
 extern UARTDevice *const DBG_UART;
-
-extern PwmState BACKLIGHT_PWM_STATE;
-static const BacklightPwmConfig BACKLIGHT_PWM = {
-  .ctl = PBL_GPIO(NRF5_GPIO_P1, 8, 0),
-  .pwm =
-      {.state = &BACKLIGHT_PWM_STATE,
-       .output = PBL_GPIO(NRF5_GPIO_P0, 26, 0),
-       .peripheral = NRFX_PWM_INSTANCE(0)},
-  .max_duty_cycle_percent = 67,
-};
 
 static const BoardConfigSharpDisplay BOARD_CONFIG_DISPLAY = {
   .spi = NRFX_SPIM_INSTANCE(3),
@@ -87,7 +63,6 @@ static const BoardConfigSharpDisplay BOARD_CONFIG_DISPLAY = {
   .extcomin = {
     .rtc = NRF_RTC2,
     .gpiote = NRF_GPIOTE,
-    .gpiote_ch = 6,
     .psel = NRF_GPIO_PIN_MAP(1, 15),
     // 120Hz/5% (feeds flip-flop, generating 60Hz/50% signal to EXTCOMIN)
     .period_us = 1000000 / 120,
@@ -101,6 +76,4 @@ extern QSPIFlash *const QSPI_FLASH;
 extern MicDevice *const MIC;
 extern AudioDevice *const AUDIO;
 
-extern const struct pbl_i2c_dev *const I2C_DRV2604;
 extern const struct pbl_i2c_dev *const I2C_DA7212;
-extern const struct pbl_i2c_dev *const I2C_BMP390;

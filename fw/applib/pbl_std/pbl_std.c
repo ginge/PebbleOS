@@ -2,6 +2,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <pbl/kernel/compiler.h>
+#include <pbl/kernel/syscall.h>
 #include <pbl/logging/logging.h>
 #include <pbl/services/time.h>
 
@@ -12,7 +13,6 @@
 #include <process_state/app_state/app_state.h>
 #include <process_state/worker_state/worker_state.h>
 #include <syscall/syscall.h>
-#include <syscall/syscall_define.h>
 
 // Time
 time_t pbl_override_time(time_t *tloc) {
@@ -26,7 +26,7 @@ time_t pbl_override_time(time_t *tloc) {
 // Manually construct double to avoid requiring soft-fp
 static double prv_time_to_double(time_t time) {
   // time_t is 32bit signed int, convert it manually
-#if !UNITTEST && __SIZEOF_POINTER__ == 4
+#if !UNITTEST && !defined(CONFIG_LIBC_HOST)
   static_assert(sizeof(time_t) == 4, "Conversion depends on 32bit time_t");
 #endif
 
@@ -224,7 +224,7 @@ void *pbl_memcpy(void *destination, const void *source, size_t num) {
   // negative numbers as their num parameter, which newlib handled by copying nothing, but
   // newlib-nano didn't handle at all and would interpret size_t as a extremely large unsigned
   // number. Guard against this happening so apps that used to work with the old libc will work
-  // with the new libc. See PBL-7873.
+  // with the new libc.
   if (((ptrdiff_t)num) <= 0) {
     return destination;
   }

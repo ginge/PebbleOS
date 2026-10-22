@@ -539,7 +539,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertEqual(unhygienix["SERVICE_VOICE"], "y")
         self.assertEqual(unhygienix["VIBE"], "n")
         self.assertEqual(unhygienix["AMBIENT_LIGHT"], "n")
-        self.assertEqual(unhygienix["PRESSURE"], "n")
+        self.assertNotIn("PRESSURE", unhygienix)
         self.assertEqual(unhygienix["TEMPERATURE"], "n")
 
     def test_unhygienix_hci_callback_buffers_have_explicit_ownership(self):

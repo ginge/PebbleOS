@@ -64,8 +64,6 @@ typedef struct {
   KinoLayer end_of_timeline;
   PeekLayer day_separator;
   time_t current_day;
-  // TODO: PBL-22076 Remove Timeline Layer move_delta
-  // It is not good to keep too much questionably long lived state in views
   int move_delta;
   Animation *animation;
   RelationshipBarLayer relbar_layer;
@@ -81,6 +79,9 @@ void timeline_layer_set_prev_item(TimelineLayer *layer, int index);
 void timeline_layer_move_data(TimelineLayer *layer, int delta);
 
 uint16_t timeline_layer_get_fat_pin_height(void);
+
+//! Vertical offset of a pin's resting icon frame relative to the pin's frame
+int16_t timeline_layer_get_icon_offset_y(void);
 
 uint16_t timeline_layer_get_ideal_sidebar_width(void);
 

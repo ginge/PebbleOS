@@ -3,7 +3,7 @@
 #include "applib/ui/window.h"
 #include "kernel/kernel_heap.h"
 #include "kernel/pebble_tasks.h"
-#include "system/passert.h"
+#include <pbl/kernel/assert.h>
 
 #include <string.h>
 

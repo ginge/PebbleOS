@@ -33,7 +33,7 @@ function(pbl_link_native)
   )
   target_sources(pebbleos PRIVATE $<TARGET_OBJECTS:pbl_host>)
 
-  if(APPLE)
+  if(APPLE OR EMSCRIPTEN)
     target_link_libraries(pebbleos PRIVATE pbl_interface ${static_libs} ${PBL_LIBC_LIBS})
   else()
     target_link_libraries(pebbleos PRIVATE pbl_interface
@@ -43,7 +43,29 @@ function(pbl_link_native)
   target_link_options(pebbleos PRIVATE ${link_options})
   # As on the target, code nothing calls is dropped, along with what only it
   # refers to.
-  if(APPLE)
+  if(EMSCRIPTEN)
+    # A page: kernel threads are fibers, which need Asyncify, and the system
+    # resources are preloaded where the flash driver looks for them.
+    set_target_properties(pebbleos PROPERTIES SUFFIX .html)
+    target_link_options(pebbleos PRIVATE
+      -sASYNCIFY
+      -sASYNCIFY_STACK_SIZE=65536
+      -sSTACK_SIZE=1048576
+      -sINITIAL_MEMORY=134217728
+      -sALLOW_MEMORY_GROWTH
+      --preload-file ${PBL_PBPACK}@/system_resources.pbpack
+      --shell-file ${CMAKE_CURRENT_BINARY_DIR}/shell.html
+    )
+    # The page lays out the platform's watch frames.
+    configure_file(${PBL_BASE}/soc/posix/emscripten/shell.html shell.html @ONLY)
+    set_property(TARGET pebbleos APPEND PROPERTY LINK_DEPENDS
+      ${PBL_PBPACK} ${CMAKE_CURRENT_BINARY_DIR}/shell.html)
+    file(GLOB frames ${PBL_BASE}/soc/posix/emscripten/frames/${PBL_PLATFORM_NAME}/*.png)
+    foreach(frame ${frames})
+      cmake_path(GET frame FILENAME name)
+      configure_file(${frame} ${name} COPYONLY)
+    endforeach()
+  elseif(APPLE)
     # Packed structs hold pointers at unaligned offsets, which chained fixups
     # cannot rebase.
     target_link_options(pebbleos PRIVATE -Wl,-dead_strip -Wl,-no_fixup_chains)
@@ -153,19 +175,21 @@ function(pbl_link_firmware)
 
   set(artifacts ${hex} ${bin})
 
-  set(syscalls_stamp ${PROJECT_BINARY_DIR}/pebbleos.syscalls)
-  add_custom_command(
-    OUTPUT ${syscalls_stamp}
-    COMMAND ${PBL_TOOLCHAIN_ENV} ${PYTHON_EXECUTABLE} ${PBL_FIRMWARE_PY} check-syscalls
-            --elf ${elf} --objdump ${CMAKE_OBJDUMP}
-            --legacy ${PBL_BASE}/fw/syscall/legacy_syscalls.txt
-    COMMAND ${CMAKE_COMMAND} -E touch ${syscalls_stamp}
-    DEPENDS pebbleos ${PBL_FIRMWARE_PY} ${PBL_BASE}/fw/syscall/legacy_syscalls.txt
-    WORKING_DIRECTORY ${PBL_BASE}
-    COMMENT "Checking syscall definitions"
-    VERBATIM
-  )
-  list(APPEND artifacts ${syscalls_stamp})
+  if(CONFIG_USERSPACE)
+    set(syscalls_stamp ${PROJECT_BINARY_DIR}/pebbleos.syscalls)
+    add_custom_command(
+      OUTPUT ${syscalls_stamp}
+      COMMAND ${PBL_TOOLCHAIN_ENV} ${PYTHON_EXECUTABLE} ${PBL_FIRMWARE_PY} check-syscalls
+              --elf ${elf} --objdump ${CMAKE_OBJDUMP}
+              --legacy ${PBL_BASE}/fw/syscall/legacy_syscalls.txt
+      COMMAND ${CMAKE_COMMAND} -E touch ${syscalls_stamp}
+      DEPENDS pebbleos ${PBL_FIRMWARE_PY} ${PBL_BASE}/fw/syscall/legacy_syscalls.txt
+      WORKING_DIRECTORY ${PBL_BASE}
+      COMMENT "Checking syscall definitions"
+      VERBATIM
+    )
+    list(APPEND artifacts ${syscalls_stamp})
+  endif()
 
   # Hashed log strings: the dictionary the console and the bundle use to
   # turn hashes back into messages.

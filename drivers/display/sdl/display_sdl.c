@@ -6,9 +6,9 @@
 #include <string.h>
 
 #include <pbl/drivers/display/display.h>
+#include <pbl/kernel/assert.h>
 
 #include <board/board.h>
-#include <system/passert.h>
 
 static uint8_t s_fb[PBL_DISPLAY_WIDTH * PBL_DISPLAY_HEIGHT];
 static bool s_enabled;
@@ -45,7 +45,15 @@ void display_update(NextRowCallback nrcb, UpdateCompleteCallback uccb) {
 
   DisplayRow row;
   while (nrcb(&row)) {
-    memcpy(&s_fb[row.address * PBL_DISPLAY_WIDTH], row.data, PBL_DISPLAY_WIDTH);
+    uint8_t *dst = &s_fb[row.address * PBL_DISPLAY_WIDTH];
+#if PBL_BW
+    // 1 bit per pixel, white set, to ARGB2222
+    for (int x = 0; x < PBL_DISPLAY_WIDTH; x++) {
+      dst[x] = (row.data[x / 8] & (1 << (x % 8))) ? 0xff : 0xc0;
+    }
+#else
+    memcpy(dst, row.data, PBL_DISPLAY_WIDTH);
+#endif
   }
   prv_flush();
   uccb();

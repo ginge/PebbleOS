@@ -2,16 +2,19 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <pbl/drivers/ambient/w1160.h>
+#include <pbl/drivers/backlight/aw9364e.h>
 #include <pbl/drivers/imu/lis2dw12/lis2dw12.h>
 #include <pbl/drivers/imu/mmc5603nj/mmc5603nj.h>
 #include <pbl/drivers/pmic/npm1300.h>
 #include <pbl/drivers/regulator/npm1300.h>
 #include <pbl/drivers/sf32lb52/debounced_button_definitions.h>
+#include <pbl/drivers/temperature/sf32lb.h>
+#include <pbl/drivers/vibe/aw86225.h>
+#include <pbl/drivers/vibe/aw8623x.h>
 #include <pbl/kernel/irq.h>
 
 #include <board/board.h>
 #include <board/splash.h>
-#include <system/passert.h>
 
 static UARTDeviceState s_dbg_uart_state = {
   .huart =
@@ -246,9 +249,9 @@ static DisplayJDIDevice s_display = {
 DisplayJDIDevice *const DISPLAY = &s_display;
 PBL_IRQ_CONNECT(LCDC1, 5, display_jdi_irq_handler, DISPLAY, 0);
 
-const LedControllerAW9364E AW9364E = {
-  .gpio = PBL_GPIO(SF32LB_GPIO1, 1, 0),
-};
+PBL_AW9364E_DEFINE(s_aw9364e, PBL_GPIO(SF32LB_GPIO1, 1, 0));
+
+const struct pbl_backlight *const BACKLIGHT = &s_aw9364e.backlight;
 
 PBL_I2C_SF32LB_DMA_DEFINE(s_i2c1, "i2c1", I2C1, 400000, PAD_PA32, I2C1_SCL, PAD_PA33, I2C1_SDA,
                           DMA1_Channel6, DMA_REQUEST_22, DMAC1_CH6, 5, nullptr);
@@ -257,7 +260,7 @@ PBL_IRQ_CONNECT(I2C1, 5, pbl_i2c_sf32lb_irq_handler, &s_i2c1, 0);
 PBL_IRQ_CONNECT(DMAC1_CH6, 5, pbl_i2c_sf32lb_dma_irq_handler, &s_i2c1, 0);
 
 PBL_LIS2DW12_DEFINE(s_lis2dw12, &s_i2c1.bus, 0x19,
-                    .int1 = {.peripheral = hwp_gpio1, .gpio_pin = 26},
+                    .int1 = PBL_IRQ_SPEC(SF32LB_GPIO1_INTC, 26, PBL_IRQ_TYPE_EDGE_RISING),
                     .int1_in = PBL_GPIO(SF32LB_GPIO1, 26, 0),
                     .axis_map = {[AXIS_X] = 0, [AXIS_Y] = 1, [AXIS_Z] = 2},
                     .axis_dir = {[AXIS_X] = -1, [AXIS_Y] = 1, [AXIS_Z] = 1});
@@ -281,12 +284,7 @@ static const struct pbl_i2c_dev s_i2c_cst816_boot = PBL_I2C_DEV(&s_i2c2.bus, 0x6
 static const TouchSensor s_touch_cst816 = {
   .i2c = &s_i2c_cst816,
   .i2c_boot = &s_i2c_cst816_boot,
-  .int_exti =
-      {
-        .peripheral = hwp_gpio1,
-        .gpio_pin = 38,
-        .pull = GPIO_PuPd_UP,
-      },
+  .int_gpio = PBL_GPIO(SF32LB_GPIO1, 38, PBL_GPIO_PULL_UP),
   .reset = PBL_GPIO(SF32LB_GPIO1, 28, PBL_GPIO_ACTIVE_LOW),
 };
 
@@ -298,7 +296,7 @@ PBL_IRQ_CONNECT(I2C3, 5, pbl_i2c_sf32lb_irq_handler, &s_i2c3, 0);
 
 PBL_NPM1300_DEFINE(s_npm1300, &s_i2c3.bus, 0x6B);
 PBL_NPM1300_CHARGER_DEFINE(s_npm1300_charger, &s_npm1300, &NPM1300_CONFIG,
-                           {.peripheral = hwp_gpio1, .gpio_pin = 44});
+                           PBL_IRQ_SPEC(SF32LB_GPIO1_INTC, 44, PBL_IRQ_TYPE_EDGE_RISING));
 
 const struct pbl_npm1300_charger *const NPM1300_CHARGER = &s_npm1300_charger;
 
@@ -319,18 +317,14 @@ PBL_W1160_DEFINE(s_w1160, &s_i2c3.bus, 0x48, &s_w1160_scale);
 const struct pbl_als *const ALS = &s_w1160.als;
 
 #ifdef CONFIG_BOARD_GETAFIX_DVT2
-static const struct pbl_i2c_dev s_i2c_aw86225 = PBL_I2C_DEV(&s_i2c3.bus, 0x58);
+PBL_AW86225_DEFINE(s_aw86225, &s_i2c3.bus, 0x58, PBL_GPIO(SF32LB_GPIO1, 20, PBL_GPIO_ACTIVE_LOW));
 
-const struct pbl_i2c_dev *const I2C_AW86225 = &s_i2c_aw86225;
+const struct pbl_vibe *const VIBE = &s_aw86225.vibe;
 #else
-static const struct pbl_i2c_dev s_i2c_aw8623x = PBL_I2C_DEV(&s_i2c3.bus, 0x5a);
+PBL_AW8623X_DEFINE(s_aw8623x, &s_i2c3.bus, 0x5a, PBL_GPIO(SF32LB_GPIO1, 20, PBL_GPIO_ACTIVE_LOW));
 
-const struct pbl_i2c_dev *const I2C_AW8623X = &s_i2c_aw8623x;
+const struct pbl_vibe *const VIBE = &s_aw8623x.vibe;
 #endif
-
-const BoardConfigActuator BOARD_CONFIG_VIBE = {
-  .ctl = PBL_GPIO(SF32LB_GPIO1, 20, PBL_GPIO_ACTIVE_LOW),
-};
 
 const Npm1300Config NPM1300_CONFIG = {
   // 70mA = 1C (max limit from datasheet)
@@ -421,3 +415,5 @@ void board_early_init(void) {
 void board_init(void) {
   mic_init(MIC);
 }
+
+const struct pbl_temp *const DIE_TEMP = SF32LB_TEMP;

@@ -11,7 +11,7 @@
 #include <pbl/soc/t5ai/rtc.h>
 #include <pbl/soc/t5ai/app_trace.h>
 #include "kernel/pebble_tasks.h"
-#include "system/passert.h"
+#include <pbl/kernel/assert.h>
 #include <stdint.h>
 #include <string.h>
 

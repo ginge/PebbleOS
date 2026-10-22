@@ -8,6 +8,8 @@
 #endif
 
 #include <pbl/drivers/battery.h>
+#include <pbl/kernel/assert.h>
+#include <pbl/kernel/syscall.h>
 #include <pbl/logging/logging.h>
 #include <pbl/services/analytics/analytics.h>
 #include <pbl/services/battery/battery_curve.h>
@@ -18,8 +20,6 @@
 
 #include <board/board.h>
 #include <kernel/events.h>
-#include <syscall/syscall_define.h>
-#include <system/passert.h>
 
 PBL_LOG_MODULE_DECLARE(service_battery, CONFIG_SERVICE_BATTERY_LOG_LEVEL);
 
@@ -124,7 +124,7 @@ void battery_state_reset_filter(void) {
 }
 
 static uint32_t prv_filter_voltage(uint32_t avg_mv, uint32_t battery_mv) {
-  // Basic low-pass filter - See PBL-23637
+  // Basic low-pass filter
   const uint8_t VOLTAGE_FILTER_BETA = 2;
   uint32_t avg = (avg_mv << VOLTAGE_FILTER_BETA);
   avg -= avg_mv;

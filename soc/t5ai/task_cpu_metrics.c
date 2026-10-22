@@ -6,7 +6,7 @@
 #include <pbl/kernel/thread.h>
 #include <pbl/logging/logging.h>
 #include <pbl/soc/t5ai/rtc.h>
-#include "system/passert.h"
+#include <pbl/kernel/assert.h>
 #include <stdint.h>
 #include <string.h>
 

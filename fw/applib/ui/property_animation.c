@@ -7,16 +7,32 @@
 #include "layer.h"
 #include "property_animation_private.h"
 
+#include <pbl/kernel/assert.h>
 #include <pbl/util/size.h>
 
 #include <applib/app_logging.h>
 #include <applib/applib_malloc.auto.h>
 #include <applib/legacy2/ui/property_animation_legacy2.h>
-#include <system/passert.h>
 
 /////////////////////
 // Property Animation
 //
+
+static void prv_set_frame(void *subject, GRect frame) {
+  layer_set_frame_by_value(subject, frame);
+}
+
+static GRect prv_get_frame(void *subject) {
+  return layer_get_frame_by_value(subject);
+}
+
+static void prv_set_bounds(void *subject, GRect bounds) {
+  layer_set_bounds_by_value(subject, bounds);
+}
+
+static GRect prv_get_bounds(void *subject) {
+  return layer_get_bounds_by_value(subject);
+}
 
 static const PropertyAnimationImplementation s_frame_layer_implementation = {
   .base =
@@ -26,10 +42,10 @@ static const PropertyAnimationImplementation s_frame_layer_implementation = {
   .accessors = {
     .setter =
         {
-          .grect = (const GRectSetter)layer_set_frame_by_value,
+          .grect = prv_set_frame,
         },
     .getter = {
-      .grect = (const GRectGetter)layer_get_frame_by_value,
+      .grect = prv_get_frame,
     },
   },
 };
@@ -42,10 +58,10 @@ static const PropertyAnimationImplementation s_bounds_layer_implementation = {
   .accessors = {
     .setter =
         {
-          .grect = (const GRectSetter)layer_set_bounds_by_value,
+          .grect = prv_set_bounds,
         },
     .getter = {
-      .grect = (const GRectGetter)layer_get_bounds_by_value,
+      .grect = prv_get_bounds,
     },
   },
 };

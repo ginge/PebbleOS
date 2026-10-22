@@ -11,7 +11,6 @@
 #include <pbl/services/filesystem/pfs.h>
 #include <pbl/util/math.h>
 
-#include <system/passert.h>
 #include <system/status_codes.h>
 
 typedef struct PBL_PACKED PFSStatResp {

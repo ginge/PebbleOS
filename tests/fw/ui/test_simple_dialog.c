@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 
+#include <pbl/kernel/assert.h>
 #include <pbl/services/timeline/timeline_resources.h>
 #include <pbl/util/hash.h>
 #include <pbl/util/math.h>
@@ -21,7 +22,6 @@
 #include <resource/resource.h>
 #include <resource/resource_ids.auto.h>
 #include <shell/system_theme.h>
-#include <system/passert.h>
 
 static GContext s_ctx;
 
@@ -242,7 +242,7 @@ void test_simple_dialog__does_text_fit(void) {
   msg = "This error is too long for rect displays";
   text_fits = simple_dialog_does_text_fit(msg, DISP_FRAME.size, icon_size, use_status_bar);
 #if PBL_DISPLAY_WIDTH >= 200
-  // The wider obelix display still fits this string with the larger 28-point
+  // The wider emery display still fits this string with the larger 28-point
   // font, just like the round gabbro display does.
   cl_assert(text_fits);
 #else

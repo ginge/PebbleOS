@@ -4,6 +4,7 @@
 #include <console/pulse2_transport_impl.h>
 #include <console/pulse_internal.h>
 #include <stdint.h>
+#include <string.h>
 
 #include <pbl/crc/crc.h>
 #include <pbl/kernel/compiler.h>
@@ -14,7 +15,6 @@
 #include <console/pulse_bulkio_domain_handler.h>
 #include <console/pulse_protocol_impl.h>
 #include <kernel/pbl_malloc.h>
-#include <system/passert.h>
 
 // Defines how many PULSE file descriptors may be open concurrently
 // This is shared across all supported domains

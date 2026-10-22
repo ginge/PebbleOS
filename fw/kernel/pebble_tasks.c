@@ -3,7 +3,10 @@
 
 #include "pebble_tasks.h"
 
+#include <pbl/kernel/assert.h>
+#include <pbl/kernel/compiler.h>
 #include <pbl/kernel/debug.h>
+#include <pbl/kernel/fatal.h>
 #include <pbl/logging/logging.h>
 #include <pbl/services/analytics/analytics.h>
 #include <pbl/util/size.h>
@@ -11,9 +14,7 @@
 #include <kernel/memory_layout.h>
 #include <process_management/app_manager.h>
 #include <process_management/worker_manager.h>
-#include <syscall/syscall_internal.h>
 #include <system/die.h>
-#include <system/passert.h>
 #include <system/reboot_reason.h>
 
 static struct pbl_thread s_threads[NumPebbleTask];
@@ -23,6 +24,83 @@ struct pbl_thread *g_task_threads[NumPebbleTask] KERNEL_READONLY_DATA = {};
 // Captured at unregister time so the analytics heartbeat can keep accounting
 // for App/Worker activity across short-lived task instances.
 static uint32_t s_dead_task_cycles[NumPebbleTask];
+
+#ifdef CONFIG_USERSPACE
+// App/Worker syscalls run on these instead of the caller's small unprivileged
+// stack, so a process that exhausts its stack faults unprivileged (only that
+// process dies) instead of rebooting the system. ARMv8-M bounds them with
+// PSPLIM; ARMv7-M plants a no-access MPU guard below each. Plain .bss statics
+// land in the privileged-only .kernel_bss output.
+#define SYSCALL_STACK_WORDS 512u // 2 KiB each; size against measured high-water.
+#ifdef CONFIG_ARMV8_M_MAINLINE
+#define SYSCALL_STACK_GUARD_WORDS 0u
+#else
+#define SYSCALL_STACK_GUARD_WORDS 8u // smallest ARMv7-M MPU region, naturally aligned
+#endif
+
+struct syscall_stack {
+#if SYSCALL_STACK_GUARD_WORDS
+  uint32_t guard[SYSCALL_STACK_GUARD_WORDS];
+#endif
+  uint32_t words[SYSCALL_STACK_WORDS];
+};
+
+static struct syscall_stack s_app_syscall_stack PBL_ALIGNED(32);
+static struct syscall_stack s_worker_syscall_stack PBL_ALIGNED(32);
+
+static struct syscall_stack *prv_syscall_stack(PebbleTask task) {
+  switch (task) {
+    case PebbleTask_App:
+      return &s_app_syscall_stack;
+    case PebbleTask_Worker:
+      return &s_worker_syscall_stack;
+    default:
+      pbl_panic();
+  }
+}
+
+void pebble_task_attr_set_syscall_stack(PebbleTask task, struct pbl_thread_attr *attr) {
+  struct syscall_stack *stack = prv_syscall_stack(task);
+  attr->syscall_stack = stack->words;
+  attr->syscall_stack_size = sizeof(stack->words);
+}
+
+#if SYSCALL_STACK_GUARD_WORDS
+static MpuRegion s_syscall_stack_guard_regions[NumPebbleTask];
+
+static const MpuRegion *prv_syscall_stack_guard_region(PebbleTask task,
+                                                       const struct pbl_thread_attr *attr) {
+  if (attr->syscall_stack == nullptr) {
+    return nullptr;
+  }
+  const struct syscall_stack *stack = prv_syscall_stack(task);
+  s_syscall_stack_guard_regions[task] = (MpuRegion){
+    .region_num = MemoryRegion_Task4,
+    .enabled = true,
+    .base_address = (uintptr_t)stack->guard,
+    .size = sizeof(stack->guard),
+    .cache_policy = MpuCachePolicy_NotCacheable,
+    .permissions = MpuPermissions_NoAccess,
+  };
+  return &s_syscall_stack_guard_regions[task];
+}
+#endif
+
+// Peak unused bytes on a syscall stack: scan the zeroed .bss from the base to
+// the first written word (the high-water). For sizing during validation.
+static uint16_t prv_syscall_stack_free_bytes(PebbleTask task) {
+  const uint32_t *words = prv_syscall_stack(task)->words;
+  uint32_t i = 0;
+  while (i < SYSCALL_STACK_WORDS && words[i] == 0) {
+    i++;
+  }
+  return (uint16_t)(i * sizeof(uint32_t));
+}
+#else
+static uint16_t prv_syscall_stack_free_bytes(PebbleTask task) {
+  return 0xFFFF;
+}
+#endif
 
 static void prv_task_register(PebbleTask task, struct pbl_thread *thread) {
   g_task_threads[task] = thread;
@@ -57,7 +135,7 @@ const char *pebble_task_get_name(PebbleTask task) {
     if (task == PebbleTask_Unknown) {
       return "Unknown";
     }
-    WTF;
+    pbl_panic();
   }
 
   struct pbl_thread *thread = g_task_threads[task];
@@ -139,8 +217,10 @@ void pbl_analytics_external_collect_stack_free(void) {
                              prv_task_get_stack_free(PebbleTask_KernelBackground));
   PBL_ANALYTICS_SET_UNSIGNED(stack_free_newtimers_bytes,
                              prv_task_get_stack_free(PebbleTask_NewTimers));
-  PBL_ANALYTICS_SET_UNSIGNED(stack_free_app_syscall_bytes, syscall_app_stack_free_bytes());
-  PBL_ANALYTICS_SET_UNSIGNED(stack_free_worker_syscall_bytes, syscall_worker_stack_free_bytes());
+  PBL_ANALYTICS_SET_UNSIGNED(stack_free_app_syscall_bytes,
+                             prv_syscall_stack_free_bytes(PebbleTask_App));
+  PBL_ANALYTICS_SET_UNSIGNED(stack_free_worker_syscall_bytes,
+                             prv_syscall_stack_free_bytes(PebbleTask_Worker));
 }
 
 static const enum pbl_analytics_key s_task_cpu_pct_keys[NumPebbleTask] = {
@@ -222,9 +302,16 @@ struct pbl_msgq *pebble_task_get_to_queue(PebbleTask task) {
       queue = nullptr;
       break;
     default:
-      WTF;
+      pbl_panic();
   }
   return queue;
+}
+
+static void prv_set_user_memory(struct pbl_thread_attr *attr, const MpuRegion *region) {
+#ifdef CONFIG_USERSPACE
+  attr->user_start = region->base_address;
+  attr->user_end = region->base_address + region->size;
+#endif
 }
 
 struct pbl_thread *pebble_task_create(PebbleTask pebble_task, struct pbl_thread_attr *attr) {
@@ -237,12 +324,14 @@ struct pbl_thread *pebble_task_create(PebbleTask pebble_task, struct pbl_thread_
                                   true /* allow_user_access */);
       mpu_init_region_from_region(&worker_region, memory_layout_get_worker_region(),
                                   false /* allow_user_access */);
+      prv_set_user_memory(attr, memory_layout_get_app_region());
       break;
     case PebbleTask_Worker:
       mpu_init_region_from_region(&app_region, memory_layout_get_app_region(),
                                   false /* allow_user_access */);
       mpu_init_region_from_region(&worker_region, memory_layout_get_worker_region(),
                                   true /* allow_user_access */);
+      prv_set_user_memory(attr, memory_layout_get_worker_region());
       break;
     case PebbleTask_KernelMain:
     case PebbleTask_KernelBackground:
@@ -257,7 +346,7 @@ struct pbl_thread *pebble_task_create(PebbleTask pebble_task, struct pbl_thread_
                                   false /* allow_user_access */);
       break;
     default:
-      WTF;
+      pbl_panic();
   }
 
   const MpuRegion *stack_guard_region = nullptr;
@@ -289,14 +378,16 @@ struct pbl_thread *pebble_task_create(PebbleTask pebble_task, struct pbl_thread_
     case PebbleTask_PULSE:
       break;
     default:
-      WTF;
+      pbl_panic();
   }
 #endif
 
   attr->regions[0] = &app_region;
   attr->regions[1] = &worker_region;
   attr->regions[2] = stack_guard_region;
-  attr->regions[3] = syscall_get_stack_guard_region(pebble_task);
+#if defined(CONFIG_USERSPACE) && SYSCALL_STACK_GUARD_WORDS
+  attr->regions[3] = prv_syscall_stack_guard_region(pebble_task, attr);
+#endif
 
   struct pbl_thread *thread = &s_threads[pebble_task];
   PBL_ASSERT(pbl_thread_create(thread, attr) == 0, "Could not start task %s", attr->name);
@@ -336,5 +427,26 @@ void pbl_thread_stack_overflow(struct pbl_thread *thread, const char *name) {
     reboot_reason_set(&reason);
 
     reset_due_to_software_failure();
+  }
+}
+
+void pebble_task_assert_current(PebbleTask expected_task) {
+  uintptr_t saved_lr = (uintptr_t)PBL_RETURN_ADDRESS(0);
+
+  if (pebble_task_get_current() != expected_task) {
+    PBL_LOG_ALWAYS("LR: %p. Incorrect task! Expected <%s> got <%s>", (void *)saved_lr,
+                   pebble_task_get_name(expected_task),
+                   pebble_task_get_name(pebble_task_get_current()));
+    pbl_fatal_error_handler(saved_lr);
+  }
+}
+
+void pebble_task_assert_not_current(PebbleTask unexpected_task) {
+  uintptr_t saved_lr = (uintptr_t)PBL_RETURN_ADDRESS(0);
+
+  if (pebble_task_get_current() == unexpected_task) {
+    PBL_LOG_ALWAYS("LR: %p. Incorrect task! Can't be <%s>", (void *)saved_lr,
+                   pebble_task_get_name(unexpected_task));
+    pbl_fatal_error_handler(saved_lr);
   }
 }

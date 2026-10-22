@@ -1,3 +1,4 @@
+/* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
@@ -7,7 +8,7 @@
 #include <pbl/services/compositor/compositor.h>
 
 #include <applib/graphics/framebuffer.h>
-#include <system/passert.h>
+#include <pbl/kernel/assert.h>
 
 static bool s_ready;
 static bool s_requested;

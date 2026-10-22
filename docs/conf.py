@@ -29,6 +29,7 @@ extensions = [
     "sphinxcontrib.mermaid",
     "matplotlib.sphinxext.plot_directive",
     "pbl_docs",
+    "pbl_playground",
     "kconfig",
 ]
 
@@ -71,6 +72,19 @@ html_context = {
     "source_repo": "pebbleos",
     "source_version": "main",
     "source_docs_path": "/docs/",
+}
+
+# The firmware build behind the playground, left out of Read the Docs pull
+# request previews unless labelled ci:docs-playground (see .readthedocs.yaml)
+pbl_playground = os.environ.get("READTHEDOCS_VERSION_TYPE") != "external" or (
+    os.path.exists(os.path.join(os.path.dirname(__file__), "..", ".pbl_playground"))
+)
+
+# Boards the playground offers, with their label; the first one is the default
+pbl_playground_boards = {
+    "native_emery/wasm": "Pebble Time 2",
+    "native_gabbro/wasm": "Pebble Round 2",
+    "native_flint/wasm": "Pebble 2 Duo",
 }
 
 # Pages that moved, served as redirects from their old URL

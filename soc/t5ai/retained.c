@@ -2,7 +2,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <pbl/soc/t5ai/retained.h>
 #include <string.h>
-#include "system/passert.h"
+#include <pbl/kernel/assert.h>
 #define T5AI_RETAINED_WORDS 32u
 #define T5AI_RETAINED_MAGIC 0x50355452u
 typedef struct {

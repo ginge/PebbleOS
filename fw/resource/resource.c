@@ -8,13 +8,13 @@
 #include "resource_storage_flash.h"
 
 #include <pbl/drivers/flash.h>
+#include <pbl/kernel/assert.h>
 #include <pbl/kernel/mutex.h>
 #include <pbl/logging/logging.h>
 #include <pbl/services/process_management/app_storage.h>
 
 #include <kernel/pbl_malloc.h>
 #include <process_management/app_manager.h>
-#include <system/passert.h>
 
 // TODO: this may be replaced once apps become more dynamic
 
@@ -130,6 +130,21 @@ uint32_t resource_get_and_cache(ResAppNum app_num, uint32_t resource_id) {
   return resource_id;
 }
 
+void resource_uncache(uint32_t first_id, uint32_t last_id) {
+  pbl_mutex_lock(&s_resource_mutex, PBL_FOREVER);
+  ListNode *node = (ListNode *)s_resource_list;
+  while (node) {
+    ListNode *next = list_get_next(node);
+    const uint32_t id = ((CachedResource *)node)->id;
+    if (id >= first_id && id <= last_id) {
+      list_remove(node, (ListNode **)&s_resource_list, nullptr);
+      kernel_free(node);
+    }
+    node = next;
+  }
+  pbl_mutex_unlock(&s_resource_mutex);
+}
+
 size_t resource_load_byte_range_system(ResAppNum app_num, uint32_t resource_id, uint32_t offset,
                                        uint8_t *buffer, size_t num_bytes) {
   PBL_ASSERTN(buffer);
@@ -186,9 +201,6 @@ const uint8_t *resource_get_readonly_bytes(ResAppNum app_num, uint32_t resource_
 
   pbl_mutex_lock(&s_resource_mutex, PBL_FOREVER);
 
-  // FIXME PBL-28781: This operation touches flash. Even though this is the cleanest approach
-  // to detect if the resource is a builtin, it is a slow one. We should instead only search
-  // in the builtin table for the resource_ids and if there are no matches, bail early.
   ResourceStoreEntry resource;
   prv_get_resource(app_num, resource_id, &resource);
   pbl_mutex_unlock(&s_resource_mutex);

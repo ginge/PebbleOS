@@ -16,7 +16,9 @@
 #include <comm/ble/kernel_le_client/test/test_definition.h>
 #endif
 
+#include <pbl/kernel/assert.h>
 #include <pbl/kernel/compiler.h>
+#include <pbl/kernel/fatal.h>
 #include <pbl/logging/logging.h>
 
 #include <comm/ble/gap_le_connect.h>
@@ -28,7 +30,6 @@
 #include <kernel/event_loop.h>
 #include <kernel/events.h>
 #include <kernel/pbl_malloc.h>
-#include <system/passert.h>
 
 #define MAX_SERVICE_INSTANCES (8)
 
@@ -267,7 +268,7 @@ static void prv_handle_gatt_service_discovery_event(const PebbleBLEGATTClientSer
       prv_handle_services_added(&event_info->services_added_data, &event_info->device);
       break;
     default:
-      WTF;
+      pbl_panic();
   }
 }
 
@@ -290,8 +291,7 @@ static void prv_consume_read_response(const PebbleBLEGATTClientEvent *event,
   uint8_t *buffer = nullptr;
 
   if (value_length) {
-    // This is ugly and causes double-copying the data...
-    // TODO: https://pebbletechnology.atlassian.net/browse/PBL-14164
+    // TODO: avoid double-copying the data
     buffer = (uint8_t *)kernel_malloc(value_length);
     if (PBL_UNLIKELY(!buffer)) {
       PBL_LOG_ERR("OOM for GATT read response - %d bytes", (int)value_length);
@@ -324,8 +324,7 @@ static void prv_consume_notifications(const PebbleBLEGATTClientEvent *event) {
       return; // yield
     }
 
-    // This is ugly and causes double-copying the data...
-    // TODO: https://pebbletechnology.atlassian.net/browse/PBL-14164
+    // TODO: avoid double-copying the data
     uint8_t *buffer = (uint8_t *)kernel_malloc(header.value_length);
     if (PBL_UNLIKELY(header.value_length && !buffer)) {
       PBL_LOG_ERR("OOM for GATT notification");
@@ -409,13 +408,8 @@ static void prv_handle_connection_event(const PebbleBLEConnectionEvent *event) {
               event->connected, event->bonding_id);
 
   const bool connected = event->connected;
-  // FIXME: When PPoGATT is supported add a check for active gateway
-  // https://pebbletechnology.atlassian.net/browse/PBL-15277
-  //
-  // For now, we just assume that the Kernel LE client is _always_ bonded for
-  // ANCS. Note that we cannot use bt_persistent_storage calls in this routine because
-  // we could be getting this call as a result of a disconnect due to
-  // forgetting a pairing key
+  // Assume the Kernel LE client is always bonded for ANCS. bt_persistent_storage can't be used
+  // here: this may run as a result of a disconnect due to forgetting a pairing key.
 
   const struct pbl_bt_device_internal device = PebbleEventToBTDeviceInternal(event);
   if (connected) {

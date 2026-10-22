@@ -4,7 +4,10 @@
 #include <stddef.h>
 
 #include <pbl/drivers/hrm.h>
+#include <pbl/kernel/assert.h>
 #include <pbl/kernel/compiler.h>
+#include <pbl/kernel/fatal.h>
+#include <pbl/kernel/syscall.h>
 #include <pbl/kernel/types.h>
 #include <pbl/logging/logging.h>
 #include <pbl/services/activity/activity.h>
@@ -21,9 +24,7 @@
 #include <kernel/events.h>
 #include <kernel/pbl_malloc.h>
 #include <syscall/syscall.h>
-#include <syscall/syscall_define.h>
 #include <system/hexdump.h>
-#include <system/passert.h>
 
 PBL_LOG_MODULE_DEFINE(service_hrm, CONFIG_SERVICE_HRM_LOG_LEVEL);
 
@@ -208,8 +209,8 @@ PBL_T_STATIC bool prv_can_turn_sensor_on(void) {
   // Keep this in sync with prv_prefs_allowed_features(): a pref that can allow a feature there has
   // to be able to turn the sensor on here, or that feature's reader silently never runs.
   return s_manager_state.enabled_run_level && s_manager_state.enabled_charging_state &&
-         (activity_prefs_heart_rate_is_enabled() || activity_prefs_blood_oxygen_is_enabled() ||
-          activity_prefs_blood_oxygen_activity_tracking_is_enabled());
+         (activity_prefs_heart_rate_is_enabled() || activity_prefs_spo2_is_enabled() ||
+          activity_prefs_spo2_activity_tracking_is_enabled());
 }
 
 // Features the user prefs currently allow. BPM (green) and SpO2 (red/IR) sampling are each gated on
@@ -222,8 +223,7 @@ static HRMFeature prv_prefs_allowed_features(void) {
   //
   // SpO2 is allowed if daily monitoring is on, OR if the during-activities opt-in is on (it works
   // independently of the daily toggle).
-  if (!activity_prefs_blood_oxygen_is_enabled() &&
-      !activity_prefs_blood_oxygen_activity_tracking_is_enabled()) {
+  if (!activity_prefs_spo2_is_enabled() && !activity_prefs_spo2_activity_tracking_is_enabled()) {
     allowed &= ~HRMFeature_SpO2;
   }
   // HRV shares the green LED with BPM, so the heart rate pref gates both. Without this an HRV
@@ -246,11 +246,13 @@ static HRMFeature prv_subscriber_allowed_features(const HRMSubscriberState *stat
   return state->features & prefs_allowed;
 }
 
+#ifndef CONFIG_MFG
 // The GH3X2X lights one optical path at a time: SpO2 uses the red/IR LEDs, BPM/HRV use the green
 // LED. Returns true if this feature set maps to the red/IR (SpO2) path.
 static bool prv_features_use_ir_path(HRMFeature features) {
   return (features & HRMFeature_SpO2) != 0;
 }
+#endif
 
 // Resolve the features wanted by all due subscribers down to the one optical path we can run now
 // (the paths are mutually exclusive in hardware). The red/IR (SpO2) path wins whenever it is due:
@@ -614,7 +616,7 @@ static void prv_populate_hrm_event(PebbleHRMEvent *event, HRMFeature feature, co
     }
 #endif
     default:
-      WTF;
+      pbl_panic();
   }
 }
 
@@ -1051,6 +1053,8 @@ void hrm_manager_process_cleanup(PebbleTask task, AppInstallId app_id) {
 
 #include <pbl/shell/shell.h>
 
+#include <kernel/pebble_tasks.h>
+
 static const struct pbl_shell *s_console_sh;
 static HRMSessionRef s_console_session = HRM_INVALID_SESSION_REF;
 static PebbleHRMEvent s_console_event;
@@ -1102,7 +1106,7 @@ static int prv_cmd_hrm_read(const struct pbl_shell *sh, size_t argc, char **argv
 static int prv_cmd_spo2_read(const struct pbl_shell *sh, size_t argc, char **argv) {
   // Console subscribers are subject to the pref mask; a reading would never come.
   if (!(prv_prefs_allowed_features() & HRMFeature_SpO2)) {
-    pbl_shell_error(sh, "blood oxygen monitoring is disabled");
+    pbl_shell_error(sh, "SpO2 monitoring is disabled");
     return -EPERM;
   }
   return prv_console_subscribe(sh, HRMFeature_SpO2, HRMEvent_SpO2);
@@ -1110,7 +1114,7 @@ static int prv_cmd_spo2_read(const struct pbl_shell *sh, size_t argc, char **arg
 
 static const struct pbl_shell_cmd sub_hrm[] = {
   PBL_SHELL_CMD(read, nullptr, "Read the heart rate", prv_cmd_hrm_read),
-  PBL_SHELL_CMD(spo2, nullptr, "Read the blood oxygen level", prv_cmd_spo2_read),
+  PBL_SHELL_CMD(spo2, nullptr, "Read the SpO2 level", prv_cmd_spo2_read),
   PBL_SHELL_SUBCMD_SET_END,
 };
 

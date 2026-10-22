@@ -120,6 +120,8 @@ char __APP_RAM_end__;
 char __WORKER_RAM__[1024 * 12];
 char __WORKER_RAM_end__;
 
+const void *const g_pbl_system_tbl[] = {nullptr};
+
 MemorySegment prv_get_app_ram_segment(void) {
   return (MemorySegment){__APP_RAM__, &__APP_RAM__[1024 * 128]};
 }
@@ -276,9 +278,6 @@ const PebbleProcessMd *system_app_state_machine_get_last_registered_app(void) {
   return (PebbleProcessMd *)&s_root_app;
 }
 void system_app_state_machine_register_app_launch(const PebbleProcessMd *app) {
-}
-
-void health_tracking_ui_register_app_launch(AppInstallId app_id) {
 }
 
 void sys_vibe_history_stop_collecting(void) {

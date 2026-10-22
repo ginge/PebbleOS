@@ -4,6 +4,9 @@
 #include <stdint.h>
 
 #include <pbl/bluetooth/comm.h>
+#include <pbl/kernel/assert.h>
+#include <pbl/kernel/fatal.h>
+#include <pbl/kernel/syscall.h>
 #include <pbl/logging/logging.h>
 #include <pbl/services/bluetooth/bluetooth_persistent_storage.h>
 #include <pbl/services/comm_session/session.h>
@@ -21,8 +24,6 @@
 #include <kernel/events.h>
 #include <kernel/pbl_malloc.h>
 #include <process_management/app_manager.h>
-#include <syscall/syscall_define.h>
-#include <system/passert.h>
 
 PBL_LOG_MODULE_DEFINE(service_comm_session, CONFIG_SERVICE_COMM_SESSION_LOG_LEVEL);
 
@@ -141,7 +142,7 @@ static const char *prv_string_for_destination(TransportDestination destination) 
     case TransportDestinationHybrid:
       return "H";
     default:
-      WTF;
+      pbl_panic();
       return nullptr;
   }
 }
@@ -238,7 +239,6 @@ void comm_session_close(CommSession *session, CommSessionCloseReason reason) {
     // Only relevant for iOS + BLE, otherwise this is a no-op:
     app_launch_trigger();
 
-    // TODO: PBL-1771: find a more graceful way to handle this
 #ifndef CONFIG_RECOVERY_FW
     system_task_add_callback(dls_private_handle_disconnect, nullptr);
 #endif
@@ -559,7 +559,7 @@ PBL_SYSCALL(void, sys_app_comm_set_responsiveness, (VAL, SniffInterval, interval
       return;
   }
   PBL_LOG_WRN("Invalid sniff interval");
-  syscall_failed();
+  pbl_syscall_fail();
 }
 
 PBL_SYSCALL(bool, sys_system_pp_has_capability, (VAL, CommSessionCapability, capability)) {

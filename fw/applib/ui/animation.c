@@ -7,7 +7,10 @@
 
 #include <string.h>
 
+#include <pbl/kernel/assert.h>
+#include <pbl/kernel/fatal.h>
 #include <pbl/kernel/irq.h>
+#include <pbl/logging/logging.h>
 #include <pbl/services/animation_service.h>
 #include <pbl/util/math.h>
 
@@ -18,7 +21,6 @@
 #include <kernel/kernel_applib_state.h>
 #include <kernel/memory_layout.h>
 #include <process_state/app_state/app_state.h>
-#include <system/passert.h>
 
 #ifdef CONFIG_SHELL
 #include <pbl/shell/shell.h>
@@ -41,7 +43,7 @@ static AnimationState *prv_animation_state_get(PebbleTask task) {
   } else if (task == PebbleTask_KernelMain) {
     return kernel_applib_get_animation_state();
   } else {
-    WTF;
+    pbl_panic();
   }
 }
 
@@ -681,7 +683,6 @@ static uint32_t prv_get_time_normalized_raw(const AnimationPrivate *animation, u
 }
 
 AnimationProgress animation_private_get_animation_progress(const AnimationPrivate *animation) {
-  // FIXME PBL-25497: Make this function less fragile
   // Calling prv_get_ms_since_system_start() here means this function will have different return
   // values if it's called multiple times, all of which will be different from the value actually
   // passed to the animations .update() function
@@ -864,10 +865,10 @@ static Animation *prv_call_using_vargs(CreateFromArrayFunc func, Animation *anim
 
 // -------------------------------------------------------------------------------------------
 // Complex animations don't perform any logic in their update callback
-static void prv_complex_animation_update(Animation *animation, uint32_t distance) {
+static void prv_complex_animation_update(Animation *animation, const AnimationProgress progress) {
 }
 static const AnimationImplementation s_complex_implementation = {
-  .update = (AnimationUpdateImplementation)prv_complex_animation_update,
+  .update = prv_complex_animation_update,
 };
 
 // -------------------------------------------------------------------------------------------
@@ -1613,8 +1614,7 @@ bool animation_set_reverse(Animation *animation_h, bool reverse) {
     return false;
   }
 
-  // NOTE: We still need to implement reverse for sequence and spawn animations.
-  // tracked in this JIRA: https://pebbletechnology.atlassian.net/browse/PBL-14838
+  // TODO: reverse is not implemented for sequence and spawn animations
   animation->reverse = reverse;
   return true;
 }

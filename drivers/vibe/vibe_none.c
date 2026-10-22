@@ -1,36 +1,24 @@
+/* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
-
 #include <pbl/drivers/vibe.h>
 
-
-
-void vibe_init(void) {
+static int prv_init(const struct pbl_vibe *vibe) {
+  return 0;
 }
-
-void vibe_ctl(bool on) {
-  (void)on;
+static int prv_start(const struct pbl_vibe *vibe, int8_t strength) {
+  return 0;
 }
-
-void vibe_force_off(void) {
+static int prv_stop(const struct pbl_vibe *vibe) {
+  return 0;
 }
-
-void vibe_set_strength(int8_t strength) {
-  (void)strength;
-}
-
-int8_t vibe_get_braking_strength(void) {
-  return VIBE_STRENGTH_OFF;
-}
-
-status_t vibe_calibrate(void) {
-  return E_INVALID_OPERATION;
-}
-
-uint8_t vibe_get_calibration(void) {
-  return 0xff;
-}
-
-void vibe_apply_calibration(uint8_t cali) {
-  (void)cali;
-}
+static const struct pbl_vibe_ops s_ops = {
+  .init = prv_init,
+  .start = prv_start,
+  .stop = prv_stop,
+};
+PBL_VIBE_STATE_DEFINE(s_vibe);
+static const struct pbl_vibe s_vibe =
+    PBL_VIBE_INIT(s_vibe, "unavailable-vibe", nullptr, &s_ops, VIBE_STRENGTH_OFF);
+const struct pbl_vibe *const VIBE = &s_vibe;
+PBL_DEVICE_REGISTER(s_vibe, &s_vibe.dev);

@@ -1,6 +1,8 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include <pbl/kernel/assert.h>
+#include <pbl/kernel/syscall.h>
 #include <pbl/services/timeline/timeline_resources.h>
 #include <pbl/util/byteorder.h>
 #include <pbl/util/testing.h>
@@ -11,8 +13,6 @@
 #include <process_management/app_install_manager.h>
 #include <resource/resource_ids.auto.h>
 #include <syscall/syscall.h>
-#include <syscall/syscall_define.h>
-#include <system/passert.h>
 
 #define RESOURCE_MAX_SIZE (700)
 
@@ -25,7 +25,7 @@
 extern const uint16_t g_timeline_resources[][TimelineResourceSizeCount];
 
 PBL_T_STATIC bool prv_is_app_published_resource_valid(const AppResourceInfo *res_info) {
-  // TODO: PBL-39864 Improve this code so it doesn't requiring loading/unloading a resource
+  // TODO: validate without loading/unloading the resource
   bool is_valid = true;
 
   KinoReel *reel = kino_reel_create_with_resource_system(res_info->res_app_num, res_info->res_id);
@@ -131,8 +131,8 @@ void timeline_resources_get_id(const TimelineResourceInfo *timeline_res, Timelin
   PBL_ASSERTN(timeline_res && res_info_out && (size < TimelineResourceSizeCount));
 
   // Test the high bit to determine if system resource
-  // TODO PBL-24499: Remove check for system uuid - this is only in place to ease the migration
-  // from 3.4, where not all system pins use the correct id convention
+  // The system uuid check covers pins from 3.4, where not all system pins use the correct id
+  // convention
   if (timeline_resources_is_system(timeline_res->res_id) || uuid_is_system(timeline_res->app_id)) {
     if (!prv_get_sys_resource(timeline_res->res_id, size, res_info_out)) {
       goto fail;
@@ -182,7 +182,7 @@ PBL_SYSCALL(void, sys_timeline_resources_get_id, (IN, const TimelineResourceInfo
   Uuid user_app_id;
 
   if (from_user && timeline_res->app_id) {
-    syscall_assert_userspace_buffer(timeline_res->app_id, sizeof(Uuid));
+    pbl_syscall_verify_user(timeline_res->app_id, sizeof(Uuid));
     user_app_id = *timeline_res->app_id;
     user_timeline_res = *timeline_res;
     user_timeline_res.app_id = &user_app_id;

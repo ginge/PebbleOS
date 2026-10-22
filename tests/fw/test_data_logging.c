@@ -2,6 +2,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <pbl/crc/crc.h>
+#include <pbl/kernel/assert.h>
 #include <pbl/logging/logging.h>
 #include <pbl/services/comm_session/protocol.h>
 #include <pbl/services/comm_session/session.h>
@@ -23,7 +24,6 @@
 #include <applib/data_logging.h>
 #include <clar.h>
 #include <process_management/pebble_process_md.h>
-#include <system/passert.h>
 
 // Stubs
 #include <stdio.h>
@@ -570,8 +570,7 @@ void test_data_logging__send_session_medium(void) {
 }
 
 // ----------------------------------------------------------------------------------------
-// Test using the endpoint to empty a session using small item sizes. The item size of 19
-//  exposes issue PBL-21331
+// Test using the endpoint to empty a session using small, odd item sizes.
 void test_data_logging__send_session_small(void) {
   prv_endpoint_test(true /*buffered*/, 19, 45);
 }

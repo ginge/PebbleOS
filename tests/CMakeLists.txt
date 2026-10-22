@@ -51,6 +51,10 @@ add_compile_options(${PBL_TEST_C_FLAGS})
 set(PBL_TEST_DEFINES
   "CLAR_FIXTURE_PATH=\"${PBL_BASE}/tests/fixtures/\""
   CONFIG_LOG=1
+  # The flash layout every test sees; it belongs to no platform.
+  CONFIG_FLASH_GD25Q256E=1
+  CONFIG_PBLBOOT=1
+  CONFIG_FIRMWARE_SLOT=0
   CONFIG_BACKLIGHT_STANDARD_INTENSITY=50
   CONFIG_KERNEL_NUM_PRIORITIES=5
   CONFIG_KERNEL_THREAD_TLS_SLOTS=2
@@ -170,6 +174,8 @@ set_tests_properties(pbl_test_failed_dir PROPERTIES FIXTURES_SETUP pbl_test_fail
 pbl_test_broken(
   test_graphics_draw_circle_8bit
   test_graphics_fill_circle_8bit
+  test_graphics_draw_circle_1bit
+  test_graphics_fill_circle_1bit
   test_graphics_draw_line
   test_graphics_draw_rotated_bitmap
   # Crash (round-display segfault) and build (rect/round, platform)

@@ -4,13 +4,13 @@
 #include "persist.h"
 
 #include <pbl/kernel/compiler.h>
+#include <pbl/kernel/syscall.h>
 #include <pbl/services/persist.h>
 #include <pbl/services/settings/settings_file.h>
 #include <pbl/util/math.h>
 
 #include <process_management/process_manager.h>
 #include <syscall/syscall.h>
-#include <syscall/syscall_define.h>
 
 static_assert(PERSIST_DATA_MAX_LENGTH <= SETTINGS_VAL_MAX_LEN,
               "PERSIST_DATA_MAX_LENGTH is larger than the max length that "
@@ -104,7 +104,6 @@ PBL_SYSCALL(status_t, persist_write_int, (VAL, const uint32_t, key), (VAL, const
   return PASSED(result) ? (status_t)sizeof(value) : result;
 }
 
-// FIXME: PBL-23877 Disallow and document persist write data of length 0 edge case
 PBL_SYSCALL(int, persist_write_data, (VAL, const uint32_t, key),
             (IN_BUF, const void *, buffer, buffer_size), (VAL, const size_t, buffer_size)) {
   const size_t restricted_size = MIN(buffer_size, PERSIST_DATA_MAX_LENGTH);

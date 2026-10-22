@@ -329,7 +329,7 @@ class SDTests(unittest.TestCase):
                 "cmsis_core.h",
                 "pbl/logging/logging.h",
                 "pbl/services/filesystem/pfs.h",
-                "system/passert.h",
+                "pbl/kernel/assert.h",
                 "kernel/pbl_malloc.h",
             ]
             for name in headers:

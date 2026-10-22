@@ -3,7 +3,7 @@
 #include <pbl/drivers/uart/t5ai.h>
 #include <pbl/kernel/kernel.h>
 #include <cmsis_core.h>
-#include "system/passert.h"
+#include <pbl/kernel/assert.h>
 
 typedef volatile struct {
   uint32_t dev_id, dev_version, global_ctrl, dev_status, config, fifo_config;

@@ -62,7 +62,7 @@ static inline void system_message_send_firmware_start_response(FirmwareUpdateSta
   assert(s == FirmwareUpdateCancelled); ++replies;
 }
 """,
-    "system/passert.h": "#include <assert.h>\n#define PBL_ASSERTN(x) assert(x)\n",
+    "pbl/kernel/assert.h": "#include <assert.h>\n#define PBL_ASSERTN(x) assert(x)\n",
     "kernel/events.h": """#pragma once
 #include <pbl/services/put_bytes/put_bytes.h>
 typedef enum { PebbleSystemMessageFirmwareUpdateStartLegacy,
@@ -211,6 +211,8 @@ int main(void) {
             for name in SOURCES:
                 before = subprocess.check_output(["git", "show", f"{BASELINE}:{name}"],
                                                  cwd=ROOT, text=True)
+                # Upstream renamed the unconditional panic without changing admission.
+                before = re.sub(r"\bWTF\b", "pbl_panic()", before)
                 after = (ROOT / name).read_text()
                 includes = re.findall(r'^#include [<"]([^>"]+)', before + after, re.MULTILINE)
                 for include in includes:

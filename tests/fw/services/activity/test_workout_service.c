@@ -86,10 +86,12 @@ AppInstallId app_get_app_id(void) {
 
 static bool s_hrm_subscribed;
 static uint32_t s_hrm_expiration;
+static HRMFeature s_hrm_features;
 HRMSessionRef sys_hrm_manager_app_subscribe(AppInstallId app_id, uint32_t update_interval_s,
                                             uint16_t expire_s, HRMFeature features) {
   s_hrm_subscribed = true;
   s_hrm_expiration = expire_s;
+  s_hrm_features = features;
   return 1;
 }
 
@@ -111,7 +113,7 @@ void hrm_manager_set_activity_scene(HRMActivityScene scene) {
 
 bool sys_hrm_manager_set_features(HRMSessionRef session, HRMFeature features) {
   (void)session;
-  (void)features;
+  s_hrm_features = features;
   return true;
 }
 
@@ -184,6 +186,7 @@ void test_workout_service__initialize(void) {
   s_total_step_count = 5000;
   s_hrm_expiration = 0;
   s_hrm_subscribed = false;
+  s_hrm_features = HRMFeature_BPM;
   s_hrm_measurement_interval = HRMonitoringInterval_10Min;
   RESET_FAKE(workout_utils_send_abandoned_workout_notification);
 
@@ -981,4 +984,100 @@ void test_workout_service__abandon_workout(void) {
   prv_inc_time(5 * PBL_SEC_PER_MIN);
   prv_abandon_workout_timer_callback(nullptr);
   cl_assert_equal_b(workout_service_is_workout_ongoing(), false);
+}
+
+void test_workout_service__metrics(void) {
+  WorkoutServiceMetrics metrics = {.steps = 123};
+  cl_assert(!workout_service_get_current_workout_metrics(&metrics));
+  cl_assert_equal_i(123, metrics.steps);
+  cl_assert(!workout_service_get_current_workout_metrics(nullptr));
+
+  cl_assert(workout_service_start_workout(ActivitySessionType_Run));
+  prv_inc_time(60);
+  prv_put_bpm_event(140, HRMQuality_Good);
+  prv_put_bpm_event(140, HRMQuality_Good);
+  prv_put_bpm_event(160, HRMQuality_Good);
+  cl_assert(workout_service_get_current_workout_metrics(&metrics));
+  cl_assert_equal_i(160, metrics.current_bpm);
+  cl_assert_equal_i(3, metrics.hr_samples);
+  cl_assert_equal_i(147, metrics.avg_bpm);
+
+  int32_t steps, duration_s, distance_m, bpm;
+  HRZone zone;
+  int32_t kcal;
+  cl_assert(
+      workout_service_get_current_workout_info(&steps, &duration_s, &distance_m, &bpm, &zone));
+  workout_service_get_active_kcalories(&kcal);
+  cl_assert_equal_i(steps, metrics.steps);
+  cl_assert_equal_i(duration_s, metrics.duration_s);
+  cl_assert_equal_i(distance_m, metrics.distance_m);
+  cl_assert_equal_i(zone, metrics.current_hr_zone);
+  cl_assert_equal_i(kcal, metrics.active_kcal);
+  int32_t hr_zone_time_s[HRZoneCount];
+  cl_assert(workout_service_get_current_workout_hr_zone_time(hr_zone_time_s));
+  cl_assert_equal_m(hr_zone_time_s, metrics.hr_zone_time_s, sizeof(hr_zone_time_s));
+
+  cl_assert(workout_service_pause_workout(true));
+  prv_put_bpm_event(150, HRMQuality_Good);
+  cl_assert(workout_service_get_current_workout_metrics(&metrics));
+  cl_assert_equal_i(3, metrics.hr_samples);
+}
+
+void test_workout_service__spo2(void) {
+  WorkoutServiceMetrics metrics;
+  workout_service_handle_spo2(95);
+  cl_assert(!workout_service_get_current_workout_metrics(&metrics));
+
+  cl_assert(workout_service_start_workout(ActivitySessionType_Run));
+  cl_assert(workout_service_get_current_workout_metrics(&metrics));
+  cl_assert_equal_i(0, metrics.spo2_pct);
+  cl_assert_equal_i(0, metrics.spo2_min_pct);
+  cl_assert(!metrics.spo2_measuring);
+
+  workout_service_set_hrm_paused(true);
+  cl_assert(workout_service_get_current_workout_metrics(&metrics));
+  cl_assert(metrics.spo2_measuring);
+  workout_service_set_hrm_paused(false);
+  workout_service_handle_spo2(97);
+  workout_service_handle_spo2(94);
+  workout_service_handle_spo2(96);
+  cl_assert(workout_service_get_current_workout_metrics(&metrics));
+  cl_assert_equal_i(96, metrics.spo2_pct);
+  cl_assert_equal_i(94, metrics.spo2_min_pct);
+  cl_assert(!metrics.spo2_measuring);
+
+  cl_assert(workout_service_pause_workout(true));
+  workout_service_handle_spo2(90);
+  cl_assert(workout_service_get_current_workout_metrics(&metrics));
+  cl_assert_equal_i(96, metrics.spo2_pct);
+  cl_assert_equal_i(94, metrics.spo2_min_pct);
+}
+
+void test_workout_service__spo2_attempt_before_start(void) {
+  WorkoutServiceMetrics metrics;
+  workout_service_set_hrm_paused(true);
+  cl_assert(workout_service_start_workout(ActivitySessionType_Run));
+  cl_assert(workout_service_get_current_workout_metrics(&metrics));
+  cl_assert(metrics.spo2_measuring);
+  cl_assert_equal_i(0, s_hrm_features);
+
+  workout_service_set_hrm_paused(false);
+  cl_assert(workout_service_get_current_workout_metrics(&metrics));
+  cl_assert(!metrics.spo2_measuring);
+  cl_assert_equal_i(HRMFeature_BPM, s_hrm_features);
+}
+
+void test_workout_service__spo2_attempt_across_frontend_open_close(void) {
+  workout_service_set_hrm_paused(true);
+  workout_service_frontend_opened();
+  cl_assert_equal_i(0, s_hrm_features);
+  cl_assert(workout_service_start_workout(ActivitySessionType_Run));
+  workout_service_frontend_closed();
+  cl_assert(s_hrm_subscribed);
+  cl_assert_equal_i(0, s_hrm_features);
+
+  workout_service_set_hrm_paused(false);
+  cl_assert_equal_i(HRMFeature_BPM, s_hrm_features);
+  workout_service_frontend_opened();
+  cl_assert_equal_i(HRMFeature_BPM, s_hrm_features);
 }

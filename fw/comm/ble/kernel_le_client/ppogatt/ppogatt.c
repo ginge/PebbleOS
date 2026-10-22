@@ -10,6 +10,7 @@
 #include <pbl/bluetooth/gatt.h>
 #include <pbl/bluetooth/ppog_reversed.h>
 #include <pbl/drivers/rtc.h>
+#include <pbl/kernel/assert.h>
 #include <pbl/kernel/compiler.h>
 #include <pbl/logging/logging.h>
 #include <pbl/services/analytics/analytics.h>
@@ -25,11 +26,8 @@
 #include <comm/bt_lock.h>
 #include <kernel/event_loop.h>
 #include <kernel/pbl_malloc.h>
+#include <kernel/pebble_tasks.h>
 #include <system/hexdump.h>
-#include <system/passert.h>
-
-//! See https://pebbletechnology.atlassian.net/wiki/pages/viewpage.action?pageId=22511665
-//! for detailed information regarding the PPoGATT protocol state machine.
 
 typedef enum {
   StateDisconnectedReadingMeta,
@@ -159,10 +157,6 @@ typedef struct PPoGATTClient {
 static PPoGATTClient *s_ppogatt_head;
 
 static RegularTimerInfo s_ack_timer;
-
-//! Last timer value. It rolls over after 3, back to 0.
-//! This way the time-outs can be crammed into 2 bits per packet.
-static uint8_t s_timer_ticks;
 
 static uint8_t s_disconnect_counter;
 
@@ -571,16 +565,16 @@ static void prv_enter_awaiting_reset_complete(PPoGATTClient *client, bool self_i
     client->session = nullptr;
   }
   client->in.next_expected_data_sn = 0;
-  // FIXME: Use SN for RR / RC (https://pebbletechnology.atlassian.net/browse/PBL-12424)
+  // TODO: use the SN for Reset Request / Reset Complete
   client->out = (typeof(client->out)){};
 
   if (prv_client_supports_enhanced_throughput_features(client)) {
     // Set our desired window sizes
     //
-    // Note: as of PBL-38806 (which is in Android 4.0), the Android app will negotiate the MTU size
-    // before starting up a PPoG session so we can use this info to dynamically change the window
-    // size. The iOS app has no control over when the MTU size is negotiated (though it seems to be
-    // negotiated in time) but if we were to use PPoG V1 on iOS it's something we should check
+    // Note: since version 4.0, the Android app negotiates the MTU size before starting up a PPoG
+    // session so we can use this info to dynamically change the window size. The iOS app has no
+    // control over when the MTU size is negotiated (though it seems to be negotiated in time) but
+    // if we were to use PPoG V1 on iOS it's something we should check
 
     if (prv_get_max_payload_size(client) < GATT_MTU_MINIMUM) {
       // If a device does not support large a large MTU/payload size, its throughput is severely
@@ -659,7 +653,6 @@ static void prv_handle_reset_request(PPoGATTClient *client) {
   }
   if (client->state == StateConnectedClosedAwaitingResetCompleteRemoteInitiatedReset) {
     // Already in remote-initiated reset procedure, server retrying?
-    // See https://pebbletechnology.atlassian.net/browse/PBL-12424
     PBL_LOG_INFO("Ignoring reset request because remote server already requested.");
     return;
   }
@@ -1029,7 +1022,6 @@ void ppogatt_create(void) {
   {
     PBL_ASSERT_TASK(PebbleTask_KernelMain);
     PBL_ASSERTN(!s_ppogatt_head);
-    s_timer_ticks = 0;
     s_rediscovery_requested_this_connection = false;
   }
   bt_unlock();
@@ -1058,8 +1050,7 @@ void ppogatt_handle_service_removed(pbl_bt_characteristic_t *characteristics,
       client = next;
     }
 
-    // PBL-42768 - In the logs in this ticket it looks to me like we missed that the service
-    // was removed. Add some diagnostic logging to hopefully reveal more info on a failure
+    // Diagnostics in case the service removal was missed
     if (!client_removed) {
       pbl_bt_characteristic_t meta = 0;
       pbl_bt_characteristic_t data = 0;

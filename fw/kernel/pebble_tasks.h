@@ -62,4 +62,31 @@ struct pbl_msgq *pebble_task_get_to_queue(PebbleTask task);
 //! @p attr->regions is filled in here.
 struct pbl_thread *pebble_task_create(PebbleTask pebble_task, struct pbl_thread_attr *attr);
 
+#ifdef CONFIG_USERSPACE
+//! Runs the syscalls of @p task (App or Worker) on its dedicated privileged
+//! stack instead of the caller's.
+void pebble_task_attr_set_syscall_stack(PebbleTask task, struct pbl_thread_attr *attr);
+#endif
+
 void pebble_task_configure_idle_task(void);
+
+#if UNITTEST
+#define PBL_ASSERT_TASK(task)
+#define PBL_ASSERT_NOT_TASK(task)
+#define PBL_ASSERT_RUNNING_FROM_EXPECTED_TASK(task)
+#else
+void pebble_task_assert_current(PebbleTask expected_task);
+void pebble_task_assert_not_current(PebbleTask unexpected_task);
+
+//! Panic unless running from @p task.
+#define PBL_ASSERT_TASK(task)     pebble_task_assert_current(task)
+//! Panic when running from @p task.
+#define PBL_ASSERT_NOT_TASK(task) pebble_task_assert_not_current(task)
+
+// Only checked when CHECK_RUNNING_FROM_EXPECTED_TASK is defined, to save code space.
+#ifdef CHECK_RUNNING_FROM_EXPECTED_TASK
+#define PBL_ASSERT_RUNNING_FROM_EXPECTED_TASK(task) PBL_ASSERT_TASK(task)
+#else
+#define PBL_ASSERT_RUNNING_FROM_EXPECTED_TASK(task)
+#endif
+#endif

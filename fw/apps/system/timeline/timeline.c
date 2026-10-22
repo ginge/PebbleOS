@@ -8,7 +8,9 @@
 #include "pin_window.h"
 
 #include <pbl/drivers/rtc.h>
+#include <pbl/kernel/assert.h>
 #include <pbl/kernel/compiler.h>
+#include <pbl/kernel/fatal.h>
 #include <pbl/logging/logging.h>
 #include <pbl/services/blob_db/pin_db.h>
 #include <pbl/services/compositor/compositor_transitions.h>
@@ -30,7 +32,6 @@
 #include <shell/normal/watchface.h>
 #include <shell/system_theme.h>
 #include <syscall/syscall.h>
-#include <system/passert.h>
 
 // This is used to determine whether this app was launched as Timeline or Timeline Past.
 // See timeline_get_app_info, timeline_past_get_app_info, and the usage of sys_get_app_uuid.
@@ -118,7 +119,7 @@ static bool prv_can_transition_state(TimelineAppData *data, TimelineAppState nex
     case TimelineAppStateExit:
       return false;
     default:
-      WTF;
+      pbl_panic();
   }
 }
 
@@ -916,7 +917,6 @@ PBL_T_STATIC void prv_setup_no_events_peek(TimelineAppData *data) {
 
 static void prv_setup_first_pin_peek(TimelineAppData *data) {
   TimelineIterState *state = timeline_model_get_current_state();
-  // TODO: PBL-22075 Refactor Timeline Model
   // timeline_model_get_current_state explicitly tries to return NULL when supposedly empty,
   // but this does not seem to actually happen
   if (!state) {

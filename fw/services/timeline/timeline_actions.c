@@ -1,6 +1,8 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include <pbl/kernel/assert.h>
+#include <pbl/kernel/fatal.h>
 #include <pbl/logging/logging.h>
 #include <pbl/services/blob_db/reminder_db.h>
 #include <pbl/services/bluetooth/ble_hrm.h>
@@ -29,6 +31,7 @@
 #include <applib/ui/dialogs/dialog_private.h>
 #include <applib/ui/dialogs/expandable_dialog.h>
 #include <applib/ui/dialogs/simple_dialog.h>
+#include <applib/ui/preferred_durations.h>
 #include <applib/ui/progress_window.h>
 #include <applib/ui/window.h>
 #include <applib/ui/window_manager.h>
@@ -43,7 +46,6 @@
 #include <popups/ble_hrm/ble_hrm_stop_sharing_popup.h>
 #include <popups/notifications/notification_window.h>
 #include <process_state/app_state/app_state.h>
-#include <system/passert.h>
 
 PBL_LOG_MODULE_DECLARE(service_timeline, CONFIG_SERVICE_TIMELINE_LOG_LEVEL);
 
@@ -215,7 +217,7 @@ static void prv_show_result_window(ActionResultData *data, const TimelineResourc
   dialog_set_icon(dialog, icon_res_info.res_id);
   dialog_set_icon_animate_direction(dialog, DialogIconAnimationFromLeft);
   const uint32_t dialog_timeout_ms =
-      use_simple_dialog ? DIALOG_TIMEOUT_DEFAULT : DIALOG_TIMEOUT_INFINITE;
+      use_simple_dialog ? preferred_result_display_duration() : DIALOG_TIMEOUT_INFINITE;
   dialog_set_timeout(dialog, dialog_timeout_ms);
 
   if (data->action_menu) {
@@ -595,7 +597,7 @@ static ActionResultData *prv_invoke_remote_action(ActionMenu *action_menu,
     }
     case TimelineItemActionTypeOpenPin:
     case TimelineItemActionTypeOpenWatchApp:
-      WTF;
+      pbl_panic();
     case TimelineItemActionTypeAncsNegative:
     case TimelineItemActionTypeAncsDelete:
     case TimelineItemActionTypeAncsPositive:
@@ -1201,8 +1203,8 @@ static void prv_dismiss_all_step(void *context) {
       timeline_enable_ancs_bulk_action_mode(false);
       ctx->performed_actions = true;
 
-      // FIXME: PBL-34338 There are other actions that should also use bulk mode to avoid crashes
-      // such as dismissing notifications on Android while disconnected
+      // TODO: other actions should also use bulk mode to avoid crashes, such as dismissing
+      // notifications on Android while disconnected
       if (action->type == TimelineItemActionTypeAncsNegative) {
         ctx->ancs_bulk_mode = true;
       }

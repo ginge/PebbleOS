@@ -1,3 +1,4 @@
+/* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
@@ -5,7 +6,7 @@
 #include "kernel/events.h"
 #include "pbl/util/bitops.h"
 #include "system/bootbits.h"
-#include "system/passert.h"
+#include <pbl/kernel/assert.h>
 #include "system/reset.h"
 
 #include <stdint.h>

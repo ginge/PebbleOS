@@ -5,6 +5,7 @@
 
 #include <pbl/cron/cron.h>
 #include <pbl/drivers/rtc.h>
+#include <pbl/kernel/assert.h>
 #include <pbl/kernel/compiler.h>
 #include <pbl/kernel/mutex.h>
 #include <pbl/logging/logging.h>
@@ -26,7 +27,6 @@
 #include <kernel/events.h>
 #include <kernel/pbl_malloc.h>
 #include <process_management/app_install_manager.h>
-#include <system/passert.h>
 
 PBL_LOG_MODULE_DEFINE(service_alarms, CONFIG_SERVICE_ALARMS_LOG_LEVEL);
 
@@ -339,7 +339,8 @@ static void prv_assign_alarm(Alarm *alarm, struct pbl_cron_job *cron) {
   s_next_alarm = *alarm;
   s_next_alarm_time = pbl_cron_job_schedule(&s_next_alarm_cron);
   PBL_LOG_INFO("Scheduling alarm %u to go off at %d:%d (%ld) (smart:%d)", alarm->id,
-               alarm->config.hour, alarm->config.minute, s_next_alarm_time, alarm->config.is_smart);
+               alarm->config.hour, alarm->config.minute, (long)s_next_alarm_time,
+               alarm->config.is_smart);
 }
 
 // ----------------------------------------------------------------------------------------------
@@ -1252,7 +1253,7 @@ void alarm_handle_clock_change(void) {
   }
 
   // Deferred until after the settings file is closed: prv_alarm_operation() opens it itself, and
-  // opening it twice croaks.
+  // opening it twice panics.
   AlarmId record_alarm_id = ALARM_INVALID_ID;
 
   // If there's an active alarm (e.g., currently snoozing), we need to handle it carefully.

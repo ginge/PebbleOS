@@ -111,8 +111,8 @@ void prv_prepare_canvas_and_render_emoji(ResourceId font_handle) {
   const int max_height = 2000;    // Large size protected from overflow and automatically truncated
   const GSize max_size = {max_width, max_height};
 
-  // FIXME: PBL-34261 graphics_text_layout_get_max_used_size reports a max of 192px in a unit test
-  // with the default aplite framebuffer size. Work around this issue by creating a larger canvas.
+  // graphics_text_layout_get_max_used_size is capped by the framebuffer size, so measure on a
+  // larger canvas.
   prv_prepare_canvas(max_size, GColorWhite);
 
   const GRect max_draw_frame = grect_inset_internal((GRect){.size = max_size}, margin.x, margin.y);
@@ -147,5 +147,11 @@ void test_emoji_fonts__gothic_24_emoji(void) {
 
 void test_emoji_fonts__gothic_28_emoji(void) {
   prv_prepare_canvas_and_render_emoji(RESOURCE_ID_GOTHIC_28_EMOJI);
+  cl_check(gbitmap_pbi_eq(s_dest_bitmap, TEST_PBI_FILE));
+}
+
+void test_emoji_fonts__gothic_36_text(void) {
+  // Gothic 36 has no emoji font of its own, so it draws them from an emoji font
+  prv_prepare_canvas_and_render_emoji(RESOURCE_ID_GOTHIC_36);
   cl_check(gbitmap_pbi_eq(s_dest_bitmap, TEST_PBI_FILE));
 }

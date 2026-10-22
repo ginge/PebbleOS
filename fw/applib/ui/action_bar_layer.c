@@ -6,6 +6,8 @@
 #include "animation.h"
 #include "animation_timing.h"
 
+#include <pbl/kernel/assert.h>
+#include <pbl/kernel/fatal.h>
 #include <pbl/util/trig.h>
 
 #include <applib/app_timer.h>
@@ -14,7 +16,6 @@
 #include <applib/pbl_std/pbl_std.h>
 #include <applib/ui/window_private.h>
 #include <process_management/process_manager.h>
-#include <system/passert.h>
 
 #ifdef CONFIG_TOUCH
 #include <syscall/syscall.h>
@@ -58,7 +59,6 @@ static int prv_press_animation_offset(void) {
                              /*gabbro*/ 4);
 }
 
-// TODO: Once PBL-16032 is implemented, use that instead.
 static int64_t prv_get_precise_time(void) {
   time_t seconds;
   uint16_t milliseconds;
@@ -114,7 +114,8 @@ inline static void action_bar_set_highlighted(ActionBarLayer *action_bar, uint8_
   layer_mark_dirty(&action_bar->layer);
 }
 
-void action_bar_changed_proc(ActionBarLayer *action_bar, GContext *ctx) {
+static void action_bar_changed_proc(Layer *layer) {
+  ActionBarLayer *action_bar = (ActionBarLayer *)layer;
   if (action_bar->layer.window && action_bar->layer.window->on_screen == false) {
     // clear first, fixes issue of returning from other page while highlighted
     for (int i = 0; i < NUM_ACTION_BAR_ITEMS; i++) {
@@ -166,7 +167,8 @@ void prv_draw_background_round(ActionBarLayer *action_bar, GContext *ctx, GColor
   graphics_fill_oval(ctx, action_bar_circle_frame, GOvalScaleModeFitCircle);
 }
 
-void action_bar_update_proc(ActionBarLayer *action_bar, GContext *ctx) {
+void action_bar_update_proc(Layer *layer, GContext *ctx) {
+  ActionBarLayer *action_bar = (ActionBarLayer *)layer;
   const GColor bg_color = action_bar->background_color;
   if (!gcolor_is_transparent(bg_color)) {
     graphics_context_set_fill_color(ctx, bg_color);
@@ -191,7 +193,7 @@ void action_bar_update_proc(ActionBarLayer *action_bar, GContext *ctx) {
           rect.origin.y = action_bar->layer.bounds.size.h - vertical_icon_margin - rect.size.h;
           break;
         default:
-          WTF;
+          pbl_panic();
       }
 
       // In order to avoid creating relatively heavy animations, we instead just base our drawing
@@ -259,8 +261,8 @@ static void prv_publish_touch_nav_snapshot(ActionBarLayer *action_bar) {
 void action_bar_layer_init(ActionBarLayer *action_bar) {
   *action_bar = (ActionBarLayer){};
   layer_set_clips(&action_bar->layer, true);
-  action_bar->layer.update_proc = (LayerUpdateProc)action_bar_update_proc;
-  action_bar->layer.property_changed_proc = (PropertyChangedProc)(void *)action_bar_changed_proc;
+  action_bar->layer.update_proc = action_bar_update_proc;
+  action_bar->layer.property_changed_proc = action_bar_changed_proc;
   action_bar->background_color = GColorBlack;
   for (unsigned int i = 0; i < NUM_ACTION_BAR_ITEMS; ++i) {
     action_bar->animation[i] = ActionBarLayerIconPressAnimationMoveLeft;

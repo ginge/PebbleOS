@@ -16,7 +16,7 @@ define_property(GLOBAL PROPERTY PBL_TESTS
 define_property(GLOBAL PROPERTY PBL_TEST_OBJECTS
   BRIEF_DOCS "Product objects already compiled, keyed by flags and source")
 
-set(PBL_TEST_PLATFORMS default obelix gabbro asterix)
+set(PBL_TEST_PLATFORMS default emery gabbro flint)
 
 # The tests build for the host with clang, at -O0 with symbols.
 set(PBL_TEST_C_FLAGS
@@ -73,26 +73,19 @@ function(pbl_test_broken)
   set_property(GLOBAL APPEND PROPERTY PBL_TEST_BROKEN ${ARGN})
 endfunction()
 
-# The SDK platform each test platform stands in for, and the board whose
-# headers it borrows. Tests load no defconfig, so the symbols the
-# firmware sources expect are injected here.
+# A test platform is an SDK platform: its Kconfig symbol and colour
+# depth. Tests load no defconfig, so the symbols the firmware sources
+# expect are injected here. No board symbol is defined.
 function(_pbl_test_platform_defines platform out_defines out_bitdepth)
-  if(platform STREQUAL "asterix")
+  if(platform STREQUAL "flint")
     set(bitdepth 1)
-    set(defines CONFIG_FLASH_GD25LQ255E=1 CONFIG_PLATFORM_FLINT=1 CONFIG_BOARD_ASTERIX=1)
-  elseif(platform STREQUAL "obelix")
+  elseif(platform STREQUAL "emery" OR platform STREQUAL "gabbro")
     set(bitdepth 8)
-    set(defines CONFIG_FLASH_GD25Q256E=1 CONFIG_PBLBOOT=1 CONFIG_FIRMWARE_SLOT=0
-                CONFIG_PLATFORM_EMERY=1 CONFIG_BOARD_OBELIX=1)
-  elseif(platform STREQUAL "gabbro")
-    # The round-display getafix board is the gabbro platform's closest
-    # real-board analog.
-    set(bitdepth 8)
-    set(defines CONFIG_FLASH_GD25Q256E=1 CONFIG_PBLBOOT=1 CONFIG_FIRMWARE_SLOT=0
-                CONFIG_PLATFORM_GABBRO=1 CONFIG_BOARD_GETAFIX=1)
   else()
     message(FATAL_ERROR "Unknown test platform '${platform}'")
   endif()
+  string(TOUPPER ${platform} upper)
+  set(defines CONFIG_PLATFORM_${upper}=1)
 
   # app_manager.c sizes app segments from these; the values are the ones
   # the old sdk_memory_limits.auto.h test override carried.
@@ -150,7 +143,7 @@ endfunction()
 #   SOURCES    the firmware sources under test, relative to the repository
 #              root; @PLATFORM@ and @BITDEPTH@ expand per platform
 #   PLATFORMS  which platforms to build it for (default: 'default',
-#              which is obelix without the platform-specific fixtures)
+#              which is emery without the platform-specific fixtures)
 #   DEFINES    extra preprocessor defines
 #   UNDEFINES  platform fixture defines this test must not inherit
 #   INCLUDES   extra header directories
@@ -239,6 +232,9 @@ function(_pbl_test_object out source key flags)
   )
 endfunction()
 
+# Sources clar.py stitches into every generated harness.
+file(GLOB _PBL_CLAR_TEMPLATES CONFIGURE_DEPENDS ${PBL_BASE}/tools/clar/*.c ${PBL_BASE}/tools/clar/clar.h)
+
 # The default stubs, archived once per set of compile flags so that they
 # see the same headers as the test. Every symbol in them must be weak, so
 # that a test defining its own copy takes precedence. The assert stubs are
@@ -251,7 +247,7 @@ function(_pbl_test_stubs out key flags)
   endif()
 
   file(GLOB sources CONFIGURE_DEPENDS ${PBL_BASE}/tests/stubs/default/*.c)
-  list(REMOVE_ITEM sources ${PBL_BASE}/tests/stubs/default/passert.c)
+  list(REMOVE_ITEM sources ${PBL_BASE}/tests/stubs/default/fatal.c)
   set(objects "")
   foreach(source ${sources})
     _pbl_test_object(object ${source} ${key} "${flags}")
@@ -281,9 +277,9 @@ function(_pbl_test_add id)
   endforeach()
 
   if(PLATFORM STREQUAL "default")
-    # The default platform is obelix, told apart so tests can pick the
+    # The default platform is emery, told apart so tests can pick the
     # platform-neutral fixtures.
-    set(platform obelix)
+    set(platform emery)
     set(platform_default 1)
     set(binary runme)
   else()
@@ -331,13 +327,8 @@ function(_pbl_test_add id)
 
   # display.h and its per-platform sibling are force-included so that the
   # firmware's #ifdefs resolve without a per-platform reconfigure.
-  if(platform STREQUAL "gabbro")
-    set(display qemu_gabbro)
-  else()
-    set(display ${platform})
-  endif()
   set(options -Wno-unused-command-line-argument
-              -include${PBL_BASE}/fw/board/displays/display_${display}.h)
+              -include${PBL_BASE}/fw/board/displays/display_qemu_${platform}.h)
 
   # Everything that changes the generated code, and nothing that does
   # not: two tests agreeing on all of it share their objects.
@@ -376,7 +367,7 @@ function(_pbl_test_add id)
   endforeach()
   # libutil calls util_assertion_failed() and has a weak copy of its own,
   # which a single-pass linker would pick over an archive already scanned.
-  _pbl_test_object(object ${PBL_BASE}/tests/stubs/default/passert.c ${key} "${flags}")
+  _pbl_test_object(object ${PBL_BASE}/tests/stubs/default/fatal.c ${key} "${flags}")
   list(APPEND objects ${object})
 
   # clar turns the test's suite functions into a main().
@@ -385,6 +376,7 @@ function(_pbl_test_add id)
     COMMAND ${PYTHON_EXECUTABLE} ${PBL_BASE}/tools/clar/clar.py
             --file=${SOURCE} --clar-path=${PBL_BASE}/tools/clar ${test_dir}
     DEPENDS ${SOURCE} ${PBL_BASE}/tools/clar/clar.py ${PBL_BASE}/tools/clar/_clar.py
+            ${_PBL_CLAR_TEMPLATES}
     COMMENT "Generating clar harness for ${id}"
     VERBATIM
   )

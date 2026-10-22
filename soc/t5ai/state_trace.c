@@ -12,7 +12,7 @@
 #include <pbl/services/system_task.h>
 
 #include "kernel/pebble_tasks.h"
-#include "system/passert.h"
+#include <pbl/kernel/assert.h>
 
 #include <inttypes.h>
 #include <stddef.h>

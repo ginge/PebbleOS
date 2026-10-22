@@ -10,8 +10,10 @@
 #include <pbl/crc/crc.h>
 #include <pbl/drivers/flash.h>
 #include <pbl/drivers/rtc.h>
+#include <pbl/kernel/assert.h>
 #include <pbl/kernel/compiler.h>
 #include <pbl/kernel/delay.h>
+#include <pbl/kernel/fatal.h>
 #include <pbl/kernel/mutex.h>
 #include <pbl/logging/logging.h>
 #include <pbl/services/analytics/analytics.h>
@@ -24,7 +26,6 @@
 #include <kernel/pbl_malloc.h>
 #include <kernel/pebble_tasks.h>
 #include <system/hexdump.h>
-#include <system/passert.h>
 
 PBL_LOG_MODULE_DEFINE(service_filesystem, CONFIG_SERVICE_FILESYSTEM_LOG_LEVEL);
 
@@ -1381,7 +1382,7 @@ status_t pfs_close(int fd) {
   File *f = &PFS_FD(fd).file;
   if (f->is_tmp) {
     // If the original file is still open, force-evict it before removing.
-    // This prevents pfs_remove() from CROAKing on the in-use original fd.
+    // This prevents pfs_remove() from panicking on the in-use original fd.
     // Callers should close the original before the temp, but if they don't,
     // we handle it gracefully here rather than crashing.
     int orig_fd;
@@ -1454,7 +1455,7 @@ status_t pfs_remove(const char *name) {
   status_t rv = get_avail_fd(name, &fd, false);
   if (rv >= FDAlreadyLoaded) { // the file is in the cache
     if (rv == FDBusy) {
-      PBL_CROAK("Cannot delete %s, it is currently in use", PFS_FD(fd).file.name);
+      pbl_panic("Cannot delete %s, it is currently in use", PFS_FD(fd).file.name);
     }
     page = PFS_FD(fd).file.start_page;
     mark_fd_free(fd);
@@ -1470,11 +1471,10 @@ cleanup:
   return (rv);
 }
 
-PFSFileListEntry *pfs_create_file_list(PFSFilenameTestCallback callback) {
-  ListNode *head = nullptr;
+typedef void (*PrvFileVisitor)(uint16_t pg, const char *file_name, void *ctx);
 
-  pbl_mutex_lock(&s_pfs_mutex, PBL_FOREVER);
-
+// Calls visitor for every file whose name passes the filter. Must hold s_pfs_mutex.
+static void prv_for_each_file(PFSFilenameTestCallback filter, PrvFileVisitor visitor, void *ctx) {
   const int file_namelen_offset = FILEHEADER_OFFSET + offsetof(FileHeader, file_namelen);
 
   for (uint16_t pg = 0; pg < s_pfs_page_count; pg++) {
@@ -1494,8 +1494,7 @@ PFSFileListEntry *pfs_create_file_list(PFSFilenameTestCallback callback) {
                    prv_page_to_flash_offset(pg) + FILE_NAME_OFFSET);
     file_name[file_hdr.file_namelen] = 0;
 
-    if (callback && !callback(file_name)) {
-      // Don't include
+    if (filter && !filter(file_name)) {
       continue;
     }
 
@@ -1507,13 +1506,24 @@ PFSFileListEntry *pfs_create_file_list(PFSFilenameTestCallback callback) {
       continue;
     }
 
-    // Add a new entry
-    PFSFileListEntry *entry =
-        kernel_malloc_check(sizeof(PFSFileListEntry) + file_hdr.file_namelen + 1);
-    *entry = (PFSFileListEntry){};
-    strcpy(entry->name, file_name);
-    head = list_insert_before(head, &entry->list_node);
+    visitor(pg, file_name, ctx);
   }
+}
+
+static void prv_add_to_file_list(uint16_t pg, const char *file_name, void *ctx) {
+  ListNode **head = ctx;
+  const size_t name_len = strlen(file_name);
+  PFSFileListEntry *entry = kernel_malloc_check(sizeof(PFSFileListEntry) + name_len + 1);
+  *entry = (PFSFileListEntry){};
+  memcpy(entry->name, file_name, name_len + 1);
+  *head = list_insert_before(*head, &entry->list_node);
+}
+
+PFSFileListEntry *pfs_create_file_list(PFSFilenameTestCallback callback) {
+  ListNode *head = nullptr;
+
+  pbl_mutex_lock(&s_pfs_mutex, PBL_FOREVER);
+  prv_for_each_file(callback, prv_add_to_file_list, &head);
   pbl_mutex_unlock(&s_pfs_mutex);
   return (PFSFileListEntry *)head;
 }
@@ -1528,55 +1538,24 @@ void pfs_delete_file_list(PFSFileListEntry *head) {
   }
 }
 
-// PBL-19098 Refactor this to share code with pfs_create_file_list
+static void prv_remove_file(uint16_t pg, const char *file_name, void *ctx) {
+  int fd;
+  status_t rv = get_avail_fd(file_name, &fd, false);
+  if (rv >= FDAlreadyLoaded) { // the file is in the cache
+    if (rv == FDBusy) {
+      pbl_panic("Cannot delete %s, it is currently in use", PFS_FD(fd).file.name);
+    }
+    mark_fd_free(fd);
+  }
+
+  unlink_flash_file(pg);
+  // IMPORTANT: prv_invoke_watch_file_callbacks assumes that we already have s_pfs_mutex
+  prv_invoke_watch_file_callbacks(file_name, FILE_CHANGED_EVENT_REMOVED);
+}
+
 void pfs_remove_files(PFSFilenameTestCallback callback) {
   pbl_mutex_lock(&s_pfs_mutex, PBL_FOREVER);
-
-  const int file_namelen_offset = FILEHEADER_OFFSET + offsetof(FileHeader, file_namelen);
-
-  for (uint16_t pg = 0; pg < s_pfs_page_count; pg++) {
-    PageHeader pg_hdr;
-    pg_hdr.page_flags = prv_get_page_flags(pg);
-
-    if (!IS_PAGE_TYPE(pg_hdr.page_flags, PAGE_FLAG_START_PAGE)) {
-      continue; // only start pages contain file name info
-    }
-
-    FileHeader file_hdr;
-    prv_flash_read((uint8_t *)&file_hdr.file_namelen, sizeof(file_hdr.file_namelen),
-                   prv_page_to_flash_offset(pg) + file_namelen_offset);
-
-    char file_name[file_hdr.file_namelen + 1];
-    prv_flash_read((uint8_t *)file_name, file_hdr.file_namelen,
-                   prv_page_to_flash_offset(pg) + FILE_NAME_OFFSET);
-    file_name[file_hdr.file_namelen] = 0;
-
-    if (callback && !callback(file_name)) {
-      // Don't include
-      continue;
-    }
-
-    // Make sure the rest of the page header contents are valid. We are doing this after the
-    // filename filter call because it requires more flash reads and is likely slower than the
-    // filter call.
-    if (read_header(pg, &pg_hdr, &file_hdr) != PageAndFileHdrValid) {
-      PBL_LOG_WRN("%d: Invalid page/file header", pg);
-      continue;
-    }
-
-    int fd;
-    status_t rv = get_avail_fd(file_name, &fd, false);
-    if (rv >= FDAlreadyLoaded) { // the file is in the cache
-      if (rv == FDBusy) {
-        PBL_CROAK("Cannot delete %s, it is currently in use", PFS_FD(fd).file.name);
-      }
-      mark_fd_free(fd);
-    }
-
-    unlink_flash_file(pg);
-    // IMPORTANT: prv_invoke_watch_file_callbacks assumes that we already have s_pfs_mutex
-    prv_invoke_watch_file_callbacks(file_name, FILE_CHANGED_EVENT_REMOVED);
-  }
+  prv_for_each_file(callback, prv_remove_file, nullptr);
   pbl_mutex_unlock(&s_pfs_mutex);
 }
 
@@ -2158,13 +2137,6 @@ void pbl_analytics_external_collect_pfs_stats(void) {
 /*
  * Debug Utilities
  */
-
-// TODO: Remove once we figure out PBL-20973
-void pfs_collect_diagnostic_data(int fd, void *diagnostic_buf, size_t diagnostic_buf_len) {
-  pbl_mutex_lock(&s_pfs_mutex, PBL_FOREVER);
-  memcpy(diagnostic_buf, &PFS_FD(fd), MIN(diagnostic_buf_len, sizeof(FileDesc)));
-  pbl_mutex_unlock(&s_pfs_mutex);
-}
 
 // Dump the first n bytes of a file (from current seek position)
 void pfs_debug_dump(int fd, int num_bytes) {

@@ -13,7 +13,6 @@
 #include <pbl/drivers/gpio/nrf5.h>
 
 #include <hal/nrf_gpio.h>
-#include <nrfx_gpiote.h>
 #include <nrfx_pdm.h>
 #include <nrfx_pwm.h>
 #include <nrfx_spim.h>
@@ -24,23 +23,10 @@
 #define GPIO_Pin_NULL  ((uint16_t)-1)
 
 typedef struct {
-  nrfx_gpiote_t peripheral;
-  uint8_t channel;
-  uint32_t gpio_pin; ///< The result of NRF_GPIO_PIN_MAP(port, pin).
-} GpioteConfig;
-
-typedef GpioteConfig ExtiConfig; /* compatibility */
-
-typedef struct {
-  const char *const name; ///< Name for debugging purposes.
-  GpioteConfig gpiote;
-  nrf_gpio_pin_pull_t pull;
+  const char *name;
+  struct pbl_gpio gpio;
   uint16_t code;
 } ButtonConfig;
-
-typedef struct {
-  const uint32_t gpio_pin; ///< The result of NRF_GPIO_PIN_MAP(port, pin).
-} ButtonComConfig;
 
 typedef struct {
   uint16_t value;
@@ -81,8 +67,6 @@ typedef struct {
 /////////////////////////////////////////////////////////////////////////////
 typedef struct {
   const ButtonConfig buttons[NUM_BUTTONS];
-  const ButtonComConfig button_com;
-  const bool active_high;
   nrfx_timer_t timer;
 } BoardConfigButton;
 
@@ -101,13 +85,8 @@ typedef struct {
 } BoardConfigAccel;
 
 typedef struct {
-  const struct pbl_gpio ctl;
-} BoardConfigActuator;
-
-typedef struct {
   NRF_RTC_Type *rtc;
   NRF_GPIOTE_Type *gpiote;
-  uint8_t gpiote_ch;
   uint32_t psel;
   uint32_t period_us;
   uint32_t pulse_us;

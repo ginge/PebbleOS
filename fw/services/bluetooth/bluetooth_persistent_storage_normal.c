@@ -4,6 +4,7 @@
 #include <pbl/bluetooth/bonding_sync.h>
 #include <pbl/btutil/bt_device.h>
 #include <pbl/btutil/sm_util.h>
+#include <pbl/kernel/assert.h>
 #include <pbl/kernel/compiler.h>
 #include <pbl/kernel/mutex.h>
 #include <pbl/logging/logging.h>
@@ -21,7 +22,6 @@
 #include <comm/ble/kernel_le_client/kernel_le_client.h>
 #include <kernel/event_loop.h>
 #include <kernel/pbl_malloc.h>
-#include <system/passert.h>
 
 PBL_LOG_MODULE_DECLARE(service_bluetooth, CONFIG_SERVICE_BLUETOOTH_LOG_LEVEL);
 
@@ -101,8 +101,6 @@ static const char AIRPLANE_MODE_KEY[] = "AIRPLANE_MODE";
 static const char SYSTEM_CAPABILITIES_KEY[] = "SYSTEM_CAPABILITIES";
 //! This key is used to access the BLE address that can be used for address pinning.
 static const char BLE_PINNED_ADDRESS_KEY[] = "BLE_PINNED_ADDRESS";
-
-static uint8_t s_bt_persistent_storage_updates = 0;
 
 static PBL_MUTEX_DEFINE(s_db_mutex);
 
@@ -217,7 +215,6 @@ static GapBondingFileSetStatus prv_file_set(const void *key, size_t key_len, con
       }
 
       if (do_perform_update) {
-        s_bt_persistent_storage_updates++;
         PBL_LOG_DBG("Updating GAP bonding record");
         rv = settings_file_set(&fd, key, key_len, (uint8_t *)data_in, data_len);
       }
@@ -257,7 +254,7 @@ cleanup:
 
 //! Get the next available BondingID
 //! This function re-uses bonding ids as they are freed. This could be a problem with 3rd party
-//! apps. https://pebbletechnology.atlassian.net/browse/PBL-8391
+//! apps.
 static pbl_bt_bonding_id_t prv_get_free_key() {
   pbl_bt_bonding_id_t free_key = PBL_BT_BONDING_ID_INVALID;
 
@@ -730,7 +727,6 @@ pbl_bt_bonding_id_t bt_persistent_storage_store_ble_pairing(
     // for the pairing that we want to reconnect/connect to. If this isn't set then
     // we don't register an intent for the device and thus don't connect.
     // Currently only 1 ble pairing is really supported so this works for now
-    // FIXME: https://pebbletechnology.atlassian.net/browse/PBL-15277
     .ble_data.supports_ancs = is_gateway,
     .ble_data.requires_address_pinning = requires_address_pinning,
   };

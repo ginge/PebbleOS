@@ -33,10 +33,14 @@ enum pbl_bt_errno gatt_client_op_write_descriptor_cccd(pbl_bt_descriptor_t cccd,
   return s_write_descriptor_cccd_result;
 }
 
-// FIXME: PBL-23945
+static int s_malloc_mark;
+
 void fake_kernel_malloc_mark(void) {
+  s_malloc_mark = fake_pbl_malloc_num_net_allocs();
 }
+
 void fake_kernel_malloc_mark_assert_equal(void) {
+  cl_assert_equal_i(s_malloc_mark, fake_pbl_malloc_num_net_allocs());
 }
 
 // Stubs
@@ -416,8 +420,7 @@ void test_gatt_client_subscriptions__cccd_write_confirmation_but_no_subscription
   s_last_cccd_ref = 1;
   prv_confirm_cccd_write(PBL_BT_GATT_ERROR_SUCCESS);
 
-  // This used to cause a crash:
-  // https://pebbletechnology.atlassian.net/browse/PBL-23455
+  // This used to cause a crash
 }
 
 void test_gatt_client_subscriptions__notification(void) {

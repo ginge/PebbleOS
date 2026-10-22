@@ -18,7 +18,7 @@ STUB = r"""
 #define RGB_LOOKUP_TABLE_SIZE 64
 #define WITHIN(v,lo,hi) ((v)>=(lo) && (v)<=(hi))
 #define GPoint(x,y) ((GPoint){(x),(y)})
-#define WTF __builtin_abort()
+#define pbl_panic(...) __builtin_abort()
 typedef struct {int16_t x,y;} GPoint;
 typedef struct {int16_t w,h;} GSize;
 typedef struct {GPoint origin; GSize size;} GRect;

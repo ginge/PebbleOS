@@ -241,7 +241,7 @@ struct pbl_mutex { unsigned locked; };
 void pbl_mutex_lock(struct pbl_mutex *, unsigned);
 void pbl_mutex_unlock(struct pbl_mutex *);
 """,
-            "system/passert.h": "#define PBL_ASSERTN(x) assert(x)\n",
+            "pbl/kernel/assert.h": "#define PBL_ASSERTN(x) assert(x)\n",
         }
         harness = r"""
 #include <assert.h>

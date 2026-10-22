@@ -57,7 +57,7 @@ void probe_log(const char *, ...) __attribute__((format(printf, 1, 2)));
 enum { PebbleTask_KernelBackground, PebbleTask_App };
 struct pbl_thread *pebble_task_get_thread(int);
 """,
-    "system/passert.h": "#include <assert.h>\n#define PBL_ASSERTN(x) assert(x)\n",
+    "pbl/kernel/assert.h": "#include <assert.h>\n#define PBL_ASSERTN(x) assert(x)\n",
 }
 
 HARNESS = r"""

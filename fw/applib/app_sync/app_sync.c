@@ -1,9 +1,10 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include <pbl/kernel/assert.h>
+
 #include <applib/app_sync/app_sync.h>
 #include <syscall/syscall.h>
-#include <system/passert.h>
 
 static void delegate_errors(AppSync *s, DictionaryResult dict_result,
                             AppMessageResult app_message_result) {
@@ -52,7 +53,6 @@ static void in_dropped_callback(AppMessageResult reason, void *context) {
   delegate_errors(s, DICT_OK, reason);
 }
 
-// FIXME PBL-1709: this should return an AppMessageResult ...
 void app_sync_init(AppSync *s, uint8_t *buffer, const uint16_t buffer_size,
                    const Tuplet *const keys_and_initial_values, const uint8_t count,
                    AppSyncTupleChangedCallback tuple_changed_callback,

@@ -6,14 +6,15 @@
 
 #include <ctype.h>
 #include <stdio.h>
+#include <string.h>
 #include <time.h>
 
 #include <pbl/drivers/rtc.h>
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/sched.h>
+#include <pbl/kernel/syscall.h>
 #include <pbl/logging/logging.h>
 #include <pbl/mcu/interrupts.h>
-#include <pbl/mcu/privilege.h>
 #include <pbl/util/byteorder.h>
 #include <pbl/util/string.h>
 
@@ -69,7 +70,7 @@ static void prv_log_serial(uint8_t log_level, const char *src_filename, int src_
   {
 #ifdef CONFIG_LOG_TASK_PREFIX
     unsigned char task_char = pebble_task_get_char(pebble_task_get_current());
-    if (mcu_state_is_privileged()) {
+    if (!pbl_is_user_context()) {
       task_char = toupper(task_char);
     }
 #else
@@ -130,6 +131,25 @@ void kernel_pbl_log_flash(LogBinaryMessage *log_message, uint32_t flags) {
       ((flags & PBL_LOG_FLAG_FILTERED) || log_message->log_level == LOG_LEVEL_ALWAYS ||
        (log_message->log_level <= FLASH_LOG_LEVEL))) {
     pbl_log_advanced((const char *)log_message, length, flags & PBL_LOG_FLAG_ASYNC);
+  }
+}
+
+void kernel_pbl_log_verify_user(const LogBinaryMessage *log_message) {
+  pbl_syscall_verify_user(log_message, sizeof(*log_message));
+
+  const size_t message_length = log_message->message_length;
+  pbl_syscall_verify_user(log_message, sizeof(*log_message) + message_length);
+
+  if (strnlen(log_message->filename, sizeof(log_message->filename)) ==
+      sizeof(log_message->filename)) {
+    pbl_syscall_fail();
+  }
+
+  if (strnlen(log_message->message, message_length) == message_length) {
+    pbl_syscall_verify_user(log_message, sizeof(*log_message) + message_length + 1);
+    if (log_message->message[message_length] != '\0') {
+      pbl_syscall_fail();
+    }
   }
 }
 

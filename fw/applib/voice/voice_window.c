@@ -7,6 +7,16 @@
 #include "transcription_dialog.h"
 #include "voice_window_private.h"
 
+#include <string.h>
+
+#include <pbl/kernel/assert.h>
+#include <pbl/kernel/fatal.h>
+#include <pbl/kernel/syscall.h>
+#include <pbl/logging/logging.h>
+#include <pbl/services/event_service.h>
+#include <pbl/services/voice/voice.h>
+#include <pbl/util/size.h>
+
 #include <applib/app_timer.h>
 #include <applib/applib_malloc.auto.h>
 #include <applib/event_service_client.h>
@@ -29,31 +39,13 @@
 #include <applib/ui/scroll_layer.h>
 #include <applib/ui/status_bar_layer.h>
 #include <applib/ui/text_layer.h>
-#include <applib/ui/window_stack.h>
-#if (0) // https://pebbletechnology.atlassian.net/browse/PBL-20406
 #include <applib/ui/vibes.h>
-#endif
-#include <string.h>
-
-#include <pbl/logging/logging.h>
-#include <pbl/services/event_service.h>
-#include <pbl/services/voice/voice.h>
-#include <pbl/util/size.h>
-
+#include <applib/ui/window_stack.h>
 #include <kernel/ui/kernel_ui.h>
 #include <kernel/ui/modals/modal_manager.h>
 #include <process_state/app_state/app_state.h>
 #include <resource/resource_ids.auto.h>
 #include <syscall/syscall.h>
-#include <syscall/syscall_define.h>
-#include <system/passert.h>
-
-// TODO:
-// mic hot before showing screen - needs robust beginning-of-speech detection -
-// https://pebbletechnology.atlassian.net/browse/PBL-16474 animated microphone icon -
-// https://pebbletechnology.atlassian.net/browse/PBL-16481 handle line wrapping -
-// https://pebbletechnology.atlassian.net/browse/PBL-16475 Brief vibration just before microphone is
-// turned on https://pebbletechnology.atlassian.net/browse/PBL-20406
 
 #define DICTATION_TIMEOUT        (15 * 1000) // 15s timeout for each dictation
 #define SPEECH_DETECTION_TIMEOUT (3 * 1000)
@@ -162,6 +154,9 @@ static void prv_init_dialog(VoiceUiData *data, Dialog *dialog, const char *text,
   dialog_set_background_color(dialog, color);
   dialog_set_timeout(dialog, has_timeout ? ERROR_DIALOG_TIMEOUT : DIALOG_TIMEOUT_INFINITE);
   dialog_set_destroy_on_pop(dialog, false /* free_on_pop */);
+
+  // Alert users who aren't looking at the watch that dictation failed
+  vibes_double_pulse();
 }
 
 static void prv_push_error_dialog(VoiceUiData *data, const char *text, uint32_t resource_id,
@@ -257,6 +252,7 @@ static void prv_push_bt_dialog(VoiceUiData *data) {
   Dialog *dialog = &bt_dialog->dialog.dialog;
   dialog_set_destroy_on_pop(dialog, false /* free_on_pop */);
 
+  vibes_double_pulse();
   bt_conn_dialog_push(bt_dialog, prv_handle_bt_conn_result, data);
 }
 
@@ -327,7 +323,7 @@ static void prv_handle_ready_event(VoiceUiData *data, PebbleVoiceServiceEvent *e
       prv_handle_ready_error(data);
       break;
     default:
-      WTF;
+      pbl_panic();
   }
   if (event->status != VoiceStatusSuccess) {
     data->last_session_successful = false;
@@ -458,7 +454,7 @@ static void prv_handle_dictation_result(VoiceUiData *data, PebbleVoiceServiceEve
       break;
 
     default:
-      WTF;
+      pbl_panic();
   }
   data->last_session_successful = success;
 }
@@ -531,7 +527,7 @@ static void prv_voice_event_handler(PebbleEvent *e, void *context) {
       PBL_LOG_DBG("Ignoring event");
       break;
     default:
-      WTF;
+      pbl_panic();
   }
 }
 
@@ -572,17 +568,6 @@ static void prv_cancel_dictation(VoiceUiData *data) {
 
 // Microphone Window
 ///////////////////////////////////////////////////////////////////////////
-
-#if (0) // https://pebbletechnology.atlassian.net/browse/PBL-20406
-static void prv_short_vibe(void) {
-  static const uint32_t VIBE_DURATIONS[] = {50};
-  VibePattern pattern = {
-    .durations = VIBE_DURATIONS,
-    .num_segments = ARRAY_LENGTH(VIBE_DURATIONS),
-  };
-  vibes_enqueue_custom_pattern(pattern);
-}
-#endif
 
 ///////////// CREATE DOT ANIMATIONS
 static void prv_dot_layer_update_proc(Layer *layer, GContext *ctx) {
@@ -992,7 +977,7 @@ static void prv_handle_stop_transition(VoiceUiData *data) {
       break;
     }
     default:
-      WTF;
+      pbl_panic();
   }
 }
 
@@ -1093,12 +1078,12 @@ static VoiceUiState prv_get_next_state(VoiceUiState current_state, VoiceUiState 
       break;
 
     default:
-      WTF;
+      pbl_panic();
   }
 
   // No valid transition found!
 
-  PBL_CROAK("Cannot transition from state %" PRIu16 " to state %" PRIu16, current_state,
+  pbl_panic("Cannot transition from state %" PRIu16 " to state %" PRIu16, current_state,
             next_state);
 }
 
@@ -1121,11 +1106,7 @@ static void prv_do_transition(VoiceUiData *data, VoiceUiState state) {
     // turning the mic on - dependent on separating the setup session and recording stages of
     // voice state machine
     case StateRecording:
-      // vibe briefly, enable clicking to end the transcription, unfold the mic from a dot
-      // and show text
-#if (0) // https://pebbletechnology.atlassian.net/browse/PBL-20406
-      prv_short_vibe();
-#endif
+      // enable clicking to end the transcription, unfold the mic from a dot and show text
       prv_enable_select_click(data);
       prv_stop_fly_dot(data);
       prv_hide_mic_dot(data);
@@ -1175,7 +1156,7 @@ static void prv_do_transition(VoiceUiData *data, VoiceUiState state) {
       break;
 
     default:
-      WTF;
+      pbl_panic();
   }
 }
 
@@ -1458,7 +1439,7 @@ PBL_SYSCALL(size_t, sys_voice_get_transcription_from_event, (IN, PebbleVoiceServ
             (VAL, char *, buffer), (VAL, size_t, buffer_size)) {
   if (from_user) {
     if (buffer && (buffer_size > 0)) {
-      syscall_assert_userspace_buffer(buffer, buffer_size);
+      pbl_syscall_verify_user(buffer, buffer_size);
     }
     // `e->data` is a kernel pointer the event service handed to the app along
     // with the event. The app can rewrite the field in its copy before calling
@@ -1467,7 +1448,7 @@ PBL_SYSCALL(size_t, sys_voice_get_transcription_from_event, (IN, PebbleVoiceServ
     // below into an arbitrary kernel read primitive.
     if (!event_service_is_known_buffer(e->data, PEBBLE_VOICE_SERVICE_EVENT)) {
       PBL_LOG_ERR("Rejecting voice event with unknown data pointer %p", e->data);
-      syscall_failed();
+      pbl_syscall_fail();
     }
   }
 

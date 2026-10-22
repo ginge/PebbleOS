@@ -45,16 +45,22 @@ set(graphics_templated_tests
   test_graphics_draw_stroke_precise
 )
 
-foreach(test ${graphics_templated_tests})
-  configure_file(${test}.template.c ${CMAKE_CURRENT_BINARY_DIR}/${test}_${BIT_DEPTH_NAME}.c)
-  pbl_clar_test(${test}_${BIT_DEPTH_NAME}
-    SOURCE ${CMAKE_CURRENT_BINARY_DIR}/${test}_${BIT_DEPTH_NAME}.c
-    SOURCES ${graphics_sources}
-    PLATFORMS obelix
-    INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}
-    TEST_IMAGES
-  )
+foreach(depth_platform 8bit:emery 1bit:flint)
+  string(REPLACE ":" ";" depth_platform ${depth_platform})
+  list(GET depth_platform 0 BIT_DEPTH_NAME)
+  list(GET depth_platform 1 platform)
+  foreach(test ${graphics_templated_tests})
+    configure_file(${test}.template.c ${CMAKE_CURRENT_BINARY_DIR}/${test}_${BIT_DEPTH_NAME}.c)
+    pbl_clar_test(${test}_${BIT_DEPTH_NAME}
+      SOURCE ${CMAKE_CURRENT_BINARY_DIR}/${test}_${BIT_DEPTH_NAME}.c
+      SOURCES ${graphics_sources}
+      PLATFORMS ${platform}
+      INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}
+      TEST_IMAGES
+    )
+  endforeach()
 endforeach()
+set(BIT_DEPTH_NAME 8bit)
 
 set(graphics_draw_text_sources
   fw/applib/graphics/8_bit/framebuffer.c
@@ -106,7 +112,7 @@ configure_file(test_graphics_draw_text.template.c
 pbl_clar_test(test_graphics_draw_text_${BIT_DEPTH_NAME}
   SOURCE ${CMAKE_CURRENT_BINARY_DIR}/test_graphics_draw_text_${BIT_DEPTH_NAME}.c
   SOURCES ${graphics_draw_text_sources}
-  PLATFORMS obelix
+  PLATFORMS emery
   OVERRIDES dummy_board
   INCLUDES ${CMAKE_CURRENT_SOURCE_DIR}
   TEST_IMAGES
@@ -120,7 +126,7 @@ pbl_clar_test(test_graphics_draw_bitmap
     fw/applib/graphics/graphics_bitmap.c
     fw/applib/ui/bitmap_layer.c
     fw/applib/ui/layer.c
-  PLATFORMS obelix asterix
+  PLATFORMS emery flint
   TEST_IMAGES
 )
 
@@ -149,7 +155,7 @@ pbl_clar_test(test_graphics_colors
 pbl_clar_test(test_gtypes
   SOURCES
     fw/applib/graphics/gtypes.c
-  PLATFORMS obelix gabbro
+  PLATFORMS emery gabbro
 )
 
 pbl_clar_test(test_graphics_circle
@@ -179,8 +185,8 @@ pbl_clar_test(test_gbitmap_formats
     tests/fakes/fake_gbitmap_png.c
     tests/fakes/fake_resource_syscalls.c
     fw/applib/graphics/gbitmap.c
-    fw/board/displays/display_getafix.c
-  PLATFORMS obelix gabbro
+    fw/board/displays/display_gabbro.c
+  PLATFORMS emery gabbro
 )
 
 pbl_clar_test(test_gbitmap_processor
@@ -206,7 +212,7 @@ pbl_clar_test(test_graphics_blending
     fw/applib/graphics/graphics_private_raw.c
     fw/applib/graphics/bitblt.c
     fw/applib/graphics/8_bit/bitblt_private.c
-  PLATFORMS obelix
+  PLATFORMS emery
 )
 
 pbl_clar_test(test_gdraw_command
@@ -282,7 +288,7 @@ pbl_clar_test(test_gbitmap_sequence
   SOURCES
     fw/applib/graphics/gbitmap_sequence.c
     fw/applib/graphics/8_bit/bitblt_private.c
-    fw/board/displays/display_getafix.c
+    fw/board/displays/display_gabbro.c
     tests/fakes/fake_resource_syscalls.c
   PLATFORMS gabbro
   TEST_IMAGES
@@ -320,7 +326,7 @@ pbl_clar_test(test_perimeter
   SOURCES
     fw/applib/graphics/perimeter.c
     fw/applib/graphics/gtypes.c
-  PLATFORMS obelix gabbro
+  PLATFORMS emery gabbro
   TEST_IMAGES
 )
 
@@ -329,7 +335,7 @@ pbl_clar_test(test_bitblt_palette_1bit
   SOURCES
     fw/applib/graphics/@BITDEPTH@_bit/framebuffer.c
     fw/applib/graphics/@BITDEPTH@_bit/bitblt_private.c
-  PLATFORMS asterix
+  PLATFORMS flint
   TEST_IMAGES
 )
 
@@ -338,8 +344,8 @@ pbl_clar_test(test_framebuffer_duma
   SOURCES
     fw/applib/graphics/8_bit/framebuffer.c
     fw/applib/graphics/8_bit/bitblt_private.c
-    fw/board/displays/display_getafix.c
-  PLATFORMS obelix gabbro
+    fw/board/displays/display_gabbro.c
+  PLATFORMS emery gabbro
   TEST_IMAGES
 )
 
@@ -348,7 +354,7 @@ pbl_clar_test(test_framebuffer_legacy
   SOURCES
     fw/applib/graphics/8_bit/framebuffer.c
     fw/applib/graphics/8_bit/bitblt_private.c
-    fw/board/displays/display_getafix.c
+    fw/board/displays/display_gabbro.c
   PLATFORMS gabbro
   TEST_IMAGES
 )
@@ -361,7 +367,7 @@ pbl_clar_test(test_graphics_draw_core
     fw/applib/graphics/8_bit/framebuffer.c
     fw/applib/ui/layer.c
     fw/applib/graphics/8_bit/bitblt_private.c
-  PLATFORMS obelix
+  PLATFORMS emery
   TEST_IMAGES
 )
 
@@ -410,7 +416,7 @@ pbl_clar_test(test_graphics_draw_line
     fw/applib/graphics/@BITDEPTH@_bit/framebuffer.c
     fw/applib/ui/layer.c
     fw/applib/graphics/@BITDEPTH@_bit/bitblt_private.c
-  PLATFORMS obelix gabbro
+  PLATFORMS emery gabbro
   TEST_IMAGES
 )
 
@@ -424,7 +430,7 @@ pbl_clar_test(test_graphics_draw_rotated_bitmap
     fw/applib/ui/layer.c
     fw/applib/graphics/@BITDEPTH@_bit/bitblt_private.c
     fw/applib/graphics/graphics_bitmap.c
-  PLATFORMS obelix gabbro
+  PLATFORMS emery gabbro
   TEST_IMAGES
 )
 

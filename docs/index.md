@@ -31,12 +31,13 @@ Optimized for memory-in-pixel (MIP) displays and long battery life, it features 
 Get started
 ```
 
-```{button-link} https://github.com/coredevices/pebbleos
-:color: dark
+```{button-ref} playground
+:ref-type: doc
+:color: primary
 :outline:
 :class: sd-rounded-pill
 
-Browse the sources
+Try it in the browser
 ```
 
 ````
@@ -113,9 +114,10 @@ Protocols and file formats.
 
 ```{toctree}
 :hidden:
-:caption: Getting started
+:caption: Start here
 
 getting_started/index.md
+playground.md
 ```
 
 ```{toctree}

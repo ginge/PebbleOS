@@ -14,10 +14,12 @@
 #include <fake_spi_flash.h>
 #include <flash_region/flash_region.h>
 #include <kernel/events.h>
+#include <resource/language_pack.h>
 #include <resource/resource.h>
 #include <resource/resource_ids.auto.h>
 #include <resource/resource_storage_impl.h>
 #include <resource/resource_version.auto.h>
+#include <shell/prefs.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 
@@ -32,6 +34,16 @@ bool shell_prefs_get_language_english(void) {
 
 void shell_prefs_set_language_english(bool english) {
   s_english = english;
+}
+
+ShellLanguage shell_prefs_get_language(void) {
+  return s_english ? ShellLanguageEnglish : ShellLanguageInstalledPack;
+}
+
+void shell_prefs_set_language(ShellLanguage language) {
+  s_english = language == ShellLanguageEnglish;
+  const uint8_t slot = shell_language_pack_slot(language);
+  i18n_set_resource(language_pack_resource_id(slot, RESOURCE_ID_STRINGS, RESOURCE_ID_STRINGS));
 }
 
 void launcher_task_add_callback(void (*callback)(void *), void *data) {
@@ -164,16 +176,15 @@ void test_t5ai_system_resources__watch_before_creation_and_unwatch(void) {
   cl_assert_equal_i(s_changes, 1);
 }
 
-void test_t5ai_system_resources__font_extension_creation_and_removal_invalidates(void) {
+void test_t5ai_system_resources__font_extension_creation_and_removal_refreshes(void) {
   prv_check_base_font();
   cl_assert(!s_font.extended);
   prv_install("zh_CN.pbpack", "lang");
-  cl_assert(!s_font.loaded);
+  // This private FontInfo is refreshed explicitly; system-font invalidation is centralized.
   prv_check_base_font();
   cl_assert(s_font.extended);
   cl_assert(resource_is_valid(SYSTEM_APP, RESOURCE_ID_GOTHIC_18_EXTENDED));
   cl_assert_equal_i(pfs_remove("lang"), 0);
-  cl_assert(!s_font.loaded);
   prv_check_base_font();
   cl_assert(!s_font.extended);
 }

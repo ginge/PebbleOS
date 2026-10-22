@@ -31,7 +31,7 @@ void t5ai_freertos_apply_systick_clock(void);
 #define PBL_LOG_DBG(...)
 #define PBL_LOG_ERR(...)
 """,
-    "system/passert.h": """
+    "pbl/kernel/assert.h": """
 #include <assert.h>
 #define PBL_ASSERTN(x) assert(x)
 """,
@@ -103,7 +103,14 @@ static status_t t5ai_cp_mailbox_enable_psram(void) {
   assert(SysTick->LOAD == 239999u && SysTick->VAL == 0u);
   stage = 3; return S_SUCCESS;
 }
-static bool prv_validate_framebuffer_ram(void) { return stage == 3; }
+static bool prv_validate_framebuffer_ram(void) { assert(stage == 3); stage = 4; return true; }
+static void t5ai_boot_splash_render(void) { assert(stage == 4); stage = 5; }
+static const int backlight;
+#define BACKLIGHT (&backlight)
+static const struct { unsigned backlight_on_percent; } BOARD_CONFIG = {100};
+static int pbl_backlight_set_brightness(const int *bl, unsigned brightness) {
+  assert(bl == BACKLIGHT && brightness == 100 && stage == 5); stage = 6; return 0;
+}
 BOARD_STARTUP
 int main(void) {
   assert(mmap((void *)0x44010000u, 4096, PROT_READ | PROT_WRITE,
@@ -114,7 +121,7 @@ int main(void) {
   SysTick->CTRL = 1u; SysTick->LOAD = 59999u; SysTick->VAL = 17u;
   stage = 1; // Device registry has initialized the I2C parent.
   board_init();
-  assert(votes == 1 && stage == 3 && s_initialized);
+  assert(votes == 1 && stage == 6 && s_initialized);
   return 0;
 }
 """.replace("BOARD_STARTUP", startup)

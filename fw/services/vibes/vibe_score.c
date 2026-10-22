@@ -2,6 +2,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <pbl/drivers/vibe.h>
+#include <pbl/kernel/assert.h>
 #include <pbl/logging/logging.h>
 #include <pbl/services/vibes/vibe_score.h>
 #include <pbl/util/byteorder.h>
@@ -9,7 +10,6 @@
 #include <applib/applib_malloc.auto.h>
 #include <process_management/app_manager.h>
 #include <syscall/syscall.h>
-#include <system/passert.h>
 
 PBL_LOG_MODULE_DECLARE(service_vibes, CONFIG_SERVICE_VIBES_LOG_LEVEL);
 
@@ -201,7 +201,8 @@ void vibe_score_do_vibe(VibeScore *score) {
       sys_vibe_pattern_enqueue_step_raw(note->vibe_duration_ms, note->strength);
     }
     if (note->brake_duration_ms > 0) {
-      sys_vibe_pattern_enqueue_step_raw(note->brake_duration_ms, vibe_get_braking_strength());
+      sys_vibe_pattern_enqueue_step_raw(note->brake_duration_ms,
+                                        pbl_vibe_get_braking_strength(VIBE));
     }
   }
   sys_vibe_pattern_trigger_start();

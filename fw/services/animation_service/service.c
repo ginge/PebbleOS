@@ -1,16 +1,17 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include <pbl/kernel/fatal.h>
+#include <pbl/kernel/syscall.h>
 #include <pbl/services/new_timer/new_timer.h>
 
 #include <applib/app_logging.h>
 #include <applib/ui/animation_private.h>
 #include <kernel/events.h>
 #include <kernel/kernel_applib_state.h>
+#include <kernel/pebble_tasks.h>
 #include <process_management/process_manager.h>
 #include <process_state/app_state/app_state.h>
-#include <syscall/syscall_define.h>
-#include <system/passert.h>
 
 // The timer ID used for each task that we support
 static TimerID s_kernel_main_timer_id = TIMER_INVALID_ID;
@@ -62,7 +63,7 @@ static void prv_timer_callback(void *context) {
       }
       break;
     default:
-      PBL_CROAK("Invalid task %s", pebble_task_get_name(pebble_task_get_current()));
+      pbl_panic("Invalid task %s", pebble_task_get_name(pebble_task_get_current()));
   }
 }
 
@@ -75,7 +76,7 @@ PBL_SYSCALL(void, animation_service_timer_event_received) {
   } else if (task == PebbleTask_App) {
     s_app_event_pending = false;
   } else if (from_user) {
-    syscall_failed();
+    pbl_syscall_fail();
   }
 }
 
@@ -90,7 +91,7 @@ PBL_SYSCALL(void, animation_service_timer_schedule, (VAL, uint32_t, ms)) {
     timer_id = &s_app_timer_id;
   } else {
     if (from_user) {
-      syscall_failed();
+      pbl_syscall_fail();
     }
     return;
   }

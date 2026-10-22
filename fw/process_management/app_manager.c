@@ -4,10 +4,12 @@
 #include "app_manager.h"
 
 #include "process_loader.h"
+#include "process_runtime.h"
 
 // Pebble stuff
+#include <pbl/kernel/assert.h>
+#include <pbl/kernel/fatal.h>
 #include <pbl/kernel/mutex.h>
-#include <pbl/mcu/privilege.h>
 #include <pbl/services/analytics/analytics.h>
 #include <pbl/services/app_inbox_service.h>
 #include <pbl/services/app_outbox_service.h>
@@ -28,7 +30,6 @@
 #include <kernel/ui/modals/modal_manager.h>
 #include <kernel/util/segment.h>
 #include <kernel/util/task_init.h>
-#include <popups/health_tracking_ui.h>
 #include <popups/timeline/peek.h>
 #include <process_management/app_install_manager.h>
 #include <process_management/app_run_state.h>
@@ -40,16 +41,16 @@
 #ifndef CONFIG_RECOVERY_FW
 #include <pbl/services/speaker/speaker_service.h>
 #endif
+#include <pbl/kernel/syscall.h>
 #include <pbl/logging/logging.h>
 #include <pbl/util/math.h>
 
+#include <kernel/pebble_tasks.h>
 #include <shell/normal/app_idle_timeout.h>
 #include <shell/normal/watchface.h>
 #include <shell/system_app_state_machine.h>
 #include <shell/system_shell.h>
 #include <syscall/syscall.h>
-#include <syscall/syscall_define.h>
-#include <system/passert.h>
 
 // FreeRTOS stuff
 
@@ -85,6 +86,7 @@ void *volatile g_app_load_address;
 static PBL_MSGQ_DEFINE(s_to_app_event_queue, sizeof(PebbleEvent), MAX_TO_APP_EVENTS);
 static bool s_initialized;
 static ProcessContext s_app_task_context;
+static void *s_app_stack_top;
 static ProcessAppRunLevel s_minimum_run_level;
 
 typedef struct NextApp {
@@ -130,15 +132,18 @@ static void prv_app_task_main(void *entry_point) {
   // about to start the app in earnest. No longer safe to kill.
   s_app_task_context.safe_to_kill = false;
 
+  // Read what the runtime needs while still privileged: these are kernel variables
+  const PebbleProcessMd *app_md = s_app_task_context.app_md;
+  void *stack_top = s_app_stack_top;
+
+#ifdef CONFIG_USERSPACE
   // Enter unprivileged mode!
-  const bool is_unprivileged = s_app_task_context.app_md->is_unprivileged;
-
-  if (is_unprivileged) {
-    mcu_state_set_thread_privilege(false);
+  if (app_md->is_unprivileged) {
+    pbl_user_mode_enter();
   }
+#endif
 
-  const PebbleMain main_func = entry_point;
-  main_func();
+  process_runtime_run(app_md, PebbleTask_App, entry_point, stack_top);
 
   // Clean up after the app.  Remember to put only non-critical cleanup here,
   // as the app may crash or otherwise misbehave. If something really needs to
@@ -193,6 +198,13 @@ void prv_dump_start_app_info(const PebbleProcessMd *app_md) {
 #define APP_STACK_SYSTEM_SIZE (4 * 1024)
 
 static size_t prv_get_app_segment_size(const PebbleProcessMd *app_md) {
+#ifdef CONFIG_SAMSA
+  // The firmware objects an app allocates hold host pointers, twice the size
+  // they are on a watch, so every app gets the largest heap there is.
+  if (app_md->process_storage != ProcessStorageBuiltin) {
+    return CONFIG_APP_RAM_4X_SEGMENT_SIZE;
+  }
+#endif
   switch (process_metadata_get_app_sdk_type(app_md)) {
     case ProcessAppSDKType_Legacy2x:
       return CONFIG_APP_RAM_2X_SEGMENT_SIZE;
@@ -210,7 +222,7 @@ static size_t prv_get_app_segment_size(const PebbleProcessMd *app_md) {
       return MAX(CONFIG_APP_RAM_2X_SEGMENT_SIZE,
                  MAX(CONFIG_APP_RAM_3X_SEGMENT_SIZE, CONFIG_APP_RAM_4X_SEGMENT_SIZE));
     default:
-      WTF;
+      pbl_panic();
   }
 }
 
@@ -300,6 +312,7 @@ static bool prv_app_start(const PebbleProcessMd *app_md, const void *args,
   // failing when the app hasn't done anything wrong.
   void *stack = memory_segment_split(&app_segment, nullptr, stack_size);
   PBL_ASSERTN(stack);
+  s_app_stack_top = (char *)stack + stack_size;
   s_app_task_context.load_start = app_segment.start;
   g_app_load_address = app_segment.start;
   void *entry_point = process_loader_load(app_md, PebbleTask_App, &app_segment);
@@ -389,6 +402,13 @@ static bool prv_app_start(const PebbleProcessMd *app_md, const void *args,
                                            ? process_metadata_get_code_bank_num(app_md)
                                            : SYSTEM_APP_BANK_ID);
 
+#ifdef CONFIG_USERSPACE
+  // A Moddable app runs its VM inside a syscall: keep that on the app stack.
+  if (!app_md->is_moddable_app) {
+    pebble_task_attr_set_syscall_stack(PebbleTask_App, &attr);
+  }
+#endif
+
   s_app_task_context.task_handle = pebble_task_create(PebbleTask_App, &attr);
 
   // Always notify the phone that the application is running
@@ -405,10 +425,6 @@ static bool prv_app_start(const PebbleProcessMd *app_md, const void *args,
     uuid_to_string(&app_md->uuid, s_watchface_uuid);
     pbl_mutex_unlock(&s_watchface_metrics_mutex);
   }
-#endif
-
-#if !defined(CONFIG_RECOVERY_FW)
-  health_tracking_ui_register_app_launch(s_app_task_context.install_id);
 #endif
 
   return true;
@@ -602,7 +618,7 @@ static bool prv_app_switch(bool gracefully) {
   // Launch the new app
   if (!prv_app_start(s_next_app.md, s_next_app.common.args, s_next_app.common.reason)) {
     if (s_next_app.md->process_storage != ProcessStorageFlash) {
-      PBL_CROAK("Failed to start system app <%s>!", process_metadata_get_name(s_next_app.md));
+      pbl_panic("Failed to start system app <%s>!", process_metadata_get_name(s_next_app.md));
     }
     PBL_LOG_WRN("Failed to start app <%s>! Restarting launcher",
                 process_metadata_get_name(s_next_app.md));
@@ -752,7 +768,7 @@ static AppInstallId prv_get_app_exit_reason_destination_install_id_override(void
     case NUM_EXIT_REASONS:
       break;
   }
-  WTF;
+  pbl_panic();
 }
 #endif
 
@@ -877,7 +893,7 @@ void app_manager_get_framebuffer_size(GSize *size) {
       *size = GSize(DISP_COLS, DISP_ROWS);
       return;
   }
-  WTF;
+  pbl_panic();
 }
 
 bool app_manager_is_app_supported(const PebbleProcessMd *md) {

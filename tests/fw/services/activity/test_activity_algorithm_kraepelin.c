@@ -114,7 +114,7 @@ bool activity_sessions_prv_is_sleep_activity(ActivitySessionType activity_type) 
     case ActivitySessionTypeCount:
       break;
   }
-  WTF;
+  pbl_panic();
 }
 
 // ------------------------------------------------------------------------------------
@@ -597,6 +597,35 @@ void test_activity_algorithm_kraepelin__get_flash_minute_history(void) {
   cl_assert_equal_i(num_records_found, num_minutes);
   for (int i = 0; i < num_minutes; i++) {
     prv_assert_minute_data(&retrieve[i], &minute_data[i]);
+  }
+}
+
+// ---------------------------------------------------------------------------------------
+// Heart rates are indexed from the requested start, from both flash and RAM, with minutes
+// before the first record left at 0
+void test_activity_algorithm_kraepelin__get_minute_heart_rate(void) {
+  const int num_minutes = 4 * PBL_MIN_PER_HOUR;
+  const int num_empty = 30;
+  time_t start_utc = rtc_get_time();
+
+  // Not on a 15 minute boundary, so the latest minutes are still in RAM
+  start_utc += 7 * PBL_SEC_PER_MIN;
+  rtc_set_time(start_utc);
+
+  AlgMinuteDLSSample minute_data[num_minutes];
+  prv_create_test_data(num_minutes, minute_data);
+  prv_feed_minute_data(num_minutes, minute_data, false /*simulate_bg_delays*/);
+
+  uint8_t bpm[num_empty + num_minutes];
+  memset(bpm, 0xA5, sizeof(bpm));
+  // Starting just past the minute to test that it is rounded down
+  const time_t start = start_utc - (num_empty * PBL_SEC_PER_MIN) + 5;
+  cl_assert(activity_algorithm_get_minute_heart_rate(bpm, ARRAY_LENGTH(bpm), start));
+  for (int i = 0; i < num_empty; i++) {
+    cl_assert_equal_i(bpm[i], 0);
+  }
+  for (int i = 0; i < num_minutes; i++) {
+    cl_assert_equal_i(bpm[num_empty + i], minute_data[i].heart_rate_bpm);
   }
 }
 

@@ -1,9 +1,11 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "board/board.h"
-#include "system/passert.h"
+#include <pbl/kernel/assert.h>
 
 #include <pbl/device.h>
+#include <pbl/drivers/backlight/t5ai.h>
+#include <pbl/services/boot_splash/t5ai.h>
 #ifdef CONFIG_T5AI_SD_PFS
 #include <pbl/drivers/t5ai/sd.h>
 #endif
@@ -194,6 +196,8 @@ static const struct pbl_i2c_dev s_cst92xx = PBL_I2C_DEV(&T5AI_I2C0.bus, 0x5a);
 const struct pbl_i2c_dev *const I2C_PCF85063 = &s_pcf85063;
 const struct pbl_i2c_dev *const I2C_CST92XX = &s_cst92xx;
 
+const struct pbl_backlight *const BACKLIGHT = &pbl_backlight_t5ai;
+
 const BoardConfig BOARD_CONFIG = {.backlight_on_percent = 100};
 const BoardConfigButton BOARD_CONFIG_BUTTON = {
   .buttons = {
@@ -247,4 +251,7 @@ void board_init(void) {
   // The boot stages map PSRAM; verify the handoff before any framebuffer use.
   (void)t5ai_cp_mailbox_enable_psram();
   PBL_ASSERTN(prv_validate_framebuffer_ram());
+  // Device initialization precedes PSRAM validation; render only after it is ready.
+  t5ai_boot_splash_render();
+  PBL_ASSERTN(pbl_backlight_set_brightness(BACKLIGHT, BOARD_CONFIG.backlight_on_percent) == 0);
 }

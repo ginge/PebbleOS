@@ -5,16 +5,19 @@
 
 #include "process_loader.h"
 #include "process_manager.h"
+#include "process_runtime.h"
 
 // Pebble stuff
+#include <pbl/kernel/assert.h>
+#include <pbl/kernel/syscall.h>
 #include <pbl/logging/logging.h>
-#include <pbl/mcu/privilege.h>
 #include <pbl/services/light.h>
 #include <pbl/services/speaker/speaker_service.h>
 #include <pbl/services/vibe_pattern.h>
 
 #include <kernel/memory_layout.h>
 #include <kernel/pbl_malloc.h>
+#include <kernel/pebble_tasks.h>
 #include <kernel/util/segment.h>
 #include <kernel/util/task_init.h>
 #include <popups/crashed_ui.h>
@@ -24,8 +27,6 @@
 #include <process_state/worker_state/worker_state.h>
 #include <shell/prefs.h>
 #include <syscall/syscall.h>
-#include <syscall/syscall_define.h>
-#include <system/passert.h>
 
 // FreeRTOS stuff
 
@@ -39,6 +40,7 @@
 
 #define MAX_TO_WORKER_EVENTS 8
 static ProcessContext s_worker_task_context;
+static void *s_worker_stack_top;
 static PBL_MSGQ_DEFINE(s_to_worker_event_queue, sizeof(PebbleEvent), MAX_TO_WORKER_EVENTS);
 
 extern char __WORKER_RAM__[];
@@ -76,14 +78,18 @@ static void prv_worker_task_main(void *entry_point) {
   // about to start the worker in earnest. No longer safe to kill.
   s_worker_task_context.safe_to_kill = false;
 
-  // Enter unprivileged mode!
-  const bool is_unprivileged = s_worker_task_context.app_md->is_unprivileged;
-  if (is_unprivileged) {
-    mcu_state_set_thread_privilege(false);
-  }
+  // Read what the runtime needs while still privileged: these are kernel variables
+  const PebbleProcessMd *app_md = s_worker_task_context.app_md;
+  void *stack_top = s_worker_stack_top;
 
-  const PebbleMain main_func = entry_point;
-  main_func();
+#ifdef CONFIG_USERSPACE
+  // Enter unprivileged mode!
+  if (app_md->is_unprivileged) {
+    pbl_user_mode_enter();
+  }
+#endif
+
+  process_runtime_run(app_md, PebbleTask_Worker, entry_point, stack_top);
 
   // Clean up after the worker.  Remember to put only non-critical cleanup here,
   // as the worker may crash or otherwise misbehave. If something really needs to
@@ -179,6 +185,7 @@ bool worker_manager_launch_new_worker_with_args(const PebbleProcessMd *app_md, c
   // sometimes failing when the worker hasn't done anything wrong.
   void *stack = memory_segment_split(&worker_segment, nullptr, stack_size);
   PBL_ASSERTN(stack);
+  s_worker_stack_top = (char *)stack + stack_size;
   s_worker_task_context.load_start = worker_segment.start;
   g_worker_load_address = worker_segment.start;
   void *entry_point = process_loader_load(app_md, PebbleTask_Worker, &worker_segment);
@@ -226,6 +233,10 @@ bool worker_manager_launch_new_worker_with_args(const PebbleProcessMd *app_md, c
   };
 
   PBL_LOG_DBG("Starting %s", task_name);
+
+#ifdef CONFIG_USERSPACE
+  pebble_task_attr_set_syscall_stack(PebbleTask_Worker, &attr);
+#endif
 
   s_worker_task_context.task_handle = pebble_task_create(PebbleTask_Worker, &attr);
 

@@ -39,7 +39,7 @@ void boot_bit_clear(int);
 void app_file_name_make(char *, size_t, uint32_t, const char *, size_t);
 ''',
     'system/hexdump.h': '',
-    'system/passert.h': '#include <assert.h>\n#define PBL_ASSERTN(x) assert(x)\n',
+    'pbl/kernel/assert.h': '#include <assert.h>\n#define PBL_ASSERTN(x) assert(x)\n',
     'system/version.h': '',
     'pbl/util/size.h': '#define ARRAY_LENGTH(x) (sizeof(x) / sizeof((x)[0]))\n',
     'pbl/util/testing.h': '#define PBL_T_STATIC static\n',

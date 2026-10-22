@@ -5,7 +5,10 @@
 
 #include <pbl/drivers/accel.h>
 #include <pbl/drivers/vibe.h>
+#include <pbl/kernel/assert.h>
+#include <pbl/kernel/fatal.h>
 #include <pbl/kernel/mutex.h>
+#include <pbl/kernel/syscall.h>
 #include <pbl/logging/logging.h>
 #include <pbl/mcu/interrupts.h>
 #include <pbl/services/accel_manager.h>
@@ -20,8 +23,6 @@
 #include <kernel/events.h>
 #include <kernel/pbl_malloc.h>
 #include <syscall/syscall.h>
-#include <syscall/syscall_define.h>
-#include <system/passert.h>
 
 PBL_LOG_MODULE_DEFINE(service_accel_manager, CONFIG_SERVICE_ACCEL_MANAGER_LOG_LEVEL);
 
@@ -268,7 +269,7 @@ static bool prv_call_data_callback(AccelManagerState *state) {
     case PebbleTask_NewTimers:
       return new_timer_add_work_callback(state->data_cb_handler, state->data_cb_context);
     default:
-      WTF; // Unsupported task for the accel manager
+      pbl_panic(); // Unsupported task for the accel manager
   }
 }
 
@@ -516,7 +517,7 @@ static void prv_assert_state_from_user(const AccelManagerState *state, bool from
   pbl_accel_unlock(ACCEL);
   if (!valid) {
     PBL_LOG_ERR("Rejecting unknown AccelManagerState %p from unprivileged caller", state);
-    syscall_failed();
+    pbl_syscall_fail();
   }
 }
 
@@ -612,7 +613,7 @@ PBL_SYSCALL(int, sys_accel_manager_set_sample_buffer, (VAL, AccelManagerState *,
 
   // A batch size of 0 never writes the buffer, so it's neither checked nor kept
   if (from_user && samples_per_update > 0) {
-    syscall_assert_userspace_buffer(buffer, samples_per_update * sizeof(AccelRawData));
+    pbl_syscall_verify_user(buffer, samples_per_update * sizeof(AccelRawData));
   }
 
   pbl_accel_lock(ACCEL);

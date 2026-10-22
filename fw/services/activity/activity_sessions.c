@@ -1,7 +1,10 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include <pbl/kernel/assert.h>
+#include <pbl/kernel/fatal.h>
 #include <pbl/kernel/mutex.h>
+#include <pbl/kernel/syscall.h>
 #include <pbl/logging/logging.h>
 #include <pbl/services/activity/activity.h>
 #include <pbl/services/activity/activity_algorithm.h>
@@ -16,8 +19,6 @@
 #include <applib/health_service.h>
 #include <kernel/events.h>
 #include <syscall/syscall.h>
-#include <syscall/syscall_define.h>
-#include <system/passert.h>
 
 PBL_LOG_MODULE_DECLARE(service_activity, CONFIG_SERVICE_ACTIVITY_LOG_LEVEL);
 
@@ -92,7 +93,7 @@ bool activity_sessions_prv_is_sleep_activity(ActivitySessionType activity_type) 
     case ActivitySessionTypeCount:
       break;
   }
-  WTF;
+  pbl_panic();
 }
 
 // ------------------------------------------------------------------------------------
@@ -536,7 +537,7 @@ static void prv_log_activities(time_t now_utc) {
         break;
       case ActivitySessionType_None:
       case ActivitySessionTypeCount:
-        WTF;
+        pbl_panic();
         break;
     }
     PBL_ASSERTN(params);
@@ -618,7 +619,7 @@ void activity_sessions_prv_init(SettingsFile *file, time_t utc_now) {
     if (!prv_is_valid_activity_session(session)) {
       // NOTE: We check for full validity as well as we can (rather than just checking for a
       // non-null activity start time for example) because there have been cases where
-      // flash got corrupted, as in PBL-37848
+      // flash got corrupted.
       PBL_HEXDUMP(LOG_LEVEL_INFO, (void *)state->activity_sessions,
                   sizeof(state->activity_sessions));
       PBL_LOG_ERR("Invalid activity session detected - could be flash corruption");
@@ -627,7 +628,7 @@ void activity_sessions_prv_init(SettingsFile *file, time_t utc_now) {
       memset(state->activity_sessions, 0, sizeof(state->activity_sessions));
       settings_file_set(file, &key, sizeof(key), state->activity_sessions,
                         sizeof(state->activity_sessions));
-      WTF;
+      pbl_panic();
     }
     state->activity_sessions_count++;
   }

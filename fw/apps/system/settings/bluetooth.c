@@ -13,6 +13,7 @@
 #include <pbl/bluetooth/sm_types.h>
 #include <pbl/bluetooth/types.h>
 #include <pbl/btutil/bt_device.h>
+#include <pbl/kernel/assert.h>
 #include <pbl/logging/logging.h>
 #include <pbl/services/bluetooth/ble_hrm.h>
 #include <pbl/services/bluetooth/bluetooth_persistent_storage.h>
@@ -37,7 +38,6 @@
 #include <resource/resource_ids.auto.h>
 #include <shell/normal/app_idle_timeout.h>
 #include <shell/system_theme.h>
-#include <system/passert.h>
 
 #define HEADER_BUFFER_SIZE 22
 
@@ -103,7 +103,9 @@ bool is_remote_connected(StoredRemote *remote) {
   return (remote->ble.connection != nullptr);
 }
 
-static int remote_comparator(StoredRemote *remote, StoredRemote *other) {
+static int remote_comparator(void *remote_data, void *other_data) {
+  StoredRemote *remote = remote_data;
+  StoredRemote *other = other_data;
   if (is_remote_connected(remote) != is_remote_connected(other)) {
     return is_remote_connected(remote) ? -1 : 1;
   } else {
@@ -113,8 +115,8 @@ static int remote_comparator(StoredRemote *remote, StoredRemote *other) {
 
 static void add_remote(SettingsBluetoothData *data, StoredRemote *remote) {
   const bool ascending = false;
-  data->remote_list_head = list_sorted_add(data->remote_list_head, &remote->list_node,
-                                           (Comparator)remote_comparator, ascending);
+  data->remote_list_head =
+      list_sorted_add(data->remote_list_head, &remote->list_node, remote_comparator, ascending);
 }
 
 static StoredRemote *stored_remote_create(void) {
@@ -210,7 +212,6 @@ static void prv_settings_bluetooth_event_handler(PebbleEvent *event, void *conte
       // If BT Settings is open, update BLE device name upon connecting device:
       if (event->bluetooth.connection.is_ble &&
           event->bluetooth.connection.state == PebbleBluetoothConnectionEventStateConnected) {
-        // https://pebbletechnology.atlassian.net/browse/PBL-22176
         // iOS seems to respond with 0x0E (Unlikely Error) when performing this request while
         // the encryption set up is going on. For non-bonded devices it will work fine though.
         gap_le_device_name_request(&event->bluetooth.connection.device);

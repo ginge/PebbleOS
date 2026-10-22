@@ -9,11 +9,13 @@
 #include "recognizer_private.h"
 
 #include <stddef.h>
+#include <string.h>
 
+#include <pbl/kernel/assert.h>
+#include <pbl/kernel/fatal.h>
 #include <pbl/util/list.h>
 
 #include <applib/applib_malloc.auto.h>
-#include <system/passert.h>
 
 static_assert(RECOGNIZER_INSTANCE_SIZE >= sizeof(Recognizer),
               "RECOGNIZER_INSTANCE_SIZE too small for Recognizer");
@@ -45,7 +47,7 @@ static void prv_set_state(Recognizer *recognizer, RecognizerState new_state) {
       break;
 
     default:
-      WTF;
+      pbl_panic();
   }
   recognizer->state = new_state;
 }
@@ -81,7 +83,7 @@ static void prv_send_subscriber_event(Recognizer *recognizer) {
       break;
 
     default:
-      WTF;
+      pbl_panic();
   }
   recognizer->subscriber.event(recognizer, event);
 }
@@ -89,9 +91,8 @@ static void prv_send_subscriber_event(Recognizer *recognizer) {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Implementation interface
 
-// TODO: we may need to make wrap these calls for the SDK access so that the asserts on invalid
-// data/transitions are not triggered. I'd like to preserve them for internal use to quickly catch
-// errors (https://pebbletechnology.atlassian.net/browse/PBL-31359)
+// TODO: wrap these for SDK access so invalid data/transitions don't trigger the asserts, which
+// are kept to catch internal errors
 
 static void prv_init_recognizer(Recognizer *recognizer, const RecognizerImpl *impl,
                                 const void *data, size_t data_size, RecognizerEventCb event_cb,

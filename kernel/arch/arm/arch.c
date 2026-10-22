@@ -1,6 +1,10 @@
 /* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#ifdef CONFIG_USERSPACE
+#include "arm_syscall.h"
+#endif
+
 #include <stddef.h>
 #include <string.h>
 
@@ -125,7 +129,11 @@ void arch_thread_init(struct pbl_thread *t, void (*entry)(void *), void *arg) {
   uintptr_t top = ((uintptr_t)t->stack + t->stack_size) & ~7u;
   struct saved_context *ctx = (struct saved_context *)(top - sizeof(struct saved_context));
   memset(ctx, 0, sizeof(*ctx));
+#ifdef CONFIG_USERSPACE
   ctx->control = t->privileged ? CONTROL_PRIVILEGED : CONTROL_UNPRIVILEGED;
+#else
+  ctx->control = CONTROL_PRIVILEGED;
+#endif
 #if HAS_PSPLIM
   ctx->psplim = (uint32_t)t->stack;
 #endif
@@ -151,7 +159,7 @@ void arch_thread_regions_set(struct pbl_thread *t, const MpuRegion *const *regio
     rbar = MPU_RBAR_VALID_Msk | (FIRST_MPU_REGION + i);
 #endif
     if (r != nullptr) {
-      KERNEL_ASSERT(r->region_num == FIRST_MPU_REGION + i);
+      PBL_ASSERTN(r->region_num == FIRST_MPU_REGION + i);
       uint32_t base_reg;
       mpu_get_register_settings(r, &base_reg, &attr);
 #ifdef CONFIG_ARMV8_M_MAINLINE
@@ -311,6 +319,7 @@ PBL_NAKED static void prv_restore_first_thread(void) {
 
 // ---- supervisor calls -------------------------------------------------------
 
+#ifdef CONFIG_USERSPACE
 static uintptr_t prv_original_sp(const uint32_t *frame, uint32_t exc_return) {
   uintptr_t sp = (uintptr_t)frame + 8 * sizeof(uint32_t);
   if (prv_fp_active(exc_return)) {
@@ -326,26 +335,18 @@ static uintptr_t prv_original_sp(const uint32_t *frame, uint32_t exc_return) {
 //! than four arguments read the extras from the caller's stack.
 #define SYSCALL_STACK_ARG_WORDS 16u
 
-// Boards without a dedicated syscall stack run syscalls on the caller's.
-PBL_WEAK uint32_t *pbl_kernel_syscall_stack(uintptr_t *base_out, uintptr_t *caller_start_out,
-                                            uintptr_t *caller_end_out) {
-  (void)base_out;
-  (void)caller_start_out;
-  (void)caller_end_out;
-  return nullptr;
-}
-
 // Moves the exception frame onto the thread's syscall stack, if it has one,
 // so the syscall body runs there. Returns the stacked-LR slot.
 static uint32_t *prv_relocate_to_syscall_stack(uint32_t *frame, uint32_t exc_return,
                                                uintptr_t orig_sp) {
-  uintptr_t base = 0;
-  uintptr_t caller_start = 0;
-  uintptr_t caller_end = 0;
-  uint32_t *top = pbl_kernel_syscall_stack(&base, &caller_start, &caller_end);
-  if (top == nullptr) {
+  const struct pbl_thread *t = pbl_cur;
+  if (t->syscall_stack == nullptr) {
     return &frame[5];
   }
+  const uintptr_t base = (uintptr_t)t->syscall_stack;
+  const uintptr_t caller_start = t->user_start;
+  const uintptr_t caller_end = t->user_end;
+  uint32_t *top = (uint32_t *)((base + t->syscall_stack_size) & ~7u);
 
   uint32_t *args = top - SYSCALL_STACK_ARG_WORDS;
   size_t args_size = 0;
@@ -374,16 +375,18 @@ static uint32_t *prv_relocate_to_syscall_stack(uint32_t *frame, uint32_t exc_ret
 }
 
 static void prv_raise_privilege(uint32_t *frame, uint32_t exc_return) {
-  uint32_t caller_pc = frame[6];
-  if (!pbl_kernel_privilege_raise_allowed(caller_pc)) {
-    return;
+  if (!arch_user_call_return(frame)) {
+    if (!arch_syscall_raise_allowed(frame[6])) {
+      return;
+    }
+    uintptr_t orig_sp = prv_original_sp(frame, exc_return);
+    uint32_t *lr_slot = prv_relocate_to_syscall_stack(frame, exc_return, orig_sp);
+    arch_syscall_entered(orig_sp, lr_slot);
   }
-  uintptr_t orig_sp = prv_original_sp(frame, exc_return);
-  uint32_t *lr_slot = prv_relocate_to_syscall_stack(frame, exc_return, orig_sp);
-  pbl_kernel_syscall_entered(orig_sp, (uintptr_t *)lr_slot);
   __set_CONTROL(__get_CONTROL() & ~CONTROL_nPRIV_Msk);
   __ISB();
 }
+#endif
 
 PBL_NOINLINE PBL_USED static void prv_svc(uint32_t *frame, uint32_t exc_return) {
   uint8_t number = ((uint8_t *)frame[6])[-2];
@@ -396,9 +399,11 @@ PBL_NOINLINE PBL_USED static void prv_svc(uint32_t *frame, uint32_t exc_return) 
     case SVC_YIELD:
       arch_switch_request();
       break;
+#ifdef CONFIG_USERSPACE
     case SVC_RAISE_PRIVILEGE:
       prv_raise_privilege(frame, exc_return);
       break;
+#endif
     default:
       break;
   }

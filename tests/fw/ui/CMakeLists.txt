@@ -227,7 +227,7 @@ pbl_clar_test(test_action_menu_layer
     tests/fakes/fake_rtc.c
     tests/stubs/stubs_animation.c
   DEFINES CONFIG_TOUCH
-  PLATFORMS obelix gabbro
+  PLATFORMS emery gabbro
 )
 
 pbl_clar_test(test_menu_text_scroll
@@ -251,8 +251,10 @@ pbl_clar_test(test_menu_layer_system_cells
     tests/stubs/stubs_system_theme.c
     fw/shell/system_theme.c
     fw/shell/system_theme_style.c
+    tests/fakes/fake_fonts.c
+    tests/fixtures/screen_grid.c
     tests/fixtures/resources/timeline_resource_table.auto.c
-  PLATFORMS obelix gabbro asterix
+  PLATFORMS emery gabbro flint
   OVERRIDES dummy_board
   TEST_IMAGES
 )
@@ -281,7 +283,7 @@ pbl_clar_test(test_action_menu_window
     fw/shell/system_theme_style.c
     fw/applib/ui/shadows.c
   DEFINES "FIRMWARE_EMOJI_DIR=\"${PBL_BASE}/resources/normal/base/pbf\""
-  PLATFORMS obelix gabbro asterix
+  PLATFORMS emery gabbro flint
   OVERRIDES dummy_board
   TEST_IMAGES
 )
@@ -294,6 +296,7 @@ pbl_clar_test(test_notification_window
     fw/applib/ui/layer.c
     fw/applib/ui/menu_layer_system_cells.c
     fw/applib/ui/menu_text_scroll.c
+    fw/applib/ui/preferred_durations.c
     fw/system/hexdump.c
     tests/fakes/fake_gbitmap_get_data_row.c
     tests/fakes/fake_rtc.c
@@ -324,7 +327,7 @@ pbl_clar_test(test_notification_window
     tests/fixtures/resources/timeline_resource_table.auto.c
     tests/stubs/stubs_clock.c
     fw/services/clock/time.c
-  PLATFORMS obelix gabbro asterix
+  PLATFORMS emery gabbro flint
   DEFINES USE_DISPLAY_PERIMETER_ON_FONT_LAYOUT=1
   OVERRIDES dummy_board
   TEST_IMAGES
@@ -355,7 +358,7 @@ pbl_clar_test(test_simple_dialog
     fw/applib/ui/menu_text_scroll.c
     fw/applib/ui/shadows.c
     fw/applib/ui/content_indicator.c
-  PLATFORMS obelix gabbro asterix
+  PLATFORMS emery gabbro flint
   OVERRIDES dummy_board
   TEST_IMAGES
 )
@@ -371,13 +374,29 @@ pbl_clar_test(test_emoji_fonts
     fw/applib/ui/menu_layer_system_cells.c
     fw/applib/ui/menu_text_scroll.c
     fw/shell/system_theme_style.c
-    fw/board/displays/display_getafix.c
+    fw/board/displays/display_gabbro.c
     fw/system/hexdump.c
     tests/fakes/fake_gbitmap_get_data_row.c
     tests/fakes/fake_rtc.c
     tests/stubs/stubs_animation.c
     tests/stubs/stubs_system_theme.c
-    fw/applib/fonts/fonts.c
+    tests/fakes/fake_fonts.c
+  OVERRIDES dummy_board
+  TEST_IMAGES
+)
+
+pbl_clar_test(test_emoji_glyphs
+  MODULES resources graphics_bitdepth gdraw png text
+  SOURCES
+    fw/applib/graphics/gtransform.c
+    fw/applib/graphics/perimeter.c
+    fw/applib/graphics/text_render.c
+    fw/applib/graphics/text_resources.c
+    fw/board/displays/display_gabbro.c
+    fw/system/hexdump.c
+    tests/fakes/fake_gbitmap_get_data_row.c
+    tests/fakes/fake_rtc.c
+  DEFINES "FIRMWARE_EMOJI_DIR=\"${PBL_BASE}/resources/normal/base/pbf\""
   OVERRIDES dummy_board
   TEST_IMAGES
 )
@@ -446,7 +465,7 @@ pbl_clar_test(test_selection_windows
     fw/applib/pbl_std/strftime.c
     fw/applib/pbl_std/timelocal.c
     fw/services/clock/time.c
-  PLATFORMS obelix gabbro asterix
+  PLATFORMS emery gabbro flint
   OVERRIDES dummy_board
   TEST_IMAGES
 )
@@ -475,6 +494,7 @@ pbl_clar_test(test_timeline_peek
     fw/system/hexdump.c
     tests/fakes/fake_gbitmap_get_data_row.c
     tests/fakes/fake_rtc.c
+    tests/fixtures/screen_grid.c
     tests/stubs/stubs_animation.c
     tests/stubs/stubs_system_theme.c
     fw/applib/ui/animation_interpolate.c
@@ -497,7 +517,7 @@ pbl_clar_test(test_timeline_peek
     tests/stubs/stubs_timeline_peek.c
     fw/applib/pbl_std/strftime.c
     fw/applib/pbl_std/timelocal.c
-  PLATFORMS obelix gabbro asterix
+  PLATFORMS emery gabbro flint
   DEFINES USE_DISPLAY_PERIMETER_ON_FONT_LAYOUT=1
   OVERRIDES dummy_board
   TEST_IMAGES
@@ -530,7 +550,7 @@ pbl_clar_test(test_option_menu_window
     fw/applib/pbl_std/strftime.c
     fw/applib/pbl_std/timelocal.c
     fw/services/clock/time.c
-  PLATFORMS obelix gabbro asterix
+  PLATFORMS emery gabbro flint
   DEFINES USE_DISPLAY_PERIMETER_ON_FONT_LAYOUT=1
   OVERRIDES dummy_board
   TEST_IMAGES

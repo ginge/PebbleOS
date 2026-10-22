@@ -65,9 +65,9 @@ components:
     path: moddable/moddable
     supplier: Moddable Tech, Inc.
     description: Moddable SDK (XS JavaScript engine) with PebbleOS changes
-    commit: 5235b29fb46bf9fb5b8b800f83a9d9e8e685c0ca
+    commit: e596714f69483f6003a6acdd5c63df0067b8dd9f
     license: LGPL-3.0-or-later AND Apache-2.0
-    purl: pkg:github/coredevices/moddable@5235b29fb46bf9fb5b8b800f83a9d9e8e685c0ca
+    purl: pkg:github/coredevices/moddable@e596714f69483f6003a6acdd5c63df0067b8dd9f
     url: https://github.com/coredevices/moddable
 
   - name: nanopb
@@ -95,7 +95,7 @@ components:
     type: library
     supplier: Nordic Semiconductor ASA
     description: nRF Fuel Gauge library and battery models, from sdk-nrfxlib 8f9ab9b01dd3
-    commit: 6efb1e5fbdd2801c62edefdb32f46bd16d04b8df
+    commit: 92d088674bf10bee71709b7b0d8d258d56d2770e
     license: LicenseRef-Nordic-5-Clause
     url: https://github.com/nrfconnect/sdk-nrfxlib
 
@@ -104,14 +104,14 @@ components:
     type: firmware
     supplier: Shanghai Hynitron Microelectronics Co., Ltd
     description: CST816 touch controller firmware
-    commit: 6efb1e5fbdd2801c62edefdb32f46bd16d04b8df
+    commit: 92d088674bf10bee71709b7b0d8d258d56d2770e
     license: LicenseRef-Hynitron-5-Clause
 
   - name: gh3x2x
     path: nonfree/pebbleos-nonfree/gh3x2x
     supplier: Shenzhen Goodix Technology Co., Ltd.
     description: GH3x2x heart rate sensor driver and algorithms
-    commit: 6efb1e5fbdd2801c62edefdb32f46bd16d04b8df
+    commit: 92d088674bf10bee71709b7b0d8d258d56d2770e
     license: LicenseRef-Goodix-5-Clause
 
   - name: sf32lb52-lcpu-patch
@@ -119,16 +119,8 @@ components:
     type: firmware
     supplier: SiFli Technology
     description: SF32LB52 LCPU (Bluetooth controller) firmware patches
-    commit: 6efb1e5fbdd2801c62edefdb32f46bd16d04b8df
+    commit: 92d088674bf10bee71709b7b0d8d258d56d2770e
     license: LicenseRef-SiFli-5-Clause
-
-  - name: as7000-firmware
-    path: nonfree/pebbleos-nonfree/as7000
-    type: firmware
-    supplier: ams AG
-    description: AS7000 heart rate sensor firmware
-    commit: 6efb1e5fbdd2801c62edefdb32f46bd16d04b8df
-    license: LicenseRef-AS7000
 
   - name: picolibc
     path: picolibc
@@ -157,6 +149,15 @@ components:
     license: Apache-2.0
     purl: pkg:github/pebble-dev/iconography@99e2660ccd8c0c98e596612bb1c21700e28156b3
     url: https://github.com/pebble-dev/iconography
+
+  - name: samsa
+    path: samsa/samsa
+    supplier: Joshua Jun
+    description: Thumb-2 interpreter running third-party apps in native builds
+    commit: 80f246c809f60ab14e21528095b1873e9684d092
+    license: Apache-2.0
+    purl: pkg:github/coredevices/samsa@80f246c809f60ab14e21528095b1873e9684d092
+    url: https://github.com/coredevices/samsa
 
   - name: speex
     path: speex/speex

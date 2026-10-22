@@ -2,7 +2,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "kernel/pbl_malloc.h"
-#include "system/passert.h"
+#include <pbl/kernel/assert.h>
 
 #include <string.h>
 

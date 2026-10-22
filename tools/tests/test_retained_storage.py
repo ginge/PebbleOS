@@ -19,7 +19,7 @@ STUBS = {
     "pbl/drivers/rtc.h": "#pragma once\nvoid rtc_init(void);\n",
     "flash_region/flash_region.h": "#pragma once\n#define FLASH_REGION_BOOTLOADER_END 0x10000\n",
     "system/version.h": "#pragma once\n",
-    "system/passert.h": "#pragma once\n#define PBL_ASSERTN(x) assert(x)\n",
+    "pbl/kernel/assert.h": "#pragma once\n#define PBL_ASSERTN(x) assert(x)\n",
     "bf0_hal.h": "#pragma once\nuint32_t HAL_Get_backup(uint32_t);\nvoid HAL_Set_backup(uint32_t, uint32_t);\n",
 }
 STUBS["pbl/kernel/compiler.h"] += '\n#define PBL_SECTION(s) __attribute__((section(s)))\n'
@@ -92,7 +92,7 @@ class RetainedStorageTest(unittest.TestCase):
         ))
 
     def test_reset_with_actual_retained_backend(self):
-        headers = {**reset_test.HEADERS, "system/passert.h": STUBS["system/passert.h"]}
+        headers = {**reset_test.HEADERS, "pbl/kernel/assert.h": STUBS["pbl/kernel/assert.h"]}
         reset_test.T5AIResetTest().compile_run(reset_test.RESET_HARNESS, headers, (
             "-DCONFIG_WATCHDOG=1", "-DCONFIG_SOC_T5AI=1",
             "-DCONFIG_WATCHDOG_TIMEOUT_MS=30000",

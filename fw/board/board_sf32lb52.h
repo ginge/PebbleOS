@@ -16,18 +16,6 @@
 #define GPIO_Port_NULL nullptr
 #define GPIO_Pin_NULL  0U
 
-typedef enum {
-  GPIO_PuPd_NOPULL,
-  GPIO_PuPd_UP,
-  GPIO_PuPd_DOWN,
-} GPIOPuPd_TypeDef;
-
-typedef struct {
-  GPIO_TypeDef *const peripheral; ///< One of GPIOX. For example, GPIOA.
-  const uint32_t gpio_pin;        ///< One of GPIO_Pin_X.
-  GPIOPuPd_TypeDef pull;          ///< Pull-up / pull-down configuration for the pin
-} ExtiConfig;
-
 typedef struct {
   int pad;
   pin_function func;
@@ -48,10 +36,6 @@ typedef struct {
   Pinmux pwm_pin;
   PwmState *state;
 } PwmConfig;
-
-typedef struct {
-  const struct pbl_gpio ctl;
-} BoardConfigActuator;
 
 typedef struct {
   uint8_t backlight_on_percent;

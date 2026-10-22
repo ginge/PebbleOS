@@ -16,7 +16,6 @@
 #include <kernel/events.h>
 #include <kernel/pbl_malloc.h>
 #include <kernel/pebble_tasks.h>
-#include <system/passert.h>
 #include <system/status_codes.h>
 
 PBL_LOG_MODULE_DECLARE(service_timeline, CONFIG_SERVICE_TIMELINE_LOG_LEVEL);
@@ -208,8 +207,7 @@ void timeline_event_refresh(void) {
 }
 
 bool timeline_event_is_all_day(CommonTimelineItemHeader *common) {
-  return (common->all_day ||
-          (common->duration >= PBL_MIN_PER_DAY)); // Include >= 24 hour events. See PBL-23584
+  return (common->all_day || (common->duration >= PBL_MIN_PER_DAY)); // Include >= 24 hour events
 }
 
 bool timeline_event_is_ongoing(time_t now, time_t event_start, int event_duration_m) {

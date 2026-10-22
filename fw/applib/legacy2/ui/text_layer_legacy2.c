@@ -6,6 +6,7 @@
 #include <stddef.h>
 #include <string.h>
 
+#include <pbl/kernel/assert.h>
 #include <pbl/logging/logging.h>
 
 #include <applib/fonts/fonts.h>
@@ -13,7 +14,6 @@
 #include <applib/graphics/gtypes.h>
 #include <kernel/pbl_malloc.h>
 #include <process_state/app_state/app_state.h>
-#include <system/passert.h>
 
 static GTextLayoutCacheRef prv_text_layer_legacy2_get_cache_handle(TextLayerLegacy2 *text_layer) {
   if (text_layer == nullptr) {
@@ -22,7 +22,8 @@ static GTextLayoutCacheRef prv_text_layer_legacy2_get_cache_handle(TextLayerLega
   return text_layer->should_cache_layout ? text_layer->layout_cache : nullptr;
 }
 
-void text_layer_legacy2_update_proc(TextLayerLegacy2 *text_layer, GContext *ctx) {
+void text_layer_legacy2_update_proc(Layer *layer, GContext *ctx) {
+  TextLayerLegacy2 *text_layer = (TextLayerLegacy2 *)layer;
   if (text_layer == nullptr) {
     return;
   }
@@ -44,7 +45,7 @@ void text_layer_legacy2_init(TextLayerLegacy2 *text_layer, const GRect *frame) {
   *text_layer = (TextLayerLegacy2){};
   text_layer->layer.frame = *frame;
   text_layer->layer.bounds = (GRect){{0, 0}, frame->size};
-  text_layer->layer.update_proc = (LayerUpdateProc)text_layer_legacy2_update_proc;
+  text_layer->layer.update_proc = text_layer_legacy2_update_proc;
   text_layer->text_color = GColor2Black;
   text_layer->background_color = GColor2White;
   text_layer->overflow_mode = GTextOverflowModeTrailingEllipsis;

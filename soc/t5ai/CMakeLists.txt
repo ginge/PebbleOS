@@ -72,7 +72,7 @@ endif()
 
 if(CONFIG_T5AI_HEAP_TRACE)
   pbl_library_sources(heap_trace.c)
-  foreach(symbol heap_malloc heap_zalloc heap_calloc heap_realloc heap_free croak_oom)
+  foreach(symbol heap_malloc heap_zalloc heap_calloc heap_realloc heap_free pbl_malloc_oom)
     pbl_link_options(-Wl,--wrap=${symbol})
   endforeach()
   function(t5ai_heap_trace_call_boundaries)

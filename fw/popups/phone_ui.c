@@ -10,6 +10,7 @@
 #include <string.h>
 #include <time.h>
 
+#include <pbl/kernel/assert.h>
 #include <pbl/logging/logging.h>
 #include <pbl/services/analytics/analytics.h>
 #include <pbl/services/blob_db/ios_notif_pref_db.h>
@@ -47,7 +48,6 @@
 #include <popups/notifications/notifications_presented_list.h>
 #include <resource/resource_ids.auto.h>
 #include <shell/system_theme.h>
-#include <system/passert.h>
 
 #define DECLINE_DELAY_MS       2000
 #define SMS_REPLY_DELAY_MS     1200
@@ -458,7 +458,6 @@ static void prv_ring(void *unused) {
     // There is a mutex-related issue that can appear where the timer callback will execute after
     // phone_ui cancels the timer and frees the vibe_score / s_phone_ui_data. Thus, bail early
     // if we detect this bad state.
-    // See PBL-35548
     return;
   }
   if ((rtc_get_time() - s_phone_ui_data->ring_start_time) > MAX_RING_DURATION_S) {
@@ -1116,7 +1115,7 @@ void phone_ui_handle_outgoing_call(PebblePhoneCaller *caller) {
 
   prv_phone_ui_init();
 
-  // FIXME: PBL-21570 Outgoing call small is missing
+  // There is no small outgoing call icon
   prv_unfold_icon_resource(TIMELINE_RESOURCE_INCOMING_PHONE_CALL);
 
   if (caller) {

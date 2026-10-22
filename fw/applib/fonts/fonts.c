@@ -7,6 +7,7 @@
 
 #include <string.h>
 
+#include <pbl/kernel/assert.h>
 #include <pbl/logging/logging.h>
 #include <pbl/util/size.h>
 
@@ -17,7 +18,6 @@
 #include <resource/resource.h>
 #include <resource/resource_ids.auto.h>
 #include <syscall/syscall.h>
-#include <system/passert.h>
 
 GFont fonts_get_fallback_font(void) {
   // No font key for the fallback font
@@ -134,6 +134,6 @@ int16_t fonts_get_font_cap_offset(GFont font) {
     return 0;
   }
 
-  // FIXME PBL-25709: Actually use font-specific caps and also provide function for baseline offsets
+  // TODO: approximation, use the font-specific cap height
   return (int16_t)(((int16_t)font->max_height) * 22 / 100);
 }

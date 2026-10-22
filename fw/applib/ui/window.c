@@ -4,6 +4,7 @@
 #include "status_bar_layer.h"
 #include "window_private.h"
 
+#include <pbl/kernel/assert.h>
 #include <pbl/logging/logging.h>
 
 #include <applib/app_logging.h>
@@ -23,7 +24,6 @@
 #include <process_management/process_manager.h>
 #include <process_state/app_state/app_state.h>
 #include <syscall/syscall.h>
-#include <system/passert.h>
 
 typedef enum {
   WindowHandlerOffsetLoad = offsetof(WindowHandlers, load),
@@ -418,8 +418,6 @@ void window_unload(Window *window) {
   // Don't touch window after calling it's unload handler. We allow windows to free themselves on
   // unload.
 }
-
-// TODO PBL-1769: deal with window unload. In app deinit? When low memory?
 
 void window_set_on_screen(Window *window, bool new_on_screen, bool call_window_appear_handlers) {
   PBL_ASSERTN(window != nullptr); // This tripped me up for about a day

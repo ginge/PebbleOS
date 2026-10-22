@@ -4,8 +4,10 @@
 #include <pbl/cron/cron.h>
 #include <pbl/drivers/battery.h>
 #include <pbl/drivers/vibe.h>
+#include <pbl/kernel/assert.h>
 #include <pbl/kernel/mutex.h>
 #include <pbl/kernel/sem.h>
+#include <pbl/kernel/syscall.h>
 #include <pbl/logging/logging.h>
 #include <pbl/services/activity/activity.h>
 #include <pbl/services/activity/activity_algorithm.h>
@@ -32,9 +34,8 @@
 #include <applib/health_service.h>
 #include <kernel/events.h>
 #include <kernel/pbl_malloc.h>
+#include <kernel/pebble_tasks.h>
 #include <syscall/syscall.h>
-#include <syscall/syscall_define.h>
-#include <system/passert.h>
 
 PBL_LOG_MODULE_DEFINE(service_activity, CONFIG_SERVICE_ACTIVITY_LOG_LEVEL);
 
@@ -189,7 +190,7 @@ PBL_T_STATIC void prv_hrm_subscription_cb(PebbleHRMEvent *hrm_event, void *conte
 
     // Perform a basic validity check so we only proceed with reasonable data
     // TODO: Use quality to filter out some readings,
-    // TODO PBL-40784: Use HRMQuality_OffWrist as a special case to slow down the HRM subscription
+    // TODO: Use HRMQuality_OffWrist as a special case to slow down the HRM subscription
     bool valid_hr_reading = true;
     if (hrm_event->bpm.bpm < ACTIVITY_DEFAULT_MIN_HR ||
         hrm_event->bpm.bpm > ACTIVITY_DEFAULT_MAX_HR) {
@@ -318,9 +319,9 @@ static void prv_spo2_set_sampling(bool sampling, uint32_t now_ts) {
 // scheduler but runs on its own independent interval.
 static void prv_spo2_subscription_update(uint32_t now_ts) {
 #ifdef CONFIG_HRM
-  // If blood oxygen monitoring is disabled (master toggle off or "Disabled" interval), make sure
+  // If SpO2 monitoring is disabled (master toggle off or "Disabled" interval), make sure
   // we're not sampling and skip.
-  if (!activity_prefs_blood_oxygen_is_enabled() ||
+  if (!activity_prefs_spo2_is_enabled() ||
       activity_prefs_get_spo2_measurement_interval() == HRMonitoringInterval_Disabled) {
     if (s_activity_state.spo2.currently_sampling) {
       prv_spo2_set_sampling(false, now_ts);
@@ -437,7 +438,7 @@ PBL_T_STATIC void prv_spo2_subscription_cb(PebbleHRMEvent *hrm_event, void *cont
 #endif // CONFIG_HRM
 
 // ---------------------------------------------------------------------------------------
-// Init blood oxygen (SpO2) support
+// Init SpO2 support
 static void prv_spo2_init(void) {
 #ifdef CONFIG_HRM
   s_activity_state.spo2.currently_sampling = false;
@@ -451,7 +452,7 @@ static void prv_spo2_init(void) {
 }
 
 // ---------------------------------------------------------------------------------------
-// De-init blood oxygen (SpO2) support
+// De-init SpO2 support
 static void prv_spo2_deinit(void) {
 #ifdef CONFIG_HRM
   sys_hrm_manager_unsubscribe(s_activity_state.spo2.hrm_session);
@@ -509,14 +510,14 @@ static bool prv_activity_spo2_can_start_attempt(void) {
 static void prv_activity_spo2_update(uint32_t now_ts) {
   ActivitySpO2ActivitySupport *as = &s_activity_state.activity_spo2;
 
-  // Run while the blood-oxygen-during-activities opt-in is on AND we're in an activity: either an
+  // Run while the SpO2-during-activities opt-in is on AND we're in an activity: either an
   // auto-detected one with a running HR session (which needs HR-during-activities), or a manually
   // started workout. The manual workout path only needs the SpO2 opt-in.
   const bool auto_active = activity_prefs_hrm_activity_tracking_is_enabled() &&
                            activity_algorithm_activity_hrm_is_active();
   const bool workout_active = workout_service_is_workout_ongoing();
   const bool eligible =
-      activity_prefs_blood_oxygen_activity_tracking_is_enabled() && (auto_active || workout_active);
+      activity_prefs_spo2_activity_tracking_is_enabled() && (auto_active || workout_active);
 
   if (!eligible) {
     if (as->phase != ActivitySpO2ActPhase_Idle) {
@@ -546,6 +547,7 @@ static void prv_activity_spo2_update(uint32_t now_ts) {
       if (as->got_reading) {
         // Success: resume HR and wait the full interval before the next point.
         prv_activity_spo2_set_sampling(false);
+        workout_service_handle_spo2(as->percent);
         as->phase = ActivitySpO2ActPhase_Wait;
         as->phase_started_ts = now_ts;
       } else if (now_ts - as->phase_started_ts >= ACTIVITY_SPO2_ACTIVITY_ATTEMPT_SEC) {
@@ -600,6 +602,7 @@ PBL_T_STATIC void prv_activity_spo2_subscription_cb(PebbleHRMEvent *hrm_event, v
     s_activity_state.spo2.pending_percent = pct;
     s_activity_state.spo2.pending_quality = prv_spo2_health_quality(quality);
     s_activity_state.activity_spo2.got_reading = true;
+    s_activity_state.activity_spo2.percent = pct;
   }
 
   prv_activity_spo2_schedule_update();
@@ -854,7 +857,7 @@ static void PBL_NOINLINE prv_update_storage(time_t utc_sec) {
 // Tail end of prv_process_minute_data, separated out to decrease stack requirements. This
 // portion of the logic handles activity process, saving prefs to our backing store, and
 // resetting metrics at midnight.
-// We use PBL_NOINLINE to reduce the stack requirements during the minute handler (see PBL-38130)
+// We use PBL_NOINLINE to reduce the stack requirements during the minute handler
 static void PBL_NOINLINE prv_process_minute_data_tail(time_t utc_sec) {
   bool need_history_update_event;
   uint16_t cur_day_index;
@@ -921,7 +924,7 @@ static void PBL_NOINLINE prv_process_minute_data_tail(time_t utc_sec) {
 // ------------------------------------------------------------------------------------------------
 // Takes care of updating the history when we reach midnight as well as checking for changes in
 // sleep state. Returns true if the sleep metrics were updated
-// We use PBL_NOINLINE to reduce the stack requirements during the minute handler (see PBL-38130)
+// We use PBL_NOINLINE to reduce the stack requirements during the minute handler
 static void PBL_NOINLINE prv_process_minute_data(time_t utc_sec) {
   // Update the metrics
   activity_metrics_prv_minute_handler(utc_sec);
@@ -1577,10 +1580,10 @@ PBL_SYSCALL(bool, sys_activity_get_sessions, (INOUT_OPT, uint32_t *, session_ent
     size_t num_bytes;
     if (ckd_mul(&num_bytes, (size_t)requested, sizeof(*sessions))) {
       PBL_LOG_ERR("session_entries=%" PRIu32 " would overflow size", requested);
-      syscall_failed();
+      pbl_syscall_fail();
     }
     if (sessions) {
-      syscall_assert_userspace_buffer(sessions, num_bytes);
+      pbl_syscall_verify_user(sessions, num_bytes);
     }
   }
 
@@ -1682,6 +1685,45 @@ bool activity_get_minute_history(HealthMinuteData *minute_data, uint32_t *num_re
 }
 
 // ------------------------------------------------------------------------------------------------
+typedef struct {
+  ActivityBgRequest base;
+  uint32_t num_minutes;
+  time_t utc_start;
+  uint8_t heart_rate_bpm[];
+} ActivityMinuteHeartRateRequest;
+
+static bool prv_get_minute_heart_rate_handler(ActivityBgRequest *base) {
+  ActivityMinuteHeartRateRequest *req = (ActivityMinuteHeartRateRequest *)base;
+  return activity_algorithm_get_minute_heart_rate(req->heart_rate_bpm, req->num_minutes,
+                                                  req->utc_start);
+}
+
+bool activity_get_minute_heart_rate(uint8_t *heart_rate_bpm, uint32_t num_minutes,
+                                    time_t utc_start) {
+  if (!s_activity_initialized || num_minutes > ACTIVITY_MINUTE_HEART_RATE_MAX_MINUTES) {
+    return false;
+  }
+
+  ActivityMinuteHeartRateRequest *req = kernel_zalloc(sizeof(*req) + num_minutes);
+  if (!req) {
+    return false;
+  }
+  req->num_minutes = num_minutes;
+  req->utc_start = utc_start;
+
+  if (!prv_bg_request_run(&req->base, prv_get_minute_heart_rate_handler, 30 /*timeout_sec*/)) {
+    return false;
+  }
+
+  const bool success = req->base.success;
+  if (success) {
+    memcpy(heart_rate_bpm, req->heart_rate_bpm, num_minutes);
+  }
+  kernel_free(req);
+  return success;
+}
+
+// ------------------------------------------------------------------------------------------------
 PBL_SYSCALL(bool, sys_activity_get_minute_history, (VAL, HealthMinuteData *, minute_data),
             (INOUT, uint32_t *, num_records), (INOUT, time_t *, utc_start)) {
   if (from_user) {
@@ -1692,9 +1734,9 @@ PBL_SYSCALL(bool, sys_activity_get_minute_history, (VAL, HealthMinuteData *, min
     size_t num_bytes;
     if (ckd_mul(&num_bytes, (size_t)requested, sizeof(HealthMinuteData))) {
       PBL_LOG_ERR("num_records=%" PRIu32 " would overflow size", requested);
-      syscall_failed();
+      pbl_syscall_fail();
     }
-    syscall_assert_userspace_buffer(minute_data, num_bytes);
+    pbl_syscall_verify_user(minute_data, num_bytes);
   }
 
   return activity_get_minute_history(minute_data, num_records, utc_start);
@@ -1712,7 +1754,7 @@ bool activity_get_step_averages(enum pbl_weekday day_of_week, ActivityMetricAver
 PBL_SYSCALL(bool, sys_activity_get_step_averages, (VAL, enum pbl_weekday, day_of_week),
             (OUT_BUF, ActivityMetricAverages *, averages, sizeof(*averages))) {
   if (from_user && (unsigned int)day_of_week > PBL_SATURDAY) {
-    syscall_failed();
+    pbl_syscall_fail();
   }
 
   return activity_get_step_averages(day_of_week, averages);

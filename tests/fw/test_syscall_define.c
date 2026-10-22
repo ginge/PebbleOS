@@ -6,10 +6,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <pbl/kernel/syscall.h>
+
 #include <clar.h>
 #include <fake_pebble_tasks.h>
 #include <stubs_syscall_internal.h>
-#include <syscall/syscall_define.h>
 
 // Fakes
 ///////////////////////////////////////////////////////////
@@ -25,17 +26,17 @@ static bool prv_in_user(const void *buf, size_t num_bytes) {
   return p >= start && p <= end && num_bytes <= end - p;
 }
 
-bool syscall_internal_check_return_address(void *ret_addr) {
+bool arch_syscall_returns_to_user(void *ret_addr) {
   return s_elevated;
 }
 
-void syscall_assert_userspace_buffer(const void *buf, size_t num_bytes) {
+void pbl_syscall_verify_user(const void *buf, size_t num_bytes) {
   if (!prv_in_user(buf, num_bytes)) {
-    syscall_failed();
+    pbl_syscall_fail();
   }
 }
 
-int syscall_copy_from_user(void *dst, const void *src, size_t num_bytes) {
+int pbl_user_copy_from(void *dst, const void *src, size_t num_bytes) {
   if (!prv_in_user(src, num_bytes)) {
     return -EFAULT;
   }
@@ -43,7 +44,7 @@ int syscall_copy_from_user(void *dst, const void *src, size_t num_bytes) {
   return 0;
 }
 
-int syscall_copy_to_user(void *dst, const void *src, size_t num_bytes) {
+int pbl_user_copy_to(void *dst, const void *src, size_t num_bytes) {
   if (!prv_in_user(dst, num_bytes)) {
     return -EFAULT;
   }
@@ -51,7 +52,7 @@ int syscall_copy_to_user(void *dst, const void *src, size_t num_bytes) {
   return 0;
 }
 
-int syscall_user_strnlen(const char *str, size_t max) {
+int pbl_user_strnlen(const char *str, size_t max) {
   if (!prv_in_user(str, 0)) {
     return -EFAULT;
   }
@@ -181,9 +182,9 @@ void test_syscall_define__in_is_copied(void) {
 
 void test_syscall_define__in_rejects_bad_pointers(void) {
   prv_call_from(PebbleTask_App);
-  cl_assert_passert(sys_test_in((const Pair *)s_kernel_mem));
-  cl_assert_passert(sys_test_in(nullptr));
-  cl_assert_passert(sys_test_in((const Pair *)(s_user_mem + sizeof(s_user_mem) - 4)));
+  cl_assert_panic(sys_test_in((const Pair *)s_kernel_mem));
+  cl_assert_panic(sys_test_in(nullptr));
+  cl_assert_panic(sys_test_in((const Pair *)(s_user_mem + sizeof(s_user_mem) - 4)));
   cl_assert_equal_i(s_handler_calls, 0);
 }
 
@@ -201,8 +202,8 @@ void test_syscall_define__out_is_copied_back(void) {
 
 void test_syscall_define__out_rejects_bad_pointers(void) {
   prv_call_from(PebbleTask_App);
-  cl_assert_passert(sys_test_out((Pair *)s_kernel_mem));
-  cl_assert_passert(sys_test_out(nullptr));
+  cl_assert_panic(sys_test_out((Pair *)s_kernel_mem));
+  cl_assert_panic(sys_test_out(nullptr));
   cl_assert_equal_i(s_handler_calls, 0);
   cl_assert_equal_i(((Pair *)s_kernel_mem)->a, 0);
 }
@@ -219,7 +220,7 @@ void test_syscall_define__out_opt(void) {
   cl_assert(!sys_test_out_opt(nullptr));
   cl_assert(s_handler_arg == nullptr);
 
-  cl_assert_passert(sys_test_out_opt((Pair *)s_kernel_mem));
+  cl_assert_panic(sys_test_out_opt((Pair *)s_kernel_mem));
 }
 
 void test_syscall_define__buf_is_borrowed(void) {
@@ -230,9 +231,9 @@ void test_syscall_define__buf_is_borrowed(void) {
 
 void test_syscall_define__buf_rejects_bad_ranges(void) {
   prv_call_from(PebbleTask_App);
-  cl_assert_passert(sys_test_buf(s_kernel_mem, 1));
-  cl_assert_passert(sys_test_buf(s_user_mem, sizeof(s_user_mem) + 1));
-  cl_assert_passert(sys_test_buf(s_user_mem + 16, SIZE_MAX - 8));
+  cl_assert_panic(sys_test_buf(s_kernel_mem, 1));
+  cl_assert_panic(sys_test_buf(s_user_mem, sizeof(s_user_mem) + 1));
+  cl_assert_panic(sys_test_buf(s_user_mem + 16, SIZE_MAX - 8));
   cl_assert_equal_i(s_handler_calls, 0);
 }
 
@@ -249,8 +250,8 @@ void test_syscall_define__str_rejects_unterminated(void) {
   strcpy((char *)s_kernel_mem, "kernel");
 
   prv_call_from(PebbleTask_App);
-  cl_assert_passert(sys_test_str((const char *)s_user_mem));
-  cl_assert_passert(sys_test_str((const char *)s_kernel_mem));
+  cl_assert_panic(sys_test_str((const char *)s_user_mem));
+  cl_assert_panic(sys_test_str((const char *)s_kernel_mem));
   cl_assert_equal_i(s_handler_calls, 0);
 }
 
@@ -262,10 +263,10 @@ void test_syscall_define__array(void) {
 
 void test_syscall_define__array_rejects_bad_counts(void) {
   prv_call_from(PebbleTask_App);
-  cl_assert_passert(sys_test_array((const uint32_t *)s_user_mem, 65));
+  cl_assert_panic(sys_test_array((const uint32_t *)s_user_mem, 65));
   // count * sizeof(uint32_t) wraps around to a small size.
-  cl_assert_passert(sys_test_array((const uint32_t *)s_user_mem, SIZE_MAX / 4 + 2));
-  cl_assert_passert(sys_test_array((const uint32_t *)s_kernel_mem, 1));
+  cl_assert_panic(sys_test_array((const uint32_t *)s_user_mem, SIZE_MAX / 4 + 2));
+  cl_assert_panic(sys_test_array((const uint32_t *)s_kernel_mem, 1));
   cl_assert_equal_i(s_handler_calls, 0);
 }
 
@@ -275,7 +276,7 @@ void test_syscall_define__strn(void) {
   cl_assert_equal_i(sys_test_strn((const char *)s_user_mem), 5);
 
   strcpy((char *)s_user_mem, "123456");
-  cl_assert_passert(sys_test_strn((const char *)s_user_mem));
+  cl_assert_panic(sys_test_strn((const char *)s_user_mem));
   cl_assert_equal_i(s_handler_calls, 1);
 }
 

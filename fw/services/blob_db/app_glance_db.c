@@ -2,6 +2,8 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <pbl/drivers/rtc.h>
+#include <pbl/kernel/assert.h>
+#include <pbl/kernel/fatal.h>
 #include <pbl/kernel/mutex.h>
 #include <pbl/logging/logging.h>
 #include <pbl/services/app_cache.h>
@@ -17,7 +19,6 @@
 #include <kernel/pbl_malloc.h>
 #include <process_management/app_install_manager.h>
 #include <resource/resource_ids.auto.h>
-#include <system/passert.h>
 
 PBL_LOG_MODULE_DECLARE(service_blob_db, CONFIG_SERVICE_BLOB_DB_LOG_LEVEL);
 
@@ -553,7 +554,7 @@ status_t app_glance_db_read_glance(const Uuid *uuid, AppGlance *glance_out) {
   if (!serialized_glance_size) {
     return E_DOES_NOT_EXIST;
   } else if (serialized_glance_size < 0) {
-    WTF;
+    pbl_panic();
   }
 
   uint8_t *serialized_glance = kernel_zalloc((size_t)serialized_glance_size);
@@ -596,8 +597,6 @@ status_t app_glance_db_delete_glance(const Uuid *uuid) {
 //////////////////////
 // Settings helpers
 //////////////////////
-
-// TODO PBL-38080: Extract out settings file opening/closing and mutex locking/unlocking for BlobDB
 
 static status_t prv_lock_mutex_and_open_file(void) {
   pbl_mutex_lock(&s_app_glance_db.mutex, PBL_FOREVER);

@@ -6,6 +6,7 @@
 #include "app_glance_private.h"
 #include "menu_layer.h"
 
+#include <pbl/kernel/assert.h>
 #include <pbl/kernel/compiler.h>
 #include <pbl/services/timeline/attribute.h>
 #include <pbl/util/string.h>
@@ -17,7 +18,6 @@
 #include <process_management/app_install_manager.h>
 #include <resource/resource_ids.auto.h>
 #include <shell/prefs.h>
-#include <system/passert.h>
 
 // Use display height to determine icon margins: larger displays use more margin
 #if PBL_DISPLAY_HEIGHT >= 200
@@ -274,7 +274,7 @@ static bool prv_get_text_scroll_vars(GContext *ctx, uint32_t cumulative_elapsed_
       pause_at_start_ms + normal_scroll_duration_ms + pause_at_end_ms + rewind_scroll_duration_ms;
   vars_out->duration_ms = scroll_duration_ms;
 
-  // Technically mod isn't necessary right now, but it's needed for looping eventually (PBL-40544)
+  // Technically mod isn't necessary right now, but it's needed for looping eventually
   int64_t elapsed_ms = cumulative_elapsed_ms % scroll_duration_ms;
   const uint32_t end_of_normal_scroll_duration_ms = pause_at_start_ms + normal_scroll_duration_ms;
   bool rewind = false;
@@ -512,7 +512,7 @@ static bool prv_set_elapsed(KinoReel *reel, uint32_t elapsed_ms) {
 }
 
 static uint32_t prv_get_duration(KinoReel *reel) {
-  // TODO PBL-40544: Loop the selection animation
+  // TODO: loop the selection animation
   LauncherAppGlanceStructured *structured_glance = kino_reel_custom_get_data(reel);
   return NULL_SAFE_FIELD_ACCESS(structured_glance, selection_animation_duration_ms, 0);
 }

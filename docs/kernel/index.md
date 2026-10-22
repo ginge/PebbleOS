@@ -10,11 +10,13 @@ may use. The implementation is PebbleOS's own.
 :maxdepth: 1
 
 threads.md
+syscalls.md
 interrupts.md
 time.md
 boot.md
 idle.md
 memory.md
+fatal.md
 compiler.md
 internals.md
 ```
@@ -88,8 +90,8 @@ The {apidoc}`API reference <kernel>` documents every kernel module.
 
 ## MCU and SoC
 
-CPU core helpers (`pbl/mcu/`) wrap the architecture's interrupt, privilege,
-cache, FPU and MPU control; `pbl/soc/` holds what is specific to one SoC
+CPU core helpers (`pbl/mcu/`) wrap the architecture's interrupt, cache, FPU
+and MPU control; `pbl/soc/` holds what is specific to one SoC
 family.
 
 The API reference documents both: {apidoc}`MCU <mcu>` and

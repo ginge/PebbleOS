@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 
+#include <pbl/kernel/assert.h>
 #include <pbl/services/timeline/notification_layout.h>
 #include <pbl/util/trig.h>
 
@@ -448,5 +449,18 @@ void test_notification_window__big_bold(void) {
   const unsigned int num_down_scrolls =
       PBL_IF_RECT_ELSE((PreferredContentSizeDefault < PreferredContentSizeLarge) ? 1 : 0, 0);
   prv_prepare_canvas_and_render_notification_windows(num_down_scrolls);
+  FAKE_GRAPHICS_CONTEXT_CHECK_DEST_BITMAP_FILE();
+}
+
+void test_notification_window__emoji(void) {
+  s_test_data = (NotificationWindowTestData){
+    .icon_id = TIMELINE_RESOURCE_NOTIFICATION_FACEBOOK_MESSENGER,
+    .title = "Henry 😎",
+    .body = "On my way 😃👍 See you soon 🎉",
+    .show_notification_timestamp = true,
+    .timestamp = "Just now",
+    .background_color = GColorPictonBlue,
+  };
+  prv_prepare_canvas_and_render_notification_windows(0 /* num_down_scrolls */);
   FAKE_GRAPHICS_CONTEXT_CHECK_DEST_BITMAP_FILE();
 }
