@@ -1,4 +1,4 @@
-/* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
+/* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #pragma once
