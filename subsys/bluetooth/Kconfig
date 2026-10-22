@@ -13,15 +13,6 @@ config BT
 
 if BT
 
-config BT_GATT_DISCOVERY_LEASE_SECONDS
-    int "GATT discovery response-time lease override (seconds)"
-    range 0 3600
-    default 0
-    help
-      Renew the minimum-response-time lease when a discovery range is queued.
-      Zero keeps the firmware's normal lease policy. This setting controls
-      connection responsiveness, independently of the ATT procedure timeout.
-
 choice BT_HCI
     prompt "HCI transport"
     default BT_HCI_FAKE

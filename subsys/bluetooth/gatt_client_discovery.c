@@ -10,9 +10,6 @@
 #include <pbl/util/math.h>
 
 #include <comm/bt_lock.h>
-#if CONFIG_BT_GATT_DISCOVERY_LEASE_SECONDS > 0
-#include <comm/bt_conn_mgr.h>
-#endif
 #include <host/ble_hs.h>
 #include <services/gatt/ble_svc_gatt.h>
 
@@ -561,12 +558,6 @@ static int prv_discovery_op_start(void *ctx) {
 
 enum pbl_bt_errno pbl_bt_gatt_start_discovery_range(const GAPLEConnection *connection,
                                                     const struct pbl_bt_att_handle_range *data) {
-#if CONFIG_BT_GATT_DISCOVERY_LEASE_SECONDS > 0
-  conn_mgr_set_ble_conn_response_time(
-      (GAPLEConnection *)connection, PBL_BT_CONSUMER_LE_SERVICE_DISCOVERY, PBL_BT_RESPONSE_TIME_MIN,
-      CONFIG_BT_GATT_DISCOVERY_LEASE_SECONDS);
-#endif
-
   DiscoveryOp *op = kernel_zalloc_check(sizeof(*op));
   op->connection = (GAPLEConnection *)connection;
   op->range = *data;

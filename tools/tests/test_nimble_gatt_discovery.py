@@ -8,9 +8,6 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
-
-import kconfiglib
 
 ROOT = Path(__file__).resolve().parents[2]
 SCENARIOS = (
@@ -58,7 +55,6 @@ class NimbleDiscoveryTest(unittest.TestCase):
                 "pbl/bluetooth/gatt.h",
                 "pbl/kernel/sem.h",
                 "comm/bt_lock.h",
-                "comm/bt_conn_mgr.h",
                 "host/ble_hs.h",
                 "services/gatt/ble_svc_gatt.h",
             ):
@@ -80,70 +76,39 @@ class NimbleDiscoveryTest(unittest.TestCase):
                 path = tmp / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(contents)
-            for lease in (0, 120):
-                binary = tmp / f"discovery-{lease}"
-                subprocess.run(
-                    [
-                        "cc",
-                        "-std=gnu11",
-                        "-Wall",
-                        "-Wextra",
-                        "-Werror",
-                        "-Wno-unused-parameter",
-                        "-Dnullptr=NULL",
-                        "-Dstatic_assert=_Static_assert",
-                        "-fsanitize=address,undefined",
-                        "-fno-sanitize-recover=all",
-                        "-fno-omit-frame-pointer",
-                        "-fno-pie",
-                        "-no-pie",
-                        "-g",
-                        f"-DCONFIG_BT_GATT_DISCOVERY_LEASE_SECONDS={lease}",
-                        "-include",
-                        str(tmp / "fixture.h"),
-                        "-I",
-                        str(tmp),
-                        "-I",
-                        str(ROOT / "include"),
-                        str(fixture / "harness.c"),
-                        str(ROOT / "lib/util/list.c"),
-                        "-o",
-                        str(binary),
-                    ],
-                    check=True,
-                )
-                for scenario in SCENARIOS:
-                    with self.subTest(lease=lease, scenario=scenario):
-                        subprocess.run([str(binary), scenario], check=True, timeout=10)
-
-    def test_lease_defaults_use_stock_policy(self):
-        for board, revision, expected in (
-            ("qemu_gabbro", "_", 0),
-            ("getafix", "dvt2", 0),
-            ("unhygienix", "_", 0),
-        ):
-            with (
-                self.subTest(board=board),
-                patch.dict(
-                    os.environ,
-                    {
-                        "srctree": str(ROOT),
-                        "BOARD": board,
-                        "BOARD_REVISION": revision,
-                    },
-                ),
-            ):
-                config = kconfiglib.Kconfig(str(ROOT / "Kconfig"), warn=False)
-                paths = [f"boards/{board}/defconfig"]
-                if revision != "_":
-                    paths.append(f"boards/{board}/defconfig.{revision}")
-                paths += ["fw/prj.conf", "fw/prj_normal.conf"]
-                for index, path in enumerate(paths):
-                    config.load_config(str(ROOT / path), replace=index == 0)
-                self.assertEqual(
-                    config.syms["BT_GATT_DISCOVERY_LEASE_SECONDS"].str_value,
-                    str(expected),
-                )
+            binary = tmp / "discovery"
+            subprocess.run(
+                [
+                    "cc",
+                    "-std=gnu11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-Wno-unused-parameter",
+                    "-Dnullptr=NULL",
+                    "-Dstatic_assert=_Static_assert",
+                    "-fsanitize=address,undefined",
+                    "-fno-sanitize-recover=all",
+                    "-fno-omit-frame-pointer",
+                    "-fno-pie",
+                    "-no-pie",
+                    "-g",
+                    "-include",
+                    str(tmp / "fixture.h"),
+                    "-I",
+                    str(tmp),
+                    "-I",
+                    str(ROOT / "include"),
+                    str(fixture / "harness.c"),
+                    str(ROOT / "lib/util/list.c"),
+                    "-o",
+                    str(binary),
+                ],
+                check=True,
+            )
+            for scenario in SCENARIOS:
+                with self.subTest(scenario=scenario):
+                    subprocess.run([str(binary), scenario], check=True, timeout=10)
 
 
 if __name__ == "__main__":

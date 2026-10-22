@@ -5,7 +5,7 @@
 
 static GAPLEConnection connection = {{1}};
 static bool valid = true, mapped = true;
-static unsigned lock_depth, queue_done, completions, changed, lease_calls;
+static unsigned lock_depth, queue_done, completions, changed;
 static enum pbl_bt_errno completed_error;
 static unsigned live, emitted;
 static size_t live_bytes;
@@ -79,12 +79,6 @@ void uuid_to_string(const Uuid *u, char *s) {
 void nimble_uuid_to_pebble(const ble_uuid_any_t *n, Uuid *u) {
   memset(u, 0, sizeof(*u));
   memcpy(u, &n->u.value, sizeof(n->u.value));
-}
-void conn_mgr_set_ble_conn_response_time(GAPLEConnection *c, unsigned consumer, unsigned response,
-                                         unsigned seconds) {
-  assert(c == &connection && consumer == 1 && response == 2);
-  assert(seconds == CONFIG_BT_GATT_DISCOVERY_LEASE_SECONDS);
-  ++lease_calls;
 }
 void nimble_gattc_op_queue_push(int (*fn)(void *), void *arg) {
   assert(!queued_start);
@@ -214,7 +208,6 @@ static void descriptor(uint16_t handle, uint16_t uuid) {
 static void start(void) {
   struct pbl_bt_att_handle_range range = {1, 1000};
   assert(pbl_bt_gatt_start_discovery_range(&connection, &range) == PBL_BT_ERRNO_OK);
-  assert(lease_calls == (CONFIG_BT_GATT_DISCOVERY_LEASE_SECONDS > 0));
   run_queued();
 }
 static void one_service(bool subscription) {

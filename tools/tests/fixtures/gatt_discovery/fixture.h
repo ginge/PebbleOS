@@ -95,6 +95,3 @@ struct pbl_sem {
 #define PBL_TICKS(n)            (n)
 int pbl_sem_give(struct pbl_sem *);
 int pbl_sem_take(struct pbl_sem *, int);
-#define PBL_BT_CONSUMER_LE_SERVICE_DISCOVERY 1
-#define PBL_BT_RESPONSE_TIME_MIN             2
-void conn_mgr_set_ble_conn_response_time(GAPLEConnection *, unsigned, unsigned, unsigned);
