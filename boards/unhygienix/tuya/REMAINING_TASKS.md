@@ -1,5 +1,15 @@
 # Unhygienix validation and remaining work
 
+## Highest priority — power optimization — 2026-10-30
+
+- [ ] Complete the [power TODO](../../../docs/boards/unhygienix/power-todo.md)
+  as the highest-priority workstream. Work through the non-display phases first;
+  leave AMOLED power states, display QSPI gating and display DMA changes until
+  the final phase. Track implementation and measured device qualification
+  separately. Existing stability, data-integrity and release checks remain required.
+
+This priority supersedes the ordering in older dated dispositions below.
+
 ## Current disposition — 2026-10-22
 
 Use the [current status](../../../docs/boards/unhygienix/current-status.md) for

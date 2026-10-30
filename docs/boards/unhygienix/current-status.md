@@ -72,26 +72,32 @@ Evidence: [heap-fix report](/home/baz/Documents/ChatGPT/pebble/artifacts/sd-pfs-
 
 ## Remaining work
 
-1. Diagnose remaining Bluetooth supervision timeouts; qualify sustained phone/app
+Priority update — 2026-10-30: [power optimization](power-todo.md) is the
+highest-priority workstream. Complete its non-display phases first and leave all
+display power work until its final phase. This changes work ordering only; the
+recorded installed-image state and measured results above are unchanged.
+
+1. Complete the [power TODO](power-todo.md), including measured qualification.
+2. Diagnose remaining Bluetooth supervision timeouts; qualify sustained phone/app
    transfers, 25 reconnect cycles, cold-boot bond/face restoration and overnight
    connected-idle operation with periodic interaction.
-2. Resolve general App/KernelBG watchdog and settings-full-sync stalls. Preserve
+3. Resolve general App/KernelBG watchdog and settings-full-sync stalls. Preserve
    prior first-failure evidence separately from the fixed notification heap OOM.
-3. Benchmark SD throughput, CPU cost and tail latency; qualify full-volume,
+4. Benchmark SD throughput, CPU cost and tail latency; qualify full-volume,
    interrupted-write/corruption recovery and display/microphone concurrency.
-4. Measure startup/peak heap and stack high-water under representative loads;
+5. Measure startup/peak heap and stack high-water under representative loads;
    address optional contiguous-image allocation limits. A whole-heap PSRAM move
    is not implemented; benchmark allocation/free/reallocation under fragmentation
    and normal display/Bluetooth load before deciding it.
-5. Finish low-power/tick suppression, hardware wake/alarm routing, RTC drift,
+6. Finish low-power/tick suppression, hardware wake/alarm routing, RTC drift,
    privilege/isolation and fitted-cell battery/charging qualification. Further
    accelerometer CPU-cost reduction remains exploratory; do not infer an
    exclusive pipeline baseline from instrumented task CPU figures.
-6. Refresh the stock-convergence audit against current source/upstream; finish
+7. Refresh the stock-convergence audit against current source/upstream; finish
    memory/capability/image-geometry contracts and shared-backend consolidation.
    Review shared GATT, PULSE, logging, pairing, serial, MPU and watchdog fixes
    independently for upstream. Complete relevant stock-board/QEMU checks.
-7. Define firmware packaging, rollback, interruption recovery and factory restore
+8. Define firmware packaging, rollback, interruption recovery and factory restore
    before enabling OTA/recovery. Existing update gates remain in force.
 
 SDK compatibility-cache removal/benchmarking, pixel implementation removal and
