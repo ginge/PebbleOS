@@ -23,6 +23,9 @@ typedef int status_t;
 #define E_BUSY -11
 #define E_INVALID_ARGUMENT -4
 #define E_ERROR -1
+#define E_INVALID_OPERATION -5
+static bool owner;
+static bool t5ai_mailbox_channel_is_owner(void){return owner;}
 #define PBL_FOREVER UINT32_MAX
 #define PBL_TICK_FOREVER UINT32_MAX
 #define PBL_TICKS(x) (x)
@@ -78,6 +81,9 @@ int main(void){
  assert(t5ai_mailbox_channel_send_async(0x11,&first,retired_cb,(void *)3)==0);
  assert(!s_tx[0].mutex && s_tx[0].state==TxState_Pending);
  T5AIMailboxMessage ack;
+ owner=true;s_tx[0].mutex=2;
+ assert(t5ai_mailbox_channel_send(0x11,&second,&ack,5000)==E_INVALID_OPERATION);
+ owner=false;s_tx[0].mutex=0;
  assert(t5ai_mailbox_channel_send(0x11,&second,&ack,5000)==0);
  assert(ack.parameter3==456 && waits==2 && retired==1);
  assert(s_tx[0].state==TxState_Idle && !s_tx[0].mutex && !depth && !s_faulted);

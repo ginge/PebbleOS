@@ -212,6 +212,9 @@ static status_t prv_ensure_runtime(void) {
 }
 
 status_t t5ai_cp_mailbox_lock(void) {
+  if (t5ai_mailbox_channel_is_owner()) {
+    return E_INVALID_OPERATION;
+  }
   status_t status = prv_ensure_runtime();
   if (FAILED(status)) {
     return status;
@@ -296,6 +299,9 @@ void t5ai_cp_mailbox_enable_rx_interrupt(void) {
 }
 
 status_t t5ai_cp_mailbox_receive(uint8_t logical_channel, T5AICPMailboxFrame *frame) {
+  if (t5ai_mailbox_channel_is_owner()) {
+    return E_INVALID_OPERATION;
+  }
   if (frame == NULL) {
     return E_INVALID_ARGUMENT;
   }
@@ -402,14 +408,19 @@ pbl_tick_t t5ai_cp_mailbox_heartbeat_poll(void) {
 }
 
 static status_t prv_pm_request(uint8_t command, uint32_t parameter1, uint32_t parameter2) {
+  if (t5ai_mailbox_channel_is_owner()) {
+    return E_INVALID_OPERATION;
+  }
   status_t status = prv_ensure_runtime();
   if (FAILED(status)) {
     return status;
   }
-  if (s_pm_faulted) {
-    return E_INVALID_OPERATION;
-  }
   pbl_mutex_lock(&s_pm_mutex, PBL_FOREVER);
+  // A queued caller must not drain or reuse a session poisoned by its predecessor.
+  if (s_pm_faulted) {
+    status = E_INVALID_OPERATION;
+    goto out;
+  }
   while (pbl_sem_take(&s_pm_queue.ready, PBL_TICKS(0u)) == 0) {
     T5AICPMailboxFrame stale;
     (void)prv_dequeue(CP_PM_RX_CHANNEL, &stale);
@@ -505,7 +516,7 @@ status_t t5ai_cp_mailbox_log(const void *data, size_t length) {
   /* Runtime logging is synchronous and owns shared staging storage.  Callers
    * in an interrupt must use the dbgserial front end, which intentionally
    * drops T5AI interrupt-time output rather than blocking on the CP. */
-  if (mcu_state_is_isr()) {
+  if (mcu_state_is_isr() || t5ai_mailbox_channel_is_owner()) {
     return E_INVALID_OPERATION;
   }
   if (s_log_faulted) {

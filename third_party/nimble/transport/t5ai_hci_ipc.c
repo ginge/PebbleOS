@@ -101,6 +101,13 @@ static T5AIHCIPendingFrame s_pending_frames[T5AI_HCI_PENDING_FRAME_CAPACITY]
     __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
 static uint8_t s_pending_frame_head;
 static uint8_t s_pending_frame_count;
+// Keep the first pressure evidence even if subsequent frames also exhaust the queue.
+static struct {
+  uint32_t count;
+  uint32_t header;
+  uint32_t object;
+  bool reported;
+} s_queue_fault;
 static uint8_t s_event_payload[T5AI_HCI_MAX_EVENT_SIZE]
     __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
 static uint8_t s_acl_payload[T5AI_HCI_MAX_ACL_SIZE] __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
@@ -323,10 +330,25 @@ static bool prv_dequeue_pending_frame(T5AIMIPCFrame *frame) {
   return available;
 }
 
+static void prv_report_queue_fault(void) {
+  pbl_irq_lock();
+  const uint32_t count = s_queue_fault.count;
+  const uint32_t header = s_queue_fault.header;
+  const uint32_t object = s_queue_fault.object;
+  const bool report = count != 0u && !s_queue_fault.reported;
+  s_queue_fault.reported |= report;
+  pbl_irq_unlock();
+  if (report) {
+    PBL_LOG_ERR("T5AI HCI pending queue exhausted: count=%lu header=%08lx object=%08lx",
+                (unsigned long)count, (unsigned long)header, (unsigned long)object);
+  }
+}
+
 static void prv_worker(void *context) {
   (void)context;
   while (true) {
     (void)pbl_sem_take(&s_worker_wake, PBL_TICKS(PBL_TICK_FOREVER));
+    prv_report_queue_fault();
     T5AIMIPCFrame frame;
     while (prv_dequeue_pending_frame(&frame)) {
       if (prv_retire_request(&frame) || prv_retire_event_response(&frame)) {
@@ -373,11 +395,19 @@ static void prv_route_frame(uint8_t logical_channel, const T5AICPMailboxFrame *f
   memcpy(&pending, (const void *)frame->address, sizeof(pending));
   (void)t5ai_cp_mailbox_acknowledge_frame(frame, true);
   if (FAILED(prv_queue_pending_frame(&pending))) {
-    PBL_LOG_ERR("T5AI HCI pending frame queue exhausted");
     prv_mark_faulted();
-  } else {
-    (void)pbl_sem_give(&s_worker_wake);
+    pbl_irq_lock();
+    if (s_queue_fault.count == 0u) {
+      s_queue_fault.header = pending.header;
+      s_queue_fault.object = pending.object;
+    }
+    if (s_queue_fault.count != UINT32_MAX) {
+      ++s_queue_fault.count;
+    }
+    pbl_irq_unlock();
   }
+  // Reporting may wait for logging/PULSE locks; only the HCI worker may do it.
+  (void)pbl_sem_give(&s_worker_wake);
 }
 
 static status_t prv_decode_remote(T5AIMIPCFrame *frame, T5AIMIPCData **remote_data,

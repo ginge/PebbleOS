@@ -9,6 +9,7 @@
 #include <pbl/kernel/mutex.h>
 #include <pbl/kernel/sched.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
+#include <pbl/soc/t5ai/mailbox_channel.h>
 
 #include <stdarg.h>
 #include <stdbool.h>
@@ -23,7 +24,7 @@ static bool s_t5ai_mutex_ready;
 
 static bool prv_can_write(void) {
   // Runtime mailbox output needs interrupts and a schedulable worker.
-  return !mcu_state_is_isr() &&
+  return !mcu_state_is_isr() && !t5ai_mailbox_channel_is_owner() &&
          !(pbl_kernel_is_started() && (pbl_irq_is_locked() || pbl_sched_is_locked()));
 }
 

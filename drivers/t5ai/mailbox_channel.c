@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include <pbl/kernel/kernel.h>
+#include <pbl/mcu/interrupts.h>
 #include <pbl/soc/t5ai/cache.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/interrupt_profile.h>
@@ -543,6 +544,9 @@ status_t t5ai_mailbox_channel_send_async(uint8_t channel, const T5AIMailboxMessa
 
 status_t t5ai_mailbox_channel_send(uint8_t channel, const T5AIMailboxMessage *message,
                                    T5AIMailboxMessage *ack, uint32_t timeout_ms) {
+  if (t5ai_mailbox_channel_is_owner()) {
+    return E_INVALID_OPERATION;
+  }
   uint8_t index;
   if (!s_started || s_faulted || !prv_tx_channel(channel, &index) || message == NULL) {
     return E_INVALID_ARGUMENT;
@@ -592,6 +596,10 @@ status_t t5ai_mailbox_channel_send(uint8_t channel, const T5AIMailboxMessage *me
   pbl_irq_unlock();
   pbl_mutex_unlock(&tx->mutex);
   return status;
+}
+
+bool t5ai_mailbox_channel_is_owner(void) {
+  return !mcu_state_is_isr() && pbl_thread_current() == &s_task;
 }
 
 bool t5ai_mailbox_channel_faulted(void) {

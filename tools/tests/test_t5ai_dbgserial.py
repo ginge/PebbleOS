@@ -9,6 +9,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 
 HEADERS = {
+    "pbl/soc/t5ai/mailbox_channel.h": "#include <stdbool.h>\nbool t5ai_mailbox_channel_is_owner(void);\n",
     "pbl/kernel/compiler.h": "#define PBL_FORMAT_PRINTF(a, b)\n",
     "pbl/mcu/interrupts.h": "#include <stdbool.h>\nbool mcu_state_is_isr(void);\n",
     "pbl/kernel/irq.h": "#include <stdbool.h>\nbool pbl_irq_is_locked(void);\n",
@@ -39,7 +40,8 @@ HARNESS = r"""
 #include "console/dbgserial.h"
 #include "pbl/kernel/mutex.h"
 
-static bool started = true, irq_locked, sched_locked, isr;
+static bool started = true, irq_locked, sched_locked, isr, owner;
+bool t5ai_mailbox_channel_is_owner(void) { return owner; }
 static unsigned locks, sends;
 static char output[512];
 static size_t output_length;
@@ -71,13 +73,14 @@ int main(void) {
   assert(locks == 1 && sends == 1);
   assert(output_length == 8 && memcmp(output, "normal\r\n", 8) == 0);
 
-  for (unsigned context = 0; context < 3; context++) {
+  for (unsigned context = 0; context < 4; context++) {
     output_length = 0;
     dbgserial_putchar_lazy('A');
     unsigned previous_locks = locks, previous_sends = sends;
     irq_locked = context == 0;
     sched_locked = context == 1;
     isr = context == 2;
+    owner = context == 3;
     dbgserial_putchar_lazy('x');
     dbgserial_putchar('x');
     dbgserial_putstr("must be dropped");
@@ -85,7 +88,7 @@ int main(void) {
     dbgserial_putstr_fmt(buffer, sizeof(buffer), "drop %u", context);
     dbgserial_flush();
     assert(locks == previous_locks && sends == previous_sends);
-    irq_locked = sched_locked = isr = false;
+    irq_locked = sched_locked = isr = owner = false;
     dbgserial_flush();
     assert(output_length == 1 && output[0] == 'A');
   }

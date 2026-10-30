@@ -47,3 +47,6 @@ bool t5ai_mailbox_channel_faulted(void);
 status_t t5ai_mailbox_channel_bootstrap_send(uint8_t channel,
                                              const T5AIMailboxMessage *message,
                                              T5AIMailboxMessage *ack, uint32_t timeout_ms);
+
+/* True only in the runtime owner task, never in an interrupt or bootstrap. */
+bool t5ai_mailbox_channel_is_owner(void);

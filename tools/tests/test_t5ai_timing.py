@@ -137,6 +137,8 @@ int main(void) {
 #define MAILBOX_ACTIVE_TIMEOUT_MS 5000
 #define E_OUT_OF_MEMORY -1
 #define E_INVALID_ARGUMENT -2
+#define E_INVALID_OPERATION -6
+static bool t5ai_mailbox_channel_is_owner(void){return false;}
 #define E_BUSY -3
 #define E_ERROR -4
 #define S_SUCCESS 0

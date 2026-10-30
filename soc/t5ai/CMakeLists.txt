@@ -366,3 +366,13 @@ if(CONFIG_T5AI_SD_PFS)
     pbl_link_options(-Wl,--wrap=${symbol})
   endforeach()
 endif()
+
+# Reject mailbox-owner logs before shared log-state/PULSE locks without changing
+# stock Pebble logging. Source renaming preserves this boundary with release LTO.
+pbl_library_sources(mailbox_logging.c)
+function(t5ai_mailbox_logging_boundary)
+  set_property(SOURCE ${PBL_BASE}/fw/kernel/kernel_applib_state.c
+    DIRECTORY ${PBL_BASE}/fw/kernel APPEND PROPERTY COMPILE_DEFINITIONS
+    kernel_applib_get_log_state=t5ai_stock_get_log_state)
+endfunction()
+cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_mailbox_logging_boundary)
