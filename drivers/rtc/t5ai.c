@@ -12,6 +12,8 @@
 #include <pbl/soc/t5ai/retained.h>
 #include <pbl/soc/t5ai/rtc.h>
 
+#include <cmsis_core.h>
+
 // External RTC stores years 00..37 relative to 2000; struct pbl_tm counts from 1900.
 #define PCF85063_TM_YEAR_BASE        100
 #define PCF85063_MAX_YEAR            37
@@ -51,6 +53,9 @@ _Static_assert(T5AI_AON_RTC_HZ % RTC_TICKS_HZ == 0u,
 
 static RtcTicks s_alarm_start;
 static bool s_external_rtc_ready;
+static bool s_external_rtc_present;
+// First failing operation from the most recent persistence attempt (zero is healthy).
+static int s_external_rtc_error;
 
 static RtcTicks prv_raw_ticks(void) {
   uint32_t low;
@@ -68,10 +73,11 @@ static RtcTicks prv_base_ticks(void) {
 }
 
 static void prv_set_retained_time(time_t time) {
+  const uint32_t mask = __get_PRIMASK();
+  __disable_irq();
   const RtcTicks ticks = prv_raw_ticks();
-  t5ai_retained_write(CURRENT_TIME_REGISTER, (uint32_t)time);
-  t5ai_retained_write(T5AI_RTC_BASE_TICKS_LOW, (uint32_t)ticks);
-  t5ai_retained_write(T5AI_RTC_BASE_TICKS_HIGH, (uint32_t)(ticks >> 32));
+  t5ai_retained_write_clock((uint32_t)time, ticks);
+  __set_PRIMASK(mask);
 }
 
 static bool prv_decode_bcd(uint8_t raw, uint8_t minimum, uint8_t maximum, uint8_t *value) {
@@ -89,13 +95,14 @@ static uint8_t prv_encode_bcd(unsigned value) {
 static bool prv_external_rtc_read_raw(uint8_t *control,
                                       uint8_t registers[PCF85063_TIME_REGISTER_COUNT]) {
   pbl_i2c_use(I2C_PCF85063);
-  const bool read_control =
-      (pbl_i2c_read_register(I2C_PCF85063, PCF85063_REG_CONTROL1, control) == 0);
-  const bool read_time =
-      read_control && (pbl_i2c_read_register_block(I2C_PCF85063, PCF85063_REG_SECONDS,
-                                                   PCF85063_TIME_REGISTER_COUNT, registers) == 0);
+  int result = pbl_i2c_read_register(I2C_PCF85063, PCF85063_REG_CONTROL1, control);
+  if (result == 0) {
+    result = pbl_i2c_read_register_block(I2C_PCF85063, PCF85063_REG_SECONDS,
+                                         PCF85063_TIME_REGISTER_COUNT, registers);
+  }
+  s_external_rtc_error = result;
   pbl_i2c_release(I2C_PCF85063);
-  return read_time;
+  return result == 0;
 }
 
 static bool prv_external_rtc_decode(uint8_t control,
@@ -150,6 +157,10 @@ static bool prv_external_rtc_read(time_t *time) {
 }
 
 static bool prv_external_rtc_write(time_t time) {
+  s_external_rtc_ready = false;
+  s_external_rtc_error = -1;
+  // Survive reset even if a failed calendar write left plausible running contents.
+  t5ai_retained_write(T5AI_RTC_EXTERNAL_UNTRUSTED, T5AI_RTC_EXTERNAL_UNTRUSTED_VALUE);
   struct pbl_tm encoded;
   pbl_gmtime_r(&time, &encoded);
   if (encoded.tm_year < PCF85063_TM_YEAR_BASE || encoded.tm_year > PCF85063_TM_YEAR_MAX) {
@@ -168,19 +179,38 @@ static bool prv_external_rtc_write(time_t time) {
 
   uint8_t control;
   pbl_i2c_use(I2C_PCF85063);
-  bool result = (pbl_i2c_read_register(I2C_PCF85063, PCF85063_REG_CONTROL1, &control) == 0);
-  if (result) {
+  int result = pbl_i2c_read_register(I2C_PCF85063, PCF85063_REG_CONTROL1, &control);
+  if (result == 0) {
     const uint8_t stopped = (control | PCF85063_CONTROL1_STOP) & ~PCF85063_CONTROL1_12_24;
-    result = (pbl_i2c_write_register(I2C_PCF85063, PCF85063_REG_CONTROL1, stopped) == 0);
-    result = result && (pbl_i2c_write_register_block(I2C_PCF85063, PCF85063_REG_SECONDS,
-                                                     sizeof(registers), registers) == 0);
-    if (result) {
+    result = pbl_i2c_write_register(I2C_PCF85063, PCF85063_REG_CONTROL1, stopped);
+    if (result == 0) {
+      result = pbl_i2c_write_register_block(I2C_PCF85063, PCF85063_REG_SECONDS, sizeof(registers),
+                                            registers);
+      // Once STOP succeeds, restart even after a partial/failed calendar write.
       const uint8_t running = control & ~(PCF85063_CONTROL1_STOP | PCF85063_CONTROL1_12_24);
-      result = (pbl_i2c_write_register(I2C_PCF85063, PCF85063_REG_CONTROL1, running) == 0);
+      const int restart = pbl_i2c_write_register(I2C_PCF85063, PCF85063_REG_CONTROL1, running);
+      if (result == 0) {
+        result = restart;
+      }
     }
   }
   pbl_i2c_release(I2C_PCF85063);
-  return result;
+
+  // Cleanup success must not erase the original error or trust a partial calendar.
+  if (result == 0) {
+    time_t verified;
+    if (!prv_external_rtc_read(&verified)) {
+      result = s_external_rtc_error ? s_external_rtc_error : -1;
+    } else if (verified != time && verified != time + 1) {
+      result = -1;
+    }
+  }
+  s_external_rtc_error = result;
+  s_external_rtc_ready = (result == 0);
+  if (s_external_rtc_ready) {
+    t5ai_retained_write(T5AI_RTC_EXTERNAL_UNTRUSTED, 0);
+  }
+  return s_external_rtc_ready;
 }
 
 void rtc_init(void) {
@@ -203,13 +233,16 @@ void rtc_calibrate_frequency(uint32_t frequency) {
 
 void rtc_init_timers(void) {
   s_external_rtc_ready = false;
+  s_external_rtc_present = false;
   uint8_t control;
   uint8_t registers[PCF85063_TIME_REGISTER_COUNT];
   if (!prv_external_rtc_read_raw(&control, registers)) {
     return;
   }
+  s_external_rtc_present = true;
   time_t external_time;
-  if (prv_external_rtc_decode(control, registers, &external_time)) {
+  if (!t5ai_retained_read(T5AI_RTC_EXTERNAL_UNTRUSTED) &&
+      prv_external_rtc_decode(control, registers, &external_time)) {
     prv_set_retained_time(external_time);
     s_external_rtc_ready = true;
     return;
@@ -219,23 +252,27 @@ void rtc_init_timers(void) {
    * the retained fallback. Do not attempt writes when the bus/device itself
    * did not answer. Read back before trusting it for future time updates. */
   const time_t fallback_time = rtc_get_time();
-  if (prv_external_rtc_write(fallback_time) && prv_external_rtc_read(&external_time)) {
-    prv_set_retained_time(external_time);
-    s_external_rtc_ready = true;
-  }
+  (void)prv_external_rtc_write(fallback_time);
 }
 
 void rtc_set_time(time_t time) {
   prv_set_retained_time(time);
-  if (s_external_rtc_ready) {
+  // A responding device gets one bounded retry on the next wall-time update.
+  if (s_external_rtc_present) {
     (void)prv_external_rtc_write(time);
   }
 }
 
 void rtc_get_time_ms(time_t *out_seconds, uint16_t *out_ms) {
-  const RtcTicks elapsed = prv_raw_ticks() - prv_base_ticks();
-  *out_seconds =
-      (time_t)t5ai_retained_read(CURRENT_TIME_REGISTER) + (time_t)(elapsed / T5AI_AON_RTC_HZ);
+  // Mask all configurable ISRs; a reader must never spin on a preempted writer.
+  const uint32_t mask = __get_PRIMASK();
+  __disable_irq();
+  const RtcTicks ticks = prv_raw_ticks();
+  const RtcTicks base = prv_base_ticks();
+  const uint32_t epoch = t5ai_retained_read(CURRENT_TIME_REGISTER);
+  __set_PRIMASK(mask);
+  const RtcTicks elapsed = ticks - base;
+  *out_seconds = (time_t)epoch + (time_t)(elapsed / T5AI_AON_RTC_HZ);
   *out_ms = (uint16_t)(((elapsed % T5AI_AON_RTC_HZ) * 1000u) / T5AI_AON_RTC_HZ);
 }
 

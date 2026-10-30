@@ -10,17 +10,17 @@
   quarantine. Host validation: 9 focused tests; 231 port tests plus 75 subtests;
   28 shared tests plus 119 subtests. Fresh normal/release packaging and map checks
   pass. [Validation record](/home/baz/Documents/ChatGPT/pebble/artifacts/a2-mailbox-20261030/RESULTS.md).
-  No standalone A2 flash occurred; its corrections are included in installed A3.
+  No standalone A2 flash occurred; its corrections are included in the A3 and A4 AP images.
 - [x] **A3 / F03 implementation and host/image validation:** bounded receive
   retention reuses the original 1,285-byte IPC staging budget, with nonblocking
   retries and explicit recovery on reliable exhaustion/deadline. Normal adds no
   SRAM over A2 (20,192-byte linked heap arena); release adds 32 bytes. All 233
   port tests plus 81 subtests and 28 shared tests plus 119 subtests pass, with
   the same four optional execution checks unconfigured. Fresh normal/release
-  images pass protected packaging/maps/config checks. Source is uncommitted.
+  images pass protected packaging/maps/config checks. Committed as `06079008a`.
   [Implementation record](/home/baz/Documents/ChatGPT/pebble/artifacts/a3-hci-pressure-20261030/RESULTS.md).
 - [x] **A3 AP flash and startup/reconnect check:** compact normal build
-  `4245c7ab3e16d7c5449b864b355ea1ba22550993` is installed. UART confirms four-bit
+  `4245c7ab3e16d7c5449b864b355ea1ba22550993` was installed; A4 now supersedes it. UART confirms four-bit
   SD, the existing 32 MiB volume (`new=0`), 49 apps and encrypted bonded PPoGATT.
   CP, resources, persistent volumes and bonds were excluded from flashing.
   [Flash record](/home/baz/Documents/ChatGPT/pebble/artifacts/a3-flash-20261030/RESULTS.md).
@@ -29,13 +29,34 @@
   high-water; watchface install/launch, 25 reconnect cycles, cold boot/bond
   restoration and overnight connected idle. Startup verification is not operator
   acceptance or resolution of historical app/radio faults.
-- [ ] **A4 / F04 and F05 — next implementation:** RTC failure cleanup and coherent
-  time publication; follow the
-  [handoff](/home/baz/Documents/ChatGPT/pebble/audits/2026-10-30-tuya-port-review/HANDOFF.md).
+- [x] **A4 / F04 and F05 implementation and host/image validation:** restart after
+  failed stopped-calendar writes, preserve the first error and gate persistence
+  health on readback. Retained word 22 preserves the external fault signature.
+  Saved-mask tuple accesses and ordered cache-durable commits preserve the
+  136-byte retained layout/checksum. Separate F04/F05 diffs and regressions are
+  reviewable; production changes remain uncommitted. Validation: 5 focused tests
+  plus 74 subtests; 231 port tests plus 147 subtests; 28 shared tests plus 119
+  subtests. Four existing optional execution checks remain unconfigured. Fresh
+  normal/release builds pass packaging/maps. [Implementation record](/home/baz/Documents/ChatGPT/pebble/artifacts/a4-rtc-20261030/RESULTS.md).
+- [x] **A4 AP flash and bounded hardware checks:** rebuilt normal image
+  `943caf619e5bb3e49f6e852bfe97efe0eb8323f0` is installed. Initial boot and one
+  controlled DTR/RTS reset confirm current boot time before phone reconnection,
+  existing four-bit SD/PFS with 49 apps, and encrypted bonded PPoGATT. CP,
+  resources, volumes and bonds were not written or provisioned. Captures stopped.
+  [Flash/test record](/home/baz/Documents/ChatGPT/pebble/artifacts/a4-flash-20261030/RESULTS.md).
+- [ ] **A4 device qualification:** actual STOP/calendar/restart/readback faults,
+  direct persistence-health observation, reset at retained/cache-write boundaries,
+  wrap/IRQ-mask latency, battery-loss/cold boot, oscillator/calendar drift and
+  longer board checks. Console time writes did not execute because T5AI debug
+  UART input is stubbed even in normal builds; do not count them as passing.
+- [ ] **T5AI console input integration:** runtime output uses the CP-owned UART;
+  input callbacks are unconditional no-ops. Other SoCs use shared RX in normal/MFG
+  builds and stub it in non-MFG release. This predates A4 and remains separate
+  work; do not reclaim AP UART0 pins from four-bit SD to enable console input.
 
 Preserve default SD PFS, four-bit mode, the existing-volume guard, CP wire ABI,
 A1 cache maintenance, A2 owner guards/quarantine and the one-second heartbeat.
-The latest verified AP is compact A3 `4245c7ab`; the 107-second capture is stopped.
+The latest verified AP is A4 `943caf61`; all bounded captures are stopped.
 A1's first-launch app fault and longer device checks remain open. Implementation,
 host/image validation and device qualification remain separate dispositions.
 

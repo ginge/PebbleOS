@@ -22,6 +22,8 @@ STUBS = {
     "pbl/kernel/assert.h": "#pragma once\n#define PBL_ASSERTN(x) assert(x)\n",
     "bf0_hal.h": "#pragma once\nuint32_t HAL_Get_backup(uint32_t);\nvoid HAL_Set_backup(uint32_t, uint32_t);\n",
 }
+STUBS["pbl/soc/t5ai/cache.h"] = "#pragma once\n#define t5ai_cache_clean(p, n) ((void)0)\n"
+STUBS["cmsis_core.h"] += "\n#define __get_PRIMASK() 0u\n#define __set_PRIMASK(v) ((void)(v))\n"
 STUBS["pbl/kernel/compiler.h"] += '\n#define PBL_SECTION(s) __attribute__((section(s)))\n'
 STUBS["pbl/logging/logging.h"] = """
 #pragma once
@@ -92,7 +94,7 @@ class RetainedStorageTest(unittest.TestCase):
         ))
 
     def test_reset_with_actual_retained_backend(self):
-        headers = {**reset_test.HEADERS, "pbl/kernel/assert.h": STUBS["pbl/kernel/assert.h"]}
+        headers = {**reset_test.HEADERS, "pbl/soc/t5ai/cache.h": STUBS["pbl/soc/t5ai/cache.h"], "cmsis_core.h": STUBS["cmsis_core.h"], "pbl/kernel/assert.h": STUBS["pbl/kernel/assert.h"]}
         reset_test.T5AIResetTest().compile_run(reset_test.RESET_HARNESS, headers, (
             "-DCONFIG_WATCHDOG=1", "-DCONFIG_SOC_T5AI=1",
             "-DCONFIG_WATCHDOG_TIMEOUT_MS=30000",

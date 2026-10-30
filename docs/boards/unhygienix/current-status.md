@@ -6,20 +6,41 @@ remain evidence; completion by operator decision does not imply new measurements
 
 ## Latest source and recorded device state — 2026-10-30
 
-Production HEAD is `f7f7cbd84ab6dba1098442f88f59ebbfc53b346e` (A2), following
-`f3ebbee4c` (A1 cache coherence and SD defaults). The worktree was clean before
-this documentation refresh. A3 is implemented in the current uncommitted
-worktree; its compact normal image was flashed AP-only at the operator's request.
+Production HEAD is `06079008a6ef5493b5c752cf932060f73477adde` (A3 committed),
+following A2 `f7f7cbd84` and A1 `f3ebbee4c`. A4 RTC cleanup/publication is implemented
+and host/image validated in the uncommitted worktree. Its normal configuration
+was rebuilt and flashed AP-only at the operator's request on 30 October.
 
 **Latest verified installed AP:** ELF build ID
-`4245c7ab3e16d7c5449b864b355ea1ba22550993`, compact A3 normal, flashed on
-30 October at approximately 14:57 UTC. The guarded writer reports Flash OK;
-UART confirms the matching build, four-bit SD, the existing 32 MiB volume
-(`new=0`), 49 apps and an encrypted bonded phone session with PPoGATT reopened.
-CP, resources, NOR PFS and bond storage were not flashed or provisioned. The
-107-second receive-only capture is stopped. This is startup/reconnect evidence,
-not longer pressure or soak qualification. See the
-[flash record](/home/baz/Documents/ChatGPT/pebble/artifacts/a3-flash-20261030/RESULTS.md).
+`943caf619e5bb3e49f6e852bfe97efe0eb8323f0`, normal A4, boot verified at
+15:37:46 UTC and after one controlled hardware reset at 15:40:07 UTC.
+Phone version: `v4.41.2-669-g06079008a-dirty`. The guarded writer reports Flash OK.
+Both boots confirm four-bit SD, the existing 32 MiB volume (`new=0`), 49 apps,
+and encrypted bonded phone reconnection with PPoGATT reopened. CP, resources,
+NOR PFS and bonds were not written or provisioned. Boot wall time was current
+before the phone reconnected after the reset. This is a normal reset/boot check;
+physical I2C failure injection and interrupted-commit qualification remain open.
+
+The three receive-only captures are stopped (78.49 s, 90.01 s and 45.10 s;
+separate segments). A console-driven clock-update test could not execute:
+PULSE reliable negotiation failed, and the T5AI input backend is stubbed.
+A standalone tyutool DTR/RTS reset supplied the controlled reset check instead.
+This is a pre-existing T5AI console integration gap: the shared backend on
+other SoCs receives UART input in normal/MFG builds and stubs it only for
+non-MFG release; T5AI uses unconditional stubs. The T5AI UART driver has RX
+support, but the runtime console uses the CP-owned UART. Enabling AP UART0
+would conflict with the current four-bit SD pin assignment and is separate work.
+One connection-parameter request timeout recovered 412 ms later in device logs.
+No fatal fault or uncommanded extra boot was observed. These short runs do not
+qualify drift, maximum interrupt latency, cold/battery-loss retention or longer
+soak behavior. See the [A4 flash/test record](/home/baz/Documents/ChatGPT/pebble/artifacts/a4-flash-20261030/RESULTS.md).
+
+The previous A3 installed ID was `4245c7ab3e16d7c5449b864b355ea1ba22550993`;
+its frozen AP/ELF/dictionary rollback inputs are preserved in the A4 flash record.
+The earlier [A3 startup/reconnect evidence](/home/baz/Documents/ChatGPT/pebble/artifacts/a3-flash-20261030/RESULTS.md)
+remains historical. A4's rebuilt image has a distinct ID from the earlier host
+validation build; source/configuration equality and fresh packaging/map checks
+were established before writing.
 
 [A1 is complete and explicitly accepted by the operator](/home/baz/Documents/ChatGPT/pebble/artifacts/a1-sd-reflash-20261030/RESULTS.md).
 The previously accepted A1 SD AP had ELF build ID
@@ -60,9 +81,19 @@ tests plus 81 subtests; 28 shared tests plus 119 subtests. Both fresh images pas
 protected packaging/maps/config checks. CP ABI, A1/A2 protections and SD defaults
 remain unchanged. Runtime pressure/heap/stack and longer device qualification
 remain pending; no operator acceptance or resolution of historical app/radio
-faults is inferred from this flash. **Next implementation: A4 / F04 and F05,
-RTC failure cleanup and coherent publication.** Power and architectural work
-remain later packages under the
+faults is inferred from this flash.
+
+[A4 / F04 and F05 is implemented, host/image validated and AP flashed](/home/baz/Documents/ChatGPT/pebble/artifacts/a4-rtc-20261030/RESULTS.md).
+External STOP/write failures now attempt restart and retain the first error;
+readback gates persistence health. Saved-mask tuple publication and ordered
+cache-durable retained commits preserve the 136-byte layout and checksum.
+Validation: 5 focused tests plus 74 subtests, 231 port tests plus 147 subtests,
+and 28 shared tests plus 119 subtests; four existing optional execution checks
+remain unconfigured. Normal/release images pass protected packaging/maps.
+The later rebuilt normal image is the installed ID above. Device validation is
+limited to startup, normal reset/current boot time and bonded reconnection;
+console clock updates, actual RTC bus faults and interrupted resets remain open.
+Power and architectural work remain later packages under the
 [handoff](/home/baz/Documents/ChatGPT/pebble/audits/2026-10-30-tuya-port-review/HANDOFF.md).
 The standing power sequence remains non-display first and display power last;
 these correctness prerequisites do not claim electrical savings.
