@@ -32,6 +32,8 @@ COMMON = r"""
 #define __DSB() ((void)0)
 #define SDIO_IRQn 10
 #define GDMA_IRQn 11
+#define T5AI_GDMA_SD 12
+#define t5ai_gdma_irq_acquire(owner) ((void)(owner))
 #define NVIC_SetPriority(...) ((void)0)
 #define NVIC_EnableIRQ(...) ((void)0)
 typedef int status_t;
@@ -321,6 +323,7 @@ class SDTests(unittest.TestCase):
                 else COMMON.replace("#define CONFIG_T5AI_SD_4BIT 1", "")
             )
             headers = [
+                "pbl/soc/t5ai/gdma.h",
                 "pbl/kernel/kernel.h",
                 "pbl/kernel/time.h",
                 "pbl/mcu/cache.h",

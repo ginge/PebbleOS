@@ -11,6 +11,7 @@
 #include <pbl/logging/logging.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/delay.h>
+#include <pbl/soc/t5ai/gdma.h>
 #include <pbl/soc/t5ai/display_profile.h>
 #include <pbl/soc/t5ai/memory.h>
 #include <pbl/soc/t5ai/rtc.h>
@@ -973,10 +974,8 @@ void display_init(void) {
 #endif
 #ifdef CONFIG_T5AI_DISPLAY_DMA_IRQ
   *(volatile uint32_t *)(DMA_BASE + 0x28u) &= ~1u; // Only channel zero routes to secure GDMA IRQ0.
-  SYSTEM_CPU1_INTERRUPT_ENABLE |= 1u << 11;
-  NVIC_ClearPendingIRQ(GDMA_IRQn);
-  NVIC_SetPriority(GDMA_IRQn, 6u);
-  NVIC_EnableIRQ(GDMA_IRQn);
+  // The display handler remains registered for the initialized driver lifetime.
+  t5ai_gdma_irq_acquire(T5AI_GDMA_DISPLAY);
 #endif
   prv_init_conversion_tables();
   s_initialized = prv_qspi_init() && prv_panel_init();

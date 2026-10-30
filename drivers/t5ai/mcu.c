@@ -34,15 +34,19 @@ static bool prv_read_byte(uint8_t address, uint8_t *value) {
   ctrl |= (uint32_t)address << T5AI_EFUSE_ADDRESS_SHIFT;
   T5AI_EFUSE_CTRL = ctrl | T5AI_EFUSE_OPERATION_ENABLE;
 
-  uint32_t timeout = T5AI_EFUSE_READ_TIMEOUT;
-  while ((T5AI_EFUSE_CTRL & T5AI_EFUSE_OPERATION_ENABLE) != 0 &&
-         timeout-- != 0) {
+  uint32_t remaining = T5AI_EFUSE_READ_TIMEOUT;
+  while ((T5AI_EFUSE_CTRL & T5AI_EFUSE_OPERATION_ENABLE) != 0) {
+    if (remaining == 0) {
+      return false;
+    }
+    --remaining;
   }
-  if (timeout == 0 || (T5AI_EFUSE_OPTR & T5AI_EFUSE_READ_VALID) == 0) {
+  const uint32_t result = T5AI_EFUSE_OPTR;
+  if ((result & T5AI_EFUSE_READ_VALID) == 0) {
     return false;
   }
 
-  *value = (uint8_t)T5AI_EFUSE_OPTR;
+  *value = (uint8_t)result;
   return true;
 }
 

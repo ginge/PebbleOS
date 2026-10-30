@@ -4,7 +4,7 @@ endif()
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 pbl_library()
-pbl_library_sources(init.c idle.c tick.c delay.c power.c retained.c reboot_reason.c flash_translation.c)
+pbl_library_sources(init.c idle.c gdma.c tick.c delay.c power.c retained.c reboot_reason.c flash_translation.c)
 pbl_library_sources(resource_storage.c)
 pbl_library_sources_ifdef(CONFIG_T5AI_DISPLAY_PROFILE display_profile.c)
 pbl_library_sources_ifdef(CONFIG_T5AI_STATE_TRACE state_trace.c)

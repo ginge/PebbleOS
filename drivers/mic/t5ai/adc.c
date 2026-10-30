@@ -14,6 +14,7 @@
 #include <pbl/services/system_task.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/delay.h>
+#include <pbl/soc/t5ai/gdma.h>
 #include <pbl/soc/t5ai/rtc.h>
 
 PBL_LOG_MODULE_DEFINE(driver_mic_t5ai, CONFIG_DRIVER_MIC_LOG_LEVEL);
@@ -36,8 +37,6 @@ PBL_LOG_MODULE_DEFINE(driver_mic_t5ai, CONFIG_DRIVER_MIC_LOG_LEVEL);
 #define AUD_IRQ_DRAIN_LIMIT 64u
 #define SYS_AUDIO_CLOCK_SOURCE (*(volatile uint32_t *)0x44010020u)
 #define SYS_AUDIO_APLL (1u << 25)
-#define SYS_CPU1_IRQ_ENABLE (*(volatile uint32_t *)0x44010088u)
-#define SYS_DMA_IRQ (1u << 11)
 #define SYS_ANALOG_BASE 0x44010100u
 #define SYS_ANALOG_BUSY (*(volatile uint32_t *)0x440100e8u)
 #define SYS_AUDIO_BIAS_INDEX 18u
@@ -135,20 +134,10 @@ static bool prv_power_down(MicDevice *device) {
   if (!state->powered) {
     return true;
   }
-#ifndef CONFIG_T5AI_SD_PFS
-  NVIC_DisableIRQ(device->irq);
-#endif
   *prv_reg(device, AUD_CONFIG) &= ~AUD_ADC_ENABLE;
   prv_dma_stop();
   *prv_reg(device, AUD_FIFO_CONFIG) = 0u;
-  pbl_irq_lock();
-#ifndef CONFIG_T5AI_SD_PFS
-  SYS_CPU1_IRQ_ENABLE &= ~SYS_DMA_IRQ;
-#endif
-  pbl_irq_unlock();
-#ifndef CONFIG_T5AI_SD_PFS
-  NVIC_ClearPendingIRQ(device->irq);
-#endif
+  t5ai_gdma_irq_release(T5AI_GDMA_MIC);
   const bool mic_off = prv_analog_write(SYS_MIC1_INDEX, SYS_MIC1_DEFAULT);
   const bool bias_off = prv_analog_write(SYS_AUDIO_BIAS_INDEX, SYS_AUDIO_BIAS_DEFAULT);
   const status_t clock = t5ai_cp_mailbox_set_audio_clock(false);
@@ -324,10 +313,6 @@ void mic_init(MicDevice *device) {
   }
   pbl_mutex_init(&state->mutex);
   state->gain = AUD_ADC_GAIN_DEFAULT;
-#ifndef CONFIG_T5AI_SD_PFS
-  NVIC_DisableIRQ(device->irq);
-#endif
-  NVIC_SetPriority(device->irq, device->irq_priority);
   state->initialized = true;
 }
 
@@ -378,12 +363,8 @@ bool mic_start(MicDevice *device, MicDataHandlerCB handler, void *context, int16
   state->settle_deadline = t5ai_rtc_get_raw_ticks() + MIC_SETTLE_TICKS;
   state->running = true;
   state->dma_irq_ticks = t5ai_rtc_get_raw_ticks();
-  SYS_CPU1_IRQ_ENABLE |= SYS_DMA_IRQ;
+  t5ai_gdma_irq_acquire(T5AI_GDMA_MIC);
   *prv_reg(device, AUD_FIFO_CONFIG) = AUD_FIFO_THRESHOLD;
-#ifndef CONFIG_T5AI_SD_PFS
-  NVIC_ClearPendingIRQ(device->irq);
-#endif
-  NVIC_EnableIRQ(device->irq);
   *prv_reg(device, AUD_CONFIG) |= AUD_ADC_ENABLE;
   pbl_irq_unlock();
   pbl_mutex_unlock(&state->mutex);
@@ -396,9 +377,6 @@ void mic_stop(MicDevice *device) {
   pbl_mutex_lock(&state->mutex, PBL_FOREVER);
   if (state->running) {
     pbl_irq_lock();
-#ifndef CONFIG_T5AI_SD_PFS
-    NVIC_DisableIRQ(device->irq);
-#endif
     state->running = false;
     pbl_irq_unlock();
     (void)prv_power_down(device);

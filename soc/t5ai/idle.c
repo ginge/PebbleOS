@@ -2,6 +2,8 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <pbl/kernel/idle.h>
+
+#include <kernel/util/idle.h>
 #include <pbl/soc/t5ai/interrupt_profile.h>
 #include <pbl/soc/t5ai/tick.h>
 
@@ -26,6 +28,10 @@ static uint32_t prv_percentage(RtcTicks value, RtcTicks total) {
 
 void pbl_soc_idle(pbl_tick_t expected_idle_ticks) {
   (void)expected_idle_ticks;
+
+  if (!idle_is_allowed()) {
+    return;
+  }
 
   const RtcTicks start = rtc_get_ticks();
   const uint32_t profile_start = t5ai_interrupt_profile_irq_enter();

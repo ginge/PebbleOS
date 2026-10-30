@@ -27,23 +27,24 @@ work. These documents describe a preliminary design, not verified hardware.
 
 ## Latest implementation status — 2026-10-30
 
-A1 is operator accepted; A2 is committed as `f7f7cbd84`. A3 HCI receive-pressure
-handling is implemented in the uncommitted worktree and validated on host and
-fresh normal/release images. It reuses existing IPC staging: normal has no net
-SRAM increase over A2; release adds 32 bytes.
+A1 is operator accepted; A2, A3 and A4 are committed. HEAD is `bf10c6435`.
+A5 eFuse timeout/completion, common idle control and shared GDMA ownership are
+implemented in the uncommitted production worktree. Separate corrections and
+regressions pass; normal/release plus all eight DMA feature combinations pass
+fresh builds, packaging and map checks. Defaults and display power policy remain.
 
-The latest verified installed AP is compact A3 normal
-`4245c7ab3e16d7c5449b864b355ea1ba22550993`. AP-only flashing and UART confirmed
-the matching build, existing four-bit 32 MiB SD PFS (`new=0`), 49 apps and an
-encrypted bonded phone session. CP, resources, storage and bonds were not
-flashed/provisioned. Capture is stopped. Sustained pressure, heap/stack and longer
-device qualification remain pending; the flash does not imply operator acceptance.
+The latest verified installed AP is normal A5
+`901c6c58f0d520c5388b15a0865d4b21c055efb3`, AP-only flashed on 30 October.
+UART verifies the exact build, existing four-bit 32 MiB SD PFS (`new=0`), 49 apps
+and encrypted bonded phone reconnection. CP, resources, PFS and bonds were preserved.
+The bounded capture is stopped. An `Animation 3 does not exist` error is preserved;
+no fatal fault or additional uncommanded boot was observed.
 
-See [current status](current-status.md) for validation and
-[flash evidence](/home/baz/Documents/ChatGPT/pebble/artifacts/a3-flash-20261030/RESULTS.md).
-The next implementation package is A4 RTC cleanup/publication under the
-[handoff](/home/baz/Documents/ChatGPT/pebble/audits/2026-10-30-tuya-port-review/HANDOFF.md).
-SD defaults, A1/A2 protections and the non-display-first power sequence remain.
+See [current status](current-status.md), [A5 validation](/home/baz/Documents/ChatGPT/pebble/artifacts/a5-local-20261030/RESULTS.md) and
+[flash evidence](/home/baz/Documents/ChatGPT/pebble/artifacts/a5-flash-20261030/RESULTS.md). A3 pressure, A4 RTC fault/interrupted-write and A5
+physical eFuse/idle/mixed-DMA qualification remain open. Continue the standing
+non-display-first power sequence; this flash does not establish electrical savings
+or complete the watchface/reconnect/cold-boot/overnight qualification.
 
 ## Historical implementation status — 2026-10-22
 

@@ -17,10 +17,15 @@ A1 is operator accepted; A2 logging/PM quarantine is committed. A3 receive-press
 handling is host/image validated and flashed AP-only with startup/reconnect
 verified; sustained pressure and live heap/stack qualification remain pending.
 It reuses existing IPC staging, with zero added normal SRAM and 32 bytes added
-in release. A4 RTC cleanup/publication is the next correctness implementation.
+in release. A4 RTC cleanup/publication is committed as `bf10c6435`. A5 eFuse,
+idle-gate and shared-GDMA corrections are implemented and host/image validated;
+normal A5 `901c6c58` is AP-only flashed with startup/bonded reconnection verified.
+A5 remains uncommitted. A3 pressure, A4 RTC fault/interrupted-write and A5 physical
+eFuse/idle/mixed-DMA qualification remain open. Display IRQ/worker defaults and
+display power policy are unchanged.
 Resume this power sequence after the local correctness packages; HCI polling/sleep
 changes remain separate and should reuse A3 lifecycle tests. No electrical savings
-are claimed by A3's correctness or memory changes.
+are claimed by these correctness or memory changes.
 
 ## 1 Establish the baseline
 

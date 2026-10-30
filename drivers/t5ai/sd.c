@@ -11,6 +11,7 @@
 #include <pbl/mcu/cache.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/delay.h>
+#include <pbl/soc/t5ai/gdma.h>
 #include <pbl/soc/t5ai/memory.h>
 
 #include <cmsis_core.h>
@@ -140,7 +141,6 @@
 #define SD_GPIO_DRIVE_STRENGTH_MAX         (3u << 8)
 #define SD_GPIO_INPUT_LEVEL                (1u << 0)
 #define SYSTEM_CPU1_SDIO_INTERRUPT         (1u << 10)
-#define SYSTEM_CPU1_GDMA_INTERRUPT         (1u << 11)
 #define SYSTEM_SDIO_CLOCK_FIELD_SHIFT      14u
 #define SYSTEM_SDIO_CLOCK_FIELD_MASK       (15u << SYSTEM_SDIO_CLOCK_FIELD_SHIFT)
 #define SYSTEM_SDIO_CLOCK_XTAL_DIV256      (7u << SYSTEM_SDIO_CLOCK_FIELD_SHIFT)
@@ -483,8 +483,7 @@ int t5ai_sd_init(void) {
   DMA(DMA_SECURE_ATTRIBUTE) |= (1u << TX_CHANNEL) | (1u << RX_CHANNEL);
   DMA(DMA_PRIVILEGED_ATTRIBUTE) |= (1u << TX_CHANNEL) | (1u << RX_CHANNEL);
   DMA(DMA_INTERRUPT_ALLOCATION) &= ~((1u << TX_CHANNEL) | (1u << RX_CHANNEL));
-  REG(SYSTEM_CPU1_INTERRUPT_ENABLE_ADDRESS) |=
-      SYSTEM_CPU1_SDIO_INTERRUPT | SYSTEM_CPU1_GDMA_INTERRUPT;
+  REG(SYSTEM_CPU1_INTERRUPT_ENABLE_ADDRESS) |= SYSTEM_CPU1_SDIO_INTERRUPT;
   // 26 MHz source / 256 for identification; preserve unrelated clock fields.
   REG(SYSTEM_SDIO_CLOCK_CONTROL_ADDRESS) =
       (REG(SYSTEM_SDIO_CLOCK_CONTROL_ADDRESS) & ~SYSTEM_SDIO_CLOCK_FIELD_MASK) |
@@ -495,8 +494,8 @@ int t5ai_sd_init(void) {
   SD(SD_FIFO_CONTROL) = SD_FIFO_DEFAULT_THRESHOLDS | FIFO_RESET | (1u << 25) | (1u << 27);
   NVIC_SetPriority(SDIO_IRQn, 6u);
   NVIC_EnableIRQ(SDIO_IRQn);
-  NVIC_SetPriority(GDMA_IRQn, 6u);
-  NVIC_EnableIRQ(GDMA_IRQn);
+  // SD retains its handler across aborts, failed initialization and retries.
+  t5ai_gdma_irq_acquire(T5AI_GDMA_SD);
   delay_us(2000);
   status = prv_command(0, 0, 0, false, NULL);
   if (status)

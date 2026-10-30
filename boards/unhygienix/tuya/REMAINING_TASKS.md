@@ -10,7 +10,7 @@
   quarantine. Host validation: 9 focused tests; 231 port tests plus 75 subtests;
   28 shared tests plus 119 subtests. Fresh normal/release packaging and map checks
   pass. [Validation record](/home/baz/Documents/ChatGPT/pebble/artifacts/a2-mailbox-20261030/RESULTS.md).
-  No standalone A2 flash occurred; its corrections are included in the A3 and A4 AP images.
+  No standalone A2 flash occurred; its corrections are included in the A3, A4 and A5 AP images.
 - [x] **A3 / F03 implementation and host/image validation:** bounded receive
   retention reuses the original 1,285-byte IPC staging budget, with nonblocking
   retries and explicit recovery on reliable exhaustion/deadline. Normal adds no
@@ -20,7 +20,7 @@
   images pass protected packaging/maps/config checks. Committed as `06079008a`.
   [Implementation record](/home/baz/Documents/ChatGPT/pebble/artifacts/a3-hci-pressure-20261030/RESULTS.md).
 - [x] **A3 AP flash and startup/reconnect check:** compact normal build
-  `4245c7ab3e16d7c5449b864b355ea1ba22550993` was installed; A4 now supersedes it. UART confirms four-bit
+  `4245c7ab3e16d7c5449b864b355ea1ba22550993` was installed; A5 now supersedes it. UART confirms four-bit
   SD, the existing 32 MiB volume (`new=0`), 49 apps and encrypted bonded PPoGATT.
   CP, resources, persistent volumes and bonds were excluded from flashing.
   [Flash record](/home/baz/Documents/ChatGPT/pebble/artifacts/a3-flash-20261030/RESULTS.md).
@@ -34,12 +34,12 @@
   health on readback. Retained word 22 preserves the external fault signature.
   Saved-mask tuple accesses and ordered cache-durable commits preserve the
   136-byte retained layout/checksum. Separate F04/F05 diffs and regressions are
-  reviewable; production changes remain uncommitted. Validation: 5 focused tests
+  reviewable; committed as `bf10c6435`. Validation: 5 focused tests
   plus 74 subtests; 231 port tests plus 147 subtests; 28 shared tests plus 119
   subtests. Four existing optional execution checks remain unconfigured. Fresh
   normal/release builds pass packaging/maps. [Implementation record](/home/baz/Documents/ChatGPT/pebble/artifacts/a4-rtc-20261030/RESULTS.md).
 - [x] **A4 AP flash and bounded hardware checks:** rebuilt normal image
-  `943caf619e5bb3e49f6e852bfe97efe0eb8323f0` is installed. Initial boot and one
+  `943caf619e5bb3e49f6e852bfe97efe0eb8323f0` was installed; A5 now supersedes it. Initial boot and one
   controlled DTR/RTS reset confirm current boot time before phone reconnection,
   existing four-bit SD/PFS with 49 apps, and encrypted bonded PPoGATT. CP,
   resources, volumes and bonds were not written or provisioned. Captures stopped.
@@ -49,6 +49,26 @@
   wrap/IRQ-mask latency, battery-loss/cold boot, oscillator/calendar drift and
   longer board checks. Console time writes did not execute because T5AI debug
   UART input is stubbed even in normal builds; do not count them as passing.
+- [x] **A5 / F07–F09 implementation and host/image validation:** bounded eFuse
+  polling requires completion before valid data; the common idle gate suppresses
+  WFI; local GDMA claims preserve display/MIC/SD and inherited routing across
+  microphone lifecycle changes. CP ownership, acknowledgements, display deadlines,
+  polling and experimental defaults remain unchanged. Separate F08/F09/F07 diffs
+  pass independently. 10 focused tests plus 8 subtests; 235 port tests plus 155
+  subtests; 28 shared tests plus 119 subtests. Four existing optional execution
+  checks remain unconfigured. Nine fresh images cover normal/release and all
+  eight DMA combinations, with packaging/maps passing. A5 remains uncommitted.
+  [Implementation record](/home/baz/Documents/ChatGPT/pebble/artifacts/a5-local-20261030/RESULTS.md).
+- [x] **A5 AP flash and startup/reconnection:** normal image
+  `901c6c58f0d520c5388b15a0865d4b21c055efb3` is installed. Exact UART ID,
+  existing four-bit SD/PFS with 49 apps and encrypted bonded PPoGATT verified.
+  CP, resources, PFS and bonds preserved. Capture stopped; no fatal fault or
+  additional uncommanded boot observed. `Animation 3 does not exist` was logged
+  and remains unassigned. [Flash record](/home/baz/Documents/ChatGPT/pebble/artifacts/a5-flash-20261030/RESULTS.md).
+- [ ] **A5 device qualification:** physical eFuse timing/faults and factory ID;
+  runtime idle disable/enable and latency; microphone/display/SD transfer,
+  init-order/teardown/fault stress and CP coexistence; audio/storage integrity;
+  then standing watchface, 25 reconnects, cold boot and overnight checks.
 - [ ] **T5AI console input integration:** runtime output uses the CP-owned UART;
   input callbacks are unconditional no-ops. Other SoCs use shared RX in normal/MFG
   builds and stub it in non-MFG release. This predates A4 and remains separate
@@ -56,7 +76,7 @@
 
 Preserve default SD PFS, four-bit mode, the existing-volume guard, CP wire ABI,
 A1 cache maintenance, A2 owner guards/quarantine and the one-second heartbeat.
-The latest verified AP is A4 `943caf61`; all bounded captures are stopped.
+The latest verified AP is A5 `901c6c58`; all bounded captures are stopped.
 A1's first-launch app fault and longer device checks remain open. Implementation,
 host/image validation and device qualification remain separate dispositions.
 
