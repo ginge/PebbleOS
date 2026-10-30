@@ -94,14 +94,12 @@ static uint8_t prv_encode_bcd(unsigned value) {
 
 static bool prv_external_rtc_read_raw(uint8_t *control,
                                       uint8_t registers[PCF85063_TIME_REGISTER_COUNT]) {
-  pbl_i2c_use(I2C_PCF85063);
-  int result = pbl_i2c_read_register(I2C_PCF85063, PCF85063_REG_CONTROL1, control);
+  int result = pbl_i2c_reg_read_byte(I2C_PCF85063, PCF85063_REG_CONTROL1, control);
   if (result == 0) {
-    result = pbl_i2c_read_register_block(I2C_PCF85063, PCF85063_REG_SECONDS,
-                                         PCF85063_TIME_REGISTER_COUNT, registers);
+    result = pbl_i2c_burst_read(I2C_PCF85063, PCF85063_REG_SECONDS, registers,
+                                PCF85063_TIME_REGISTER_COUNT);
   }
   s_external_rtc_error = result;
-  pbl_i2c_release(I2C_PCF85063);
   return result == 0;
 }
 
@@ -178,23 +176,21 @@ static bool prv_external_rtc_write(time_t time) {
   };
 
   uint8_t control;
-  pbl_i2c_use(I2C_PCF85063);
-  int result = pbl_i2c_read_register(I2C_PCF85063, PCF85063_REG_CONTROL1, &control);
+  int result = pbl_i2c_reg_read_byte(I2C_PCF85063, PCF85063_REG_CONTROL1, &control);
   if (result == 0) {
     const uint8_t stopped = (control | PCF85063_CONTROL1_STOP) & ~PCF85063_CONTROL1_12_24;
-    result = pbl_i2c_write_register(I2C_PCF85063, PCF85063_REG_CONTROL1, stopped);
+    result = pbl_i2c_reg_write_byte(I2C_PCF85063, PCF85063_REG_CONTROL1, stopped);
     if (result == 0) {
-      result = pbl_i2c_write_register_block(I2C_PCF85063, PCF85063_REG_SECONDS, sizeof(registers),
-                                            registers);
+      result =
+          pbl_i2c_burst_write(I2C_PCF85063, PCF85063_REG_SECONDS, registers, sizeof(registers));
       // Once STOP succeeds, restart even after a partial/failed calendar write.
       const uint8_t running = control & ~(PCF85063_CONTROL1_STOP | PCF85063_CONTROL1_12_24);
-      const int restart = pbl_i2c_write_register(I2C_PCF85063, PCF85063_REG_CONTROL1, running);
+      const int restart = pbl_i2c_reg_write_byte(I2C_PCF85063, PCF85063_REG_CONTROL1, running);
       if (result == 0) {
         result = restart;
       }
     }
   }
-  pbl_i2c_release(I2C_PCF85063);
 
   // Cleanup success must not erase the original error or trust a partial calendar.
   if (result == 0) {

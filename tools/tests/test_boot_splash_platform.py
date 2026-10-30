@@ -24,6 +24,7 @@ enum pbl_thread_state pbl_thread_state(const struct pbl_thread *);
 """,
     "pbl/kernel/delay.h": "void pbl_sleep_ms(unsigned);\n",
     "kernel/pbl_malloc.h": "void *kernel_malloc(size_t);\nvoid *kernel_zalloc(size_t);\nvoid kernel_free(void *);\n",
+    "pbl/drivers/display/t5ai.h": "void display_co5300_set_boot_buffer(uint8_t *);\n",
     "pbl/drivers/display.h": """#pragma once
 struct pbl_device { int unused; };
 struct pbl_display { struct pbl_device dev; unsigned width, height, format; };
@@ -61,6 +62,7 @@ HARNESS = r"""
 #ifdef TEST_T5
 #include "T5_SOURCE"
 static FrameBuffer framebuffer;
+void display_co5300_set_boot_buffer(uint8_t *buffer) { assert(buffer==NULL || buffer==framebuffer.buffer); }
 FrameBuffer *compositor_get_framebuffer(void) { return &framebuffer; }
 #endif
 static ucontext_t main_context, task_context;
@@ -247,78 +249,6 @@ class BootSplashPlatformTest(unittest.TestCase):
             self.assertEqual(
                 getafix_config(revision, "normal")["BOOT_SPLASH_ARGB2222"], "n"
             )
-
-    def test_display_boot_transfer_serialization(self):
-        source = (ROOT / "drivers/display/t5ai/display_co5300.c").read_text()
-        function = source[source.index("void display_update_boot_frame(") :]
-        locks = source[
-            source.index("static void prv_panel_lock(void)") : source.index(
-                "static volatile uint32_t *prv_qspi("
-            )
-        ]
-        harness = (
-            r"""
-#include <assert.h>
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
-#define PBL_FOREVER 0
-#define PANEL_X_OFFSET 0
-#define PANEL_WIDTH 260
-#define PANEL_HEIGHT 260
-#define PBL_DISPLAY_WIDTH 260
-#define PBL_DISPLAY_HEIGHT 260
-static bool s_initialized, locked;
-static int s_panel_mutex;
-static unsigned locks, unlocks, rows, ends, mode;
-static uint8_t pixels[260*260];
-void pbl_mutex_lock(int *m,int wait) {
- assert(m==&s_panel_mutex && wait==PBL_FOREVER && !locked); locked=true; ++locks;
-}
-void pbl_mutex_unlock(int *m) { assert(m==&s_panel_mutex && locked); locked=false; ++unlocks; }
-static bool prv_set_window(unsigned x0,unsigned y0,unsigned x1,unsigned y1) {
- assert(locked && x0==0 && y0==0 && x1==259 && y1==259); return mode!=2;
-}
-static bool prv_pixel_stream_begin(void) { assert(locked); return mode!=3; }
-static bool prv_stream_logical_row(unsigned y,const uint8_t *p,size_t *word,bool dma,bool invert,bool rotated) {
- (void)word; assert(locked && !dma && !invert && !rotated && p==pixels+y*260); ++rows; return mode!=4;
-}
-static bool prv_finish_row_dma(size_t *word) { (void)word; assert(locked); return true; }
-static void prv_pixel_stream_end(void) { assert(locked); ++ends; }
-"""
-            + locks
-            + function
-            + r"""
-int main(void) {
- display_update_boot_frame(NULL); assert(!locks);
- for (mode=0;mode<5;++mode) {
-   s_initialized=mode!=1; locks=unlocks=rows=ends=0;
-   display_update_boot_frame(pixels);
-   assert(locks==1 && unlocks==1 && !locked);
-   assert(rows==(mode==0 ? 260 : mode==4 ? 1 : 0));
-   assert(ends==(mode==0 || mode==4));
- }
-}
-"""
-        )
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "transfer.c"
-            binary = Path(directory) / "transfer"
-            path.write_text(harness)
-            subprocess.run(
-                [
-                    "cc",
-                    "-std=c11",
-                    "-Wall",
-                    "-Wextra",
-                    "-Werror",
-                    str(path),
-                    "-o",
-                    str(binary),
-                ],
-                check=True,
-            )
-            subprocess.run([str(binary)], check=True, timeout=10)
 
     def test_bootloader_owned_splash_remains_noop(self):
         with tempfile.TemporaryDirectory() as directory:

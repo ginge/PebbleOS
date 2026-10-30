@@ -3,115 +3,77 @@
 
 #include "board/board.h"
 #include "kernel/pbl_malloc.h"
-#include <pbl/kernel/assert.h>
 
 #include <inttypes.h>
 
+#include <pbl/drivers/dma/t5ai.h>
 #include <pbl/drivers/mic/t5ai/definitions.h>
+#include <pbl/kernel/assert.h>
 #include <pbl/kernel/kernel.h>
 #include <pbl/logging/logging.h>
 #include <pbl/mcu/cache.h>
 #include <pbl/services/system_task.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/delay.h>
-#include <pbl/soc/t5ai/gdma.h>
 #include <pbl/soc/t5ai/rtc.h>
 
 PBL_LOG_MODULE_DEFINE(driver_mic_t5ai, CONFIG_DRIVER_MIC_LOG_LEVEL);
 
 // BK7258 AP aud_ll_macro_def.h and sys_ll.h in the pinned Tuya BSP.
-#define AUD_RESET 0x08u
-#define AUD_ADC_CONFIG 0x10u
-#define AUD_FIFO_CONFIG 0x28u
-#define AUD_FIFO_STATUS 0x38u
-#define AUD_ADC_FIFO 0x44u
-#define AUD_EXTEND_CONFIG 0x60u
-#define AUD_CONFIG 0xc0u
-#define AUD_ADC_EMPTY (1u << 14)
-#define AUD_ADC_FULL (1u << 10)
-#define AUD_ADC_ENABLE ((1u << 3) | (1u << 5))
-#define AUD_ADC_GAIN_SHIFT 18u
-#define AUD_ADC_GAIN_MAX 63u
-#define AUD_ADC_GAIN_DEFAULT 63u
-#define AUD_FIFO_THRESHOLD (8u << 15)
-#define AUD_IRQ_DRAIN_LIMIT 64u
+#define AUD_RESET              0x08u
+#define AUD_ADC_CONFIG         0x10u
+#define AUD_FIFO_CONFIG        0x28u
+#define AUD_FIFO_STATUS        0x38u
+#define AUD_ADC_FIFO           0x44u
+#define AUD_EXTEND_CONFIG      0x60u
+#define AUD_CONFIG             0xc0u
+#define AUD_ADC_EMPTY          (1u << 14)
+#define AUD_ADC_FULL           (1u << 10)
+#define AUD_ADC_ENABLE         ((1u << 3) | (1u << 5))
+#define AUD_ADC_GAIN_SHIFT     18u
+#define AUD_ADC_GAIN_MAX       63u
+#define AUD_ADC_GAIN_DEFAULT   63u
+#define AUD_FIFO_THRESHOLD     (8u << 15)
+#define AUD_IRQ_DRAIN_LIMIT    64u
 #define SYS_AUDIO_CLOCK_SOURCE (*(volatile uint32_t *)0x44010020u)
-#define SYS_AUDIO_APLL (1u << 25)
-#define SYS_ANALOG_BASE 0x44010100u
-#define SYS_ANALOG_BUSY (*(volatile uint32_t *)0x440100e8u)
-#define SYS_AUDIO_BIAS_INDEX 18u
-#define SYS_MIC1_INDEX 19u
+#define SYS_AUDIO_APLL         (1u << 25)
+#define SYS_ANALOG_BASE        0x44010100u
+#define SYS_ANALOG_BUSY        (*(volatile uint32_t *)0x440100e8u)
+#define SYS_AUDIO_BIAS_INDEX   18u
+#define SYS_MIC1_INDEX         19u
 #define SYS_AUDIO_BIAS_DEFAULT 0x00bf8085u
-#define SYS_MIC1_DEFAULT 0x81800007u
-#define SYS_AUDIO_BIAS_ENABLE ((1u << 3) | (1u << 4) | (1u << 5))
-#define SYS_MIC1_ENABLE (1u << 28)
-#define SYS_MIC1_RESET (1u << 29)
-#define SYS_MIC1_GAIN_SHIFT 15u
-#define MIC_SETTLE_TICKS (T5AI_AON_RTC_HZ / 5u)
+#define SYS_MIC1_DEFAULT       0x81800007u
+#define SYS_AUDIO_BIAS_ENABLE  ((1u << 3) | (1u << 4) | (1u << 5))
+#define SYS_MIC1_ENABLE        (1u << 28)
+#define SYS_MIC1_RESET         (1u << 29)
+#define SYS_MIC1_GAIN_SHIFT    15u
+#define MIC_SETTLE_TICKS       (T5AI_AON_RTC_HZ / 5u)
 
-// AP DMA0 channel 1; display owns channel 0, CP allocates logical IDs 12..15.
-#define DMA_BASE 0x45020000u
-#define DMA_CHANNEL_BIT (1u << 1)
-#define DMA_CHANNEL_BASE 0x80u
-#define DMA_CTRL 0x00u
-#define DMA_DEST 0x04u
-#define DMA_SRC 0x08u
-#define DMA_DEST_END 0x0cu
-#define DMA_DEST_START 0x10u
-#define DMA_SRC_END 0x14u
-#define DMA_SRC_START 0x18u
-#define DMA_REQ 0x1cu
-#define DMA_WRITE_ADDR 0x2cu
-#define DMA_STATUS 0x30u
-#define DMA_FINISH (1u << 18)
-#define DMA_HALF (1u << 19)
-#define DMA_ERROR (1u << 20)
-#define DMA_IRQ_STATUS (DMA_FINISH | DMA_HALF | DMA_ERROR)
 #define DMA_CACHE_ALIGNMENT 32u
-#define DMA_HALF_TICKS (T5AI_AON_RTC_HZ / 50u)
-#define DMA_BYTES (T5AI_MIC_DMA_SAMPLES * sizeof(uint32_t))
-#define DMA_CONTROL                                                                       \
-  (((DMA_BYTES - 1u) << 16) | (2u << 4) | (2u << 6) | (1u << 1) | (1u << 2) | (1u << 3) | \
-   (1u << 9) | (1u << 10) | (1u << 11))
-#define DMA_REQUEST (0x0eu | (1u << 20) | (1u << 21) | (1u << 22))
+#define DMA_HALF_TICKS      (T5AI_AON_RTC_HZ / 50u)
+#define DMA_BYTES           (T5AI_MIC_DMA_SAMPLES * sizeof(uint32_t))
 
 static int16_t s_mono_ring[T5AI_MIC_RING_SAMPLES]
     __attribute__((section(".t5ai_board_cache"), aligned(32)));
 
-static volatile uint32_t *prv_dma(uint32_t offset) {
-  return (volatile uint32_t *)((uintptr_t)DMA_BASE + DMA_CHANNEL_BASE + offset);
-}
-
-static void prv_dma_start(MicDevice *device) {
-  // Channel ownership was checked before powering audio. Preserve display state.
-  *(volatile uint32_t *)0x44010040u &= ~(1u << 4);  // Backup domain.
-  *(volatile uint32_t *)0x44010038u &= ~(1u << 30);
-  *(volatile uint32_t *)0x4401003cu &= ~(1u << 30);
-  delay_us(10u);
-  *(volatile uint32_t *)(DMA_BASE + 0x08u) |= 3u;
-  *(volatile uint32_t *)(DMA_BASE + 0x10u) |= DMA_CHANNEL_BIT;
-  *(volatile uint32_t *)(DMA_BASE + 0x14u) |= DMA_CHANNEL_BIT;
-  *(volatile uint32_t *)(DMA_BASE + 0x28u) &= ~DMA_CHANNEL_BIT;  // Secure IRQ0.
-  const uint32_t destination = (uint32_t)(uintptr_t)device->state->dma_buffer;
-  const uint32_t source = (uint32_t)device->base + AUD_ADC_FIFO;
-  *prv_dma(DMA_CTRL) = 0u;
-  *prv_dma(DMA_DEST) = destination;
-  *prv_dma(DMA_DEST_START) = destination;
-  *prv_dma(DMA_DEST_END) = destination + DMA_BYTES;
-  *prv_dma(DMA_SRC) = source;
-  *prv_dma(DMA_SRC_START) = source;
-  *prv_dma(DMA_SRC_END) = source + sizeof(uint32_t);
-  *prv_dma(DMA_REQ) = DMA_REQUEST;
-  *prv_dma(DMA_STATUS) = DMA_IRQ_STATUS;
+static const struct pbl_dma_chan s_dma = PBL_DMA_CHAN(&T5AI_DMA, 1, 0x0e, 0);
+static void prv_dma_done(void *arg, int status);
+static int prv_dma_start(MicDevice *device) {
+  int ret = pbl_device_init(&T5AI_DMA.dev);
+  const struct pbl_dma_slave_config cfg = {
+    .src_addr = device->base + AUD_ADC_FIFO,
+    .src_addr_width = PBL_DMA_SLAVE_BUSWIDTH_4_BYTES,
+  };
+  if (ret == 0)
+    ret = pbl_dma_slave_config(&s_dma, &cfg);
+  if (ret != 0)
+    return ret;
   dcache_flush_invalidate(device->state->dma_buffer, DMA_BYTES);
-  *prv_dma(DMA_CTRL) = DMA_CONTROL | 1u;
+  return pbl_dma_prep_dma_cyclic(&s_dma, device->state->dma_buffer, DMA_BYTES, DMA_BYTES / 2u,
+                                 PBL_DMA_DEV_TO_MEM, prv_dma_done, (void *)device);
 }
-
 static void prv_dma_stop(void) {
-  *prv_dma(DMA_CTRL) = 0u;
-  __DSB();
-  (void)*prv_dma(DMA_CTRL);
-  *prv_dma(DMA_STATUS) = DMA_IRQ_STATUS;
+  (void)pbl_dma_terminate(&s_dma);
 }
 
 static volatile uint32_t *prv_reg(MicDevice *device, uint32_t offset) {
@@ -137,7 +99,6 @@ static bool prv_power_down(MicDevice *device) {
   *prv_reg(device, AUD_CONFIG) &= ~AUD_ADC_ENABLE;
   prv_dma_stop();
   *prv_reg(device, AUD_FIFO_CONFIG) = 0u;
-  t5ai_gdma_irq_release(T5AI_GDMA_MIC);
   const bool mic_off = prv_analog_write(SYS_MIC1_INDEX, SYS_MIC1_DEFAULT);
   const bool bias_off = prv_analog_write(SYS_AUDIO_BIAS_INDEX, SYS_AUDIO_BIAS_DEFAULT);
   const status_t clock = t5ai_cp_mailbox_set_audio_clock(false);
@@ -172,7 +133,7 @@ static bool prv_power_up(MicDevice *device) {
   state->powered = true;
   *prv_reg(device, AUD_RESET) = 1u;
   *prv_reg(device, AUD_FIFO_CONFIG) = 0u;
-  *prv_reg(device, AUD_CONFIG) = 1u;  // 16 kHz, XTAL, converters stopped.
+  *prv_reg(device, AUD_CONFIG) = 1u; // 16 kHz, XTAL, converters stopped.
   *prv_reg(device, AUD_EXTEND_CONFIG) = 0u;
   *prv_reg(device, AUD_ADC_CONFIG) =
       (1u << 16) | (1u << 17) | ((uint32_t)state->gain << AUD_ADC_GAIN_SHIFT);
@@ -233,20 +194,14 @@ static void prv_dispatch(void *context) {
 }
 
 static bool prv_dma_writing_second(const MicDeviceState *state) {
-  const uint32_t destination = (uint32_t)(uintptr_t)state->dma_buffer;
-  const uint32_t position = *prv_dma(DMA_WRITE_ADDR);
-  // At finish, hardware may expose loop_end before its next FIFO request.
-  return position >= destination + DMA_BYTES / 2u && position < destination + DMA_BYTES;
+  (void)state;
+  size_t residue;
+  return pbl_dma_tx_status(&s_dma, &residue) == 0 && residue != 0 && residue <= DMA_BYTES / 2u;
 }
 
-void t5ai_mic_dma_irq_handler(MicDevice *device) {
+static void prv_dma_done(void *arg, int status) {
+  MicDevice *device = arg;
   MicDeviceState *state = device->state;
-  const uint32_t status = *prv_dma(DMA_STATUS) & DMA_IRQ_STATUS;
-  if (!status) {
-    return;
-  }
-  *prv_dma(DMA_STATUS) = status;
-  __DSB();
   if (!state->running) {
     return;
   }
@@ -254,7 +209,7 @@ void t5ai_mic_dma_irq_handler(MicDevice *device) {
   const uint64_t now = t5ai_rtc_get_raw_ticks();
   const uint64_t elapsed = now - state->dma_irq_ticks;
   state->dma_irq_ticks = now;
-  if (status & DMA_ERROR) {
+  if (status != 0) {
     // Stop writes immediately. The caller's normal stop path releases power/RAM.
     *prv_reg(device, AUD_CONFIG) &= ~AUD_ADC_ENABLE;
     prv_dma_stop();
@@ -270,14 +225,10 @@ void t5ai_mic_dma_irq_handler(MicDevice *device) {
   }
   // The half not currently being written is the only safe completed block.
   const bool writing_second = prv_dma_writing_second(state);
-  const uint32_t expected = writing_second ? DMA_HALF : DMA_FINISH;
-  if ((status & (DMA_HALF | DMA_FINISH)) != expected || elapsed >= 2u * DMA_HALF_TICKS) {
+  if (elapsed >= 2u * DMA_HALF_TICKS) {
     // Sticky flags cannot count arbitrary missed laps: report at least one lost
     // block and recover at the newest completed half, never replay stale audio.
     state->dropped_samples += T5AI_MIC_DMA_HALF_SAMPLES;
-  }
-  if (!(status & expected)) {
-    return;
   }
   if (state->count + T5AI_MIC_DMA_HALF_SAMPLES > T5AI_MIC_RING_SAMPLES) {
     state->dropped_samples += T5AI_MIC_DMA_HALF_SAMPLES;
@@ -286,12 +237,11 @@ void t5ai_mic_dma_irq_handler(MicDevice *device) {
     dcache_invalidate(words, DMA_BYTES / 2u);
     size_t write_index = state->write_index;
     for (unsigned i = 0; i < T5AI_MIC_DMA_HALF_SAMPLES; ++i) {
-      state->ring[write_index] = (int16_t)words[i];  // MIC1 low half; discard MIC2.
+      state->ring[write_index] = (int16_t)words[i]; // MIC1 low half; discard MIC2.
       write_index = (write_index + 1u) % T5AI_MIC_RING_SAMPLES;
     }
     __DSB();
-    if ((prv_dma_writing_second(state)) == writing_second &&
-        !(*prv_dma(DMA_STATUS) & (DMA_HALF | DMA_FINISH))) {
+    if (prv_dma_writing_second(state) == writing_second) {
       state->write_index = write_index;
       state->count += T5AI_MIC_DMA_HALF_SAMPLES;
     } else {
@@ -335,7 +285,7 @@ bool mic_start(MicDevice *device, MicDataHandlerCB handler, void *context, int16
     return false;
   }
   pbl_mutex_lock(&state->mutex, PBL_FOREVER);
-  if (state->running || state->faulted || (*prv_dma(DMA_CTRL) & 1u)) {
+  if (state->running || state->faulted) {
     pbl_mutex_unlock(&state->mutex);
     return false;
   }
@@ -352,7 +302,15 @@ bool mic_start(MicDevice *device, MicDataHandlerCB handler, void *context, int16
     pbl_mutex_unlock(&state->mutex);
     return false;
   }
-  prv_dma_start(device);
+  if (prv_dma_start(device) != 0) {
+    (void)prv_power_down(device);
+    kernel_free(state->dma_allocation);
+    state->dma_allocation = NULL;
+    state->dma_buffer = NULL;
+    state->ring = NULL;
+    pbl_mutex_unlock(&state->mutex);
+    return false;
+  }
   state->handler = handler;
   state->context = context;
   state->buffer = buffer;
@@ -363,7 +321,6 @@ bool mic_start(MicDevice *device, MicDataHandlerCB handler, void *context, int16
   state->settle_deadline = t5ai_rtc_get_raw_ticks() + MIC_SETTLE_TICKS;
   state->running = true;
   state->dma_irq_ticks = t5ai_rtc_get_raw_ticks();
-  t5ai_gdma_irq_acquire(T5AI_GDMA_MIC);
   *prv_reg(device, AUD_FIFO_CONFIG) = AUD_FIFO_THRESHOLD;
   *prv_reg(device, AUD_CONFIG) |= AUD_ADC_ENABLE;
   pbl_irq_unlock();

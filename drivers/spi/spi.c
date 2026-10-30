@@ -69,7 +69,8 @@ static int prv_validate(const struct pbl_spi_dev *dev, const struct pbl_spi_xfer
   }
 
   for (size_t i = 0U; i < num_xfers; i++) {
-    if (xfers[i].len == 0U) {
+    if (xfers[i].len == 0U || (xfers[i].tx_nbits != 0U && xfers[i].tx_nbits != 1U &&
+                               xfers[i].tx_nbits != 2U && xfers[i].tx_nbits != 4U)) {
       return -EINVAL;
     }
   }

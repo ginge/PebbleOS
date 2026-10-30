@@ -3,6 +3,7 @@
 #include <pbl/drivers/backlight.h>
 #include <pbl/drivers/backlight/t5ai.h>
 #include <pbl/drivers/display/t5ai.h>
+#include <pbl/drivers/panel/co5300.h>
 
 static uint8_t prv_get_level(const struct pbl_backlight *bl, uint8_t brightness) {
   const uint8_t level = ((uint16_t)brightness * UINT8_MAX + 99u) / 100u;
@@ -10,8 +11,7 @@ static uint8_t prv_get_level(const struct pbl_backlight *bl, uint8_t brightness)
 }
 
 static int prv_set_brightness(const struct pbl_backlight *bl, uint8_t brightness) {
-  display_co5300_set_brightness(prv_get_level(bl, brightness));
-  return 0;
+  return pbl_panel_co5300_set_brightness(prv_get_level(bl, brightness));
 }
 
 static int prv_init(const struct pbl_backlight *bl) {

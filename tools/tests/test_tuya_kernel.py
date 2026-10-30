@@ -12,9 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 class TuyaKernelCheckTest(unittest.TestCase):
     def test_t5ai_safe_reset_requests_cpu0_whole_chip_reboot(self):
         reset = (ROOT / "fw/kernel/reset.c").read_text()
-        hci_ipc = (
-            ROOT / "third_party/nimble/transport/t5ai_hci_ipc.c"
-        ).read_text()
+        hci_ipc = (ROOT / "third_party/nimble/transport/t5ai_hci_ipc.c").read_text()
         hci_header = (ROOT / "include/pbl/soc/t5ai/hci_ipc.h").read_text()
         self.assertIn("#ifdef CONFIG_SOC_T5AI", reset)
         self.assertIn("t5ai_hci_ipc_request_system_reboot()", reset)
@@ -64,10 +62,14 @@ class TuyaKernelCheckTest(unittest.TestCase):
         services = (ROOT / "fw/services/services_common/service.c").read_text()
         main = (ROOT / "fw/main.c").read_text()
         self.assertNotIn("CONFIG_SOC_T5AI", services)
-        self.assertLess(services.index("shared_prf_storage_init();"),
-                        services.index("bt_persistent_storage_init();"))
-        self.assertLess(services.index("bt_persistent_storage_init();"),
-                        services.index("bt_ctl_init();"))
+        self.assertLess(
+            services.index("shared_prf_storage_init();"),
+            services.index("bt_persistent_storage_init();"),
+        )
+        self.assertLess(
+            services.index("bt_persistent_storage_init();"),
+            services.index("bt_ctl_init();"),
+        )
         self.assertIn("comm_default_kernel_sender_init();", services)
         self.assertIn("put_bytes_init();", services)
         self.assertIn("services_init();", main)
@@ -80,16 +82,13 @@ class TuyaKernelCheckTest(unittest.TestCase):
         self.assertIn("I2C0_IRQn, 100000u, 20, 21", board)
         self.assertNotIn(".frequency = 400000u", board)
 
-
     def test_t5ai_i2c_uses_stable_single_byte_interrupt_mode(self):
         i2c = (ROOT / "drivers/i2c/t5ai.c").read_text()
         self.assertNotIn("static uint32_t prv_read_fifo_count", i2c)
         self.assertNotIn("static uint32_t prv_write_fifo_space", i2c)
-        self.assertIn("transfer->data[prv_dev(bus)->state->index++] = (uint8_t)regs->data;", i2c)
-        self.assertIn("regs->data = transfer->data[prv_dev(bus)->state->index++];", i2c)
-        self.assertIn(
-            "T5AI_I2C_STATUS_ACK | T5AI_I2C_STATUS_INT_MODE_MASK", i2c
-        )
+        self.assertIn("msg->buf[state->index++] = (uint8_t)regs->data;", i2c)
+        self.assertIn("regs->data = msg->buf[state->index++];", i2c)
+        self.assertIn("T5AI_I2C_STATUS_ACK | T5AI_I2C_STATUS_INT_MODE_MASK", i2c)
 
     def test_t5ai_fpu_is_enabled_during_reset_initialization(self):
         initialization = (ROOT / "soc/t5ai/init.c").read_text()
@@ -121,10 +120,14 @@ class TuyaKernelCheckTest(unittest.TestCase):
         initialization = (ROOT / "soc/t5ai/init.c").read_text()
         early = initialization.split("void pbl_soc_early_init(void)", 1)[1]
         self.assertLess(early.index("SystemInit();"), early.index("icache_enable();"))
-        self.assertLess(early.index("dcache_enable();"),
-                        early.index("t5ai_cp_mailbox_announce_power_up();"))
-        self.assertLess(early.index("t5ai_cp_mailbox_announce_power_up();"),
-                        early.index("__enable_irq();"))
+        self.assertLess(
+            early.index("dcache_enable();"),
+            early.index("t5ai_cp_mailbox_announce_power_up();"),
+        )
+        self.assertLess(
+            early.index("t5ai_cp_mailbox_announce_power_up();"),
+            early.index("__enable_irq();"),
+        )
         mailbox = (ROOT / "drivers/t5ai/cp_mailbox.c").read_text()
         self.assertRegex(mailbox, r"CP_CONTROL_CHANNEL\s+0x10u")
         self.assertRegex(mailbox, r"CP_POWER_UP_COMMAND\s+1u")
@@ -134,41 +137,16 @@ class TuyaKernelCheckTest(unittest.TestCase):
 
     def test_t5ai_display_preserves_qualified_panel_and_qspi_setup(self):
         display = (ROOT / "drivers/display/t5ai/display_co5300.c").read_text()
-        self.assertIn("prv_qspi_init() && prv_panel_init()", display)
-        self.assertIn(
-            "prv_register(PANEL_DCS_INVERSION_OFF,NULL,0)&&"
-            "prv_register(PANEL_DCS_NORMAL_MODE,NULL,0)",
-            "".join(display.split()),
-        )
-        panel_init = display.split("static bool prv_panel_init(void)", 1)[1].split(
-            "void display_init(void)", 1
-        )[0]
-        self.assertLess(panel_init.index("prv_register(PANEL_DCS_INVERSION_OFF"), panel_init.index("prv_register(PANEL_DCS_DISPLAY_ON"))
-        self.assertNotIn("prv_register(0x23u", panel_init)
-        self.assertIn("exact compiled Tuya ordering", display)
-        self.assertIn(
-            "GPIO_BASE[pin]=(GPIO_BASE[pin]&~DISPLAY_GPIO_CONFIG_MASK)|"
-            "DISPLAY_GPIO_OUTPUT_DISABLE|DISPLAY_GPIO_SECOND_FUNCTION|DISPLAY_GPIO_DRIVE_MAX",
-            "".join(display.split()),
-        )
-        self.assertIn("*prv_qspi(QSPI_CMD_C_CFG1) = QSPI_COMMAND_C_FIFO_CONFIG", display)
-        self.assertNotIn("0x3u << ((length + 4u) * 2u)", display)
-        self.assertIn(
-            "*prv_qspi(QSPI_CONFIG) = QSPI_CS_HIGH_WAIT | QSPI_ENABLE | QSPI_IO23_ENABLE",
-            display,
-        )
-        self.assertRegex(display, r"#define\s+QSPI_CS_HIGH_WAIT\s+\(8u << 24\)")
-        self.assertIn("SYSTEM_CPU1_INTERRUPT_ENABLE |= QSPI0_INTERRUPT_ENABLE", display)
-        self.assertNotIn("NVIC_EnableIRQ(QSPI0_IRQn)", display)
-        self.assertIn("*prv_qspi(QSPI_GLB_CTRL) |= QSPI_RESET_RELEASE", display)
-        self.assertIn("(QSPI_CLOCK_DIVIDER_80MHZ << QSPI_CLOCK_DIVIDER_SHIFT)", display)
-        self.assertIn("*prv_qspi(QSPI_RST_CFG) = 0u", display)
-        self.assertNotIn("display_co5300_bitbang_probe", display)
-        self.assertNotIn("display_co5300_log_diagnostics", display)
-        self.assertNotIn("prv_draw_diagnostic_pattern", display)
-        self.assertNotIn("PBLBIT", display)
-        self.assertNotIn("PBLDSP", display)
-        self.assertNotIn("PBLREG", display)
+        spi = (ROOT / "drivers/spi/t5ai.c").read_text()
+        board = (ROOT / "fw/board/boards/board_unhygienix.c").read_text()
+        self.assertIn("pbl_panel_prepare(&CO5300.panel)", display)
+        self.assertIn("pbl_spi_transfer(&CO5300.spi", display)
+        self.assertNotIn("0x46040000", display)
+        self.assertNotIn("0x45020000", display)
+        self.assertIn("pbl_pinctrl_select_state", spi)
+        self.assertIn("pbl_dma_prep_slave_single", spi)
+        self.assertIn("PBL_PANEL_BUS_FORMAT_RGB565", board)
+        self.assertIn("PBL_SPI_DEV(&s_qspi0.bus, 0, 80000000u", board)
 
     def test_t5ai_heartbeat_repeats_after_complete_physical_ack(self):
         compiler = shutil.which("cc")
@@ -176,10 +154,12 @@ class TuyaKernelCheckTest(unittest.TestCase):
             self.skipTest("Host C compiler unavailable")
         mailbox = (ROOT / "drivers/t5ai/cp_mailbox.c").read_text()
         callback = mailbox.split("static void prv_heartbeat_complete(", 1)[1]
-        callback = "static void prv_heartbeat_complete(" + callback.split(
-            "\nstatic void prv_heartbeat", 1
-        )[0]
-        harness = r"""
+        callback = (
+            "static void prv_heartbeat_complete("
+            + callback.split("\nstatic void prv_heartbeat", 1)[0]
+        )
+        harness = (
+            r"""
 #include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -197,7 +177,9 @@ static bool s_heartbeat_in_flight;
 static void t5ai_reboot_trace_event(unsigned event, uint32_t data) {
   (void)event; (void)data;
 }
-""" + callback + r"""
+"""
+            + callback
+            + r"""
 int main(void) {
   T5AIMailboxMessage ack = {.header = 2u, .parameter3 = 2u};
   /* CPU0 completes each heartbeat directly; no logical response follows. */
@@ -223,14 +205,25 @@ int main(void) {
   return 0;
 }
 """
+        )
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "heartbeat.c"
             binary = Path(directory) / "heartbeat"
             source.write_text(harness)
             subprocess.run(
-                [compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
-                 str(source), "-o", str(binary)],
-                check=True, capture_output=True, text=True,
+                [
+                    compiler,
+                    "-std=c11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    str(source),
+                    "-o",
+                    str(binary),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
             )
             subprocess.run([str(binary)], check=True, capture_output=True, text=True)
 
@@ -313,14 +306,32 @@ static bool prv_bootstrap_publish(const T5AIMailboxMessage *m, uint32_t ms) {
 }
 """
         # Reuse production wire constants; keep test frames literal to check the ABI.
-        harness += (ROOT / "include/pbl/soc/t5ai/memory.h").read_text().replace("#pragma once", "")
-        harness += (ROOT / "include/pbl/soc/t5ai/mailbox_protocol.h").read_text().replace("#pragma once", "")
-        harness += source[source.index("#define MAILBOX_HEADER_COMMAND_MASK"):
-                          source.index("#define MBOX_BASE")]
-        for name in ("prv_any_active", "prv_tx_channel", "prv_rx_channel",
-                     "prv_finish_tx", "prv_process_ack", "prv_process_command",
-                     "prv_publish_pending_acks", "prv_schedule_tx",
-                     "t5ai_mailbox_channel_bootstrap_send"):
+        harness += (
+            (ROOT / "include/pbl/soc/t5ai/memory.h")
+            .read_text()
+            .replace("#pragma once", "")
+        )
+        harness += (
+            (ROOT / "include/pbl/soc/t5ai/mailbox_protocol.h")
+            .read_text()
+            .replace("#pragma once", "")
+        )
+        harness += source[
+            source.index("#define MAILBOX_HEADER_COMMAND_MASK") : source.index(
+                "#define MBOX_BASE"
+            )
+        ]
+        for name in (
+            "prv_any_active",
+            "prv_tx_channel",
+            "prv_rx_channel",
+            "prv_finish_tx",
+            "prv_process_ack",
+            "prv_process_command",
+            "prv_publish_pending_acks",
+            "prv_schedule_tx",
+            "t5ai_mailbox_channel_bootstrap_send",
+        ):
             harness += "\n" + function(name)
         harness += r"""
 int main(void) {
@@ -376,12 +387,26 @@ int main(void) {
             c_file = Path(directory) / "mailbox.c"
             binary = Path(directory) / "mailbox"
             c_file.write_text(harness)
-            subprocess.run([compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
-                            str(c_file), "-o", str(binary)],
-                           check=True, capture_output=True, text=True)
+            subprocess.run(
+                [
+                    compiler,
+                    "-std=c11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    str(c_file),
+                    "-o",
+                    str(binary),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
             subprocess.run([str(binary)], check=True, capture_output=True, text=True)
         task = function("prv_mailbox_task")
-        self.assertLess(task.index("prv_drain_rx()"), task.index("prv_expired_channel()"))
+        self.assertLess(
+            task.index("prv_drain_rx()"), task.index("prv_expired_channel()")
+        )
         self.assertIn("rx_pending ? -1 : prv_expired_channel()", task)
 
     def test_t5ai_mailbox_clients_quarantine_ambiguous_ownership(self):
@@ -393,12 +418,14 @@ int main(void) {
         dbgserial = (ROOT / "fw/console/dbgserial_t5ai.c").read_text()
         reset = (ROOT / "drivers/watchdog/t5ai.c").read_text()
 
-        physical_init = physical.split("status_t t5ai_mailbox_channel_init", 1)[1].split(
-            "status_t t5ai_mailbox_channel_start", 1
-        )[0]
+        physical_init = physical.split("status_t t5ai_mailbox_channel_init", 1)[
+            1
+        ].split("status_t t5ai_mailbox_channel_start", 1)[0]
         self.assertNotIn("NVIC_EnableIRQ", physical_init)
-        self.assertIn("t5ai_force_whole_chip_reset(T5AI_RESET_REASON_MAILBOX_BASE | channel);",
-                      physical)
+        self.assertIn(
+            "t5ai_force_whole_chip_reset(T5AI_RESET_REASON_MAILBOX_BASE | channel);",
+            physical,
+        )
         self.assertRegex(physical, r"#define MAILBOX_ACTIVE_TIMEOUT_MS\s+5000u")
         self.assertIn("RebootReasonCode_MailboxTimeout", physical)
         self.assertRegex(mb_ipc, r"#define MB_IPC_PHYSICAL_TIMEOUT_MS\s+5000u")
@@ -427,8 +454,10 @@ int main(void) {
     def test_t5ai_holds_psram_power_before_board_validation(self):
         board = (ROOT / "fw/board/boards/board_unhygienix.c").read_text()
         init = board.split("void board_init(void)", 1)[1]
-        self.assertLess(init.index("t5ai_cp_mailbox_enable_psram()"),
-                        init.index("PBL_ASSERTN(prv_validate_framebuffer_ram())"))
+        for region in ("framebuffer", "display_dma"):
+            validation = init.index(f"prv_validate_psram_range(__t5ai_{region}_start__")
+            self.assertLess(init.index("t5ai_cp_mailbox_enable_psram()"), validation)
+            self.assertLess(validation, init.index("t5ai_boot_splash_render()"))
         main = (ROOT / "fw/main.c").read_text()
         self.assertLess(main.index("init_drivers();"), main.index("compositor_init();"))
 
@@ -438,8 +467,10 @@ int main(void) {
         self.assertRegex(mailbox, r"CP_PM_SLEEP_COMMAND\s+3u")
         self.assertRegex(mailbox, r"CP_PM_SLEEP_APP_MODULE\s+12u")
         init = board.split("void board_init(void)", 1)[1]
-        self.assertLess(init.index("t5ai_cp_mailbox_vote_app_sleep(false)"),
-                        init.index("t5ai_power_init();"))
+        self.assertLess(
+            init.index("t5ai_cp_mailbox_vote_app_sleep(false)"),
+            init.index("t5ai_power_init();"),
+        )
 
     def test_t5ai_clock_and_tick_ownership_is_soc_local(self):
         initialization = (ROOT / "soc/t5ai/init.c").read_text()
@@ -458,7 +489,10 @@ int main(void) {
         driver = (ROOT / "drivers/uart/t5ai.c").read_text()
         self.assertIn("t5ai_cp_mailbox_log", console)
         self.assertNotIn("uart_set_baud_rate", console)
-        self.assertIn("uart->global_ctrl = UART_GLOBAL_RESET_RELEASE | UART_GLOBAL_CLOCK_GATE_BYPASS;", driver)
+        self.assertIn(
+            "regs->global_ctrl = UART_GLOBAL_RESET_RELEASE | UART_GLOBAL_CLOCK_GATE_BYPASS;",
+            driver,
+        )
         self.assertIn(
             "T5AI_SYSTEM_CPU0_INTERRUPT_ENABLE |= T5AI_UART0_INTERRUPT_ENABLE",
             driver,
@@ -494,43 +528,50 @@ int main(void) {
     def test_t5ai_kernelbg_uses_native_poll_and_message_queue(self):
         service = (ROOT / "fw/services/system_task/service.c").read_text()
         self.assertNotIn("CONFIG_SOC_T5AI", service)
-        self.assertIn("pbl_poll_group_wait(&s_system_task_queue_set, PBL_FOREVER)", service)
+        self.assertIn(
+            "pbl_poll_group_wait(&s_system_task_queue_set, PBL_FOREVER)", service
+        )
         self.assertIn("pbl_msgq_get(activated_queue, &event, PBL_NO_WAIT)", service)
         self.assertIn("system_task_watchdog_feed();", service)
         app_manager = (ROOT / "fw/process_management/app_manager.c").read_text()
         self.assertNotIn("CONFIG_SOC_T5AI", app_manager)
 
-    def test_t5ai_initializes_native_button_debouncing(self):
-        main = (ROOT / "fw/main.c").read_text()
-        build = (ROOT / "drivers/t5ai/CMakeLists.txt").read_text()
-        self.assertIn("debounced_button_init();", main)
-        self.assertIn("debounced_button.c", build)
-        buttons = (ROOT / "drivers/t5ai/debounced_button.c").read_text()
-        self.assertIn("pbl_thread_create", buttons)
-        self.assertIn("pbl_sem_give", buttons)
-        self.assertNotIn("system_task_add_callback", buttons)
+    def test_t5ai_initializes_gpio_keys(self):
+        board = (ROOT / "fw/board/boards/board_unhygienix.c").read_text()
+        config = (ROOT / "boards/unhygienix/defconfig").read_text()
+        self.assertIn("CONFIG_INPUT_GPIO_KEYS=y", config)
+        self.assertRegex(board, r"PBL_GPIO_KEYS_DEFINE\(\s*s_buttons")
+        self.assertIn("PBL_INPUT_KEY_BACK, 40", board)
+        self.assertIn("PBL_INPUT_KEY_SELECT, 40", board)
+        self.assertIn(
+            "RESET_KEYS_HOLD_MS 5000U", (ROOT / "fw/system/reset_keys.c").read_text()
+        )
 
     def test_t5ai_i2c_and_external_rtc(self):
         rtc = (ROOT / "drivers/rtc/t5ai.c").read_text()
         i2c = (ROOT / "drivers/i2c/t5ai.c").read_text()
-        self.assertIn("T5AI_SYSTEM_CPU1_INTERRUPT_ENABLE |= T5AI_I2C0_INTERRUPT_ENABLE", i2c)
+        self.assertIn(
+            "T5AI_SYSTEM_CPU1_INTERRUPT_ENABLE |= T5AI_I2C0_INTERRUPT_ENABLE", i2c
+        )
         self.assertNotIn("T5AI_SYSTEM_CPU0_INTERRUPT_ENABLE", i2c)
         enable = i2c.split("static void prv_enable", 1)[1].split(
             "static void prv_disable", 1
         )[0]
         self.assertIn("delay_us(T5AI_I2C_ENABLE_SETTLE_US);", enable)
-        start = i2c.split("static void prv_start", 1)[1].split(
+        start = i2c.split("static int prv_start", 1)[1].split(
             "void pbl_i2c_t5ai_irq_handler", 1
         )[0]
         self.assertIn("delay_us(T5AI_I2C_BUS_FREE_US);", start)
         disable = i2c.split("static void prv_disable", 1)[1].split(
-            "static bool prv_is_busy", 1
+            "static void prv_abort", 1
         )[0]
         self.assertNotIn("prv_abort", disable)
         self.assertIn("~T5AI_I2C_CONFIG_ENABLE", disable)
-        self.assertIn("NVIC_SetPriority(prv_dev(bus)->irqn, T5AI_I2C_IRQ_PRIORITY)", i2c)
+        self.assertIn(
+            "NVIC_SetPriority(prv_dev(bus)->irqn, T5AI_I2C_IRQ_PRIORITY)", i2c
+        )
         common_i2c = (ROOT / "drivers/i2c/i2c.c").read_text()
-        self.assertRegex(common_i2c, r"#define I2C_ERROR_TIMEOUT_MS\s+\(1000\)")
+        self.assertRegex(common_i2c, r"#define TRANSFER_TIMEOUT_MS\s+1000U")
         self.assertFalse((ROOT / "drivers/i2c/t5ai_bus.c").exists())
         self.assertIn("pbl_mutex_lock(&bus->state->mutex, PBL_FOREVER)", common_i2c)
         self.assertIn("if (!prv_external_rtc_read_raw(&control, registers))", rtc)
@@ -545,8 +586,13 @@ int main(void) {
         if not compiler:
             self.skipTest("Host C compiler unavailable")
         fault = (ROOT / "fw/kernel/fault_handling.c").read_text()
-        function = fault[fault.index("void enable_fault_handlers(void)"):fault.index("typedef struct CrashInfo")]
-        harness = r"""
+        function = fault[
+            fault.index("void enable_fault_handlers(void)") : fault.index(
+                "typedef struct CrashInfo"
+            )
+        ]
+        harness = (
+            r"""
 #include <assert.h>
 #include <stdint.h>
 #define PBL_IRQ_PRIO_MAX_SYSCALL 0x80u
@@ -566,7 +612,9 @@ static unsigned priorities[3], calls;
 static void NVIC_SetPriority(unsigned irq, unsigned prio) {
   assert(irq < 3); priorities[irq] = prio; ++calls;
 }
-""" + function + r"""
+"""
+            + function
+            + r"""
 int main(void) {
   scb.SHCSR = 0x100u; scb.CCR = 0xffu;
   enable_fault_handlers();
@@ -575,12 +623,24 @@ int main(void) {
   assert(scb.SHCSR == 0x107u && scb.CCR == 0xefu);
 }
 """
+        )
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "fault_priority.c"
             binary = Path(directory) / "fault_priority"
             source.write_text(harness)
-            subprocess.run([compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
-                            str(source), "-o", str(binary)], check=True)
+            subprocess.run(
+                [
+                    compiler,
+                    "-std=c11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    str(source),
+                    "-o",
+                    str(binary),
+                ],
+                check=True,
+            )
             subprocess.run([str(binary)], check=True)
 
     def test_t5ai_scales_raw_aon_ticks_at_the_rtc_boundary(self):

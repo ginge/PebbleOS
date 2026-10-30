@@ -111,21 +111,17 @@ static bool prv_queue_work(void (*work)(void));
 
 // These helpers require s_dev->state->io_lock. The bus mutex still serializes other devices.
 static bool prv_read(uint8_t reg, uint8_t *data, size_t length) {
-  pbl_i2c_use((&s_dev->i2c));
   const uint32_t started = qmi_profile_io_start();
-  const bool result = (pbl_i2c_read_register_block((&s_dev->i2c), reg, length, data) == 0);
+  const bool result = (pbl_i2c_burst_read(&s_dev->i2c, reg, data, length) == 0);
   qmi_profile_io_end(started, length, result);
-  pbl_i2c_release((&s_dev->i2c));
   return result;
 }
 
 static bool prv_write(uint8_t reg, uint8_t value) {
   const uint8_t data[] = {reg, value};
-  pbl_i2c_use((&s_dev->i2c));
   const uint32_t started = qmi_profile_io_start();
-  const bool result = (pbl_i2c_write_block((&s_dev->i2c), sizeof(data), data) == 0);
+  const bool result = (pbl_i2c_write(&s_dev->i2c, data, sizeof(data)) == 0);
   qmi_profile_io_end(started, sizeof(data), result);
-  pbl_i2c_release((&s_dev->i2c));
   return result;
 }
 
@@ -619,13 +615,19 @@ static int prv_init(const struct pbl_accel *accel) {
   pbl_mutex_unlock(&s_dev->state->io_lock);
   return disabled ? 0 : -EIO;
 #endif
-  bool ok = prv_write(QMI8658_RESET, QMI8658_RESET_COMMAND);
-  pbl_sleep_ms(QMI8658_RESET_SETTLE_MS);
+  bool ok = false;
   uint8_t id[2] = {0};
-  ok = ok && prv_read(QMI8658_WHO_AM_I, id, 1u) && prv_read(QMI8658_WHO_AM_I + 1u, id + 1u, 1u) &&
-       id[0] == QMI8658_ID;
-  ok = ok && prv_write(QMI8658_CTRL1, QMI8658_CTRL1_INIT) && prv_write(QMI8658_CTRL8, 0x80u) &&
-       prv_write(QMI8658_CTRL7, 0u);
+  for (unsigned attempt = 0; attempt < 3u; ++attempt) {
+    id[0] = id[1] = 0;
+    ok = prv_write(QMI8658_RESET, QMI8658_RESET_COMMAND);
+    pbl_sleep_ms(QMI8658_RESET_SETTLE_MS);
+    ok = ok && prv_read(QMI8658_WHO_AM_I, id, 1u) && prv_read(QMI8658_WHO_AM_I + 1u, id + 1u, 1u) &&
+         id[0] == QMI8658_ID;
+    ok = ok && prv_write(QMI8658_CTRL1, QMI8658_CTRL1_INIT) && prv_write(QMI8658_CTRL8, 0x80u) &&
+         prv_write(QMI8658_CTRL7, 0u);
+    if (ok)
+      break;
+  }
   pbl_mutex_unlock(&s_dev->state->io_lock);
   if (!ok) {
     PBL_LOG_ERR("QMI8658 initialization failed id=%02x rev=%02x", id[0], id[1]);

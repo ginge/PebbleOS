@@ -1,24 +1,30 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 #pragma once
-#include <stdbool.h>
-#include <stdint.h>
+
+#include <pbl/drivers/pinctrl.h>
 #include <pbl/drivers/uart.h>
-typedef struct UARTDeviceState {
-  UARTRXInterruptHandler rx_irq_handler;
-  UARTTXInterruptHandler tx_irq_handler;
-  bool initialized;
-  bool rx_int_enabled;
-  bool tx_int_enabled;
-} UARTDeviceState;
-struct UARTDevice {
-  UARTDeviceState *state;
+
+struct pbl_uart_t5ai {
+  struct pbl_uart uart;
   uintptr_t base;
-  int irqn;
+  int32_t irqn;
   uint8_t irq_priority;
-  uint8_t tx_pin;
-  uint8_t rx_pin;
+  struct pbl_pinctrl pinctrl;
   uint32_t clock_hz;
-  uint32_t baud_rate;
 };
-void uart_irq_handler(UARTDevice *dev);
+
+extern const struct pbl_uart_ops pbl_uart_t5ai_ops;
+void pbl_uart_t5ai_irq_handler(const struct pbl_uart_t5ai *dev);
+
+#define PBL_UART_T5AI_DEFINE(sym, _base, _irqn, _prio, _pins, _clock, _baudrate) \
+  PBL_UART_STATE_DEFINE(sym);                                                    \
+  const struct pbl_uart_t5ai sym = {                                             \
+    .uart = PBL_UART_INIT(sym, "uart0", &pbl_uart_t5ai_ops, _baudrate, nullptr), \
+    .base = (_base),                                                             \
+    .irqn = (_irqn),                                                             \
+    .irq_priority = (_prio),                                                     \
+    .pinctrl = PBL_PINCTRL(_pins, nullptr, _base),                               \
+    .clock_hz = (_clock),                                                        \
+  };                                                                             \
+  PBL_DEVICE_REGISTER(sym, &sym.uart.dev)

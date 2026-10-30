@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: Apache-2.0
 """Execute the production RTC with a fault-injecting bus and interrupt model."""
+
 import subprocess
 import tempfile
 import unittest
@@ -51,31 +52,29 @@ typedef struct { uint32_t words[5]; } TimezoneInfo;
 void rtc_get_time_ms(time_t *, uint16_t *);
 time_t rtc_get_time(void);
 static uint8_t control, calendar[7];
-static int calls, fail_at, fail_also, corrupt_at, corrupt_kind, uses, restarts;
+static int calls, fail_at, fail_also, corrupt_at, corrupt_kind, restarts;
 static int operation(void) {
-  assert(!irq_mask && uses == 1);
+  assert(!irq_mask);
   ++calls;
   return calls == fail_at || calls == fail_also ? -calls : 0;
 }
-static void pbl_i2c_use(int d) { (void)d; assert(!irq_mask && !uses); ++uses; }
-static void pbl_i2c_release(int d) { (void)d; assert(!irq_mask && uses == 1); --uses; }
-static int pbl_i2c_read_register(int d, unsigned r, uint8_t *v) {
+static int pbl_i2c_reg_read_byte(int d, unsigned r, uint8_t *v) {
   (void)d; (void)r; int e = operation(); *v = control;
   if (calls == corrupt_at) *v |= corrupt_kind == 2 ? 0x02 : 0x20;
   return e;
 }
-static int pbl_i2c_read_register_block(int d, unsigned r, size_t n, uint8_t *v) {
+static int pbl_i2c_burst_read(int d, unsigned r, uint8_t *v, size_t n) {
   (void)d; (void)r; int e = operation(); memcpy(v, calendar, n);
   if (calls == corrupt_at) v[0] = corrupt_kind == 1 ? 0x02 : corrupt_kind == 3 ? 0x80 : 0x7a;
   return e;
 }
-static int pbl_i2c_write_register(int d, unsigned r, uint8_t v) {
+static int pbl_i2c_reg_write_byte(int d, unsigned r, uint8_t v) {
   (void)d; (void)r; int e = operation();
   if (!(v & 0x20)) ++restarts;
   if (!e) control = v;
   return e;
 }
-static int pbl_i2c_write_register_block(int d, unsigned r, size_t n, const uint8_t *v) {
+static int pbl_i2c_burst_write(int d, unsigned r, const uint8_t *v, size_t n) {
   (void)d; (void)r; int e = operation(); memcpy(calendar, v, n); return e;
 }
 #include RETAINED_SOURCE
@@ -134,7 +133,7 @@ int main(int argc, char **argv) {
     assert(s_external_rtc_error == -scenario);
     assert(restarts == (scenario >= 1 && scenario <= 2 ? 0 : 1));
     if (scenario == 3) assert(!(control & 0x20));
-    assert(!uses);
+    assert(!irq_mask);
     fail_at = 0; calls = 0; s_external_rtc_present = true;
     rtc_set_time(epoch + 1); // bounded retry repairs health
     assert(s_external_rtc_ready && s_external_rtc_error == 0);
@@ -151,7 +150,7 @@ int main(int argc, char **argv) {
     fail_at = scenario - 9; // boot control/calendar read failure: no writes
     rtc_init_timers();
     assert(!s_external_rtc_ready && !s_external_rtc_present);
-    assert(calls == fail_at && !restarts && !uses);
+    assert(calls == fail_at && !restarts && !irq_mask);
     rtc_set_time(epoch); assert(calls == fail_at);
   } else if (scenario == 12) {
     control = 0x20; // responding stopped clock initialized from fallback
@@ -200,6 +199,7 @@ int main(int argc, char **argv) {
 }
 """
 
+
 class RTCRegressionTest(unittest.TestCase):
     def compile_run(self, harness, scenarios):
         with tempfile.TemporaryDirectory() as temporary:
@@ -210,8 +210,10 @@ class RTCRegressionTest(unittest.TestCase):
                 p.write_text(text)
             # Instrument actual memory operations, including reset after each persistent store.
             retained = (ROOT / "soc/t5ai/retained.c").read_text()
-            retained = retained.replace("return s_retained.values[index];",
-                "uint32_t v = s_retained.values[index]; test_point(); return v;")
+            retained = retained.replace(
+                "return s_retained.values[index];",
+                "uint32_t v = s_retained.values[index]; test_point(); return v;",
+            )
             start = retained.index("void t5ai_retained_write_clock(")
             prefix, transaction = retained[:start], retained[start:]
             lines = transaction.splitlines()
@@ -223,20 +225,36 @@ class RTCRegressionTest(unittest.TestCase):
             assert stores == 6
             (d / "retained.c").write_text(prefix + "\n".join(lines))
             (d / "test.c").write_text(PRELUDE + harness)
-            subprocess.run([
-                "cc", "-std=gnu2x", "-Wall", "-Wextra", "-Werror", "-O2",
-                "-DCONFIG_SOC_T5AI=1", "-I", str(d), "-I", str(ROOT / "include"),
-                "-I", str(ROOT / "fw"),
-                f'-DRETAINED_SOURCE="{d / "retained.c"}"',
-                f'-DRTC_SOURCE="{ROOT / "drivers/rtc/t5ai.c"}"',
-                str(d / "test.c"), "-o", str(d / "test"),
-            ], check=True)
+            subprocess.run(
+                [
+                    "cc",
+                    "-std=gnu2x",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-O2",
+                    "-DCONFIG_SOC_T5AI=1",
+                    "-I",
+                    str(d),
+                    "-I",
+                    str(ROOT / "include"),
+                    "-I",
+                    str(ROOT / "fw"),
+                    f'-DRETAINED_SOURCE="{d / "retained.c"}"',
+                    f'-DRTC_SOURCE="{ROOT / "drivers/rtc/t5ai.c"}"',
+                    str(d / "test.c"),
+                    "-o",
+                    str(d / "test"),
+                ],
+                check=True,
+            )
             for scenario in scenarios:
                 with self.subTest(scenario=scenario):
                     subprocess.run([str(d / "test"), str(scenario)], check=True)
 
     def test_external_failure_cleanup_and_verified_health(self):
         self.compile_run(EXTERNAL, range(25))
+
 
 COHERENCE = r"""
 int main(int argc, char **argv) {
@@ -310,6 +328,7 @@ int main(int argc, char **argv) {
   return 0;
 }
 """
+
 
 class RTCCoherenceTest(unittest.TestCase):
     compile_run = RTCRegressionTest.compile_run

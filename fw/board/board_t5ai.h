@@ -6,8 +6,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include <pbl/drivers/button_id.h>
-
 #define IRQ_PRIORITY_INVALID (1 << __NVIC_PRIO_BITS)
 #define GPIO_Port_NULL       NULL
 #define GPIO_Pin_NULL        0U
@@ -20,13 +18,6 @@
 #include <pbl/drivers/gpio/t5ai.h>
 #include <pbl/drivers/i2c/t5ai.h>
 
-typedef struct {
-  const char *name;
-  struct pbl_gpio gpio;
-} ButtonConfig;
-typedef struct {
-  ButtonConfig buttons[NUM_BUTTONS];
-} BoardConfigButton;
 typedef struct {
   struct pbl_gpio ctl;
 } BoardConfigActuator;
@@ -55,7 +46,6 @@ typedef struct {
 } BoardConfig;
 
 #include <pbl/drivers/uart/t5ai.h>
-typedef const struct UARTDevice UARTDevice;
 typedef const struct MicDevice MicDevice;
 typedef const struct AudioDevice AudioDevice;
 typedef const struct HRMDevice HRMDevice;

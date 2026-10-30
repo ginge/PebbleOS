@@ -8,8 +8,8 @@
 #include <cmsis_core.h>
 
 #define T5AI_MIC_DMA_HALF_SAMPLES 320u
-#define T5AI_MIC_DMA_SAMPLES (2u * T5AI_MIC_DMA_HALF_SAMPLES)
-#define T5AI_MIC_RING_SAMPLES (8u * T5AI_MIC_DMA_HALF_SAMPLES)
+#define T5AI_MIC_DMA_SAMPLES      (2u * T5AI_MIC_DMA_HALF_SAMPLES)
+#define T5AI_MIC_RING_SAMPLES     (8u * T5AI_MIC_DMA_HALF_SAMPLES)
 
 typedef struct {
   struct pbl_mutex mutex;
@@ -42,5 +42,3 @@ struct MicDevice {
   uint8_t irq_priority;
   uint8_t analog_gain;
 };
-
-void t5ai_mic_dma_irq_handler(MicDevice *device);

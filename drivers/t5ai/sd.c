@@ -4,6 +4,9 @@
 #include <errno.h>
 #include <string.h>
 
+#include <pbl/drivers/dma/t5ai.h>
+#include <pbl/drivers/gpio.h>
+#include <pbl/drivers/pinctrl.h>
 #include <pbl/drivers/t5ai/sd.h>
 #include <pbl/kernel/kernel.h>
 #include <pbl/kernel/time.h>
@@ -11,7 +14,6 @@
 #include <pbl/mcu/cache.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/delay.h>
-#include <pbl/soc/t5ai/gdma.h>
 #include <pbl/soc/t5ai/memory.h>
 
 #include <cmsis_core.h>
@@ -24,16 +26,8 @@
 
 // BK7258 AP byte addresses/offsets from the pinned Tuya BSP.
 #define SDIO_BASE_ADDRESS                    0x458d0000u
-#define GDMA_BASE_ADDRESS                    0x45020000u
-#define GPIO_BASE_ADDRESS                    0x44000400u
-#define SYSTEM_GPIO_FUNCTION_BASE_ADDRESS    0x440100c0u
 #define SYSTEM_CPU1_INTERRUPT_ENABLE_ADDRESS 0x44010088u
 #define SYSTEM_SDIO_CLOCK_CONTROL_ADDRESS    0x44010024u
-#define GPIO_REGISTER_STRIDE                 sizeof(uint32_t)
-#define GPIO_FUNCTION_PINS_PER_REGISTER      8u
-#define GPIO_FUNCTION_FIELD_BITS             4u
-#define GPIO_FUNCTION_FIELD_MASK             0xfu
-#define GPIO_FUNCTION_SDIO_GROUP0            1u
 
 #define SD_GLOBAL_CONTROL     0x08u
 #define SD_COMMAND_CONTROL    0x10u
@@ -50,22 +44,6 @@
 #define SD_RX_FIFO            0x40u
 #define SD_FIFO_CONTROL       0x44u
 
-#define DMA_GLOBAL_CONTROL                 0x08u
-#define DMA_SECURE_ATTRIBUTE               0x10u
-#define DMA_PRIVILEGED_ATTRIBUTE           0x14u
-#define DMA_INTERRUPT_ALLOCATION           0x28u
-#define DMA_CHANNEL_BASE_OFFSET            0x40u
-#define DMA_CHANNEL_STRIDE                 0x40u
-#define DMA_CHANNEL_CONTROL                0x00u
-#define DMA_CHANNEL_DESTINATION            0x04u
-#define DMA_CHANNEL_SOURCE                 0x08u
-#define DMA_CHANNEL_DESTINATION_LOOP_END   0x0cu
-#define DMA_CHANNEL_DESTINATION_LOOP_START 0x10u
-#define DMA_CHANNEL_SOURCE_LOOP_END        0x14u
-#define DMA_CHANNEL_SOURCE_LOOP_START      0x18u
-#define DMA_CHANNEL_REQUEST                0x1cu
-#define DMA_CHANNEL_STATUS                 0x30u
-
 // AP kernel/worker/application SRAM; excludes CP memory and IPC alias windows.
 #define SD_AP_SRAM_BEGIN            0x28010000u
 #define SD_AP_SRAM_END              0x28066000u
@@ -74,34 +52,22 @@
 #define SD_PRIVATE_PSRAM_BEGIN      T5AI_DISPLAY_PSRAM_BASE
 #define SD_PRIVATE_PSRAM_END        (T5AI_DISPLAY_PSRAM_BASE + T5AI_DISPLAY_PSRAM_SIZE)
 
-#define SD_CLOCK_PIN           2u
-#define SD_COMMAND_PIN         3u
-#define SD_DATA0_PIN           4u
-#define SD_DATA1_PIN           5u
-#define SD_DATA2_PIN           10u
-#define SD_DATA3_PIN           11u
-#define SD_CARD_DETECT_PIN     8u
-#define SD_CARD_DETECT_ADDRESS (GPIO_BASE_ADDRESS + SD_CARD_DETECT_PIN * GPIO_REGISTER_STRIDE)
-
-#define REG(address)        (*(volatile uint32_t *)(uintptr_t)(address))
-#define SD(offset)          REG(SDIO_BASE_ADDRESS + (offset))
-#define DMA(offset)         REG(GDMA_BASE_ADDRESS + (offset))
-#define CH(channel, offset) DMA(DMA_CHANNEL_BASE_OFFSET + (channel) * DMA_CHANNEL_STRIDE + (offset))
-#define TX_CHANNEL          2u
-#define RX_CHANNEL          3u
-#define CMD_END             3u
-#define CMD_TIMEOUT         (1u << 2)
-#define CMD_CRC_FAIL        (1u << 11)
-#define TX_EMPTY            (1u << 9)
-#define DATA_END            ((1u << 3) | (1u << 4))
-#define DATA_ERROR          ((1u << 5) | (1u << 8) | (1u << 13))
-#define DMA_FINISH          (1u << 18)
-#define DMA_ERROR           (1u << 20)
-#define DMA_FLAGS           ((1u << 18) | (1u << 19) | (1u << 20))
-#define R1_ERRORS           0xfdffe008u
-#define FIFO_RESET          ((1u << 16) | (1u << 17) | (1u << 20))
-#define COMMAND_MS          100u
-#define TRANSFER_MS         2000u
+#define REG(address) (*(volatile uint32_t *)(uintptr_t)(address))
+#define SD(offset)   REG(SDIO_BASE_ADDRESS + (offset))
+#define TX_CHANNEL   2u
+#define RX_CHANNEL   3u
+#define CMD_END      3u
+#define CMD_TIMEOUT  (1u << 2)
+#define CMD_CRC_FAIL (1u << 11)
+#define TX_EMPTY     (1u << 9)
+#define DATA_END     ((1u << 3) | (1u << 4))
+#define DATA_ERROR   ((1u << 5) | (1u << 8) | (1u << 13))
+#define DMA_FINISH   (1u << 18)
+#define DMA_ERROR    (1u << 20)
+#define R1_ERRORS    0xfdffe008u
+#define FIFO_RESET   ((1u << 16) | (1u << 17) | (1u << 20))
+#define COMMAND_MS   100u
+#define TRANSFER_MS  2000u
 
 #define SD_RX_FIFO_RESET_RELEASE    (1u << 16)
 #define SD_TX_FIFO_RESET_RELEASE    (1u << 17)
@@ -116,30 +82,8 @@
 #define SD_FIFO_RX_THRESHOLD_ONE           1u
 #define SD_FIFO_TX_THRESHOLD_ONE           (1u << 8)
 #define SD_FIFO_DEFAULT_THRESHOLDS         (SD_FIFO_RX_THRESHOLD_ONE | SD_FIFO_TX_THRESHOLD_ONE)
-#define DMA_SOURCE_LOOP_ENABLE             (1u << 10)
-#define DMA_DESTINATION_LOOP_ENABLE        (1u << 11)
-#define DMA_SOURCE_INCREMENT               (1u << 8)
-#define DMA_DESTINATION_INCREMENT          (1u << 9)
-#define DMA_SOURCE_WIDTH_32                (2u << 4)
-#define DMA_DESTINATION_WIDTH_32           (2u << 6)
-#define DMA_TRANSFER_LENGTH_SHIFT          16u
-#define DMA_ENABLE                         (1u << 0)
-#define DMA_FINISH_INTERRUPT_ENABLE        (1u << 1)
 #define PERIPHERAL_RESET_RELEASE           (1u << 0)
 #define PERIPHERAL_CLOCK_GATE_BYPASS       (1u << 1)
-#define DMA_REQUEST_SD_TX                  0x0bu
-#define DMA_REQUEST_SD_RX                  0x0cu
-#define DMA_DESTINATION_REQUEST_SHIFT      5u
-#define DMA_REQUEST_SECURE_SOURCE          (1u << 20)
-#define DMA_REQUEST_SECURE_DESTINATION     (1u << 21)
-#define DMA_REQUEST_BUS_ERROR_INTERRUPT    (1u << 22)
-#define SD_GPIO_CONFIG_MASK                0x3fffu
-#define SD_GPIO_INPUT_ENABLE               (1u << 2)
-#define SD_GPIO_OUTPUT_DISABLE             (1u << 3)
-#define SD_GPIO_PULL_UP                    (3u << 4)
-#define SD_GPIO_PERIPHERAL_FUNCTION        (1u << 6)
-#define SD_GPIO_DRIVE_STRENGTH_MAX         (3u << 8)
-#define SD_GPIO_INPUT_LEVEL                (1u << 0)
 #define SYSTEM_CPU1_SDIO_INTERRUPT         (1u << 10)
 #define SYSTEM_SDIO_CLOCK_FIELD_SHIFT      14u
 #define SYSTEM_SDIO_CLOCK_FIELD_MASK       (15u << SYSTEM_SDIO_CLOCK_FIELD_SHIFT)
@@ -152,6 +96,10 @@
 #define SD_RELATIVE_CARD_ADDRESS_MASK      0xffff0000u
 
 PBL_LOG_MODULE_DEFINE(driver_sd_t5ai, LOG_LEVEL_DEBUG);
+extern const struct pbl_pinctrl T5AI_SD_PINCTRL;
+extern const struct pbl_gpio T5AI_SD_DETECT;
+static const struct pbl_dma_chan s_tx_dma = PBL_DMA_CHAN(&T5AI_DMA, 2, 0x0b, 0);
+static const struct pbl_dma_chan s_rx_dma = PBL_DMA_CHAN(&T5AI_DMA, 3, 0x0c, 0);
 static unsigned s_last_command;
 static PBL_MUTEX_DEFINE(s_lock);
 static PBL_SEM_DEFINE(s_event, 0, 1);
@@ -178,7 +126,9 @@ void t5ai_sd_irq(void) {
   }
   // SD completion may precede the DMA ISR that unmasks TX_EMPTY. Preserve
   // the latched final empty event before W1C, but ignore gaps during DMA.
-  const bool tx_finished = ((s_dma_status | CH(TX_CHANNEL, DMA_CHANNEL_STATUS)) & DMA_FINISH) != 0u;
+  size_t residue = 1;
+  const bool tx_finished = (s_dma_status & DMA_FINISH) != 0u ||
+                           (pbl_dma_tx_status(&s_tx_dma, &residue) == 0 && residue == 0);
   if ((status & TX_EMPTY) && tx_finished) {
     s_data_status |= TX_EMPTY;
   }
@@ -189,17 +139,16 @@ void t5ai_sd_irq(void) {
   pbl_sem_give(&s_event);
 }
 
-void t5ai_sd_dma_irq(void) {
-  for (unsigned channel = TX_CHANNEL; channel <= RX_CHANNEL; ++channel) {
-    const uint32_t status = CH(channel, DMA_CHANNEL_STATUS) & DMA_FLAGS;
-    if (status) {
-      CH(channel, DMA_CHANNEL_STATUS) = status;
-      s_dma_status |= status;
-      if (channel == TX_CHANNEL && (status & DMA_FINISH))
-        SD(SD_INTERRUPT_MASK) |= TX_EMPTY;
-      pbl_sem_give(&s_event);
-    }
+static void prv_dma_done(void *arg, int status) {
+  const bool write = (uintptr_t)arg != 0;
+  s_dma_status |= status == 0 ? DMA_FINISH : DMA_ERROR;
+  if (write && status == 0) {
+    // Preserve a final empty event even when SDIO ran before the DMA callback.
+    if (SD(SD_INTERRUPT_STATUS) & TX_EMPTY)
+      s_data_status |= TX_EMPTY;
+    SD(SD_INTERRUPT_MASK) |= TX_EMPTY;
   }
+  pbl_sem_give(&s_event);
 }
 
 static void prv_reset_data(void) {
@@ -208,15 +157,10 @@ static void prv_reset_data(void) {
 }
 
 static void prv_abort(void) {
-  CH(TX_CHANNEL, DMA_CHANNEL_CONTROL) = 0;
-  CH(RX_CHANNEL, DMA_CHANNEL_CONTROL) = 0;
-  __DSB();
-  (void)CH(TX_CHANNEL, DMA_CHANNEL_CONTROL);
-  (void)CH(RX_CHANNEL, DMA_CHANNEL_CONTROL);
+  (void)pbl_dma_terminate(&s_tx_dma);
+  (void)pbl_dma_terminate(&s_rx_dma);
   SD(SD_INTERRUPT_MASK) = 0;
   prv_reset_data();
-  CH(TX_CHANNEL, DMA_CHANNEL_STATUS) = DMA_FLAGS;
-  CH(RX_CHANNEL, DMA_CHANNEL_STATUS) = DMA_FLAGS;
   SD(SD_INTERRUPT_STATUS) = UINT32_MAX;
 }
 
@@ -282,30 +226,25 @@ static bool prv_direct_buffer(const void *buffer, size_t bytes) {
            bytes <= SD_PRIVATE_PSRAM_END - address));
 }
 
-static void prv_dma_start(unsigned channel, void *buffer, size_t bytes, bool write) {
-  const uint32_t memory = (uintptr_t)buffer;
-  const uint32_t fifo = SDIO_BASE_ADDRESS + (write ? SD_TX_FIFO : SD_RX_FIFO);
-  CH(channel, DMA_CHANNEL_CONTROL) = 0;
-  CH(channel, DMA_CHANNEL_DESTINATION) = write ? fifo : memory;
-  CH(channel, DMA_CHANNEL_SOURCE) = write ? memory : fifo;
-  CH(channel, DMA_CHANNEL_DESTINATION_LOOP_END) = write ? fifo + sizeof(uint32_t) : memory + bytes;
-  CH(channel, DMA_CHANNEL_DESTINATION_LOOP_START) = write ? fifo : memory;
-  CH(channel, DMA_CHANNEL_SOURCE_LOOP_END) = write ? memory + bytes : fifo + sizeof(uint32_t);
-  CH(channel, DMA_CHANNEL_SOURCE_LOOP_START) = write ? memory : fifo;
-  CH(channel, DMA_CHANNEL_REQUEST) =
-      (write ? DMA_REQUEST_SD_TX << DMA_DESTINATION_REQUEST_SHIFT : DMA_REQUEST_SD_RX) |
-      DMA_REQUEST_SECURE_SOURCE | DMA_REQUEST_SECURE_DESTINATION | DMA_REQUEST_BUS_ERROR_INTERRUPT;
-  CH(channel, DMA_CHANNEL_STATUS) = DMA_FLAGS;
-  if (write) {
+static int prv_dma_start(unsigned channel, void *buffer, size_t bytes, bool write) {
+  (void)channel;
+  const struct pbl_dma_chan *dma = write ? &s_tx_dma : &s_rx_dma;
+  const struct pbl_dma_slave_config cfg = {
+    .src_addr = SDIO_BASE_ADDRESS + SD_RX_FIFO,
+    .dst_addr = SDIO_BASE_ADDRESS + SD_TX_FIFO,
+    .src_addr_width = PBL_DMA_SLAVE_BUSWIDTH_4_BYTES,
+    .dst_addr_width = PBL_DMA_SLAVE_BUSWIDTH_4_BYTES,
+  };
+  int ret = pbl_dma_slave_config(dma, &cfg);
+  if (ret != 0)
+    return ret;
+  if (write)
     dcache_flush(buffer, bytes);
-  } else {
+  else
     dcache_flush_invalidate(buffer, bytes);
-  }
-  __DSB();
-  CH(channel, DMA_CHANNEL_CONTROL) =
-      ((bytes - 1u) << DMA_TRANSFER_LENGTH_SHIFT) | DMA_SOURCE_WIDTH_32 | DMA_DESTINATION_WIDTH_32 |
-      (write ? DMA_SOURCE_INCREMENT : DMA_DESTINATION_INCREMENT) | DMA_SOURCE_LOOP_ENABLE |
-      DMA_DESTINATION_LOOP_ENABLE | DMA_ENABLE | DMA_FINISH_INTERRUPT_ENABLE;
+  return pbl_dma_prep_slave_single(dma, buffer, bytes,
+                                   write ? PBL_DMA_MEM_TO_DEV : PBL_DMA_DEV_TO_MEM, prv_dma_done,
+                                   (void *)(uintptr_t)write);
 }
 
 static int prv_transfer(uint32_t sector, void *buffer, uint32_t count, bool write) {
@@ -342,7 +281,9 @@ static int prv_transfer(uint32_t sector, void *buffer, uint32_t count, bool writ
   if (!write) {
     SD(SD_FIFO_CONTROL) |= SD_RX_FIFO_RESET_RELEASE | SD_DATA_STATE_RESET_RELEASE;
     SD(SD_DATA_CONTROL) = data_control;
-    prv_dma_start(channel, dma_buffer, bytes, false);
+    status = prv_dma_start(channel, dma_buffer, bytes, false);
+    if (status != 0)
+      goto fail;
     SD(SD_DATA_CONTROL) |= 1u;
   }
   // The vendor uses CMD25 even for one sector; terminate every write with CMD12.
@@ -355,7 +296,9 @@ static int prv_transfer(uint32_t sector, void *buffer, uint32_t count, bool writ
     // while the data state is reset, then release it as in the vendor driver.
     SD(SD_FIFO_CONTROL) |= SD_TX_FIFO_RESET_RELEASE | SD_DATA_STATE_RESET_RELEASE;
     SD(SD_DATA_CONTROL) = data_control;
-    prv_dma_start(channel, dma_buffer, bytes, true);
+    status = prv_dma_start(channel, dma_buffer, bytes, true);
+    if (status != 0)
+      goto fail;
     SD(SD_INTERRUPT_MASK) |= SD_TX_FIFO_CLOCK_GATE; // Gate SD clock when transmit FIFO needs data.
     SD(SD_DATA_CONTROL) |= 1u << 16;
   }
@@ -375,7 +318,7 @@ static int prv_transfer(uint32_t sector, void *buffer, uint32_t count, bool writ
     status = -EIO;
     goto fail;
   }
-  CH(channel, DMA_CHANNEL_CONTROL) = 0;
+  (void)pbl_dma_terminate(write ? &s_tx_dma : &s_rx_dma);
   __DSB();
   if (count > 1 || write) {
     // The vendor requires FIFO/state reset before CMD12 to stop read-ahead.
@@ -447,10 +390,18 @@ int t5ai_sd_init(void) {
     goto done;
   }
   // Socket switch is active-low; presence is not proof of a readable card.
-  REG(SD_CARD_DETECT_ADDRESS) = (REG(SD_CARD_DETECT_ADDRESS) & ~SD_GPIO_CONFIG_MASK) |
-                                SD_GPIO_INPUT_ENABLE | SD_GPIO_OUTPUT_DISABLE | SD_GPIO_PULL_UP;
+  status = pbl_device_init(&T5AI_SD_DETECT.port->dev);
+  if (status == 0)
+    status = pbl_gpio_configure(&T5AI_SD_DETECT, PBL_GPIO_INPUT);
+  if (status != 0)
+    goto done;
   delay_us(5000);
-  if (REG(SD_CARD_DETECT_ADDRESS) & SD_GPIO_INPUT_LEVEL) {
+  const int detected = pbl_gpio_get(&T5AI_SD_DETECT);
+  if (detected < 0) {
+    status = detected;
+    goto done;
+  }
+  if (!detected) {
     status = -ENODEV;
     goto done;
   }
@@ -459,30 +410,12 @@ int t5ai_sd_init(void) {
   if (status) {
     goto done;
   }
-  // Waveshare: CLK/CMD/D0/D1/D2/D3 = P2/P3/P4/P5/P10/P11; CD = P8.
-  const unsigned pins[] = {
-    SD_CLOCK_PIN, SD_COMMAND_PIN, SD_DATA0_PIN,
-#ifdef CONFIG_T5AI_SD_4BIT
-    SD_DATA1_PIN, SD_DATA2_PIN,   SD_DATA3_PIN,
-#endif
-  };
+  status = pbl_device_init(&T5AI_DMA.dev);
+  if (status == 0)
+    status = pbl_pinctrl_select_state(&T5AI_SD_PINCTRL, PBL_PINCTRL_STATE_DEFAULT);
+  if (status != 0)
+    goto fail;
   pbl_irq_lock();
-  for (unsigned i = 0; i < sizeof(pins) / sizeof(pins[0]); ++i) {
-    const unsigned pin = pins[i],
-                   shift = (pin % GPIO_FUNCTION_PINS_PER_REGISTER) * GPIO_FUNCTION_FIELD_BITS;
-    const uintptr_t mux = SYSTEM_GPIO_FUNCTION_BASE_ADDRESS +
-                          (pin / GPIO_FUNCTION_PINS_PER_REGISTER) * sizeof(uint32_t);
-    REG(mux) =
-        (REG(mux) & ~(GPIO_FUNCTION_FIELD_MASK << shift)) | (GPIO_FUNCTION_SDIO_GROUP0 << shift);
-    REG(GPIO_BASE_ADDRESS + pin * GPIO_REGISTER_STRIDE) = SD_GPIO_OUTPUT_DISABLE | SD_GPIO_PULL_UP |
-                                                          SD_GPIO_PERIPHERAL_FUNCTION |
-                                                          SD_GPIO_DRIVE_STRENGTH_MAX;
-  }
-  // Preserve other DMA users, including CP logical channels 12..15.
-  DMA(DMA_GLOBAL_CONTROL) |= PERIPHERAL_RESET_RELEASE | PERIPHERAL_CLOCK_GATE_BYPASS;
-  DMA(DMA_SECURE_ATTRIBUTE) |= (1u << TX_CHANNEL) | (1u << RX_CHANNEL);
-  DMA(DMA_PRIVILEGED_ATTRIBUTE) |= (1u << TX_CHANNEL) | (1u << RX_CHANNEL);
-  DMA(DMA_INTERRUPT_ALLOCATION) &= ~((1u << TX_CHANNEL) | (1u << RX_CHANNEL));
   REG(SYSTEM_CPU1_INTERRUPT_ENABLE_ADDRESS) |= SYSTEM_CPU1_SDIO_INTERRUPT;
   // 26 MHz source / 256 for identification; preserve unrelated clock fields.
   REG(SYSTEM_SDIO_CLOCK_CONTROL_ADDRESS) =
@@ -495,7 +428,6 @@ int t5ai_sd_init(void) {
   NVIC_SetPriority(SDIO_IRQn, 6u);
   NVIC_EnableIRQ(SDIO_IRQn);
   // SD retains its handler across aborts, failed initialization and retries.
-  t5ai_gdma_irq_acquire(T5AI_GDMA_SD);
   delay_us(2000);
   status = prv_command(0, 0, 0, false, NULL);
   if (status)

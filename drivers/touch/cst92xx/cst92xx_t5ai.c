@@ -18,13 +18,14 @@
 
 #include "board/board.h"
 
+#include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
 
 #include <pbl/drivers/gpio/t5ai.h>
 #include <pbl/drivers/i2c.h>
 #include <pbl/drivers/intc.h>
-#include <pbl/drivers/touch/touch_sensor.h>
+#include <pbl/drivers/touch/cst92xx_t5ai.h>
 #include <pbl/input/input.h>
 #include <pbl/kernel/assert.h>
 #include <pbl/kernel/delay.h>
@@ -106,20 +107,16 @@ static bool prv_read_report(uint8_t report[CST92XX_REPORT_LENGTH]) {
     (uint8_t)(CST92XX_DATA_REGISTER >> 8),
     (uint8_t)CST92XX_DATA_REGISTER,
   };
-  T5_IO_BEGIN(bus_at);
-  pbl_i2c_use(I2C_CST92XX);
-  T5_IO_END(T5IO_I2C_WAIT, bus_at, 0u);
   T5_IO_BEGIN(read_at);
-  bool result = (pbl_i2c_write_block(I2C_CST92XX, sizeof(address), address) == 0);
+  bool result = (pbl_i2c_write(I2C_CST92XX, address, sizeof(address)) == 0);
   if (result) {
-    result = (pbl_i2c_read_block(I2C_CST92XX, CST92XX_REPORT_LENGTH, report) == 0);
+    result = (pbl_i2c_read(I2C_CST92XX, report, CST92XX_REPORT_LENGTH) == 0);
   }
   bool ack_ok = true;
   if (result) {
     const uint8_t ack[] = {0xd0, 0x00, CST92XX_REPORT_ACK};
-    ack_ok = pbl_i2c_write_block(I2C_CST92XX, sizeof(ack), ack) == 0;
+    ack_ok = pbl_i2c_write(I2C_CST92XX, ack, sizeof(ack)) == 0;
   }
-  pbl_i2c_release(I2C_CST92XX);
   T5_IO_END(T5IO_TOUCH_READ, read_at, CST92XX_REPORT_LENGTH);
   return result && ack_ok;
 }
@@ -130,15 +127,11 @@ static int16_t prv_map_coordinate(uint16_t coordinate, int16_t display_size) {
 
 static void prv_report_sample(bool down, int16_t x, int16_t y) {
   t5ai_draw_profile_touch(down);
-  pbl_input_report_key(PBL_INPUT_BTN_TOUCH, down, false);
-  pbl_input_report_abs(PBL_INPUT_ABS_X, x, false);
-  pbl_input_report_abs(PBL_INPUT_ABS_Y, y, true);
+  pbl_touch_report(TOUCH, down, x, y);
 }
 
 static void prv_report_palm(int16_t x, int16_t y) {
-  pbl_input_report_abs(PBL_INPUT_ABS_X, x, false);
-  pbl_input_report_abs(PBL_INPUT_ABS_Y, y, false);
-  pbl_input_report_ges(PBL_INPUT_GES_PALM, true);
+  pbl_touch_report_gesture(TOUCH, PBL_INPUT_GES_PALM, x, y);
 }
 
 static void prv_schedule(uint32_t generation) {
@@ -296,26 +289,42 @@ static void prv_process_pending_messages(void *context) {
   T5_IO_END(T5IO_TOUCH_CALLBACK, callback_at, 0u);
 }
 
-void touch_sensor_init(void) {
+static int prv_touch_init(const struct pbl_touch *touch) {
   if (s_initialized) {
-    return;
+    return 0;
+  }
+  int ret = pbl_device_init(&T5AI_GPIO_INTC.dev);
+  if (ret != 0) {
+    return ret;
   }
   s_retry_timer = new_timer_create();
+  if (s_retry_timer == TIMER_INVALID_ID) {
+    return -ENOMEM;
+  }
   pbl_mutex_lock(&s_i2c_lock, PBL_FOREVER);
   (void)pbl_gpio_configure(&s_reset, PBL_GPIO_OUTPUT_INACTIVE);
   prv_reset(true);
   uint8_t report[CST92XX_REPORT_LENGTH] = {0};
-  if (!prv_read_report(report)) {
-    PBL_LOG_ERR("CST92xx not detected at 0x5a");
+  bool detected = false;
+  for (unsigned attempt = 0; attempt < 3u; ++attempt) {
+    if (prv_read_report(report)) {
+      detected = true;
+      break;
+    }
+    if (attempt + 1u < 3u)
+      prv_reset(true);
   }
+  if (!detected)
+    PBL_LOG_ERR("CST92xx not detected at 0x5a");
   prv_reset(false);
   pbl_mutex_unlock(&s_i2c_lock);
   PBL_ASSERTN(pbl_gpio_configure(&s_interrupt_input, PBL_GPIO_INPUT) == 0);
   PBL_ASSERTN(pbl_intc_request(&s_interrupt, prv_interrupt_handler, nullptr) == 0);
   s_initialized = true;
+  return 0;
 }
 
-void touch_sensor_set_enabled(bool enabled) {
+static void prv_set_enabled(bool enabled) {
   pbl_mutex_lock(&s_i2c_lock, PBL_FOREVER);
   if (s_enabled == enabled) {
     pbl_mutex_unlock(&s_i2c_lock);
@@ -353,3 +362,17 @@ void touch_sensor_set_enabled(bool enabled) {
   }
   pbl_mutex_unlock(&s_i2c_lock);
 }
+
+static int prv_touch_enable(const struct pbl_touch *touch) {
+  prv_set_enabled(true);
+  return 0;
+}
+static int prv_touch_disable(const struct pbl_touch *touch) {
+  prv_set_enabled(false);
+  return 0;
+}
+const struct pbl_touch_ops pbl_touch_cst92xx_t5ai_ops = {
+  .init = prv_touch_init,
+  .enable = prv_touch_enable,
+  .disable = prv_touch_disable,
+};

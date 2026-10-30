@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tools.tests.test_t5ai_i2c import API, HARNESS, ROOT
+from tools.tests.test_t5ai_i2c import HARNESS, ROOT, write_headers
 
 FIFO_HARNESS = r"""
 static unsigned queued, pops, offset;
@@ -21,15 +21,16 @@ static void irq(const struct pbl_i2c_bus *bus, uint32_t status) {
 }
 static void begin(const struct pbl_i2c_bus *bus,uint8_t *buffer,unsigned size,bool reg) {
  elapsed=0;queued=pops=offset=0;
- bus->state->transfer=(struct pbl_i2c_transfer){.size=size,.data=buffer,.addr=0x6b,
-  .reg=0x30,.dir=PBL_I2C_READ,
-  .with_reg=reg};
- pbl_i2c_t5ai_ops.start_transfer(bus);
+ static uint8_t address=0x30;
+ static struct pbl_i2c_msg msgs[2];
+ msgs[0]=(struct pbl_i2c_msg){.len=1,.buf=&address,.flags=PBL_I2C_MSG_WRITE};
+ msgs[1]=(struct pbl_i2c_msg){.len=size,.buf=buffer,.flags=PBL_I2C_MSG_READ};
+ assert(pbl_i2c_t5ai_ops.start(bus,0x6b,reg?msgs:&msgs[1],reg?2:1)==0);
  assert(prv_regs(bus)->data==(reg?0xd6u:0xd7u));
  if(reg) {
   irq(bus,T5AI_I2C_STATUS_INTERRUPT|T5AI_I2C_STATUS_ACK);
   assert(prv_regs(bus)->data==0x30u);
-  assert(prv_dev(bus)->state->phase==T5AI_I2C_RESTART);
+  assert(prv_dev(bus)->state->phase==T5AI_I2C_WRITE);
   irq(bus,T5AI_I2C_STATUS_INTERRUPT|T5AI_I2C_STATUS_ACK);
   assert(prv_regs(bus)->data==0xd7u && prv_regs(bus)->status==T5AI_I2C_STATUS_START);
  }
@@ -42,7 +43,7 @@ static unsigned threshold(uint32_t control) {
 static void data_irq(const struct pbl_i2c_bus *bus) {
  uint32_t control=prv_regs(bus)->status;
  queued=threshold(control);
- assert(queued<=12 && queued<=bus->state->transfer.size-prv_dev(bus)->state->index);
+ assert(queued<=12 && queued<=prv_dev(bus)->state->msgs[prv_dev(bus)->state->msg_index].len-prv_dev(bus)->state->index);
  irq(bus,control|T5AI_I2C_STATUS_INTERRUPT);
  assert(!queued);
 }
@@ -66,7 +67,7 @@ int main(void) {
    data_irq(bus);++entries;
    if(hw.index<size)assert(completions==done);
   }
-  assert(completions==done+1 && state.event==PBL_I2C_EVENT_COMPLETE);
+  assert(completions==done+1 && state.status==0);
   assert(prv_regs(bus)->status==T5AI_I2C_STATUS_STOP && pops==size);
   assert(buffer[0]==0x7e && buffer[size+1]==0x7e);
   for(unsigned i=0;i<size;++i)assert(buffer[i+1]==(uint8_t)(i^0xa5u));
@@ -88,19 +89,18 @@ int main(void) {
   begin(bus,buffer,24,true);data_irq(bus);
   unsigned before=pops,done=completions,calls=gpio_calls;
   irq(bus,errors[e]|T5AI_I2C_STATUS_INTERRUPT);
-  assert(completions==done+1 && state.event==PBL_I2C_EVENT_ERROR);
+  assert(completions==done+1 && state.status<0);
   assert(pops==before && gpio_calls==calls && hw.recovery_required && !irq_enabled);
   begin(bus,buffer,9,true);
   assert(!hw.recovery_required && irq_enabled);
   while(hw.index<9)data_irq(bus);
-  assert(state.event==PBL_I2C_EVENT_COMPLETE);
+  assert(state.status==0);
  }
  // Read address NACK is not a data-ready interrupt.
- elapsed=0;state.transfer=(struct pbl_i2c_transfer){.size=9,.data=buffer,.addr=0x6b,
-  .dir=PBL_I2C_READ,.with_reg=false};
- pbl_i2c_t5ai_ops.start_transfer(bus);unsigned before=pops,done=completions;
+ elapsed=0;struct pbl_i2c_msg read_msg={.len=9,.buf=buffer,.flags=PBL_I2C_MSG_READ};
+ assert(pbl_i2c_t5ai_ops.start(bus,0x6b,&read_msg,1)==0);unsigned before=pops,done=completions;
  irq(bus,T5AI_I2C_STATUS_INTERRUPT|T5AI_I2C_STATUS_START);
- assert(completions==done+1 && pops==before && state.event==PBL_I2C_EVENT_ERROR);
+ assert(completions==done+1 && pops==before && state.status<0);
  // A malformed level or stale interrupt cannot overrun the destination.
  begin(bus,buffer,2,false);before=pops;
 #ifndef CONFIG_T5AI_I2C_RX_FIFO
@@ -108,16 +108,20 @@ int main(void) {
 #endif
  irq(bus,T5AI_I2C_STATUS_INTERRUPT|T5AI_I2C_STATUS_ACK); // mode 0: twelve bytes
 #ifdef CONFIG_T5AI_I2C_RX_FIFO
- assert(pops==before && state.event==PBL_I2C_EVENT_ERROR);
+ assert(pops==before && state.status<0);
 #else
  (void)before;
 #endif
- // Zero-length requests do not issue START or touch the receive buffer.
- hw.recovery_required=false;state.transfer.size=0;elapsed=0;
+ // Zero-length reads are unsupported; zero-length writes probe the address.
+ hw.recovery_required=false;elapsed=0;read_msg.len=0;
  prv_regs(bus)->status=0x200u;before=pops;
- pbl_i2c_t5ai_ops.start_transfer(bus);
- assert(state.event==PBL_I2C_EVENT_ERROR && pops==before);
- assert(prv_regs(bus)->status==0x200u);
+ assert(pbl_i2c_t5ai_ops.start(bus,0x6b,&read_msg,1)==-ENOTSUP);
+ assert(pops==before && prv_regs(bus)->status==0x200u);
+ read_msg.flags=PBL_I2C_MSG_WRITE;done=completions;
+ assert(pbl_i2c_t5ai_ops.start(bus,0x6b,&read_msg,1)==0);
+ assert(prv_regs(bus)->data==0xd6u);
+ irq(bus,T5AI_I2C_STATUS_INTERRUPT|T5AI_I2C_STATUS_START|T5AI_I2C_STATUS_ACK);
+ assert(completions==done+1 && state.status==0 && pops==before);
  return 0;
 }
 """
@@ -131,20 +135,7 @@ class T5AII2CFifoTest(unittest.TestCase):
                 tempfile.TemporaryDirectory() as temporary,
             ):
                 path = Path(temporary)
-                (path / "api.h").write_text(API)
-                for name in (
-                    "pbl/util/misc.h",
-
-                    "pbl/drivers/i2c/t5ai.h",
-
-                    "pbl/kernel/kernel.h",
-                    "pbl/soc/t5ai/delay.h",
-                    "pbl/kernel/assert.h",
-                    "cmsis_core.h",
-                ):
-                    header = path / name
-                    header.parent.mkdir(parents=True, exist_ok=True)
-                    header.write_text('#include "api.h"\n')
+                write_headers(path)
                 # Intercept only the MMIO data pop; execute the real ISR logic.
                 source = (ROOT / "drivers/i2c/t5ai.c").read_text()
                 source = source.replace("(uint8_t)regs->data", "test_pop()")
@@ -155,14 +146,15 @@ class T5AII2CFifoTest(unittest.TestCase):
                 )
                 (path / "test.c").write_text(prefix + FIFO_HARNESS)
                 args = [
-                    "cc",
+                    "clang-21",
                     "-D_GNU_SOURCE",
-                    "-std=c11",
+                    "-std=gnu23",
                     "-Wall",
                     "-Wextra",
                     "-Werror",
                     "-Wno-unused-parameter",
                     "-fsanitize=address,undefined",
+                    "-fno-sanitize-recover=all",
                     "-fno-pie",
                     "-no-pie",
                 ]
@@ -172,7 +164,15 @@ class T5AII2CFifoTest(unittest.TestCase):
                     args.append("-DCONFIG_T5AI_I2C_RX_FIFO_LIMIT4=1")
                 subprocess.run(
                     args
-                    + ["-I", str(path), str(path / "test.c"), "-o", str(path / "test")],
+                    + [
+                        "-I",
+                        str(path),
+                        "-I",
+                        str(ROOT / "include"),
+                        str(path / "test.c"),
+                        "-o",
+                        str(path / "test"),
+                    ],
                     check=True,
                 )
                 subprocess.run([str(path / "test")], check=True)

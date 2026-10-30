@@ -1,189 +1,133 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Execute the shared route and microphone lifecycle in all board IRQ combinations."""
-import itertools
+"""Execute native DMA with modeled W1C registers and isolated AP channels."""
+
 import re
-import subprocess
-import tempfile
 import unittest
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+from tools.tests.native_t5ai_harness import ROOT, run
 
-
-def function(source, name):
-    match = re.search(r'^(?:static )?(?:void|bool) '+name+r'\(', source, re.M)
-    start=source.index('{',match.start())
-    end=start+1
-    depth=1
-    while depth:
-        depth+=(source[end]=='{')-(source[end]=='}')
-        end+=1
-    return source[match.start():end]+'\n'
-
-
-PREFIX = r'''
+PREFIX = (
+    f'#include "{ROOT / "include/pbl/soc/t5ai/memory.h"}"\n'
+    + r"""
 #include <assert.h>
+#include <errno.h>
 #include <stdbool.h>
-#include <stddef.h>
 #include <stdint.h>
-#include <stdlib.h>
-#define PBL_FOREVER 0
-#define PBL_LOG_DBG(...) ((void)0)
-#define PBL_LOG_ERR(...) ((void)0)
-#define FAILED(x) ((x)!=0)
-#define MIC_DEFAULT_VOLUME 0
-#define AUD_ADC_GAIN_DEFAULT 63
-#define AUD_CONFIG 0
-#define AUD_FIFO_CONFIG 1
-#define AUD_ADC_ENABLE 40
-#define AUD_FIFO_THRESHOLD 8
-#define SYS_MIC1_INDEX 19
-#define SYS_AUDIO_BIAS_INDEX 18
-#define SYS_MIC1_DEFAULT 0
-#define SYS_AUDIO_BIAS_DEFAULT 0
-#define T5AI_MIC_RING_SAMPLES 128
-#define DMA_CTRL 0
-#define DMA_STATUS 1
-#define DMA_IRQ_STATUS (7u<<18)
-#define DMA_BYTES 256
-#define DMA_CACHE_ALIGNMENT 32
-#define MIC_SETTLE_TICKS 200
-#define SYS_DMA_IRQ (1u<<11)
+#include <stddef.h>
+#include <string.h>
+#define nullptr NULL
+#define __DSB() ((void)0)
 #define GDMA_IRQn 11
-#define SYS_CPU1_IRQ_ENABLE route
-#define SYSTEM_CPU1_INTERRUPT_ENABLE route
-static uint32_t route, audio[2], dma[2], pending;
-static bool nvic, analog_ok=true;
-static unsigned locks, clears, dma_stops;
-static uint32_t *prv_dma(unsigned index){return &dma[index];}
-static void pbl_irq_lock(void){++locks;}
-static void pbl_irq_unlock(void){assert(locks);--locks;}
-static void NVIC_DisableIRQ(int irq){assert(irq==11);nvic=false;}
-static void NVIC_EnableIRQ(int irq){assert(irq==11);nvic=true;}
-static unsigned NVIC_GetEnableIRQ(int irq){assert(irq==11);return nvic;}
-static void NVIC_ClearPendingIRQ(int irq){assert(irq==11);++clears;pending=0;}
-static void NVIC_SetPriority(int irq,unsigned priority){assert(irq==11 && priority==6);}
-static void __DSB(void){}
-typedef int status_t;
-typedef void (*MicDataHandlerCB)(void);
-typedef struct {
- bool initialized,running,faulted,powered,pending;
- int mutex,gain;
- void *dma_allocation;uint32_t *dma_buffer;int16_t *ring,*buffer;
- size_t buffer_len,read_index,write_index,count;
- unsigned dropped_samples,fifo_full_events;
- uint64_t settle_deadline,dma_irq_ticks;
- MicDataHandlerCB handler;void *context;
-} MicDeviceState;
-typedef struct {MicDeviceState *state;int irq;unsigned irq_priority;} MicDevice;
-static MicDeviceState state;
-static MicDevice device={&state,11,6};
-static MicDevice *MIC=&device;
-static int16_t s_mono_ring[128];
-static uint32_t *prv_reg(MicDevice *d,unsigned index){(void)d;return &audio[index];}
-static void pbl_mutex_init(int *m){*m=0;}
-static void pbl_mutex_lock(int *m,int timeout){(void)timeout;assert(!*m);*m=1;}
-static void pbl_mutex_unlock(int *m){assert(*m);*m=0;}
-static void *kernel_malloc(size_t n){return malloc(n);}
-static void kernel_free(void *p){free(p);}
-static bool prv_analog_write(unsigned index,uint32_t v){(void)index;(void)v;assert(!dma[0]);return analog_ok;}
-static status_t t5ai_cp_mailbox_set_audio_clock(bool on){assert(!on);return 0;}
-static status_t t5ai_cp_mailbox_set_audio_power(bool on){assert(!on);return 0;}
-static bool prv_power_up(MicDevice *d){d->state->powered=true;return true;}
-static void prv_dma_start(MicDevice *d){(void)d;dma[0]=1;}
-static uint64_t t5ai_rtc_get_raw_ticks(void){return 1000;}
-static uint32_t t5ai_interrupt_profile_irq_enter(void){return 0;}
-static void t5ai_interrupt_profile_irq_exit(unsigned i,uint32_t n){(void)i;(void)n;}
-static void display_co5300_dma_irq(void){pending&=~1u;}
-static void t5ai_sd_dma_irq(void){pending&=~12u;}
-static void t5ai_mic_dma_irq_handler(MicDevice *d){(void)d;pending&=~2u;}
-#define PBL_IRQ_CONNECT(...)
-static void handler(void){}
-'''
-
-MAIN = r'''
-static void check(unsigned active) {
- assert(locks==0);
- if(active)assert(nvic && (route&SYS_DMA_IRQ));
- assert((route&~SYS_DMA_IRQ)==0x80000000u);
- assert(clears==0);
-}
-static void dispatch(void){
-#if defined(CONFIG_T5AI_DISPLAY_DMA_IRQ) || defined(CONFIG_T5AI_SD_PFS)
- prv_shared_gdma_irq();
-#elif defined(CONFIG_MIC)
- t5ai_mic_dma_irq_handler(MIC);
-#endif
-}
+#define T5AI_DMA_PERIPHERAL_INCREMENT 1u
+#define T5AI_DMA_BURST_INC16 2u
+static uint32_t registers[1024],system_regs[128];
+static unsigned depth,callbacks,last_channel;static int last_status;
+struct pbl_device {int unused;};
+enum pbl_dma_dir {PBL_DMA_MEM_TO_DEV,PBL_DMA_DEV_TO_MEM};
+struct pbl_dma_slave_config {uintptr_t src_addr,dst_addr;unsigned src_addr_width,dst_addr_width;};
+struct pbl_dma_controller;
+struct pbl_dma_chan {const struct pbl_dma_controller *ctrl;uint8_t channel,request;uint32_t config;};
+struct pbl_dma_chan_state {struct pbl_dma_slave_config cfg;};
+struct pbl_dma_controller {struct pbl_device dev;struct pbl_dma_chan_state *chans;};
+static struct pbl_dma_chan_state channels[4];
+static const struct pbl_dma_controller T5AI_DMA={.chans=channels};
+struct pbl_dma_controller_ops {
+ int (*slave_config)(const struct pbl_dma_controller *,const struct pbl_dma_chan *,const struct pbl_dma_slave_config *);
+ int (*prep_slave_single)(const struct pbl_dma_controller *,uint8_t,void *,size_t,enum pbl_dma_dir);
+ int (*prep_dma_cyclic)(const struct pbl_dma_controller *,uint8_t,void *,size_t,size_t,enum pbl_dma_dir);
+ int (*terminate)(const struct pbl_dma_controller *,uint8_t);
+ int (*tx_status)(const struct pbl_dma_controller *,uint8_t,size_t *);
+};
+static void pbl_irq_lock(void){++depth;}
+static void pbl_irq_unlock(void){assert(depth);--depth;}
+static void delay_us(unsigned us){assert(us==10);}
+static void NVIC_SetPriority(unsigned irq,unsigned priority){assert(irq==11 && priority==6);}
+static void NVIC_EnableIRQ(unsigned irq){assert(irq==11);}
+static void pbl_dma_complete(const struct pbl_dma_controller *ctrl,uint8_t channel,int status){assert(depth);++callbacks;last_channel=channel;last_status=status;}
+"""
+)
+MAIN = r"""
+#define CH(c, offset) DMA_CHANNEL_REG(c, offset)
+#define FINISH DMA_STATUS_FINISH
+#define HALF DMA_STATUS_HALF
+#define ERROR DMA_STATUS_BUS_ERROR
 int main(void){
- unsigned clients[]={DISPLAY,MIC_ON,SD};
- for(unsigned inherited=0;inherited<4;++inherited){
-  nvic=inherited&1;route=0x80000000u|((inherited&2)?SYS_DMA_IRQ:0);
-  state=(MicDeviceState){0};dma[0]=0;pending=0;
-  assert(nvic==(bool)(inherited&1));
-  unsigned active=0;
-  for(unsigned i=0;i<3;++i){
-   unsigned client=clients[ORDER[i]];if(!client)continue;
-   pending=active; // Initializing a new client must preserve in-flight peers.
-   if(client==2){mic_init(MIC);check(active);assert(pending==active);assert(mic_start(MIC,handler,NULL,s_mono_ring,16));}
-   else {t5ai_gdma_irq_acquire((T5aiGdmaOwner)client);t5ai_gdma_irq_acquire((T5aiGdmaOwner)client);}
-   active|=client;check(active);assert(pending==(active&~client));
-   if(MIC_ON)mic_init(MIC);check(active);
-  }
-  for(unsigned repeat=0;repeat<20;++repeat){
-   pending=active|0xf000u;dispatch();assert(pending==0xf000u); // CP flags survive AP dispatch.
-   if(MIC_ON){
-    pending=active&~2u;analog_ok=(repeat%2)==0;
-    mic_stop(MIC);active&=~2u;check(active);assert(pending==active);
-    assert(dma[0]==0 && dma[1]==DMA_IRQ_STATUS && !state.dma_allocation);
-    mic_stop(MIC);check(active); // Idempotent shutdown.
-    state.faulted=false;
-    assert(mic_start(MIC,handler,NULL,s_mono_ring,16));active|=2;
-    check(active);assert(pending==(active&~2u));
-   }
-  }
-  analog_ok=true;
-  if(MIC_ON){mic_stop(MIC);active&=~2u;check(active);}
-  if(DISPLAY){t5ai_gdma_irq_release(T5AI_GDMA_DISPLAY);active&=~1u;check(active);}
-  if(SD){t5ai_gdma_irq_release(T5AI_GDMA_SD);active&=~12u;check(active);}
-  assert(nvic==(bool)(inherited&1));
-  assert((bool)(route&SYS_DMA_IRQ)==(bool)(inherited&2));
-  t5ai_gdma_irq_release(T5AI_GDMA_MIC); // Release without claim does nothing.
+ registers[(0x40+12*0x40)/4]=0xabcdef;
+ assert(prv_init(NULL)==0 && !depth && registers[(0x40+12*0x40)/4]==0xabcdef);
+ for(unsigned c=0;c<4;++c){
+  struct pbl_dma_chan chan={&T5AI_DMA,c,c?14:0,c?0:3};
+  const struct pbl_dma_slave_config cfg={.src_addr=0x47000044,.dst_addr=0x64000000,.src_addr_width=4,.dst_addr_width=4};
+  assert(prv_config(&T5AI_DMA,&chan,&cfg)==0);channels[c].cfg=cfg;
+  assert(prv_single(&T5AI_DMA,c,(void *)0x28020000,0,PBL_DMA_MEM_TO_DEV)==-EINVAL);
+  assert(prv_single(&T5AI_DMA,c,(void *)0x28020001,4,PBL_DMA_MEM_TO_DEV)==-EINVAL);
+  assert(prv_single(&T5AI_DMA,c,(void *)0x28020000,65540,PBL_DMA_MEM_TO_DEV)==-EINVAL);
+  assert(prv_single(&T5AI_DMA,c,(void *)0x60022000,4,PBL_DMA_MEM_TO_DEV)==-EINVAL);
+  assert(prv_single(&T5AI_DMA,c,(void *)0x60027ffc,8,PBL_DMA_MEM_TO_DEV)==-EINVAL);
+  assert(prv_single(&T5AI_DMA,c,(void *)0x60028000,4,PBL_DMA_MEM_TO_DEV)==-EINVAL);
+  assert(prv_single(&T5AI_DMA,c,(void *)0x60700000,4,PBL_DMA_MEM_TO_DEV)==-EINVAL);
+  assert(prv_single(&T5AI_DMA,c,(void *)0x60024000,14912,PBL_DMA_MEM_TO_DEV)==0);
+  assert(CH(c,8)==0x60024000);prv_terminate(&T5AI_DMA,c);
+  assert(prv_single(&T5AI_DMA,c,(void *)0x28020000,932,PBL_DMA_MEM_TO_DEV)==0);
+  assert(CH(c,4)==0x64000000 && CH(c,8)==0x28020000 && (CH(c,0)>>16)==931);
+  assert(CH(c,0x0c)==0x64000000u+(c==0?936u:4u));
+  assert(CH(c,0x14)==0x28020000u+(c==0?936u:932u));
+  assert((CH(c,0)&(1u<<8)) && !!(CH(c,0)&(1u<<9))==(c==0));
+  assert(prv_config(&T5AI_DMA,&chan,&cfg)==-EBUSY);
+  assert(prv_single(&T5AI_DMA,c,(void *)0x28021000,4,PBL_DMA_MEM_TO_DEV)==-EBUSY);
+  size_t residue=999;CH(c,0x28)=0x28020000+400;
+  assert(prv_status(&T5AI_DMA,c,&residue)==0 && residue==532);
+  unsigned previous=callbacks;CH(c,0x30)=FINISH;pbl_dma_t5ai_irq_handler();
+  assert(callbacks==previous+1 && last_channel==c && !last_status && !CH(c,0));
+  assert(prv_status(&T5AI_DMA,c,&residue)==0 && !residue);
+  assert(prv_single(&T5AI_DMA,c,(void *)0x28020000,932,PBL_DMA_DEV_TO_MEM)==0);
+  CH(c,0x30)=ERROR;pbl_dma_t5ai_irq_handler();assert(last_status==-EIO && !CH(c,0));
+  assert(prv_cyclic(&T5AI_DMA,c,(void *)0x28020000,2560,320,PBL_DMA_DEV_TO_MEM)==-EINVAL);
+  assert(prv_cyclic(&T5AI_DMA,c,(void *)0x28020000,2560,1280,PBL_DMA_DEV_TO_MEM)==0);
+  previous=callbacks;CH(c,0x30)=HALF;pbl_dma_t5ai_irq_handler();assert(callbacks==previous+1 && !last_status && CH(c,0));
+  CH(c,0x30)=FINISH;pbl_dma_t5ai_irq_handler();assert(callbacks==previous+2 && !last_status && CH(c,0));
+  CH(c,0x30)=HALF|FINISH;pbl_dma_t5ai_irq_handler();assert(last_status==-EIO && !CH(c,0));
+  assert(prv_single(&T5AI_DMA,c,(void *)0x28020000,932,PBL_DMA_MEM_TO_DEV)==0);
+  previous=callbacks;prv_terminate(&T5AI_DMA,c);CH(c,0x30)=FINISH;pbl_dma_t5ai_irq_handler();assert(callbacks==previous);
  }
+ assert(!depth && registers[(0x40+12*0x40)/4]==0xabcdef);return 0;
 }
-'''
+"""
+
+
+def model(source):
+    source = source[: source.index("PBL_DMA_CONTROLLER_STATE_DEFINE")]
+    source = re.sub(
+        r"#define DMA_REG\(offset\).*",
+        "#define DMA_REG(offset) registers[(offset)/4]",
+        source,
+    )
+    source = re.sub(
+        r"#define SYSTEM_REG\(offset\).*",
+        "#define SYSTEM_REG(offset) system_regs[(offset)/4]",
+        source,
+    )
+    source = source.replace(
+        "DMA_CHANNEL_REG(c, DMA_CHANNEL_STATUS) = DMA_STATUS_INTERRUPTS;",
+        "DMA_CHANNEL_REG(c, DMA_CHANNEL_STATUS) = 0;",
+    )
+    source = source.replace(
+        "DMA_CHANNEL_REG(c, DMA_CHANNEL_STATUS) = status;",
+        "DMA_CHANNEL_REG(c, DMA_CHANNEL_STATUS) &= ~status;",
+    )
+    return source
 
 
 class GdmaTest(unittest.TestCase):
-    def test_matrix_lifecycle_and_initialization_orders(self):
-        owner=(ROOT/'soc/t5ai/gdma.c').read_text()
-        owner='\n'.join(line for line in owner.splitlines() if not line.startswith('#include') and not line.startswith('#define SYSTEM_CPU1_INTERRUPT_ENABLE'))
-        header=(ROOT/'include/pbl/soc/t5ai/gdma.h').read_text().replace('#pragma once','')
-        mic=(ROOT/'drivers/mic/t5ai/adc.c').read_text()
-        lifecycle=''.join(function(mic,n) for n in ['prv_dma_stop','prv_power_down','mic_init','mic_start','mic_stop'])
-        board=(ROOT/'fw/board/boards/board_unhygienix.c').read_text()
-        dispatch=function(board,'prv_shared_gdma_irq')
-        dispatch='#if defined(CONFIG_T5AI_DISPLAY_DMA_IRQ) || defined(CONFIG_T5AI_SD_PFS)\n'+dispatch+'#endif\n'
-        with tempfile.TemporaryDirectory() as tmp:
-            p=Path(tmp)
-            for mic_on,sd,display in itertools.product([0,1],repeat=3):
-                with self.subTest(mic=mic_on,sd=sd,display=display):
-                    config=''.join(f'#define {name} 1\n' for name,on in [('CONFIG_MIC',mic_on),('CONFIG_T5AI_SD_PFS',sd),('CONFIG_T5AI_DISPLAY_DMA_IRQ',display)] if on)
-                    for order in itertools.permutations(range(3)):
-                        setup=f'\n#define DISPLAY {display}\n#define MIC_ON {mic_on*2}\n#define SD {sd*12}\nstatic unsigned ORDER[3]={{{",".join(map(str,order))}}};\n'
-                        (p/'test.c').write_text(config+PREFIX+header+owner+'\n'+lifecycle+dispatch+setup+MAIN)
-                        subprocess.run(['cc','-std=c11','-Werror=implicit-function-declaration',str(p/'test.c'),'-o',str(p/'test')],check=True,capture_output=True)
-                        result = subprocess.run([str(p/'test')],capture_output=True,text=True)
-                        self.assertEqual(result.returncode,0,result.stderr)
+    def test_native_single_cyclic_errors_termination_and_channel_isolation(self):
+        run("drivers/dma/t5ai.c", PREFIX, MAIN, transform=model)
 
-    def test_driver_claims_and_channel_local_acknowledgement(self):
-        mic=(ROOT/'drivers/mic/t5ai/adc.c').read_text()
-        display=(ROOT/'drivers/display/t5ai/display_co5300.c').read_text()
-        sd=(ROOT/'drivers/t5ai/sd.c').read_text()
-        self.assertIn('t5ai_gdma_irq_acquire(T5AI_GDMA_DISPLAY)',display)
-        self.assertIn('t5ai_gdma_irq_acquire(T5AI_GDMA_SD)',sd)
-        self.assertNotIn('NVIC_',mic)
-        self.assertLess(function(mic,'prv_power_down').index('prv_dma_stop'),function(mic,'prv_power_down').index('t5ai_gdma_irq_release'))
-        self.assertIn('*prv_dma(DMA_STATUS) = status;',mic)
-        self.assertIn('DMA_STATUS = status;',display)
-        self.assertIn('CH(channel, DMA_CHANNEL_STATUS) = status;',sd)
+    def test_consumers_use_native_dma(self):
+        for path in (
+            "drivers/spi/t5ai.c",
+            "drivers/t5ai/sd.c",
+            "drivers/mic/t5ai/adc.c",
+        ):
+            source = (ROOT / path).read_text()
+            self.assertIn("pbl_dma_", source)
+            self.assertNotIn("0x45020000", source)
+            self.assertNotIn("t5ai_gdma_irq_", source)

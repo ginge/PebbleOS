@@ -2,13 +2,14 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include <pbl/drivers/display/t5ai.h>
+#include <pbl/kernel/assert.h>
 #include <pbl/services/boot_splash.h>
 #include <pbl/services/boot_splash/platform.h>
 #include <pbl/services/boot_splash/t5ai.h>
 #include <pbl/services/compositor/compositor.h>
 
 #include <applib/graphics/framebuffer.h>
-#include <pbl/kernel/assert.h>
 
 static bool s_ready;
 static bool s_requested;

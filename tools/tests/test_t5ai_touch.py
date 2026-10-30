@@ -40,11 +40,22 @@ HARNESS = r"""
 #define I2C_CST92XX ((void *)1)
 typedef uint32_t TimerID;
 typedef struct {void (*cb)(void *);bool scheduled;} RegularTimerInfo;
+struct pbl_device {int unused;};
+static const struct {struct pbl_device dev;} T5AI_GPIO_INTC;
+struct pbl_touch {int unused;};
+static const struct pbl_touch test_touch;
+#define TOUCH (&test_touch)
+struct pbl_touch_ops {
+ int (*init)(const struct pbl_touch *);
+ int (*enable)(const struct pbl_touch *);
+ int (*disable)(const struct pbl_touch *);
+};
+int pbl_device_init(const struct pbl_device *dev) {assert(dev==&T5AI_GPIO_INTC.dev);return 0;}
 struct pbl_gpio {unsigned pin;};
 struct pbl_irq_spec {unsigned pin;};
 struct pbl_mutex {bool held;};
 enum {USER,BG,TIMER,ISR};
-unsigned context,depth,queue_limit=8,qcount,refs,reads,writes,uses,releases;
+unsigned context,depth,queue_limit=8,qcount,refs,reads,writes;
 unsigned sleeps,resets,timer_creates,timer_ms,samples,enqueue_calls,acks;
 unsigned gestures,sequence,palm_sequence,last_sample_sequence;
 bool fail_ack;
@@ -81,15 +92,13 @@ int pbl_intc_enable(const struct pbl_irq_spec *p){assert(p->pin==42);irq_enabled
 int pbl_intc_request(const struct pbl_irq_spec *p,void (*cb)(void *),void *arg){
  assert(p->pin==42 && !arg);irq_cb=cb;return 0;
 }
-void pbl_i2c_use(const void *p){assert(p==I2C_CST92XX && context!=TIMER && context!=ISR && !depth);++uses;}
-void pbl_i2c_release(const void *p){assert(p==I2C_CST92XX);++releases;}
-int pbl_i2c_write_block(const void *p,unsigned n,const uint8_t *data){
- assert(p==I2C_CST92XX && uses>releases && data[0]==0xd0 && data[1]==0);
+int pbl_i2c_write(const void *p,const uint8_t *data,unsigned n){
+ assert(p==I2C_CST92XX && context!=TIMER && context!=ISR && !depth && data[0]==0xd0 && data[1]==0);
  if(n==3){assert(data[2]==0xab);++acks;return fail_ack?-1:0;}
  assert(n==2);++writes;return fail_write?-1:0;
 }
 void fire_irq(void){unsigned saved=context;context=ISR;irq_cb(NULL);context=saved;}
-int pbl_i2c_read_block(const void *p,unsigned n,uint8_t *data){
+int pbl_i2c_read(const void *p,uint8_t *data,unsigned n){
  assert(p==I2C_CST92XX && n==10);++reads;
  if(interrupt_during_read){fire_irq();fire_irq();interrupt_during_read=false;}
  memcpy(data,wire,10);return fail_read?-1:0;
@@ -124,10 +133,19 @@ void pbl_input_report_ges(unsigned code,bool sync){
  check_input_lock();assert(context==BG && !depth && input_phase==3 && sync && code==2);
  input_phase=0;++gestures;palm_sequence=++sequence;
 }
+void pbl_touch_report(const struct pbl_touch *touch,bool down,unsigned x,unsigned y) {
+ assert(touch==TOUCH);pbl_input_report_key(4,down,false);
+ pbl_input_report_abs(0,x,false);pbl_input_report_abs(1,y,true);
+}
+void pbl_touch_report_gesture(const struct pbl_touch *touch,unsigned code,unsigned x,unsigned y) {
+ assert(touch==TOUCH);pbl_input_report_abs(0,x,false);
+ pbl_input_report_abs(1,y,false);pbl_input_report_ges(code,true);
+}
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #include DRIVER_SOURCE
 #pragma GCC diagnostic pop
+void test_set_enabled(bool enabled) {assert((enabled?pbl_touch_cst92xx_t5ai_ops.enable:pbl_touch_cst92xx_t5ai_ops.disable)(TOUCH)==0);}
 void run_one(void){
  assert(qcount && context==USER);
  void (*cb)(void *)=queue[0].cb;void *data=queue[0].data;
@@ -147,9 +165,9 @@ void report(bool down,unsigned x,unsigned y){
  wire[1]=x>>4;wire[2]=y>>4;wire[3]=(x&15)<<4 | (y&15);
 }
 void setup(void){
- report(false,0,0);touch_sensor_init();touch_sensor_init();
+ report(false,0,0);assert(pbl_touch_cst92xx_t5ai_ops.init(TOUCH)==0);assert(pbl_touch_cst92xx_t5ai_ops.init(TOUCH)==0);
  assert(timer_creates==1 && reads==1 && !reset_pin && !irq_enabled);
- touch_sensor_set_enabled(true);
+ test_set_enabled(true);
  assert(irq_enabled && reset_pin && qcount==1 && refs==1 && s_watchdog_timer.scheduled);
 }
 void check_input_lock(void){
@@ -218,9 +236,9 @@ fire_timer();run_one();assert(timer_ms==80);
 fire_timer();run_one();assert(timer_ms==1000 && resets==baseline_resets+1);
 assert(!s_consecutive_read_failures && irq_enabled);
 fail_read=false;report(false,0,0);fire_timer();run_one();
-assert(!timer_pending && !output[samples-1].down && uses==releases);
+assert(!timer_pending && !output[samples-1].down && !s_i2c_lock.held);
 fail_write=true;unsigned before=reads;fire_irq();run_one();
-assert(reads==before && timer_pending && timer_ms==80 && uses==releases);
+assert(reads==before && timer_pending && timer_ms==80 && !s_i2c_lock.held);
 """)
 
     def test_disable_reenable_rejects_queued_callbacks_and_old_timer(self):
@@ -228,15 +246,15 @@ assert(reads==before && timer_pending && timer_ms==80 && uses==releases);
 report(true,100,200);run_one();
 void (*old_timer)(void *)=timer_cb;void *old_data=timer_data;
 fire_irq();assert(qcount==1);
-touch_sensor_set_enabled(false);
+test_set_enabled(false);
 assert(!irq_enabled && !reset_pin && !timer_pending && !s_watchdog_timer.scheduled);
 unsigned before=reads,prior=samples;run_one();assert(reads==before && samples==prior && !refs);
 // Re-enable queues new work; stale timer must not clear its coalescing state.
-touch_sensor_set_enabled(true);assert(qcount==1 && s_callback_scheduled);
+test_set_enabled(true);assert(qcount==1 && s_callback_scheduled);
 context=TIMER;old_timer(old_data);context=USER;
 assert(qcount==1 && s_callback_scheduled);
 run_one();assert(samples==prior+1 && output[samples-1].down);
-fire_irq();touch_sensor_set_enabled(false);touch_sensor_set_enabled(true);
+fire_irq();test_set_enabled(false);test_set_enabled(true);
 assert(qcount==2);before=reads;run_one();
 assert(reads==before && s_callback_scheduled && qcount==1);
 run_one();assert(reads==before+1 && !s_callback_scheduled && !refs);
@@ -248,7 +266,7 @@ assert(acks==1);report(true,100,200);run_one();assert(acks==2 && output[0].down)
 fail_ack=true;fire_timer();run_one();
 assert(!output[1].down && timer_ms==80 && s_consecutive_read_failures==1);
 fail_ack=false;fire_timer();run_one();
-assert(output[2].down && !s_consecutive_read_failures && uses==releases);
+assert(output[2].down && !s_consecutive_read_failures && !s_i2c_lock.held);
 """)
 
     def test_palm_once_suppresses_coordinates_until_all_contacts_lift(self):
@@ -279,8 +297,8 @@ report(true,100,200);wire[4]=0x80;wire[6]=0;
 fire_irq();run_one();assert(gestures==1 && !s_palm_down);
 wire[6]=0xab;wire[0]=0xab;fire_irq();run_one();assert(gestures==1);
 report(true,100,200);wire[4]=0x80;fire_irq();run_one();assert(gestures==2);
-touch_sensor_set_enabled(false);assert(!s_palm_down && !s_down);
-touch_sensor_set_enabled(true);run_one();assert(gestures==3);
+test_set_enabled(false);assert(!s_palm_down && !s_down);
+test_set_enabled(true);run_one();assert(gestures==3);
 """)
 
     def test_ack_echo_does_not_synthesize_liftoff(self):
@@ -299,7 +317,7 @@ run_one();assert(!qcount && !refs);
 report(true,466,200);fire_timer();run_one();assert(!output[samples-1].down && !timer_pending);
 report(true,100,200);wire[6]=0;fire_irq();run_one();assert(!output[samples-1].down);
 report(true,100,200);wire[0]=5;fire_irq();run_one();assert(!output[samples-1].down);
-assert(uses==releases && !s_i2c_lock.held && !depth && !input_phase);
+assert(!s_i2c_lock.held && !s_i2c_lock.held && !depth && !input_phase);
 """)
 
 

@@ -80,6 +80,8 @@ struct pbl_spi_xfer {
   void *rx_buf;
   /** Number of bytes, at least 1. */
   uint32_t len;
+  /** Transmit lanes: 0 or 1 for single, 2 for dual, 4 for quad. */
+  uint8_t tx_nbits;
 };
 
 /**

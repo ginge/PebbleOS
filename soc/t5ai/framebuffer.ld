@@ -30,3 +30,9 @@
         __t5ai_pfs_flags_end__ = .;
     } >T5AI_PFS_RAM
 #endif
+
+    .t5ai_display_dma (NOLOAD) : ALIGN(32) {
+        __t5ai_display_dma_start__ = .;
+        KEEP(*(.t5ai_display_dma))
+        __t5ai_display_dma_end__ = .;
+    } >T5AI_DISPLAY_DMA_RAM

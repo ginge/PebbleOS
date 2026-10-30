@@ -1,165 +1,119 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
-"""Exercise T5 button debouncing with KernelBG and NewTimers absent."""
+"""Exercise the board's gpio-keys wiring and upstream reset-key listener."""
+
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-STUB = r"""
-#pragma once
+HEADERS = {
+    "pbl/kernel/timer.h": """#pragma once
+#include <stdbool.h>
+struct pbl_timer {void (*cb)(struct pbl_timer *);unsigned ms;bool active;};
+#define PBL_TIMER_INITIALIZER(fn) {.cb=(fn)}
+#define PBL_MSEC(ms) (ms)
+void pbl_timer_init(struct pbl_timer *,void (*)(struct pbl_timer *));
+void pbl_timer_start(struct pbl_timer *,unsigned);
+void pbl_timer_stop(struct pbl_timer *);
+bool pbl_timer_is_active(struct pbl_timer *);
+""",
+    "pbl/kernel/irq.h": "void pbl_irq_lock(void);\n",
+    "system/bootbits.h": "#define BOOT_BIT_FORCE_PRF 1\nvoid boot_bit_set(int);\n",
+    "system/reboot_reason.h": """#define RebootReasonCode_PrfResetButtonsHeld 10
+#define RebootReasonCode_ResetButtonsHeld 11
+typedef struct {int code;} RebootReason;
+void reboot_reason_set(RebootReason *);
+""",
+    "system/reset.h": "void system_hard_reset(void);\n",
+    "pbl/util/misc.h": "#include <stddef.h>\n#define container_of(p,t,m) ((t *)((char *)(p)-offsetof(t,m)))\n",
+}
+HARNESS = r"""
+#include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <stddef.h>
-#include <assert.h>
-#define NUM_BUTTONS 4
-typedef enum { BUTTON_ID_BACK, BUTTON_ID_UP, BUTTON_ID_SELECT, BUTTON_ID_DOWN } ButtonId;
-struct pbl_gpio { const void *port; unsigned pin; };
-struct pbl_irq_spec { unsigned pin,type; };
-#define PBL_IRQ_TYPE_EDGE_BOTH 3
-static inline bool pbl_gpio_is_connected(const struct pbl_gpio *g){return g->port!=NULL;}
-typedef struct { struct pbl_gpio gpio; } ButtonConfig;
-static struct { ButtonConfig buttons[4]; } BOARD_CONFIG_BUTTON = {
- .buttons = {{{(void *)1,1}}, {{(void *)1,2}}, {{(void *)1,3}}, {{NULL,0}}}
-};
-#define PBL_FOREVER -1
-#define PBL_PRIO_MAX 4
-#define PBL_MSEC(x) (x)
-#define PBL_ASSERTN(x) assert(x)
-#define PBL_SEM_DEFINE(n,i,l) struct pbl_sem n = {i}
-#define PBL_THREAD_STACK_DEFINE(n,s) static char n[s]
-struct pbl_sem { unsigned count; };
-struct pbl_thread { int unused; };
-struct pbl_thread_attr {
- const char *name; void (*entry)(void *); int prio; bool privileged;
- void *stack; size_t stack_size;
-};
-#define PEBBLE_BUTTON_DOWN_EVENT 1
-#define PEBBLE_BUTTON_UP_EVENT 2
-typedef struct { int type; struct { ButtonId button_id; } button; } PebbleEvent;
-#define BOOT_BIT_FORCE_PRF 1
-#define RebootReasonCode_PrfResetButtonsHeld 10
-#define RebootReasonCode_ResetButtonsHeld 11
-typedef struct { int code; } RebootReason;
-void button_init(void);
-bool button_is_pressed(ButtonId);
-uint32_t button_get_state_bits(void);
-int pbl_gpio_to_irq(const struct pbl_gpio *,unsigned,struct pbl_irq_spec *);
-int pbl_intc_request(const struct pbl_irq_spec *,void (*)(void *),void *);
-int pbl_intc_enable(const struct pbl_irq_spec *);
-void event_put(PebbleEvent *);
-void boot_bit_set(int);
-void reboot_reason_set(RebootReason *);
-void system_hard_reset(void);
-void pbl_sem_give(struct pbl_sem *);
-int pbl_sem_take(struct pbl_sem *,int);
-int pbl_thread_create(struct pbl_thread *, const struct pbl_thread_attr *);
-void pbl_thread_sleep(unsigned);
-static inline bool pbl_bitset32_get(uint32_t *p, unsigned i) { return (*p >> i) & 1; }
-static inline void pbl_bitset32_update(uint32_t *p,unsigned i,bool b) {
- *p = (*p & ~(1u << i)) | ((uint32_t)b << i);
-}
-"""
-HARNESS = r"""
-#include "stub.h"
 #include <setjmp.h>
-#include <string.h>
-static jmp_buf done;
-static unsigned now, bits, events, configured, bootbit, resetcode;
-static bool inject_edge;
-static PebbleEvent output[16];
-#include "drivers/t5ai/debounced_button.c"
-void button_init(void) {}
-bool button_is_pressed(ButtonId id) { return (bits >> id) & 1; }
-uint32_t button_get_state_bits(void) { return bits; }
-int pbl_gpio_to_irq(const struct pbl_gpio *g,unsigned type,struct pbl_irq_spec *s) {
- *s=(struct pbl_irq_spec){g->pin,type};return 0;
+#include <pbl/drivers/input/gpio_keys.h>
+#include <pbl/input/input.h>
+#include "drivers/input/gpio_keys.c"
+#include "fw/system/reset_keys.c"
+static unsigned events,irqs,irq_depth,resets,bootbit,resetcode;
+static bool pressed[64];
+static jmp_buf reset_target;
+const struct pbl_gpio_port T5AI_GPIO={0};
+const struct pbl_intc T5AI_GPIO_INTC={0};
+BOARD_KEYS
+int pbl_device_init(const struct pbl_device *dev){(void)dev;return 0;}
+void pbl_irq_lock(void){++irq_depth;}
+void pbl_timer_init(struct pbl_timer *t,void (*cb)(struct pbl_timer *)){*t=(struct pbl_timer){.cb=cb};}
+void pbl_timer_start(struct pbl_timer *t,unsigned ms){t->active=true;t->ms=ms;}
+void pbl_timer_stop(struct pbl_timer *t){t->active=false;}
+bool pbl_timer_is_active(struct pbl_timer *t){return t->active;}
+int pbl_gpio_configure(const struct pbl_gpio *g,uint32_t mode){assert(mode==PBL_GPIO_INPUT);assert(g->flags&PBL_GPIO_ACTIVE_LOW);return 0;}
+int pbl_gpio_get(const struct pbl_gpio *g){return pressed[g->pin];}
+int pbl_gpio_to_irq(const struct pbl_gpio *g,uint32_t type,struct pbl_irq_spec *irq){*irq=(struct pbl_irq_spec)PBL_IRQ_SPEC(&T5AI_GPIO_INTC,g->pin,type);return 0;}
+int pbl_intc_request(const struct pbl_irq_spec *irq,void (*cb)(void *),void *arg){assert(irq->type==PBL_IRQ_TYPE_EDGE_BOTH && cb==prv_edge && arg);++irqs;return 0;}
+int pbl_intc_enable(const struct pbl_irq_spec *irq){(void)irq;return 0;}
+void pbl_input_report(enum pbl_input_type type,uint16_t code,int32_t value,bool sync){
+ assert(type==PBL_INPUT_EV_KEY && sync);++events;
+ struct pbl_input_event evt={.type=type,.code=code,.value=value,.sync=sync};
+ prv_input_cb(&evt,nullptr);
 }
-int pbl_intc_request(const struct pbl_irq_spec *s,void (*cb)(void *),void *data) {
- assert(s->pin && s->type==3 && cb==prv_button_interrupt_handler);++configured;return 0;
-}
-int pbl_intc_enable(const struct pbl_irq_spec *s) { return 0; }
-void event_put(PebbleEvent *e) { assert(events < 16); output[events++] = *e; }
-void boot_bit_set(int b) { bootbit = b; }
-void reboot_reason_set(RebootReason *r) { resetcode = r->code; }
-void system_hard_reset(void) { longjmp(done, 2); }
-void pbl_sem_give(struct pbl_sem *s) { s->count = 1; }
-int pbl_sem_take(struct pbl_sem *s,int t) {
- assert(t == PBL_FOREVER);
- if (!s->count && inject_edge && bits) {
-  now = 60; bits = 0; prv_button_interrupt_handler(nullptr);
- }
- if (!s->count) longjmp(done, 1);
- --s->count; return 0;
-}
-int pbl_thread_create(struct pbl_thread *t,const struct pbl_thread_attr *a) {
- (void)t; assert(a->prio == 4 && a->privileged && a->entry == prv_button_entry); return 0;
-}
-void pbl_thread_sleep(unsigned ms) {
- assert(ms == 2); now += ms;
- // Release while sampling; retain the coalesced wake even at the end of a run.
- if (inject_edge && now == 60) { bits = 0; prv_button_interrupt_handler(nullptr); }
-}
-static void clear(void) {
- now = bits = events = bootbit = resetcode = 0;
- s_debounced_state = s_hard_reset_samples = s_button_signal.count = 0;
- memset(s_sample_counts,0,sizeof(s_sample_counts)); inject_edge = false;
-}
-int main(void) {
- clear(); bits = 1u << BUTTON_ID_SELECT;
- debounced_button_init(); assert(configured == 3 && s_button_signal.count == 1);
- // A complete press/release works with no background or timer service execution.
- inject_edge = true;
- for (unsigned i=0;i<100;i++) prv_button_interrupt_handler(nullptr);
- assert(s_button_signal.count == 1);
- if (!setjmp(done)) prv_button_entry(NULL);
- assert(now >= 100 && events == 2 && !s_button_signal.count);
- assert(output[0].type == 1 && output[1].type == 2);
- assert(output[0].button.button_id == BUTTON_ID_SELECT);
- // Bounce and absent buttons cannot generate accepted edges.
- clear();
- for (unsigned i=0;i<40;i++) { bits = (i & 1) ? 4 : 0; prv_sample_buttons(); }
- bits = 1u << BUTTON_ID_DOWN;
- for (unsigned i=0;i<30;i++) prv_sample_buttons();
- assert(!events);
- // Both reset variants retain their hold thresholds and reason codes.
- for (unsigned up=0;up<2;up++) {
-  clear(); bits = RESET_BUTTONS | (up ? 1u << BUTTON_ID_UP : 0);
-  assert(setjmp(done) == 0 || resetcode == (up ? 10 : 11));
-  if (!resetcode) {
-   for (unsigned i=0;i<NUM_DEBOUNCE_SAMPLES+RESET_THRESHOLD_SAMPLES-1;i++) {
-    prv_sample_buttons(); assert(!resetcode);
-   }
-   prv_sample_buttons();
-   assert(0);
-  }
-  assert(bootbit == up);
- }
- clear(); command_put_raw_button_event("2","1");
- command_put_raw_button_event("9","1"); command_put_raw_button_event("2","7");
- assert(events == 1 && output[0].button.button_id == BUTTON_ID_SELECT);
+void boot_bit_set(int bit){bootbit=bit;}
+void reboot_reason_set(RebootReason *reason){resetcode=reason->code;}
+void system_hard_reset(void){++resets;longjmp(reset_target,1);}
+static void settle(unsigned i){struct pbl_timer *t=&s_buttons.state[i].timer;assert(t->active && t->ms==40);t->active=false;t->cb(t);}
+int main(void){
+ assert(s_buttons.num_keys==2 && s_buttons.keys[0].gpio.pin==18 && s_buttons.keys[1].gpio.pin==12);
+ assert(s_buttons.keys[0].code==PBL_INPUT_KEY_BACK && s_buttons.keys[1].code==PBL_INPUT_KEY_SELECT);
+ pressed[18]=true;
+ assert(pbl_gpio_keys_init(&s_buttons.dev)==0 && irqs==2);
+ settle(0);settle(1);assert(events==1 && !s_timer.active);
+ // Bouncing edges restart the 40 ms timer without producing events.
+ pressed[12]=true;for(unsigned i=0;i<20;++i)prv_edge(&s_buttons.state[1]);
+ assert(events==1);settle(1);assert(events==2 && s_timer.active && s_timer.ms==5000);
+ // Release cancels the reset hold; unchanged samples cannot duplicate events.
+ pressed[18]=false;prv_edge(&s_buttons.state[0]);settle(0);assert(!s_timer.active && events==3);
+ prv_edge(&s_buttons.state[0]);settle(0);assert(events==3);
+ pressed[18]=true;prv_edge(&s_buttons.state[0]);settle(0);assert(s_timer.active);
+ if(!setjmp(reset_target))s_timer.cb(&s_timer);
+ assert(resets==1 && resetcode==RebootReasonCode_ResetButtonsHeld && !bootbit && irq_depth==1);
  return 0;
 }
 """
 
+
 class ButtonsTest(unittest.TestCase):
-    def test_debounce_without_background_queue(self):
-        with tempfile.TemporaryDirectory() as temp:
-            directory = Path(temp)
-            (directory / "stub.h").write_text(STUB)
-            source = ROOT / "drivers/t5ai/debounced_button.c"
-            import re
-            for name in re.findall(r'#include [<"]([^>"]+)[>"]', source.read_text()):
-                if name in ("stdint.h", "stdlib.h"):
-                    continue
-                header = directory / name
+    def test_debounce_and_reset_hold(self):
+        board = (ROOT / "fw/board/boards/board_unhygienix.c").read_text()
+        start = board.index("PBL_GPIO_KEYS_DEFINE(")
+        keys = board[start : board.index(";", start) + 1]
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary)
+            for name, text in HEADERS.items():
+                header = path / name
                 header.parent.mkdir(parents=True, exist_ok=True)
-                header.write_text('#include "stub.h"\n')
-            harness = directory / "test.c"
-            harness.write_text(HARNESS)
-            binary = directory / "test"
-            subprocess.run(["cc", "-std=gnu2x", "-Wall", "-Wextra", "-Wno-unused-parameter", "-Werror",
-                            "-I", str(directory), "-I", str(ROOT), str(harness),
-                            "-o", str(binary)], check=True)
-            subprocess.run([str(binary)], check=True)
+                header.write_text(text)
+            (path / "test.c").write_text(HARNESS.replace("BOARD_KEYS", keys))
+            subprocess.run(
+                [
+                    "clang-21",
+                    "-std=gnu23",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-Wno-unused-parameter",
+                    "-I",
+                    str(path),
+                    "-I",
+                    str(ROOT),
+                    "-I",
+                    str(ROOT / "include"),
+                    str(path / "test.c"),
+                    "-o",
+                    str(path / "test"),
+                ],
+                check=True,
+            )
+            subprocess.run([str(path / "test")], check=True)

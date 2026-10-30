@@ -11,7 +11,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 HEADERS = [
     "board/board.h",
-    "pbl/drivers/accel.h", "pbl/drivers/gpio.h", "pbl/drivers/intc.h", "pbl/util/misc.h",
+    "pbl/drivers/accel.h",
+    "pbl/drivers/gpio.h",
+    "pbl/drivers/intc.h",
+    "pbl/util/misc.h",
     "pbl/drivers/i2c.h",
     "pbl/drivers/rtc.h",
     "pbl/kernel/kernel.h",
@@ -104,11 +107,8 @@ void pbl_accel_report_samples(const struct pbl_accel *,const AccelRawBatch *);
 void pbl_accel_report_event(const struct pbl_accel *,const struct pbl_accel_event *);
 bool new_timer_add_work_callback(void (*)(void *),void *);
 void new_timer_delete(TimerID);
-void pbl_i2c_use(const struct pbl_i2c_dev *);
-void pbl_i2c_release(const struct pbl_i2c_dev *);
-int pbl_i2c_write_block(const struct pbl_i2c_dev *,size_t,const uint8_t *);
-int pbl_i2c_read_block(const struct pbl_i2c_dev *,size_t,uint8_t *);
-int pbl_i2c_read_register_block(const struct pbl_i2c_dev *,uint8_t,unsigned,uint8_t *);
+int pbl_i2c_write(const struct pbl_i2c_dev *,const uint8_t *,size_t);
+int pbl_i2c_burst_read(const struct pbl_i2c_dev *,uint8_t,uint8_t *,unsigned);
 int pbl_gpio_get_raw(const struct pbl_gpio *);
 int pbl_gpio_configure(const struct pbl_gpio *,uint32_t);
 int pbl_intc_request(const struct pbl_irq_spec *,void (*)(void *),void *);
@@ -171,10 +171,8 @@ int pbl_intc_enable(const struct pbl_irq_spec *c) { assert(c->hwirq==9); irq_ena
 int pbl_gpio_configure(const struct pbl_gpio *c,uint32_t f){assert(c->pin==9);return 0;}
 int pbl_intc_request(const struct pbl_irq_spec *c,void (*cb)(void *),void *arg){assert(c->hwirq==9 && cb==prv_int2_handler);return 0;}
 int pbl_intc_free(const struct pbl_irq_spec *c){return 0;}
-void pbl_i2c_use(const struct pbl_i2c_dev *b) { (void)b; assert(sensor_state.io_lock.held && !irq_depth); }
-void pbl_i2c_release(const struct pbl_i2c_dev *b) { (void)b; }
-int pbl_i2c_write_block(const struct pbl_i2c_dev *b, size_t n, const uint8_t *p) {
- (void)b; assert(n==2); ++io;
+int pbl_i2c_write(const struct pbl_i2c_dev *b, const uint8_t *p, size_t n) {
+ (void)b; assert(sensor_state.io_lock.held && !irq_depth && n==2); ++io;
  if(p[0]==QMI8658_CTRL2) configured_odr=p[1]&15;
  if(fail_disable && p[0]==QMI8658_CTRL7 && !p[1]) return -EIO;
  if(p[0]==QMI8658_CTRL9) {
@@ -191,7 +189,7 @@ int pbl_i2c_write_block(const struct pbl_i2c_dev *b, size_t n, const uint8_t *p)
 }
 static void raw(uint8_t *p) { p[0]=0; p[1]=0x20; p[2]=0; p[3]=0x10; p[4]=0; p[5]=0xe0; }
 static void stamp(uint8_t *p) { p[0]=counter; p[1]=counter>>8; p[2]=counter>>16; }
-int pbl_i2c_read_register_block(const struct pbl_i2c_dev *b, uint8_t reg, unsigned n, uint8_t *p) {
+int pbl_i2c_burst_read(const struct pbl_i2c_dev *b, uint8_t reg, uint8_t *p, unsigned n) {
  (void)b; ++io; memset(p,0,n);
  if(inject_irq) { unsigned old=wakes; prv_int2_handler(nullptr); assert(wakes==old); }
  if(fail_read) return -EIO;
@@ -398,7 +396,9 @@ class QMI8658FifoTest(unittest.TestCase):
                     "cc",
                     "-std=gnu2x",
                     "-Wall",
-                    "-Wextra", "-Wno-unused-parameter", "-Wno-unused-function",
+                    "-Wextra",
+                    "-Wno-unused-parameter",
+                    "-Wno-unused-function",
                     "-Werror",
                     "-Wno-misleading-indentation",
                     "-fsanitize=undefined,address",
@@ -407,7 +407,8 @@ class QMI8658FifoTest(unittest.TestCase):
                     str(d),
                     "-I",
                     str(ROOT),
-                    "-I", str(ROOT / "include"),
+                    "-I",
+                    str(ROOT / "include"),
                     str(d / "test.c"),
                     "-o",
                     str(d / "test"),

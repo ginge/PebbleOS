@@ -23,3 +23,9 @@ ASSERT(__t5ai_pfs_flags_start__ == ORIGIN(T5AI_PFS_RAM) &&
        __t5ai_pfs_flags_end__ == ORIGIN(T5AI_PFS_RAM) + LENGTH(T5AI_PFS_RAM),
        "SD PFS flags must fill their private PSRAM reservation")
 #endif
+
+ASSERT(ORIGIN(T5AI_DISPLAY_DMA_RAM) == 0x60024000 && LENGTH(T5AI_DISPLAY_DMA_RAM) == 16384,
+       "Unexpected display DMA PSRAM reservation")
+ASSERT(__t5ai_display_dma_start__ >= 0x60024000 && __t5ai_display_dma_end__ <= 0x60028000,
+       "Display DMA exceeds its AP-only PSRAM reservation")
+ASSERT(_heap_end - _heap_start >= 28672, "T5AI kernel heap requires at least 28 KiB")

@@ -47,6 +47,28 @@ static inline void pbl_sem_give(void *s) {(void)s;}
 static inline void dcache_flush(const void *p, size_t n) {(void)p;(void)n;}
 static inline void dcache_flush_invalidate(const void *p, size_t n) {(void)p;(void)n;}
 static inline void dcache_invalidate(void *p, size_t n) {(void)p;(void)n;}
+struct pbl_device {int unused;};
+struct pbl_gpio_port {struct pbl_device dev;};
+struct pbl_gpio {const struct pbl_gpio_port *port;};
+#define PBL_GPIO_INPUT 1
+int pbl_gpio_configure(const struct pbl_gpio *,unsigned);
+int pbl_gpio_get(const struct pbl_gpio *);
+struct pbl_dma_controller {struct pbl_device dev;};
+struct pbl_dma_chan {const struct pbl_dma_controller *ctrl;unsigned channel,request,config;};
+struct pbl_dma_slave_config {uintptr_t src_addr,dst_addr;unsigned src_addr_width,dst_addr_width;};
+struct pbl_pinctrl {int unused;};
+static const struct pbl_dma_controller T5AI_DMA={0};
+#define PBL_DMA_CHAN(c,n,r,o) {c,n,r,o}
+#define PBL_DMA_SLAVE_BUSWIDTH_4_BYTES 4
+#define PBL_DMA_MEM_TO_DEV 0
+#define PBL_DMA_DEV_TO_MEM 1
+#define PBL_PINCTRL_STATE_DEFAULT 0
+int pbl_device_init(const struct pbl_device *);
+int pbl_pinctrl_select_state(const struct pbl_pinctrl *,int);
+int pbl_dma_slave_config(const struct pbl_dma_chan *,const struct pbl_dma_slave_config *);
+int pbl_dma_prep_slave_single(const struct pbl_dma_chan *,void *,size_t,int,void (*)(void *,int),void *);
+int pbl_dma_terminate(const struct pbl_dma_chan *);
+int pbl_dma_tx_status(const struct pbl_dma_chan *,size_t *);
 void *kernel_malloc_check(size_t);
 void kernel_free(void *);
 void delay_us(unsigned n);
@@ -186,6 +208,32 @@ DRIVER = r"""
 #include <stdio.h>
 #include <sys/mman.h>
 #include "SOURCE"
+#define CH(c,o) (*(volatile uint32_t *)(uintptr_t)(0x45020040u+(c)*64u+(o)))
+#define DMA_CHANNEL_CONTROL 0
+#define DMA_CHANNEL_SOURCE 8
+#define DMA_CHANNEL_DESTINATION 4
+#define DMA_CHANNEL_STATUS 0x30
+const struct pbl_pinctrl T5AI_SD_PINCTRL={0};
+static const struct pbl_gpio_port gpio_port={0};
+const struct pbl_gpio T5AI_SD_DETECT={&gpio_port};
+int pbl_gpio_configure(const struct pbl_gpio *p,unsigned flags){(void)p;assert(flags==PBL_GPIO_INPUT);return 0;}
+int pbl_gpio_get(const struct pbl_gpio *p){(void)p;return !(*(volatile uint32_t *)0x44000420u&1);}
+
+static void (*dma_callbacks[4])(void *,int);
+static void *dma_args[4];
+int pbl_device_init(const struct pbl_device *d){(void)d;return 0;}
+int pbl_pinctrl_select_state(const struct pbl_pinctrl *p,int state){(void)p;(void)state;return 0;}
+int pbl_dma_slave_config(const struct pbl_dma_chan *c,const struct pbl_dma_slave_config *cfg){(void)c;assert(cfg->src_addr_width==4 && cfg->dst_addr_width==4);return 0;}
+int pbl_dma_prep_slave_single(const struct pbl_dma_chan *c,void *buf,size_t len,int dir,void (*cb)(void *,int),void *arg){
+ unsigned n=c->channel;dma_callbacks[n]=cb;dma_args[n]=arg;
+ CH(n,DMA_CHANNEL_SOURCE)=dir==PBL_DMA_MEM_TO_DEV?(uintptr_t)buf:0;
+ CH(n,DMA_CHANNEL_DESTINATION)=dir==PBL_DMA_DEV_TO_MEM?(uintptr_t)buf:0;
+ CH(n,DMA_CHANNEL_CONTROL)=((len-1)<<16)|1;
+ CH(n,DMA_CHANNEL_STATUS)=0;return 0;
+}
+int pbl_dma_terminate(const struct pbl_dma_chan *c){CH(c->channel,DMA_CHANNEL_CONTROL)=0;CH(c->channel,DMA_CHANNEL_STATUS)=0;return 0;}
+int pbl_dma_tx_status(const struct pbl_dma_chan *c,size_t *residue){*residue=(CH(c->channel,DMA_CHANNEL_CONTROL)&1)?4:0;return 0;}
+static void t5ai_sd_dma_irq(void){for(unsigned c=2;c<4;++c){unsigned status=CH(c,DMA_CHANNEL_STATUS);if(status){CH(c,DMA_CHANNEL_STATUS)=0;dma_callbacks[c](dma_args[c],status&DMA_ERROR?-EIO:0);}}}
 // Independent MMIO model apertures verify the production base addresses.
 #define MODEL_SYSTEM_BASE 0x44000000u
 #define MODEL_SYSTEM_SIZE 0x20000u
@@ -324,6 +372,9 @@ class SDTests(unittest.TestCase):
             )
             headers = [
                 "pbl/soc/t5ai/gdma.h",
+                "pbl/drivers/dma/t5ai.h",
+                "pbl/drivers/pinctrl.h",
+                "pbl/drivers/gpio.h",
                 "pbl/kernel/kernel.h",
                 "pbl/kernel/time.h",
                 "pbl/mcu/cache.h",
@@ -340,11 +391,15 @@ class SDTests(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text('#include "common.h"\n')
             pfs = (ROOT / "fw/services/filesystem/pfs.c").read_text()
-            builder = pfs[pfs.index("static void prv_build_page_flags_cache(void)") :
-                          pfs.index("static void update_curr_state")]
+            builder = pfs[
+                pfs.index("static void prv_build_page_flags_cache(void)") : pfs.index(
+                    "static void update_curr_state"
+                )
+            ]
             (tmp / "harness.c").write_text(
-                harness.replace('"SOURCE"', '"' + str(ROOT / source) + '"')
-                .replace("CACHE_BUILDER", builder)
+                harness.replace('"SOURCE"', '"' + str(ROOT / source) + '"').replace(
+                    "CACHE_BUILDER", builder
+                )
             )
             subprocess.run(
                 [
@@ -370,15 +425,21 @@ class SDTests(unittest.TestCase):
         self.compile_run("soc/t5ai/sd_pfs.c", ADAPTER)
 
     def test_existing_volume_guard_preserves_unknown_header_and_data(self):
-        harness = "#define CONFIG_T5AI_SD_PFS_REQUIRE_EXISTING 1\n" + ADAPTER[:ADAPTER.index("int main(void)")]
-        harness = harness.replace('#include "SOURCE"', r'''
+        harness = (
+            "#define CONFIG_T5AI_SD_PFS_REQUIRE_EXISTING 1\n"
+            + ADAPTER[: ADAPTER.index("int main(void)")]
+        )
+        harness = harness.replace(
+            '#include "SOURCE"',
+            r"""
 #include "common.h"
 #include <setjmp.h>
 static jmp_buf refused;
 #undef PBL_ASSERT
 #define PBL_ASSERT(x,...) do { if (!(x)) longjmp(refused,1); } while (0)
 #include "SOURCE"
-''')
+""",
+        )
         harness += r"""
 static void expect_refusal(void) {
   if (setjmp(refused)==0) { __wrap_pfs_init(true); assert(!"must refuse unknown volume"); }

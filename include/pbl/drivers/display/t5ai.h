@@ -2,15 +2,14 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #pragma once
 
-#include <pbl/drivers/display/display.h>
-
 #include <stdint.h>
+
+#include <pbl/drivers/display.h>
 
 // Raw CO5300 level (1..255). Tune on hardware.
 #define T5AI_AMOLED_MIN_BRIGHTNESS 35u
 
-void display_co5300_set_brightness(uint8_t level);
-void display_co5300_update_cpu(NextRowCallback nrcb, UpdateCompleteCallback uccb);
+extern const struct pbl_display_ops pbl_display_co5300_ops;
 
 // Durations use the 32 kHz AON clock, independent of CPU frequency.
 #ifdef CONFIG_T5AI_DISPLAY_PROFILE

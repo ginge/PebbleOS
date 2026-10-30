@@ -46,6 +46,48 @@ The platform submodule pins `13379b63e07e78770fb4d0bffe36db2754658132`.
 TuyaOpen pins `e82840dc9b629cb77fa922fb04e3f820dc2e78b4` and is optional for AP/CP
 packaging. Neither submodule is upgraded implicitly.
 
+## Upstream driver interfaces
+
+The T5AI I2C controller uses `pbl_i2c_msg` transfers and errno completion.
+It supports seven-bit addressing, chained writes (including `NOSTART`),
+address-only write probes, and an optional final read. Zero-length reads and
+reads followed by another message return `-ENOTSUP` before bus activity.
+FIFO thresholds, the 100 kHz board configuration, STOP spacing and deferred
+GPIO recovery remain in the T5AI driver. QMI8658 and PCF85063 use the new
+register helpers; CST92xx retains separate write, read and acknowledgement
+transactions.
+
+The AP UART is registered as a `pbl_uart` device with early polled output,
+8N1 configuration and interrupt-driven receive callbacks. The board default
+remains 460800 baud. Four-bit SD keeps ownership of GPIO10/11; runtime logging
+continues through the CP mailbox backend.
+
+CO5300 implements the display class using its existing row transport, rotation,
+DMA batching and recovery engine. The adapter respects framebuffer pitch and
+row ranges and reports transfer errors through class completion. Hardware
+startup remains after board PSRAM validation; borrowed boot-splash buffers use
+synchronous transport even when the optional display worker is enabled.
+
+CST92xx implements the touchscreen class while retaining its coordinate
+mapping, palm handling, acknowledgement and retry worker. Buttons use upstream
+GPIO keys on P18/P12 with 40 ms debounce, firmware-owned button state/rotation,
+and the stock five-second Back+Select reset handler.
+
+Host register-model tests cover the drivers and affected sensor callers:
+
+```sh
+PYTHONPATH=tools/libs/pbl-cli python -m unittest \
+  tools.tests.test_t5ai_i2c tools.tests.test_t5ai_i2c_fifo \
+  tools.tests.test_t5ai_uart tools.tests.test_t5ai_rtc \
+  tools.tests.test_t5ai_touch tools.tests.test_t5ai_qmi8658_fifo \
+  tools.tests.test_t5ai_buttons tools.tests.test_t5ai_display_class
+```
+
+The full Unhygienix firmware builds and passes the image-layout and protected-
+image checks after the migration. Host regressions and compilation do not
+replace hardware qualification; retain the exact ELF, resource pack, log
+dictionary and serial trace for each flashed candidate.
+
 ## CP packaging
 
 As of 2026-10-18, packaging supports only the Bluetooth RF hook. The optional
@@ -1168,3 +1210,88 @@ watchdog report. Final free heap was 11,992 B; largest block 9,948 B; recorded
 peak use 13,540 B. Seven BLE timeouts recovered and one oversized optional image
 was safely dropped. An initial USB gap is retained in the evidence; capture was
 stopped. These results do not establish overnight or worst-case qualification.
+
+
+### Native driver interfaces (30 October 2026)
+
+The Tuya port now uses the upstream I2C, UART, display, touch, GPIO-key,
+SPI, DMA, panel and pin-control classes directly. Board pin states own the
+I2C, UART, QSPI and SD routes; the four-bit SD configuration leaves AP UART0
+pins unassigned. Runtime console output continues through the CP mailbox.
+
+CO5300 owns reset and DCS lifecycle through `pbl_panel`. The display consumes
+`pbl_display_buffer` and its pitch and dirty-row range directly, converts
+ARGB2222 to wire-order RGB565, and sends quad transfers through `pbl_spi`.
+The native path batches converted rows into a 14,912-byte aligned PSRAM buffer.
+The old row iterator, replay descriptors, boot-buffer marker, worker and shared
+GDMA IRQ-owner facade are removed. Display updates complete synchronously,
+including boot splash, with the borrowed framebuffer retained until completion.
+
+The shared DMA controller owns AP channels 0 (QSPI), 1 (cyclic microphone),
+2 (SD transmit) and 3 (SD receive), including IRQ acknowledgement. It preserves
+CP channels. QSPI DMA has a 20 ms timer; timeout stops the channel before
+releasing the SPI transaction. Optional framebuffer recovery retries at most
+three times per boot, one second apart, without a CPU transport fallback.
+
+Two small shared-interface additions are necessary: SPI transfers can specify
+transmit lane count (zero retains single-lane behavior), and panels can describe
+serial RGB565. Nordic SPI rejects multi-lane requests. T5AI command-C supports
+a four-byte instruction/address prefix with up to 256 FIFO payload bytes;
+quad payloads use aligned 32-bit DMA. Unsupported transfers return an error.
+
+Earlier display timing tables in this document describe the retired transport.
+They are historical measurements and do not characterize the native SPI path.
+
+The first native-API image (`ab14772d`) booted and reconnected but failed
+operator display validation (green interleaved lines and slow redraw).
+Its evidence is retained in `build/traces/native-api-interfaces-20261030-173526`.
+Generic ARM range maintenance is compiled out on this SoC because
+`__DCACHE_PRESENT` is not set; it cannot clean an inherited enabled STAR-MC1
+D-cache. T5AI supplies native range-maintenance implementations locally, keeping
+generic cache setup intact. Regression tests cover every 32-byte line and
+outward alignment, and native DMA retains the qualified extra-word loop guard
+for the QSPI streaming aperture. Visual validation is required after reflashing.
+
+CO5300 row windows require an even start and an even height (RASET,
+[manufacturer datasheet, page 161](https://dl.espressif.com/AE/esp-iot-solution/CO5300_Datasheet_V0.00.pdf)).
+Native updates expand the physical dirty window outward to those boundaries,
+then send at most 16 physical rows per SPI transaction. Adjacent pixels come
+from the same native framebuffer and pitch. Tests reject odd row windows and
+verify the expanded ranges, rotation and unchanged source pixels.
+
+Display validation: build `c7c782d9f03c1cf8e27a7292c63b8bcc43f9c092` was flashed
+with matching resources. All 68 focused host tests and the native touch/watchdog
+tests passed. The operator confirmed normal display, speed and touch with the
+batch lines gone. The final 240-second capture received 7,230 bytes, retained
+49 apps and re-established the encrypted bonded phone session; it contains
+one boot and no fault/assert/watchdog patterns or serial reconnects. Evidence:
+`build/traces/native-api-interfaces-20261030-180014/RESULTS.md`.
+This is startup validation, not a long soak or physical microphone test.
+
+Full startup inspection of that capture found CST92xx detection and QMI8658
+initialization errors despite the later successful touch/display check. It does
+not pass sensor startup validation. The subsequent native I2C implementation
+waits up to 200 microseconds for STOP completion before disabling the controller
+and marks a stuck bus for recovery. Touch and IMU initialization each have
+three bounded attempts; persistent failure still reports an error.
+
+The first STOP-completion build (`b3717dc7`) passed sensor startup but reset
+on a 767-byte notification allocation: 2,852 bytes were free, with only a
+652-byte contiguous block. Its full trace is retained. The display transfer
+buffer was reduced from 16 to 8 physical rows, returning 7,456 bytes to the
+internal kernel heap while retaining even row-window alignment.
+
+The production correction instead moves the complete 14,912-byte transfer
+buffer into dedicated AP-only PSRAM at `0x60024000..0x60028000`. This lies in
+the retired vendor AP audio slab, after SD metadata and before CP allocations.
+MPU region 12 maps it privileged/non-executable; boot validates it before
+rendering and native DMA accepts only this exact extra window. Native DMA
+cache maintenance cleans each transfer. The linker requires at least 28 KiB
+for the kernel heap. Larger batches and even physical row windows remain.
+
+PSRAM-buffer validation: build `6b314eb53dbc97521f1ac7ca9250d99c51371e85`
+was flashed with matching resources. All 71 focused tests and two native
+touch/watchdog tests pass. Kernel heap is 29,152 bytes. The complete 360-second
+capture contains one boot, no error/init-failure/OOM/reset lines, 49 retained
+apps and an encrypted phone session. FLASH has 392 bytes remaining. Evidence:
+`build/traces/native-api-interfaces-20261030-183158/RESULTS.md`.

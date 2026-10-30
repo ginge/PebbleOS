@@ -14,3 +14,8 @@ config DMA_SF32LB52
     select DMA
     help
       The SF32LB52 HPSYS DMA controller (DMAC1).
+
+config DMA_T5AI
+    bool "T5AI DMA controller"
+    default y if SOC_T5AI
+    select DMA

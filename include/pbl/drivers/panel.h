@@ -32,6 +32,8 @@ enum pbl_panel_bus_format {
    * lines, with HST/HCK, VST/VCK, ENB and XRST.
    */
   PBL_PANEL_BUS_FORMAT_JDI_RGB222,
+  /** RGB565 pixels sent most significant byte first over a serial bus. */
+  PBL_PANEL_BUS_FORMAT_RGB565,
 };
 
 /**

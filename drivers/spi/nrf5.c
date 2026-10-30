@@ -156,6 +156,10 @@ static void prv_disable(const struct pbl_spi_bus *bus) {
 }
 
 static int prv_start(const struct pbl_spi_bus *bus, const struct pbl_spi_xfer *xfer) {
+  if (xfer->tx_nbits > 1u) {
+    return -ENOTSUP;
+  }
+
   const struct pbl_spi_nrf5 *spi = prv_spi(bus);
 
   if (xfer->len > SPIM_MAXCNT_MASK || (xfer->tx_buf != nullptr && !IS_IN_RAM(xfer->tx_buf)) ||

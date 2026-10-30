@@ -8,3 +8,5 @@ if(CONFIG_PINCTRL_SF32LB52)
 endif()
 pbl_library_sources(${sources})
 pbl_library_sources_ifdef(CONFIG_PINCTRL_SHELL shell.c)
+
+pbl_library_sources_ifdef(CONFIG_PINCTRL_T5AI t5ai.c)

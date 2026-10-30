@@ -4,7 +4,7 @@ endif()
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 pbl_library()
-pbl_library_sources(init.c idle.c gdma.c tick.c delay.c power.c retained.c reboot_reason.c flash_translation.c)
+pbl_library_sources(init.c idle.c tick.c delay.c power.c retained.c reboot_reason.c flash_translation.c)
 pbl_library_sources(resource_storage.c)
 pbl_library_sources_ifdef(CONFIG_T5AI_DISPLAY_PROFILE display_profile.c)
 pbl_library_sources_ifdef(CONFIG_T5AI_STATE_TRACE state_trace.c)
@@ -376,3 +376,14 @@ function(t5ai_mailbox_logging_boundary)
     kernel_applib_get_log_state=t5ai_stock_get_log_state)
 endfunction()
 cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_mailbox_logging_boundary)
+
+# Preserve generic ARM cache setup; provide T5AI DMA range maintenance locally.
+pbl_library_sources(cache.c)
+function(t5ai_dma_cache_range_functions)
+  set_property(SOURCE ${PBL_BASE}/kernel/arch/arm/cache.c
+    DIRECTORY ${PBL_BASE}/kernel APPEND PROPERTY COMPILE_DEFINITIONS
+    dcache_flush=t5ai_unused_dcache_flush
+    dcache_invalidate=t5ai_unused_dcache_invalidate
+    dcache_flush_invalidate=t5ai_unused_dcache_flush_invalidate)
+endfunction()
+cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_dma_cache_range_functions)

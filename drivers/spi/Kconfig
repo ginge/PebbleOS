@@ -26,3 +26,10 @@ module-str = SPI
 source "subsys/logging/Kconfig.template.log_level"
 
 endif # SPI
+
+config SPI_T5AI
+    bool "T5AI quad SPI controller"
+    default y if SOC_T5AI
+    select SPI
+    select DMA_T5AI
+    select PINCTRL_T5AI

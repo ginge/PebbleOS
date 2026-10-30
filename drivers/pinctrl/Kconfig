@@ -22,3 +22,8 @@ config PINCTRL_SHELL
     help
       The pinctrl shell command, to dump the pad registers of every pin
       controller.
+
+config PINCTRL_T5AI
+    bool "T5AI pin controller"
+    default y if SOC_T5AI
+    select PINCTRL

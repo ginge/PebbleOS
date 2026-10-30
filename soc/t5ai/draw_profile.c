@@ -3,10 +3,10 @@
 #include "applib/ui/window.h"
 #include "kernel/kernel_heap.h"
 #include "kernel/pebble_tasks.h"
-#include <pbl/kernel/assert.h>
 
 #include <string.h>
 
+#include <pbl/kernel/assert.h>
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/mutex.h>
 #include <pbl/kernel/thread.h>
@@ -235,10 +235,6 @@ static void prv_entry(void *arg) {
 #ifdef CONFIG_T5AI_IO_PROFILE
     extern void t5ai_io_profile_dump(void);
     t5ai_io_profile_dump();
-#endif
-#ifdef CONFIG_T5AI_DISPLAY_DMA_IRQ
-    extern void t5ai_display_dma_profile_dump(void);
-    t5ai_display_dma_profile_dump();
 #endif
     unsigned used = 0, free_bytes = 0, largest = 0;
     heap_calc_totals(kernel_heap_get(), &used, &free_bytes, &largest);
