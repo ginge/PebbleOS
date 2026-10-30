@@ -7,15 +7,12 @@
 #include <pbl/device.h>
 #include <pbl/drivers/accel.h>
 #include <pbl/drivers/battery.h>
-#include <pbl/drivers/debounced_button.h>
-#include <pbl/drivers/display/display.h>
 #include <pbl/drivers/flash.h>
 #include <pbl/drivers/hrm.h>
 #include <pbl/drivers/mic.h>
 #include <pbl/drivers/otp.h>
 #include <pbl/drivers/rtc.h>
 #include <pbl/drivers/sf32lb52/rc10k.h>
-#include <pbl/drivers/touch/touch_sensor.h>
 #include <pbl/drivers/vibe.h>
 #include <pbl/drivers/watchdog.h>
 #include <pbl/kernel/assert.h>
@@ -44,6 +41,7 @@
 #include <kernel/event_loop.h>
 #include <kernel/events.h>
 #include <kernel/fault_handling.h>
+#include <kernel/input_buttons.h>
 #include <kernel/kernel_applib_state.h>
 #include <kernel/kernel_heap.h>
 #include <kernel/memory_layout.h>
@@ -143,10 +141,6 @@ static void init_drivers(void) {
   mic_init(MIC);
 #endif
 
-#ifdef CONFIG_TOUCH
-  touch_sensor_init();
-#endif
-
   rtc_init_timers();
   rtc_alarm_init();
 }
@@ -189,8 +183,6 @@ static PBL_NOINLINE void prv_main_task_init(void) {
 
   board_early_init();
 
-  boot_splash_start();
-
   kernel_applib_init();
 
   system_task_init();
@@ -199,6 +191,9 @@ static PBL_NOINLINE void prv_main_task_init(void) {
 
   new_timer_service_init();
   regular_timer_init();
+
+  // After the timer service, which the display may use
+  boot_splash_start();
 
   // Suspend the task watchdog while the rest of the system comes up.
   pbl_task_wdt_init();
@@ -245,12 +240,6 @@ static PBL_NOINLINE void prv_main_task_init(void) {
   hrm_init(HRM);
 #endif
 
-  // The display has to be initialized before bluetooth because on Snowy the
-  // display FPGA shares the 32 kHz clock signal with bluetooth. If the FPGA is
-  // not programmed when we attempt to initialize bluetooth, it prevents the
-  // clock from reaching the bluetooth module and initialization fails.
-  display_init();
-
   // Stop boot splash before initializing compositor
   boot_splash_stop();
   // Can't use the compositor framebuffer until the compositor is initialized
@@ -289,9 +278,7 @@ static PBL_NOINLINE void prv_main_task_init(void) {
   boot_bit_set(BOOT_BIT_FW_STABLE);
 #endif
 
-  // Initialize button driver at the last moment to prevent "system on" button press from
-  // entering the kernel event queue.
-  debounced_button_init();
+  input_buttons_enable();
 
   pbl_task_wdt_resume();
 }

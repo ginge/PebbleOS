@@ -7,10 +7,16 @@ from .core import (
     RunnerError,
     UnsupportedOperation,
 )
+from .native import NativeRunner
 from .nrfutil import NrfUtilRunner
 from .openocd import OpenOcdRunner
+from .phone import PhoneRunner
+from .probe_rs import ProbeRsRunner
+from .qemu import QemuRunner
 from .sftool import SfToolRunner
 from .tyutool import TyuToolRunner
+
+from .wasm import WasmRunner
 
 __all__ = [
     "RunnerCaps",
@@ -31,6 +37,12 @@ RUNNERS = {
         SfToolRunner,
         NrfUtilRunner,
         TyuToolRunner,
+
+        ProbeRsRunner,
+        QemuRunner,
+        NativeRunner,
+        WasmRunner,
+        PhoneRunner,
     )
 }
 

@@ -4,7 +4,6 @@
 #pragma once
 
 #define DISPLAY_ORIENTATION_COLUMN_MAJOR_INVERTED 0
-#define DISPLAY_ORIENTATION_ROTATED_180           1
 #define DISPLAY_ORIENTATION_ROW_MAJOR             0
 #define DISPLAY_ORIENTATION_ROW_MAJOR_INVERTED    1
 
@@ -26,6 +25,3 @@
 // Use rectangular framebuffer to enable in-place pixel format conversion in display driver
 // This uses more memory than circular (67600 vs 53786) but saves the separate display buffer
 #define DISPLAY_FRAMEBUFFER_BYTES (PBL_DISPLAY_WIDTH * PBL_DISPLAY_HEIGHT)
-
-extern const void *const g_gbitmap_data_row_infos;
-extern const void *const g_gbitmap_legacy_3x_data_row_infos;

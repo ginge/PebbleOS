@@ -49,6 +49,15 @@ pbl_clar_test(test_put_bytes
   OVERRIDES dummy_board
 )
 
+pbl_clar_test(test_get_bytes
+  SOURCES
+    fw/services/get_bytes/get_bytes.c
+    tests/fakes/fake_session.c
+    tests/fakes/fake_events.c
+    tests/fakes/fake_rtc.c
+  DEFINES CONFIG_SOC_POSIX
+)
+
 pbl_clar_test(test_language_pack_storage
   SOURCES
     fw/services/put_bytes/put_bytes_storage_file.c
@@ -135,8 +144,13 @@ pbl_clar_test(test_light
     subsys/cron/cron.c
     tests/fakes/fake_rtc.c
   MODULES time
-  DEFINES CONFIG_BACKLIGHT_HAS_COLOR CONFIG_ALS_SCREEN_COMPENSATION
-  OVERRIDES getafix_backlight
+  DEFINES
+    CONFIG_BACKLIGHT_HAS_COLOR
+    CONFIG_ALS_SCREEN_COMPENSATION
+    CONFIG_SERVICE_LIGHT_BACKLIGHT_ON_PERCENT=25
+    CONFIG_SERVICE_LIGHT_DARK_THRESHOLD=0
+    CONFIG_SERVICE_LIGHT_DARK_THRESHOLD_DELTA=0
+  OVERRIDES dummy_board
 )
 
 pbl_clar_test(test_als_screen_compensation
@@ -267,6 +281,20 @@ pbl_clar_test(test_app_cache
     fw/services/filesystem/app_file.c
     fw/services/app_cache/service.c
     tests/fakes/fake_rtc.c
+    tests/fakes/fake_events.c
+  OVERRIDES dummy_board
+)
+
+pbl_clar_test(test_mic_manager
+  SOURCES
+    fw/services/mic_manager/mic_manager.c
+  OVERRIDES dummy_board
+)
+
+pbl_clar_test(test_mic_stream
+  SOURCES
+    fw/services/mic_stream/mic_stream.c
+    fw/services/mic_manager/mic_manager.c
     tests/fakes/fake_events.c
   OVERRIDES dummy_board
 )
@@ -444,4 +472,41 @@ pbl_clar_test(test_clock_time
   MODULES time
   SOURCES
     tests/fakes/fake_rtc.c
+)
+
+pbl_clar_test(test_system_task
+  SOURCES
+    fw/services/system_task/service.c
+    kernel/tick.c
+    kernel/sched.c
+    kernel/timer.c
+    kernel/thread.c
+    kernel/mutex.c
+    kernel/sem.c
+    kernel/msgq.c
+    kernel/poll.c
+    kernel/irq.c
+    kernel/debug.c
+    kernel/arch/posix/arch.c
+    kernel/arch/posix/test.c
+  INCLUDES
+    kernel
+    kernel/arch
+    kernel/arch/posix/include
+  DEFINES
+    CONFIG_KERNEL_IDLE_STACK_SIZE=1024
+    CONFIG_TASK_WDT_TIMEOUT_MS=5000
+    CONFIG_SERVICE_SYSTEM_TASK_LOG_LEVEL=0
+    PBL_NO_LINKER_SCRIPT
+)
+
+pbl_clar_test(test_mic_capture
+  SOURCES
+    fw/services/mic_capture/mic_capture.c
+    fw/services/mic_manager/mic_manager.c
+    fw/services/blob_db/app_db.c
+    tests/fakes/fake_events.c
+    tests/fakes/fake_settings_file.c
+  DEFINES CONFIG_SERVICE_MIC_CAPTURE
+  OVERRIDES dummy_board
 )

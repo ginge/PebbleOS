@@ -331,7 +331,6 @@ void pbl_bt_handle_le_connection_complete_event(const struct pbl_bt_conn_complet
         // does take place, let's trigger a disconnect to try and put us back into a sane state
         PBL_LOG_ERR("Not adding connection for device. It is already connected .. disconnecting");
         pbl_bt_gap_le_disconnect(&event->peer_address);
-        param_watchdog_timer = TIMER_INVALID_ID; // Don't use timer, will clean up below
         break;
       }
 
@@ -531,7 +530,9 @@ void pbl_bt_handle_le_encryption_change_event(const struct pbl_bt_encryption_cha
     // The driver already logs encryption changes (status/encrypted/bonded)
     PBL_LOG_DBG("LE encryption change: encrypted");
     bluetooth_analytics_handle_encryption_change();
+#ifdef CONFIG_BT_SERVICE_PPS
     pbl_bt_pps_handle_status_change(connection);
+#endif
   }
 
   prv_apply_fuction_to_intents_matching_connection(connection, prv_send_encrypted_event, nullptr);

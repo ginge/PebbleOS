@@ -74,14 +74,14 @@ class UnhygienixRunnerTest(unittest.TestCase):
             board="unhygienix",
             topdir=str(self.root),
             variant="normal",
-            config=SimpleNamespace(CONFIG_SOC="T5AI"),
+            config=SimpleNamespace(CONFIG_SOC="T5AI", CONFIG_PBLBOOT=False),
             hex=str(self.root / "pebbleos.hex"),
             elf=str(self.root / "pebbleos.elf"),
             bin=str(self.raw),
             pbpack=str(self.resources),
             tool=lambda name: None,
         )
-        runner = make_runner(build, SimpleNamespace(tyutool_tty="/dev/test"))
+        runner = make_runner(build, SimpleNamespace(tyutool_tty="/dev/test"), ("flash",))
         commands = self.commands(runner)
         self.assertEqual(len(commands), 1)
         self.assertIn("-s 0x132000", commands[0])

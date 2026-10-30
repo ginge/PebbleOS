@@ -24,7 +24,16 @@ enum pbl_thread_state pbl_thread_state(const struct pbl_thread *);
 """,
     "pbl/kernel/delay.h": "void pbl_sleep_ms(unsigned);\n",
     "kernel/pbl_malloc.h": "void *kernel_malloc(size_t);\nvoid *kernel_zalloc(size_t);\nvoid kernel_free(void *);\n",
-    "pbl/drivers/display/display.h": "void display_init(void);\nvoid display_update_boot_frame(uint8_t *);\n",
+    "pbl/drivers/display.h": """#pragma once
+struct pbl_device { int unused; };
+struct pbl_display { struct pbl_device dev; unsigned width, height, format; };
+struct pbl_display_buffer { uint8_t *data; unsigned pitch; };
+#define PBL_DISPLAY_FORMAT_MONO 0
+extern const struct pbl_display *const DISPLAY;
+int pbl_device_init(const struct pbl_device *);
+int pbl_display_update_sync(const struct pbl_display *, const struct pbl_display_buffer *, unsigned, unsigned);
+""",
+    "pbl/util/math.h": "#define ROUND_TO_MOD_CEIL(n,m) (((n)+(m)-1)/(m)*(m))\n",
     "board/display.h": """#pragma once
 #define PBL_DISPLAY_WIDTH 260
 #define PBL_DISPLAY_HEIGHT 260
@@ -73,14 +82,16 @@ void *kernel_malloc(size_t n) {
 void kernel_free(void *p) {
  assert(p && live); --live; ++frees; free(p);
 }
-void display_init(void) { ++inits; }
+static const struct pbl_display test_display = {.width=260, .height=260, .format=1};
+const struct pbl_display *const DISPLAY = &test_display;
+int pbl_device_init(const struct pbl_device *dev) { assert(dev==&DISPLAY->dev); ++inits; return 0; }
 static void resume(void) { assert(s_boot_splash_task); swapcontext(&main_context,&task_context); }
 void pbl_thread_sleep(unsigned n) {
  assert(n==10); in_worker=false; swapcontext(&task_context,&main_context); in_worker=true;
 }
 void pbl_sleep_ms(unsigned n) { assert(n==10); resume(); }
 void pbl_thread_abort(struct pbl_thread *t) {
- assert(!t && created && in_worker && !s_boot_splash_task && !s_boot_splash_fb);
+ assert(!t && created && in_worker && !s_boot_splash_task && !s_boot_splash_fb.data);
  s_boot_splash_thread.state=PBL_THREAD_DEAD;
  thread_exited=true; in_worker=false; setcontext(&main_context); abort();
 }
@@ -98,7 +109,10 @@ int pbl_thread_create(struct pbl_thread *t,const struct pbl_thread_attr *a) {
  task_context.uc_link=&main_context;
  makecontext(&task_context,trampoline,0); return 0;
 }
-void display_update_boot_frame(uint8_t *fb) {
+int pbl_display_update_sync(const struct pbl_display *display,
+ const struct pbl_display_buffer *buffer, unsigned first, unsigned last) {
+ assert(display==DISPLAY && buffer->pitch==260 && first==0 && last==259);
+ uint8_t *fb=buffer->data;
 #ifdef TEST_T5
  assert(fb==framebuffer.buffer && s_borrowed);
 #endif
@@ -108,22 +122,18 @@ void display_update_boot_frame(uint8_t *fb) {
   uint8_t pixel=0xff;
   if (x>=lx && x<lx+splash_width && y>=ly && y<ly+splash_height &&
       (splash_bits[(y-ly)*(splash_width/8)+(x-lx)/8]&(1u<<((x-lx)%8))))
-    pixel=SPLASH_COLOR_BLACK;
+    pixel=s_argb2222[SPLASH_COLOR_BLACK];
   if (!stopping && y>=ly+splash_height+18 && y<ly+splash_height+22) {
-    if (x>=90 && x<170) pixel=SPLASH_COLOR_LGRAY;
-    if (x>=90+offset && x<110+offset) pixel=SPLASH_COLOR_BLACK;
+    if (x>=90 && x<170) pixel=s_argb2222[SPLASH_COLOR_LGRAY];
+    if (x>=90+offset && x<110+offset) pixel=s_argb2222[SPLASH_COLOR_BLACK];
   }
   assert(fb[y*260+x]==pixel);
  }
- ++frames;
+ ++frames; return 0;
 }
 int main(int argc,char **argv) {
  assert(argc==2); int scenario=atoi(argv[1]);
-#ifdef CONFIG_BOOT_SPLASH_ARGB2222
- assert(SPLASH_COLOR_BLACK==0xc0 && SPLASH_COLOR_LGRAY==0xea);
-#else
- assert(SPLASH_COLOR_BLACK==0x00 && SPLASH_COLOR_LGRAY==0xb6);
-#endif
+ assert(s_argb2222[SPLASH_COLOR_BLACK]==0xc0 && s_argb2222[SPLASH_COLOR_LGRAY]==0xea);
 #ifdef TEST_T5
  memset(framebuffer.metadata,0xa5,sizeof(framebuffer.metadata));
 #else
@@ -140,13 +150,13 @@ int main(int argc,char **argv) {
  t5ai_boot_splash_render();
  if (scenario==2) {
    assert(!created);
-   assert(!s_borrowed && !s_boot_splash_fb && !s_boot_splash_running);
+   assert(!s_borrowed && !s_boot_splash_fb.data && !s_boot_splash_running);
    boot_splash_stop(); assert(!frames); return 0;
  }
 #else
  if (scenario==2 || scenario==3) {
    assert(!created);
-   assert(!s_boot_splash_task && !s_boot_splash_fb && !s_boot_splash_running && !live);
+   assert(!s_boot_splash_task && !s_boot_splash_fb.data && !s_boot_splash_running && !live);
    assert(allocs==1 && frees==(scenario==2)); boot_splash_stop(); return 0;
  }
 #endif
@@ -156,7 +166,7 @@ int main(int argc,char **argv) {
 #endif
  for (unsigned i=0;i<201;++i) resume();
  assert(frames==21); stopping=true; boot_splash_stop();
- assert(frames==22 && !s_boot_splash_task && !s_boot_splash_fb && !live);
+ assert(frames==22 && !s_boot_splash_task && !s_boot_splash_fb.data && !live);
  assert(created && thread_exited && s_boot_splash_thread.state==PBL_THREAD_DEAD);
 #ifdef TEST_T5
  assert(!s_borrowed && !allocs && !frees);

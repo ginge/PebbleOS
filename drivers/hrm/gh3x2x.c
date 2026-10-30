@@ -66,17 +66,13 @@ void gh3026_i2c_init(void) {
 }
 
 void gh3026_i2c_write(uint8_t device_id, const uint8_t write_buffer[], uint16_t length) {
-  pbl_i2c_use(HRM->i2c);
-  pbl_i2c_write_block(HRM->i2c, length, write_buffer);
-  pbl_i2c_release(HRM->i2c);
+  pbl_i2c_write(HRM->i2c, write_buffer, length);
 }
 
 void gh3026_i2c_read(uint8_t device_id, const uint8_t write_buffer[], uint16_t write_length,
                      uint8_t read_buffer[], uint16_t read_length) {
-  pbl_i2c_use(HRM->i2c);
-  pbl_i2c_write_block(HRM->i2c, write_length, write_buffer);
-  pbl_i2c_read_block(HRM->i2c, read_length, read_buffer);
-  pbl_i2c_release(HRM->i2c);
+  pbl_i2c_write(HRM->i2c, write_buffer, write_length);
+  pbl_i2c_read(HRM->i2c, read_buffer, read_length);
 }
 
 static void prv_conv_fs4g_mg_to_lsb512(AccelRawData *data) {
@@ -277,7 +273,7 @@ void gh3x2x_wear_evt_notify(bool is_wear) {
   HRM->state->is_wear = is_wear;
 }
 
-#ifdef CONFIG_BT_GH3X2X_TUNING_SERVICE
+#ifdef CONFIG_BT_SERVICE_GH3X2X_TUNING
 void gh3x2x_timer_init(uint32_t period_ms) {
   if (HRM) {
     HRM->state->timer_period_ms = period_ms;

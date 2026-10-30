@@ -10,7 +10,6 @@
 #include <pbl/util/size.h>
 #include <pbl/util/units.h>
 
-#include <board/board.h>
 #include <clar.h>
 #include <fake_new_timer.h>
 #include <fake_rtc.h>
@@ -142,7 +141,8 @@ uint16_t backlight_get_sunset_minute(void) {
 ///////////////////////////////////////////////////////////
 
 static uint8_t get_expected_brightness() {
-  return DIVIDE_CEIL(backlight_get_intensity() * (uint16_t)BOARD_CONFIG.backlight_on_percent, 100U);
+  return DIVIDE_CEIL(
+      backlight_get_intensity() * (uint16_t)CONFIG_SERVICE_LIGHT_BACKLIGHT_ON_PERCENT, 100U);
 }
 
 static void check_on(void) {
@@ -163,7 +163,7 @@ static void check_on_timed_and_consume_partial(void) {
 
   const uint8_t fade_brightness = 100 - (100 / LIGHT_FADE_STEPS);
   const uint8_t scaled_fade =
-      DIVIDE_CEIL(fade_brightness * (uint16_t)BOARD_CONFIG.backlight_on_percent, 100U);
+      DIVIDE_CEIL(fade_brightness * (uint16_t)CONFIG_SERVICE_LIGHT_BACKLIGHT_ON_PERCENT, 100U);
   cl_assert_equal_i(s_backlight_brightness, scaled_fade);
   cl_assert(stub_new_timer_is_scheduled(s_light_timer));
 }
@@ -358,23 +358,67 @@ void test_light__interaction_during_fading(void) {
 }
 
 void test_light__touch_down_and_up(void) {
-  // A touch behaves like a button: on while down, timed out after liftoff.
   light_touch_down();
+  check_on_timed();
+
+  light_touch_up();
+  check_on_timed_and_consume();
+}
+
+void test_light__touch_hold_times_out(void) {
+  // A resting contact (skin, bedding) must not keep the backlight on.
+  light_touch_down();
+  check_on_timed_and_consume();
+
+  light_touch_up();
+  check_off();
+}
+
+void test_light__touch_move_restarts_timeout(void) {
+  light_touch_down();
+  check_on_timed_and_consume_partial();
+
+  light_touch_moved();
+  check_on_timed_and_consume();
+
+  light_touch_moved();
+  check_on_timed();
+
+  light_touch_up();
+  check_on_timed_and_consume();
+}
+
+void test_light__touch_move_without_down_is_noop(void) {
+  light_touch_moved();
+  check_off();
+}
+
+void test_light__button_held_during_touch_keeps_light_on(void) {
+  light_touch_down();
+  light_button_pressed();
   check_on();
 
   light_touch_up();
+  check_on();
+
+  light_button_released();
   check_on_timed_and_consume();
 }
 
 void test_light__touch_down_is_coalesced(void) {
   // Repeated touch-downs take one reference; one touch-up fully releases it.
   light_touch_down();
-  check_on();
+  check_on_timed();
 
   light_touch_down();
-  check_on();
+  check_on_timed();
 
   light_touch_up();
+  check_on_timed_and_consume();
+
+  light_button_pressed();
+  check_on();
+  light_button_released();
   check_on_timed_and_consume();
 }
 
@@ -392,7 +436,7 @@ void test_light__touch_up_without_down_is_noop(void) {
 void test_light__touch_hold_released_on_app_teardown(void) {
   // App teardown must release the hold so the backlight times out, not stick on.
   light_touch_down();
-  check_on();
+  check_on_timed();
 
   light_touch_up();
   light_reset_user_controlled_by_task(PebbleTask_App);

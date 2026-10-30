@@ -8,7 +8,6 @@
 
 #include <pbl/bluetooth/types.h>
 #include <pbl/drivers/battery.h>
-#include <pbl/drivers/button_id.h>
 #include <pbl/kernel/compiler.h>
 #include <pbl/kernel/msgq.h>
 #include <pbl/services/battery/battery_monitor.h>
@@ -127,6 +126,8 @@ typedef enum {
   PEBBLE_BACKLIGHT_EVENT,
   //! Emitted when the system language changes; i18n_get() already returns the new strings
   PEBBLE_LANGUAGE_CHANGE_EVENT,
+  PEBBLE_MIC_STREAM_EVENT,
+  PEBBLE_MIC_CAPTURE_EVENT,
 
   PEBBLE_NUM_EVENTS
 } PebbleEventType;
@@ -271,7 +272,6 @@ typedef enum {
   PebbleBLEGATTClientEventTypeDescriptorRead,
   PebbleBLEGATTClientEventTypeDescriptorWrite,
   PebbleBLEGATTClientEventTypeNotification,
-  PebbleBLEGATTClientEventTypeBufferEmpty,
   PebbleBLEGATTClientEventTypeNum,
 } PebbleBLEGATTClientEventType;
 
@@ -495,6 +495,27 @@ typedef struct PBL_PACKED { // 2 bytes
 typedef struct PBL_PACKED { // 1 byte
   bool is_on;
 } PebbleBacklightEvent;
+
+typedef enum {
+  MicStreamEventStarted = 0, //!< The phone accepted the stream and the mic is running
+  MicStreamEventStopped = 1,
+} MicStreamEventType;
+
+typedef struct PBL_PACKED { // 6 bytes
+  uint8_t type;             //!< MicStreamEventType
+  uint8_t stop_reason;      //!< MicStreamServiceStopReason (Stopped events only)
+  uint32_t stream_id;       //!< From mic_stream_service_start()
+} PebbleMicStreamEvent;
+
+enum {
+  MicCaptureEventData = 0,
+  MicCaptureEventStopped
+};
+typedef struct PBL_PACKED {
+  uint32_t session;
+  uint8_t type;
+  uint8_t stop_reason;
+} PebbleMicCaptureEvent;
 
 typedef enum {
   VoiceEventTypeSessionSetup,
@@ -806,6 +827,8 @@ typedef struct PBL_PACKED PBL_ALIGNED(sizeof(void *)) {
     PebblePrefChangeEvent pref_change;
     PebbleSpeakerEvent speaker;
     PebbleBacklightEvent backlight;
+    PebbleMicStreamEvent mic_stream;
+    PebbleMicCaptureEvent mic_capture;
   };
   PebbleTaskBitset task_mask; // 1 == filter out, 0 == leave in
   // NOTE: we put this 8 bit field at the end so that we can pack this structure and still keep the

@@ -27,18 +27,14 @@ def runner_options(parser):
     runners.register_args(group)
 
 
-def make_runner(build, args, resources=False, erase_ranges=()):
-    """Create the runner for ``build``, honoring ``--runner``."""
-    supported = build.board_spec.runners
-    selected = getattr(args, "runner", None) or (supported[0] if supported else None)
-    if not selected:
-        raise CommandContextError(f"board {build.board} has no runner")
-    if selected not in supported:
-        raise CommandContextError(
-            f"board {build.board} does not support the {selected} runner; "
-            f"supported runners: {', '.join(supported) or 'none'}"
-        )
+def make_runner(
+    build, args, commands, resources=False, erase_ranges=(), extra_args=()
+):
+    """Create the runner for ``build``, honoring ``--runner``.
 
+    Without it, the board's first runner that can handle the build and one
+    of ``commands`` is picked.
+    """
     resources_file = None
     resources_address = None
     if resources and build.variant != "prf":
@@ -52,21 +48,52 @@ def make_runner(build, args, resources=False, erase_ranges=()):
         hex_file=build.hex,
         elf_file=build.elf,
         bin_file=build.bin,
+        pbpack_file=build.pbpack if build.variant != "prf" else None,
+        firmware_slot=build.config.CONFIG_FIRMWARE_SLOT
+        if build.config.CONFIG_PBLBOOT
+        else None,
         resources_file=resources_file,
         resources_address=resources_address,
         erase_ranges=tuple(erase_ranges),
         sftool=build.tool("sftool") or "sftool",
         gdb=build.tool("gdb"),
+        gdb_port=getattr(args, "gdb_port", None),
+        build=build,
+        extra_args=tuple(extra_args),
         dry_run=getattr(args, "dry_run", False),
     )
+
+    supported = build.board_spec.runners
+    selected = getattr(args, "runner", None)
+    if not selected:
+        usable = [
+            name
+            for name in supported
+            if runners.get(name).supports(cfg)
+            and runners.get(name).capabilities().commands & set(commands)
+        ]
+        selected = usable[0] if usable else None
+    if not selected:
+        raise CommandContextError(
+            f"board {build.board} has no runner for {' or '.join(commands)}"
+        )
+    if selected not in supported:
+        raise CommandContextError(
+            f"board {build.board} does not support the {selected} runner; "
+            f"supported runners: {', '.join(supported) or 'none'}"
+        )
+    if not runners.get(selected).supports(cfg):
+        raise CommandContextError(
+            f"the {selected} runner cannot run this {build.board} build"
+        )
     return runners.create(selected, cfg, args)
 
 
 def run_on_device(build, args, command, resources=False, erase_ranges=()):
     """Dispatch one runner command, reporting failures as command errors."""
     try:
-        make_runner(build, args, resources=resources, erase_ranges=erase_ranges).run(
-            command
-        )
+        make_runner(
+            build, args, (command,), resources=resources, erase_ranges=erase_ranges
+        ).run(command)
     except runners.RunnerError as e:
         raise CommandContextError(str(e)) from e

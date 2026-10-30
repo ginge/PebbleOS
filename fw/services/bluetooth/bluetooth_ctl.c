@@ -14,7 +14,7 @@
 #include <pbl/kernel/mutex.h>
 #include <pbl/logging/logging.h>
 #include <pbl/services/analytics/analytics.h>
-#include <pbl/services/bluetooth/ble_bas.h>
+#include <pbl/services/bluetooth/battery_level.h>
 #include <pbl/services/bluetooth/ble_hrm.h>
 #include <pbl/services/bluetooth/bluetooth_persistent_storage.h>
 #include <pbl/services/bluetooth/dis.h>
@@ -93,7 +93,9 @@ static void prv_comm_start(void) {
 #ifdef CONFIG_SERVICE_BLE_HRM
     ble_hrm_init();
 #endif
-    ble_bas_init();
+#ifdef CONFIG_BT_SERVICE_BAS
+    bt_battery_level_start();
+#endif
     bt_pairability_init();
 #ifdef CONFIG_QEMU_SERIAL
     qemu_transport_start();
@@ -107,7 +109,9 @@ static void prv_comm_stop(void) {
   if (!s_comm_is_running) {
     return;
   }
-  ble_bas_deinit();
+#ifdef CONFIG_BT_SERVICE_BAS
+  bt_battery_level_stop();
+#endif
 #ifdef CONFIG_SERVICE_BLE_HRM
   ble_hrm_deinit();
 #endif

@@ -9,8 +9,17 @@ menuconfig TOUCH
 
 if TOUCH
 
+config TOUCH_SHELL
+    bool "Shell commands"
+    default y
+    depends on SHELL
+    help
+      The touch shell command, to inspect the touchscreen and hold it
+      powered up.
+
 config TOUCH_CST816
     bool "Hynitron CST816"
+    depends on I2C
     select CST816_FW
     help
       Support for the Hynitron CST816 touch controller.
