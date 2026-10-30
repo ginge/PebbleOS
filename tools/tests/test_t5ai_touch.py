@@ -32,6 +32,7 @@ HARNESS = r"""
 #define PBL_INPUT_BTN_TOUCH 4
 #define PBL_INPUT_ABS_X 0
 #define PBL_INPUT_ABS_Y 1
+#define PBL_INPUT_GES_PALM 2
 #define TIMER_INVALID_ID 0
 #define PBL_MUTEX_DEFINE(name) struct pbl_mutex name
 #define PBL_GPIO(dev,p,f) {.pin=(p)}
@@ -44,7 +45,10 @@ struct pbl_irq_spec {unsigned pin;};
 struct pbl_mutex {bool held;};
 enum {USER,BG,TIMER,ISR};
 unsigned context,depth,queue_limit=8,qcount,refs,reads,writes,uses,releases;
-unsigned sleeps,resets,timer_creates,timer_ms,samples,enqueue_calls;
+unsigned sleeps,resets,timer_creates,timer_ms,samples,enqueue_calls,acks;
+unsigned gestures,sequence,palm_sequence,last_sample_sequence;
+bool fail_ack;
+void check_input_lock(void);
 bool fail_read,fail_write,irq_enabled,reset_pin,timer_pending,interrupt_during_read;
 int pad=1;
 uint8_t wire[10];
@@ -80,8 +84,9 @@ int pbl_intc_request(const struct pbl_irq_spec *p,void (*cb)(void *),void *arg){
 void pbl_i2c_use(const void *p){assert(p==I2C_CST92XX && context!=TIMER && context!=ISR && !depth);++uses;}
 void pbl_i2c_release(const void *p){assert(p==I2C_CST92XX);++releases;}
 int pbl_i2c_write_block(const void *p,unsigned n,const uint8_t *data){
- assert(p==I2C_CST92XX && n==2 && data[0]==0xd0 && data[1]==0);
- ++writes;return fail_write?-1:0;
+ assert(p==I2C_CST92XX && uses>releases && data[0]==0xd0 && data[1]==0);
+ if(n==3){assert(data[2]==0xab);++acks;return fail_ack?-1:0;}
+ assert(n==2);++writes;return fail_write?-1:0;
 }
 void fire_irq(void){unsigned saved=context;context=ISR;irq_cb(NULL);context=saved;}
 int pbl_i2c_read_block(const void *p,unsigned n,uint8_t *data){
@@ -109,8 +114,15 @@ void pbl_input_report_key(unsigned code,bool down,bool sync){
 }
 void pbl_input_report_abs(unsigned code,int value,bool sync){
  assert(context==BG && !depth);
- if(code==0){assert(input_phase==1 && !sync);pending.x=value;input_phase=2;}
- else {assert(code==1 && input_phase==2 && sync && samples<64);pending.y=value;output[samples++]=pending;input_phase=0;}
+ if(code==0){assert((input_phase==0 || input_phase==1) && !sync);pending.x=value;input_phase=2;}
+ else {assert(code==1 && input_phase==2);pending.y=value;
+  if(sync){assert(samples<64);output[samples++]=pending;input_phase=0;last_sample_sequence=++sequence;}
+  else {input_phase=3;}
+ }
+}
+void pbl_input_report_ges(unsigned code,bool sync){
+ check_input_lock();assert(context==BG && !depth && input_phase==3 && sync && code==2);
+ input_phase=0;++gestures;palm_sequence=++sequence;
 }
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-parameter"
@@ -228,6 +240,55 @@ fire_irq();touch_sensor_set_enabled(false);touch_sensor_set_enabled(true);
 assert(qcount==2);before=reads;run_one();
 assert(reads==before && s_callback_scheduled && qcount==1);
 run_one();assert(reads==before+1 && !s_callback_scheduled && !refs);
+""")
+
+    def test_production_ack_and_ack_failure_recovery(self):
+        self.run_driver(r"""
+assert(acks==1);report(true,100,200);run_one();assert(acks==2 && output[0].down);
+fail_ack=true;fire_timer();run_one();
+assert(!output[1].down && timer_ms==80 && s_consecutive_read_failures==1);
+fail_ack=false;fire_timer();run_one();
+assert(output[2].down && !s_consecutive_read_failures && uses==releases);
+""")
+
+    def test_palm_once_suppresses_coordinates_until_all_contacts_lift(self):
+        self.run_driver(r"""
+report(true,100,200);wire[4]=0x80;run_one();
+assert(gestures==1 && !output[0].down && palm_sequence<last_sample_sequence);
+assert(timer_pending && timer_ms==20 && s_palm_down);
+fire_timer();run_one();assert(gestures==1 && !output[1].down);
+// A remaining finger cannot start a new raw contact during the cover episode.
+report(true,200,300);fire_timer();run_one();assert(!output[2].down && s_palm_down);
+// First slot lifted, but a second contact is still active.
+wire[0]=0;wire[5]=2;wire[7]=0x16;fire_timer();run_one();
+assert(s_palm_down && timer_pending && gestures==1 && !output[3].down);
+wire[5]=1;wire[7]=0;fire_timer();run_one();
+assert(!s_palm_down && !timer_pending && !output[4].down);
+report(true,200,300);fire_irq();run_one();assert(output[5].down && gestures==1);
+""")
+
+    def test_palm_after_contact_and_invalid_cover_flags(self):
+        self.run_driver(r"""
+report(true,100,200);run_one();assert(output[0].down);
+wire[4]=0x80;fire_timer();run_one();
+assert(gestures==1 && !output[1].down && palm_sequence<last_sample_sequence);
+fail_read=true;fire_timer();run_one();assert(s_palm_down && gestures==1);
+fail_read=false;fire_timer();run_one();assert(gestures==1 && !output[3].down);
+report(false,0,0);fire_timer();run_one();assert(!s_palm_down);
+report(true,100,200);wire[4]=0x80;wire[6]=0;
+fire_irq();run_one();assert(gestures==1 && !s_palm_down);
+wire[6]=0xab;wire[0]=0xab;fire_irq();run_one();assert(gestures==1);
+report(true,100,200);wire[4]=0x80;fire_irq();run_one();assert(gestures==2);
+touch_sensor_set_enabled(false);assert(!s_palm_down && !s_down);
+touch_sensor_set_enabled(true);run_one();assert(gestures==3);
+""")
+
+    def test_ack_echo_does_not_synthesize_liftoff(self):
+        self.run_driver(r"""
+report(true,100,200);run_one();
+wire[0]=0xab;wire[5]=0;fire_timer();run_one();
+assert(output[1].down && output[1].x==output[0].x && timer_pending);
+report(false,0,0);fire_timer();run_one();assert(!output[2].down && !timer_pending);
 """)
 
     def test_interrupt_during_i2c_and_invalid_reports(self):

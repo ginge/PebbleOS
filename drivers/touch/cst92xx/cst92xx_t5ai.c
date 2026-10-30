@@ -17,7 +17,6 @@
 #endif
 
 #include "board/board.h"
-#include <pbl/kernel/assert.h>
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -27,6 +26,7 @@
 #include <pbl/drivers/intc.h>
 #include <pbl/drivers/touch/touch_sensor.h>
 #include <pbl/input/input.h>
+#include <pbl/kernel/assert.h>
 #include <pbl/kernel/delay.h>
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/mutex.h>
@@ -47,6 +47,9 @@ PBL_LOG_MODULE_DEFINE(driver_touch_cst92xx, CONFIG_DRIVER_TOUCH_LOG_LEVEL);
 #define CST92XX_X_HIGH_OFFSET           1u
 #define CST92XX_Y_HIGH_OFFSET           2u
 #define CST92XX_XY_LOW_OFFSET           3u
+#define CST92XX_COVER_OFFSET            4u
+#define CST92XX_COVER_MASK              0x80u
+#define CST92XX_SECOND_STATUS_OFFSET    7u
 #define CST92XX_POINTS_OFFSET           5u
 #define CST92XX_ACK_OFFSET              6u
 #define CST92XX_POINTS_MASK             0x7fu
@@ -66,6 +69,9 @@ static uint32_t s_queued_at;
 #endif
 static bool s_enabled;
 static bool s_initialized;
+static bool s_down;
+static bool s_contact_active;
+static bool s_palm_down;
 static bool s_callback_scheduled;
 static bool s_retry_pending;
 static bool s_poll_scheduled;
@@ -108,9 +114,14 @@ static bool prv_read_report(uint8_t report[CST92XX_REPORT_LENGTH]) {
   if (result) {
     result = (pbl_i2c_read_block(I2C_CST92XX, CST92XX_REPORT_LENGTH, report) == 0);
   }
+  bool ack_ok = true;
+  if (result) {
+    const uint8_t ack[] = {0xd0, 0x00, CST92XX_REPORT_ACK};
+    ack_ok = pbl_i2c_write_block(I2C_CST92XX, sizeof(ack), ack) == 0;
+  }
   pbl_i2c_release(I2C_CST92XX);
   T5_IO_END(T5IO_TOUCH_READ, read_at, CST92XX_REPORT_LENGTH);
-  return result;
+  return result && ack_ok;
 }
 
 static int16_t prv_map_coordinate(uint16_t coordinate, int16_t display_size) {
@@ -122,6 +133,12 @@ static void prv_report_sample(bool down, int16_t x, int16_t y) {
   pbl_input_report_key(PBL_INPUT_BTN_TOUCH, down, false);
   pbl_input_report_abs(PBL_INPUT_ABS_X, x, false);
   pbl_input_report_abs(PBL_INPUT_ABS_Y, y, true);
+}
+
+static void prv_report_palm(int16_t x, int16_t y) {
+  pbl_input_report_abs(PBL_INPUT_ABS_X, x, false);
+  pbl_input_report_abs(PBL_INPUT_ABS_Y, y, false);
+  pbl_input_report_ges(PBL_INPUT_GES_PALM, true);
 }
 
 static void prv_schedule(uint32_t generation) {
@@ -188,13 +205,16 @@ static void prv_process_pending_messages(void *context) {
   (void)new_timer_stop(s_retry_timer);
 
   uint8_t report[CST92XX_REPORT_LENGTH] = {0};
-  bool down = false;
+  bool down = s_down;
+  bool palm = false;
   uint32_t retry_ms = 0;
   if (!prv_read_report(report)) {
+    down = false;
+    s_contact_active = false;
     ++s_read_failures;
     ++s_consecutive_read_failures;
     if (s_read_failures == 1u || (s_read_failures & CST92XX_FAILURE_LOG_MASK) == 0u) {
-      PBL_LOG_ERR("CST92xx report read failed (%lu total)", (unsigned long)s_read_failures);
+      PBL_LOG_ERR("CST92xx report transfer failed (%lu total)", (unsigned long)s_read_failures);
     }
     retry_ms = CST92XX_READ_RETRY_MS;
     if (s_consecutive_read_failures >= CST92XX_RESET_FAILURE_THRESHOLD) {
@@ -208,27 +228,45 @@ static void prv_process_pending_messages(void *context) {
     s_consecutive_read_failures = 0u;
     const uint8_t points = report[CST92XX_POINTS_OFFSET] & CST92XX_POINTS_MASK;
     const uint8_t status = report[CST92XX_STATUS_OFFSET] & CST92XX_NIBBLE_MASK;
-    if (report[CST92XX_ACK_OFFSET] == CST92XX_REPORT_ACK && points != 0u &&
-        status == CST92XX_TOUCH_STATUS) {
-      const uint16_t native_x = ((uint16_t)report[CST92XX_X_HIGH_OFFSET] << CST92XX_NIBBLE_BITS) |
-                                (report[CST92XX_XY_LOW_OFFSET] >> CST92XX_NIBBLE_BITS);
-      const uint16_t native_y = ((uint16_t)report[CST92XX_Y_HIGH_OFFSET] << CST92XX_NIBBLE_BITS) |
-                                (report[CST92XX_XY_LOW_OFFSET] & CST92XX_NIBBLE_MASK);
-      if (native_x < CST92XX_NATIVE_SIZE && native_y < CST92XX_NATIVE_SIZE) {
-        // The panel is mounted with both touch axes mirrored.
-        s_last_x = PBL_DISPLAY_WIDTH - 1 - prv_map_coordinate(native_x, PBL_DISPLAY_WIDTH);
-        s_last_y = PBL_DISPLAY_HEIGHT - 1 - prv_map_coordinate(native_y, PBL_DISPLAY_HEIGHT);
-        down = true;
-      } else {
-        PBL_LOG_WRN("CST92xx coordinate out of range: %u,%u", (unsigned)native_x,
-                    (unsigned)native_y);
+    // An ACK echo or empty buffer is not a fresh liftoff report.
+    const bool framed = report[CST92XX_ACK_OFFSET] == CST92XX_REPORT_ACK &&
+                        report[CST92XX_STATUS_OFFSET] != CST92XX_REPORT_ACK;
+    if (framed) {
+      const bool any_down =
+          points != 0u && (status == CST92XX_TOUCH_STATUS ||
+                           (points > 1u && (report[CST92XX_SECOND_STATUS_OFFSET] &
+                                            CST92XX_NIBBLE_MASK) == CST92XX_TOUCH_STATUS));
+      if (any_down && (report[CST92XX_COVER_OFFSET] & CST92XX_COVER_MASK)) {
+        palm = !s_palm_down;
+        s_palm_down = true;
+      } else if (!any_down) {
+        s_palm_down = false;
+      }
+      down = false;
+      s_contact_active = any_down;
+      if (!s_palm_down && points != 0u && status == CST92XX_TOUCH_STATUS) {
+        const uint16_t native_x = ((uint16_t)report[CST92XX_X_HIGH_OFFSET] << CST92XX_NIBBLE_BITS) |
+                                  (report[CST92XX_XY_LOW_OFFSET] >> CST92XX_NIBBLE_BITS);
+        const uint16_t native_y = ((uint16_t)report[CST92XX_Y_HIGH_OFFSET] << CST92XX_NIBBLE_BITS) |
+                                  (report[CST92XX_XY_LOW_OFFSET] & CST92XX_NIBBLE_MASK);
+        if (native_x < CST92XX_NATIVE_SIZE && native_y < CST92XX_NATIVE_SIZE) {
+          // The panel is mounted with both touch axes mirrored.
+          s_last_x = PBL_DISPLAY_WIDTH - 1 - prv_map_coordinate(native_x, PBL_DISPLAY_WIDTH);
+          s_last_y = PBL_DISPLAY_HEIGHT - 1 - prv_map_coordinate(native_y, PBL_DISPLAY_HEIGHT);
+          down = true;
+        } else {
+          s_contact_active = false;
+          PBL_LOG_WRN("CST92xx coordinate out of range: %u,%u", (unsigned)native_x,
+                      (unsigned)native_y);
+        }
       }
     }
-    // CST9217 needs a fallback while contact or an asserted line can strand liftoff.
-    if (down || pbl_gpio_get_raw(&s_interrupt_input) == 0) {
+    // Keep recovery polling during suppressed contact, including partial multi-finger release.
+    if (s_contact_active || s_palm_down || pbl_gpio_get_raw(&s_interrupt_input) == 0) {
       retry_ms = CST92XX_POLL_MS;
     }
   }
+  s_down = down;
 
   if (retry_ms) {
     pbl_irq_lock();
@@ -244,7 +282,16 @@ static void prv_process_pending_messages(void *context) {
   const bool current = s_enabled && generation == s_generation;
   pbl_irq_unlock();
   if (current) {
-    prv_report_sample(down, x, y);
+    // Match stock CST816 ordering: palm first, then the balanced raw liftoff.
+    if (palm) {
+      prv_report_palm(x, y);
+    }
+    pbl_irq_lock();
+    const bool still_current = s_enabled && generation == s_generation;
+    pbl_irq_unlock();
+    if (still_current) {
+      prv_report_sample(down, x, y);
+    }
   }
   T5_IO_END(T5IO_TOUCH_CALLBACK, callback_at, 0u);
 }
@@ -257,7 +304,7 @@ void touch_sensor_init(void) {
   pbl_mutex_lock(&s_i2c_lock, PBL_FOREVER);
   (void)pbl_gpio_configure(&s_reset, PBL_GPIO_OUTPUT_INACTIVE);
   prv_reset(true);
-  uint8_t report[CST92XX_REPORT_LENGTH];
+  uint8_t report[CST92XX_REPORT_LENGTH] = {0};
   if (!prv_read_report(report)) {
     PBL_LOG_ERR("CST92xx not detected at 0x5a");
   }
@@ -284,6 +331,9 @@ void touch_sensor_set_enabled(bool enabled) {
   pbl_irq_unlock();
   (void)new_timer_stop(s_retry_timer);
   s_consecutive_read_failures = 0u;
+  s_down = false;
+  s_contact_active = false;
+  s_palm_down = false;
   if (enabled) {
     prv_reset(true);
     pbl_irq_lock();
