@@ -7,8 +7,8 @@
 
 #include <pbl/kernel/kernel.h>
 #include <pbl/kernel/time.h>
-#include <pbl/mcu/cache.h>
 #include <pbl/mcu/interrupts.h>
+#include <pbl/soc/t5ai/cache.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/mailbox_channel.h>
 #include <pbl/soc/t5ai/memory.h>
@@ -376,7 +376,7 @@ static void prv_heartbeat(void) {
       .parameter1 = (uint32_t)(uintptr_t)&s_heartbeat_parameter,
       .parameter2 = sizeof(s_heartbeat_parameter),
   };
-  dcache_flush(&s_heartbeat_parameter, sizeof(s_heartbeat_parameter));
+  t5ai_cache_clean(&s_heartbeat_parameter, sizeof(s_heartbeat_parameter));
   s_heartbeat_in_flight = true;
   const status_t status = t5ai_mailbox_channel_send_async(CP_CONTROL_CHANNEL, &s_control_message,
                                                           prv_heartbeat_complete, NULL);
@@ -487,7 +487,7 @@ static status_t prv_wait_for_log_buffer_release(bool scheduler_running) {
   const uint32_t start = T5AI_AON_RTC_COUNT_LOW;
   const uint32_t timeout_ticks = CP_RUNTIME_TIMEOUT_MS * (T5AI_AON_RTC_HZ / 1000u);
   do {
-    dcache_invalidate(s_log_buffer, 1u);
+    t5ai_cache_invalidate_received(s_log_buffer, 1u);
     if (s_log_buffer[0] == 0u) {
       return S_SUCCESS;
     }
@@ -537,7 +537,7 @@ status_t t5ai_cp_mailbox_log(const void *data, size_t length) {
         .parameter1 = (uint32_t)(uintptr_t)s_log_buffer,
         .parameter2 = (uint32_t)(chunk + 1u) | (CP_LOG_STATIC_TAG << CP_LOG_TAG_SHIFT),
     };
-    dcache_flush(s_log_buffer, chunk + 1u);
+    t5ai_cache_clean(s_log_buffer, chunk + 1u);
     T5AIMailboxMessage ack;
     status_t status =
         scheduler_running

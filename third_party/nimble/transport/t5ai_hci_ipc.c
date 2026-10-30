@@ -1,9 +1,9 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/soc/t5ai/reboot_trace.h>
-#include <pbl/mcu/cache.h>
 #include <pbl/logging/logging.h>
+#include <pbl/soc/t5ai/cache.h>
+#include <pbl/soc/t5ai/reboot_trace.h>
 PBL_LOG_MODULE_DEFINE(t5ai_hci_ipc, LOG_LEVEL_DEBUG);
 #include <pbl/kernel/kernel.h>
 #include <pbl/soc/t5ai/memory.h>
@@ -141,7 +141,7 @@ static bool prv_pointer(const void *pointer, uint32_t *wire_pointer) {
 }
 
 static status_t prv_send_frame(T5AIMIPCFrame *frame) {
-  dcache_flush(frame, sizeof(*frame));
+  t5ai_cache_clean(frame, sizeof(*frame));
   const pbl_tick_t start = pbl_uptime_ticks();
   status_t status;
   do {
@@ -164,7 +164,7 @@ static status_t prv_send_frame(T5AIMIPCFrame *frame) {
 
 static status_t prv_mipc_ack(T5AIMIPCFrame *received, T5AIMIPCData *remote_data) {
   remote_data->result = 0;
-  dcache_flush(remote_data, sizeof(*remote_data));
+  t5ai_cache_clean(remote_data, sizeof(*remote_data));
   T5AIMIPCFrame ack = {
       .header = t5ai_mipc_frame_header(t5ai_mipc_header(T5AI_MIPC_CPU_AP, T5AI_MIPC_TYPE_ACK), 0, 0,
                                        prv_next_sequence(), T5AI_MIPC_TX_LOGICAL_CHANNEL),
@@ -202,10 +202,10 @@ static status_t prv_prepare_outbound(T5AIHCIOutbound *outbound, const void *payl
       .object = data_pointer,
       .result = t5ai_mipc_data_crc(&outbound->data),
   };
-  dcache_flush(payload, length);
-  dcache_flush(&outbound->config, sizeof(outbound->config));
-  dcache_flush(&outbound->handle, sizeof(outbound->handle));
-  dcache_flush(&outbound->data, sizeof(outbound->data));
+  t5ai_cache_clean(payload, length);
+  t5ai_cache_clean(&outbound->config, sizeof(outbound->config));
+  t5ai_cache_clean(&outbound->handle, sizeof(outbound->handle));
+  t5ai_cache_clean(&outbound->data, sizeof(outbound->data));
   return prv_send_frame(&outbound->frame);
 }
 
@@ -218,7 +218,7 @@ static bool prv_is_transport_ack(const T5AIMIPCFrame *frame, T5AIMIPCData *data)
    * an ACK and treats a CRC mismatch as diagnostic.  It is therefore not a
    * stable transaction-generation token; ownership completion is identified
    * by the ACK type and the still-in-use descriptor address. */
-  dcache_invalidate(data, sizeof(*data));
+  t5ai_cache_invalidate_received(data, sizeof(*data));
   (void)t5ai_mipc_frame_valid(frame, data);
   return true;
 }
@@ -387,7 +387,7 @@ static status_t prv_decode_remote(T5AIMIPCFrame *frame, T5AIMIPCData **remote_da
     return E_ERROR;
   }
   *remote_data = (T5AIMIPCData *)(uintptr_t)frame->object;
-  dcache_invalidate(*remote_data, sizeof(**remote_data));
+  t5ai_cache_invalidate_received(*remote_data, sizeof(**remote_data));
   /* The pinned BK7258 MIPC receiver reports CRC mismatches but deliberately
    * continues dispatching the object. Mirror that ABI here: mutable list and
    * result fields can race the diagnostic CRC across CPUs. */
@@ -397,7 +397,7 @@ static status_t prv_decode_remote(T5AIMIPCFrame *frame, T5AIMIPCData **remote_da
     return E_ERROR;
   }
   *message = (T5AIHCIMessage *)(uintptr_t)(*remote_data)->data;
-  dcache_invalidate(*message, sizeof(**message));
+  t5ai_cache_invalidate_received(*message, sizeof(**message));
   return (*message)->type == T5AI_HCI_TYPE ? S_SUCCESS : E_ERROR;
 }
 
@@ -461,7 +461,7 @@ static status_t prv_handle_command(T5AIMIPCFrame *frame, uint8_t expected, bool 
         !t5ai_cp_mailbox_shared_range_valid((uintptr_t)request, request_length)) {
       return E_ERROR;
     }
-    dcache_invalidate((void *)(uintptr_t)request, request_length);
+    t5ai_cache_invalidate_received((void *)(uintptr_t)request, request_length);
     memcpy(payload, (const void *)(uintptr_t)request, request_length);
     status = prv_respond_to_event(message);
     if (PASSED(status)) {
@@ -506,7 +506,7 @@ static status_t prv_exchange(uint8_t subtype, const void *payload, size_t length
   // The IPC descriptor contains a pointer rather than an inline HCI packet.
   // Publish the pointed-to bytes before CPU0 dereferences that pointer.
   if (payload != NULL && length != 0u) {
-    dcache_flush(payload, length);
+    t5ai_cache_clean(payload, length);
   }
   while (pbl_sem_take(&s_exchange_ready, PBL_TICKS(0u)) == 0) {
   }

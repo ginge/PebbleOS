@@ -27,6 +27,16 @@ def load_config(board, revision="_"):
 
 
 class T5AIConfigTest(unittest.TestCase):
+    def test_sd_pfs_is_board_default_with_explicit_nor_override(self):
+        config = load_config("unhygienix")
+        self.assertEqual(config.syms["T5AI_SD_PFS"].str_value, "y")
+        self.assertEqual(config.syms["T5AI_SD_4BIT"].str_value, "y")
+        self.assertEqual(config.syms["T5AI_SD_PFS_REQUIRE_EXISTING"].str_value, "y")
+        config.syms["T5AI_SD_PFS"].set_value("n")
+        self.assertEqual(config.syms["T5AI_SD_PFS"].str_value, "n")
+        self.assertEqual(config.syms["T5AI_SD_4BIT"].str_value, "n")
+        self.assertEqual(config.syms["FLASH_T5AI"].str_value, "y")
+
     def test_header_cache_toggle_preserves_soc_and_transport(self):
         config = load_config("unhygienix")
         soc = config.syms["SOC_T5AI"]

@@ -37,6 +37,28 @@ allocation limits remain open; this bounded run does not establish release stabi
 Evidence: [heap-fix report](/home/baz/Documents/ChatGPT/pebble/artifacts/sd-pfs-heap-fix-20261022/results.txt),
 [SD backend](sd-pfs.md), [tooling](tooling.md#sd-pfs-metadata-heap-fix--2026-10-22).
 
+## Wi-Fi power investigation — 2026-10-30
+
+[Ownership and implementation findings](wifi-power.md): the native AP contains
+no Wi-Fi stack, but the verified pinned CP initializes Wi-Fi at boot and requests
+MAC/PHY power, clocks and RF ownership. Steady-state votes/current remain
+unmeasured. Runtime full deinit returns unsupported. A vendor Bluetooth-only
+build path exists, but requires a reproducible CP build and variant-aware
+packaging/calibration/ABI validation before a supported default-off option can
+be delivered. Implementation is blocked at that integration gate; hardware and
+electrical qualification are separately pending. No firmware behavior changed
+or flashing occurred in this investigation, and no other power work was started.
+
+Existing builds and the last recorded installed AP/CP were copied and hash-checked
+in `/home/baz/Documents/ChatGPT/pebble/artifacts/wifi-optional-20261030/baseline/`
+for benchmarking when the current monitor arrives. The old build directories are
+not all the recorded installed build; use the snapshot identities. Seventy host
+regressions, unchanged CP source-hook build/manifest validation and the preserved
+AP map check passed. Host UARTs were enumerated; a six-second runtime read
+received 246 B and then stopped. This did not re-establish installed identities,
+measure current or qualify a new firmware image. See the report for the next CP
+integration task and baseline measurement instructions.
+
 ## Completed work and retained configuration
 
 - **Language packs: complete, closed by operator direction on 22 October.**

@@ -1,22 +1,21 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/kernel/time.h>
-#include <pbl/soc/t5ai/state_trace.h>
-
-#include <pbl/kernel/irq.h>
-#include <pbl/kernel/sched.h>
-#include <pbl/kernel/thread.h>
-#include <pbl/logging/logging.h>
-#include <pbl/mcu/cache.h>
-#include <pbl/services/system_task.h>
-
 #include "kernel/pebble_tasks.h"
-#include <pbl/kernel/assert.h>
 
 #include <inttypes.h>
 #include <stddef.h>
 #include <string.h>
+
+#include <pbl/kernel/assert.h>
+#include <pbl/kernel/irq.h>
+#include <pbl/kernel/sched.h>
+#include <pbl/kernel/thread.h>
+#include <pbl/kernel/time.h>
+#include <pbl/logging/logging.h>
+#include <pbl/services/system_task.h>
+#include <pbl/soc/t5ai/cache.h>
+#include <pbl/soc/t5ai/state_trace.h>
 
 PBL_LOG_MODULE_DEFINE(t5ai_state_trace, LOG_LEVEL_DEBUG);
 
@@ -107,8 +106,8 @@ static void prv_sample(void) {
   Sample *slot = &s_trace.samples[(sample.sequence - 1u) % TRACE_SAMPLES];
   *slot = sample;
   s_trace.next_sequence++;
-  dcache_flush(slot, sizeof(*slot));
-  dcache_flush(&s_trace, offsetof(Trace, samples));
+  t5ai_cache_clean(slot, sizeof(*slot));
+  t5ai_cache_clean(&s_trace, offsetof(Trace, samples));
   pbl_irq_unlock();
 }
 
@@ -120,7 +119,7 @@ void t5ai_state_trace_freeze(uint32_t reason) {
   if (!s_trace.frozen) {
     s_trace.reason = reason;
     s_trace.frozen = 1;
-    dcache_flush(&s_trace, sizeof(s_trace));
+    t5ai_cache_clean(&s_trace, sizeof(s_trace));
   }
   pbl_irq_unlock();
 }

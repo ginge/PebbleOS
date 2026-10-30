@@ -8,12 +8,12 @@
 #include <string.h>
 
 #include <pbl/kernel/kernel.h>
-#include <pbl/mcu/cache.h>
+#include <pbl/soc/t5ai/cache.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/interrupt_profile.h>
 #include <pbl/soc/t5ai/mailbox_channel.h>
-#include <pbl/soc/t5ai/memory.h>
 #include <pbl/soc/t5ai/mb_ipc.h>
+#include <pbl/soc/t5ai/memory.h>
 #include <pbl/soc/t5ai/reboot_trace.h>
 #include <pbl/soc/t5ai/reset.h>
 #include <pbl/soc/t5ai/rtc.h>
@@ -70,6 +70,7 @@ typedef enum {
 
 typedef struct {
   T5AIMailboxMessage message __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
+  uint8_t message_padding[T5AI_SHARED_ALIGNMENT - sizeof(T5AIMailboxMessage)];
   T5AIMailboxMessage ack;
   T5AIMailboxTransmitHandler handler;
   void *context;
@@ -91,8 +92,7 @@ typedef struct {
   uint8_t cache_line_padding[T5AI_SHARED_ALIGNMENT - sizeof(T5AIMailboxMessage)];
 } __attribute__((aligned(T5AI_SHARED_ALIGNMENT))) MailboxOwnedSlot;
 
-/* Command and ACK storage are on distinct cache lines. No cache clean ever
- * targets memory owned by the CP. */
+/* CP reuses command storage for ACKs. Keep AP state outside its cache line. */
 static TxChannel s_tx[T5AI_MAILBOX_CHANNEL_COUNT];
 static RxChannel s_rx[T5AI_MAILBOX_CHANNEL_COUNT];
 /* The mailbox FIFO carries pointers, not message copies.  A CP producer does
@@ -101,7 +101,7 @@ static RxChannel s_rx[T5AI_MAILBOX_CHANNEL_COUNT];
  * exact protocol lifetime.  A small global rotating ring can be overwritten
  * by unrelated HCI and flash channels before the CP dereferences it. */
 static MailboxOwnedSlot s_ack_slots[T5AI_MAILBOX_CHANNEL_COUNT];
-static T5AIMailboxMessage s_reset_slot __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
+static MailboxOwnedSlot s_reset_storage;
 static PBL_SEM_DEFINE(s_wake, 0, 1);
 static struct pbl_thread s_task;
 PBL_THREAD_STACK_DEFINE(s_task_stack, MAILBOX_TASK_STACK_SIZE);
@@ -188,7 +188,7 @@ static status_t prv_publish(const T5AIMailboxMessage *message) {
   if ((MBOX_CH0_FIFO_STATUS & MBOX_FIFO_FULL) != 0u) {
     return E_BUSY;
   }
-  dcache_flush((void *)message, sizeof(*message));
+  t5ai_cache_clean((void *)message, sizeof(*message));
   MBOX_CH1_TX_DATA0 = (uint32_t)(uintptr_t)message;
   MBOX_CH1_TX_DATA1 = sizeof(*message);
   __DSB();
@@ -204,7 +204,8 @@ static bool prv_snapshot_rx(T5AIMailboxMessage *message) {
   if (length != sizeof(*message) || !prv_shared_range(address, length)) {
     return false;
   }
-  dcache_invalidate((void *)address, sizeof(*message));
+  // CP-owned input, or a returned command in our private padded transmit slot.
+  t5ai_cache_invalidate_received((void *)address, sizeof(*message));
   memcpy(message, (const void *)address, sizeof(*message));
   return true;
 }
@@ -392,11 +393,11 @@ static void prv_send_reset(void) {
   if (s_reset_sent) {
     return;
   }
-  s_reset_slot = (T5AIMailboxMessage){
-      .header = ((uint32_t)T5AI_MAILBOX_RX_CHANNEL_BASE << T5AI_MAILBOX_HEADER_CHANNEL_SHIFT) |
-                MBOX_ACK_BOX | MBOX_RESET,
+  s_reset_storage.message = (T5AIMailboxMessage){
+    .header = ((uint32_t)T5AI_MAILBOX_RX_CHANNEL_BASE << T5AI_MAILBOX_HEADER_CHANNEL_SHIFT) |
+              MBOX_ACK_BOX | MBOX_RESET,
   };
-  if (prv_publish(&s_reset_slot) == S_SUCCESS) {
+  if (prv_publish(&s_reset_storage.message) == S_SUCCESS) {
     s_reset_sent = true;
   }
 }
@@ -603,15 +604,15 @@ status_t t5ai_mailbox_channel_bootstrap_send(uint8_t channel, const T5AIMailboxM
   if (!prv_tx_channel(channel, &index) || message == NULL) {
     return E_INVALID_ARGUMENT;
   }
-  static T5AIMailboxMessage boot_message __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
-  boot_message = *message;
+  static MailboxOwnedSlot boot_storage;
+  boot_storage.message = *message;
   ++s_sequence;
-  boot_message.header = (boot_message.header & MAILBOX_HEADER_COMMAND_MASK) |
-                        ((uint32_t)s_sequence << T5AI_MAILBOX_HEADER_SEQUENCE_SHIFT) |
-                        ((uint32_t)channel << T5AI_MAILBOX_HEADER_CHANNEL_SHIFT);
+  boot_storage.message.header = (boot_storage.message.header & MAILBOX_HEADER_COMMAND_MASK) |
+                                ((uint32_t)s_sequence << T5AI_MAILBOX_HEADER_SEQUENCE_SHIFT) |
+                                ((uint32_t)channel << T5AI_MAILBOX_HEADER_CHANNEL_SHIFT);
   const uint32_t poll_ms = timeout_ms == 0u ? MAILBOX_BOOT_POLL_MS : timeout_ms;
   prv_bootstrap_resynchronize(poll_ms);
-  if (!prv_bootstrap_publish(&boot_message, poll_ms)) {
+  if (!prv_bootstrap_publish(&boot_storage.message, poll_ms)) {
     return E_BUSY;
   }
   const uint32_t start = T5AI_AON_RTC_COUNT_LOW;

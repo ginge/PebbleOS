@@ -2,6 +2,12 @@
 
 ## Highest priority — power optimization — 2026-10-30
 
+Wi-Fi investigation is complete; default-off implementation remains blocked on
+CP Bluetooth-only build/packaging integration, and device/current qualification
+remains pending. [Findings and exact next steps](../../../docs/boards/unhygienix/wifi-power.md).
+Current builds and recorded installed images are preserved for later current
+benchmarking; no Wi-Fi-off firmware was flashed and no savings are claimed.
+
 - [ ] Complete the [power TODO](../../../docs/boards/unhygienix/power-todo.md)
   as the highest-priority workstream. Work through the non-display phases first;
   leave AMOLED power states, display QSPI gating and display DMA changes until

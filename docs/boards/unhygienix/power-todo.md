@@ -14,13 +14,22 @@ source inspection and host tests do not establish electrical savings.
 
 ## 1 Establish the baseline
 
-- [ ] Investigate making Wi-Fi an optional feature, disabled by default for
-  Unhygienix because this device does not use Wi-Fi. Trace AP/CP build options,
-  startup initialization, background tasks and clock/power votes; determine
-  whether Wi-Fi can be excluded or fully shut down while preserving Bluetooth,
-  shared RF resources and CP supervision. Identify any pinned-CP rebuild or
-  protocol requirements, and measure idle current before/after before choosing
-  an implementation.
+- [x] Investigate optional, default-off Wi-Fi: [2026-10-30 findings](wifi-power.md).
+  Native AP has no Wi-Fi stack; verified stock/recorded-installed CP initializes
+  Wi-Fi and acquires MAC/PHY/clock/RF votes. Present idle electrical state is
+  unmeasured. Current builds and last recorded installed AP/CP are frozen with
+  hashes under `artifacts/wifi-optional-20261030/baseline/` in the reference workspace.
+- [ ] **Wi-Fi implementation — blocked:** pinned runtime deinit is unsupported.
+  Vendor Bluetooth-only build selects different PHY/calibration code; current
+  fixed-hash/fixed-address CP hook packaging cannot accept a relinked CP. Stage
+  a reproducible CP build, resolve VNET/CLI/PM dependencies and introduce verified
+  off/on CP variants with default off. Preserve Bluetooth, shared RF/PHY,
+  mailbox services and supervision; see the exact [integration steps](wifi-power.md#exact-implementation-dependency-and-next-step).
+- [ ] **Wi-Fi qualification — pending:** build/test both CP variants, verify
+  service/Bluetooth regressions and measure matched idle/workload current against
+  the frozen baseline when instrumentation arrives. No savings claimed; no new
+  firmware flashed. Investigation completion does not close implementation or
+  device/electrical qualification.
 - [ ] Record firmware/AP and CP identities, effective build configuration,
   fitted cell, supply voltage and measurement setup.
 - [ ] Measure connected idle, disconnected advertising, scripted interaction,

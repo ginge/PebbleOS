@@ -50,7 +50,7 @@ void probe_log(const char *, ...) __attribute__((format(printf, 1, 2)));
 #define PBL_LOG_WRN(...) probe_log(__VA_ARGS__)
 #define PBL_LOG_DBG(...) probe_log(__VA_ARGS__)
 """,
-    "pbl/mcu/cache.h": "#include <stddef.h>\nvoid dcache_flush(const void *, size_t);\n",
+    "pbl/mcu/cache.h": "#include <stddef.h>\nvoid dcache_flush(const void *, size_t);\nstatic inline void dcache_invalidate(void *p, size_t n) {(void)p;(void)n;}\nstatic inline void dcache_align(uintptr_t *p, size_t *n) {size_t o=*p&31;*p-=o;*n=(*n+o+31)&~31;}\n",
     "pbl/services/system_task.h": "void *system_task_get_current_callback(void);\n",
     "kernel/pebble_tasks.h": """
 #include "pbl/kernel/thread.h"

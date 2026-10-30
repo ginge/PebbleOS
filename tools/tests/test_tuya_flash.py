@@ -178,8 +178,8 @@ int main(void) {
             "MailboxOwnedSlot s_ack_slots[T5AI_MAILBOX_CHANNEL_COUNT]", transport
         )
         self.assertIn("s_ack_slots[channel & T5AI_MAILBOX_CHANNEL_INDEX_MASK]", transport)
-        self.assertIn("dcache_invalidate((void *)address", transport)
-        self.assertNotIn("dcache_flush((void *)address", transport)
+        self.assertIn("t5ai_cache_invalidate_received((void *)address", transport)
+        self.assertNotIn("t5ai_cache_clean((void *)address", transport)
         self.assertIn("sequence != tx->sequence", transport)
         self.assertIn("s_next_tx_channel", transport)
         self.assertIn("MBOX_RESET", transport)

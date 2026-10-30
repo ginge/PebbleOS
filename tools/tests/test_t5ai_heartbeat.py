@@ -80,7 +80,7 @@ static bool prv_tx_channel(unsigned ch,uint8_t *index){
  *index=0;return true;
 }
 static bool t5ai_mailbox_channel_faulted(void){return s_faulted;}
-static void dcache_flush(void *p,size_t n){assert(p==&s_heartbeat_parameter && n==4);}
+static void t5ai_cache_clean(void *p,size_t n){assert(p==&s_heartbeat_parameter && n==4);}
 static bool prv_enqueue(unsigned c,const void *m){(void)c;(void)m;assert(0);return false;}
 """ + constants
         harness += body(channel, "t5ai_mailbox_channel_wake")

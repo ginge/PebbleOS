@@ -110,7 +110,13 @@ static void prv_saradc_notify(uint8_t channel, const T5AICPMailboxFrame *frame, 
 #define SARADC_CONNECT_TIMEOUT_MS 500u
 
 static T5AIMbIpcSocket *s_socket;
-static SaradcCommand s_command __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
+// MB-IPC can return this AP command storage; reserve every intersecting line.
+static union {
+  SaradcCommand command;
+  uint8_t cache_lines[(sizeof(SaradcCommand) + T5AI_SHARED_ALIGNMENT - 1u) &
+                      ~(T5AI_SHARED_ALIGNMENT - 1u)];
+} s_command_storage __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
+#define s_command s_command_storage.command
 static SaradcCommand s_response;
 static uint16_t s_adc_buffer[SARADC_MAX_SAMPLES] __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
 static bool s_initialized, s_connecting, s_have_error;

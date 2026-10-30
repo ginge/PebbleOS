@@ -219,6 +219,9 @@ status_t __wrap_pfs_init(bool run_filesystem_check) {
                  header->size_inverse != ~VOLUME_SIZE;
   t5ai_sd_unlock_workspace();
   PBL_LOG_INFO("SD PFS: 32 MiB, new=%u", s_new_volume);
+#ifdef CONFIG_T5AI_SD_PFS_REQUIRE_EXISTING
+  PBL_ASSERT(!s_new_volume, "SD PFS header unrecognized; refusing automatic provisioning");
+#endif
   const status_t status = __real_pfs_init(run_filesystem_check);
   if (status == S_SUCCESS && s_new_volume) {
     s_work = t5ai_sd_lock_workspace();

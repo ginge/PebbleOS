@@ -2,11 +2,11 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <pbl/kernel/time.h>
-#include <pbl/mcu/cache.h>
 #include <pbl/logging/logging.h>
-#include <pbl/soc/t5ai/memory.h>
+#include <pbl/soc/t5ai/cache.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/flash_ipc.h>
+#include <pbl/soc/t5ai/memory.h>
 #ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
 #include <pbl/soc/t5ai/io_trace.h>
 #endif
@@ -55,7 +55,12 @@ typedef struct {
 
 static T5AIMbIpcSocket *s_flash_socket;
 static PBL_MUTEX_DEFINE(s_flash_mutex);
-static FlashCommand s_flash_command __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
+// CP may return the original command pointer; own its entire receive line.
+static struct {
+  FlashCommand command;
+  uint8_t padding[T5AI_SHARED_ALIGNMENT - sizeof(FlashCommand)];
+} s_flash_storage __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
+#define s_flash_command s_flash_storage.command
 #ifdef CONFIG_T5AI_FLASH_PROFILE
 static T5AIFlashDiagnostics s_flash_diagnostics = {.active_command = UINT32_MAX};
 
@@ -358,7 +363,8 @@ status_t t5ai_flash_ipc_read(uint32_t offset, void *buffer, size_t length) {
     goto out;
   }
   const void *source = (const void *)(uintptr_t)s_flash_command.buffer;
-  dcache_invalidate((void *)source, length);
+  // CP owns these lines throughout the READ/READ_DONE lease.
+  t5ai_cache_invalidate_received((void *)source, length);
   const bool valid_payload = prv_crc32(source, length) == s_flash_command.crc;
   if (valid_payload) {
     memcpy(buffer, source, length);
@@ -404,7 +410,7 @@ status_t t5ai_flash_ipc_write(uint32_t offset, const void *buffer, size_t length
       .length_and_status = (uint32_t)length,
       .crc = prv_crc32(buffer, length),
   };
-  dcache_flush((void *)buffer, length);
+  t5ai_cache_clean((void *)buffer, length);
   const status_t status = prv_flash_transaction(FLASH_WRITE);
   pbl_mutex_unlock(&s_flash_mutex);
   return status;

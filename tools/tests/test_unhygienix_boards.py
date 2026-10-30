@@ -597,12 +597,12 @@ class UnhygienixBoardsTest(unittest.TestCase):
             mailbox_task,
         )
         self.assertIn("pbl_thread_sleep(PBL_MSEC(MAILBOX_BUSY_RETRY_MS))", mailbox_task)
-        self.assertIn("dcache_invalidate((void *)address", mailbox)
+        self.assertIn("t5ai_cache_invalidate_received((void *)address", mailbox)
         self.assertNotIn("dcache_flush((void *)address", mailbox)
         self.assertIn("prv_bootstrap_resynchronize(poll_ms)", mailbox)
         reset = mailbox[mailbox.index("static void prv_send_reset") :]
         reset = reset[: reset.index("static bool prv_bootstrap_publish")]
-        self.assertIn("if (prv_publish(&s_reset_slot) == S_SUCCESS)", reset)
+        self.assertIn("if (prv_publish(&s_reset_storage.message) == S_SUCCESS)", reset)
         self.assertNotIn("while (prv_publish(&s_reset_slot)", reset)
         bootstrap = mailbox[mailbox.index("static void prv_bootstrap_resynchronize") :]
         bootstrap = bootstrap[: bootstrap.index("status_t t5ai_mailbox_channel_init")]

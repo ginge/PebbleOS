@@ -46,7 +46,7 @@ static void prv_restore_client_priority(pbl_prio_t p) { --boosts; }
 static void prv_flash_quarantine(void) { available=false; }
 static void prv_flash_fault(status_t s, unsigned c) { }
 static bool t5ai_cp_mailbox_shared_range_valid(uintptr_t p, size_t n) {return range_valid;}
-static void dcache_invalidate(void *p, size_t n) { if(expire_copy) now+=1600; }
+static void t5ai_cache_invalidate_received(void *p, size_t n) { if(expire_copy) now+=1600; }
 CRC
 static status_t prv_flash_transaction(unsigned command) {
  assert(locks==1 && boosts==1); ++transactions;

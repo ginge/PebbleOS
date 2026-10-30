@@ -1,19 +1,20 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
-#include <pbl/kernel/time.h>
-#include <pbl/soc/t5ai/reboot_trace.h>
-#include <pbl/soc/t5ai/interrupt_profile.h>
-#include <pbl/soc/t5ai/heap_trace.h>
-#include <pbl/soc/t5ai/rtc.h>
-#include <pbl/kernel/irq.h>
-#include <pbl/kernel/sched.h>
-#include <pbl/kernel/thread.h>
-#include <pbl/logging/logging.h>
-#include <pbl/mcu/cache.h>
-#include <pbl/kernel/assert.h>
 #include <inttypes.h>
 #include <stddef.h>
 #include <string.h>
+
+#include <pbl/kernel/assert.h>
+#include <pbl/kernel/irq.h>
+#include <pbl/kernel/sched.h>
+#include <pbl/kernel/thread.h>
+#include <pbl/kernel/time.h>
+#include <pbl/logging/logging.h>
+#include <pbl/soc/t5ai/cache.h>
+#include <pbl/soc/t5ai/heap_trace.h>
+#include <pbl/soc/t5ai/interrupt_profile.h>
+#include <pbl/soc/t5ai/reboot_trace.h>
+#include <pbl/soc/t5ai/rtc.h>
 PBL_LOG_MODULE_DEFINE(t5ai_reboot_trace, LOG_LEVEL_DEBUG);
 #define TRACE_MAGIC 0x52543001u
 #define TRACE_COUNT 32u
@@ -120,10 +121,10 @@ void t5ai_reboot_trace_event(T5RebootTraceEvent event, uint32_t value) {
   record.checksum = prv_checksum(&record);
   Record *slot = &s_trace.records[(record.sequence - 1u) % TRACE_COUNT];
   *slot = record;
-  dcache_flush(slot, sizeof(*slot));
+  t5ai_cache_clean(slot, sizeof(*slot));
   // Publish only after the complete record reaches RAM.
   s_trace.next_sequence++;
-  dcache_flush(&s_trace, offsetof(Trace, records));
+  t5ai_cache_clean(&s_trace, offsetof(Trace, records));
   pbl_irq_unlock();
 }
 static void prv_print(const Record *record, bool previous) {
@@ -201,7 +202,7 @@ void t5ai_reboot_trace_start(void) {
   memset(&s_trace, 0, sizeof(s_trace));
   s_trace.magic = TRACE_MAGIC;
   s_trace.next_sequence = 1u;
-  dcache_flush(&s_trace, sizeof(s_trace));
+  t5ai_cache_clean(&s_trace, sizeof(s_trace));
   s_live = true;
   const struct pbl_thread_attr attr = {
     .name = "T5Reboot",

@@ -20,6 +20,14 @@ config T5AI_SD_PFS
       Runtime logs continue through the CP mailbox on the onboard USB if02.
       No migration, live removal, or interrupted-sector-write recovery.
 
+config T5AI_SD_PFS_REQUIRE_EXISTING
+    bool "Require an existing SD PFS volume"
+    depends on T5AI_SD_PFS
+    default y
+    help
+      Refuse an unrecognized SD volume header before mounting or formatting.
+      Disable only for explicitly authorized initial provisioning.
+
 config T5AI_SD_4BIT
     bool "Use four SD data lines"
     depends on T5AI_SD_PFS

@@ -4,7 +4,7 @@
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/time.h>
 #include <pbl/logging/logging.h>
-#include <pbl/mcu/cache.h>
+#include <pbl/soc/t5ai/cache.h>
 PBL_LOG_MODULE_DEFINE(t5ai_mb_ipc, LOG_LEVEL_DEBUG);
 #include <pbl/kernel/kernel.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
@@ -269,7 +269,7 @@ static status_t prv_transmit(T5AIMbIpcSocket *socket, uint8_t command, uint8_t u
     .parameter3 = (uint32_t)(uintptr_t)data,
   };
   if (data != NULL && length != 0u) {
-    dcache_flush((void *)data, length);
+    t5ai_cache_clean((void *)data, length);
   }
   T5AIMailboxMessage ack;
 #ifdef CONFIG_T5AI_WDT_RECOVERY_TRACE
@@ -438,7 +438,8 @@ status_t t5ai_mb_ipc_receive(T5AIMbIpcSocket *socket, uint8_t *command, void *da
     status = E_ERROR;
   } else if (data != NULL && length != 0u) {
     const void *source = (const void *)(uintptr_t)request.parameter3;
-    dcache_invalidate((void *)source, received_length);
+    // CP-owned payload, or the isolated original AP service command.
+    t5ai_cache_invalidate_received((void *)source, received_length);
     if (prv_crc8(source, received_length) != (uint8_t)(request.parameter2 >> MB_IPC_CRC_SHIFT)) {
       status = E_ERROR;
     } else {
@@ -554,7 +555,7 @@ static status_t prv_async_begin(T5AIMbIpcSocket *socket, uint8_t operation, uint
     .parameter3 = (uint32_t)(uintptr_t)data,
   };
   if (length != 0u) {
-    dcache_flush((void *)data, length);
+    t5ai_cache_clean((void *)data, length);
   }
   socket->async.phase = AsyncQueueSend;
   pbl_irq_unlock();
@@ -668,7 +669,7 @@ uint32_t t5ai_mb_ipc_async_poll(void) {
                   socket->async.command &&
               length == socket->async.length &&
               t5ai_cp_mailbox_shared_range_valid((uintptr_t)source, length)) {
-            dcache_invalidate((void *)source, length);
+            t5ai_cache_invalidate_received((void *)source, length);
             if (prv_crc8(source, length) == (uint8_t)(request->parameter2 >> MB_IPC_CRC_SHIFT)) {
               memcpy(socket->async.response, source, length);
               status = S_SUCCESS;

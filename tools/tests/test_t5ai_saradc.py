@@ -61,8 +61,8 @@ int pbl_sem_give(struct pbl_sem *s){s->count=1;return 0;}
 void pbl_mutex_init(struct pbl_mutex *m){m->locked=false;}
 int pbl_mutex_lock(struct pbl_mutex *m,unsigned t){(void)t;assert(!m->locked);m->locked=true;return 0;}
 void pbl_mutex_unlock(struct pbl_mutex *m){assert(m->locked);m->locked=false;}
-void dcache_flush(void *p,size_t n){assert(p && n);}
-void dcache_invalidate(void *p,size_t n){assert(p && n);}
+void t5ai_cache_clean(void *p,size_t n){assert(p && n);}
+void t5ai_cache_invalidate_received(void *p,size_t n){assert(p && n);}
 bool t5ai_cp_mailbox_shared_range_valid(uintptr_t p,size_t n){return p && n && n<=256;}
 status_t t5ai_cp_mailbox_register(uint8_t ch,Rx cb,void *ctx){
  if(ch==0x41){receive=cb;receive_context=ctx;}else{assert(ch==0x4c);}

@@ -366,6 +366,52 @@ class SDTests(unittest.TestCase):
     def test_adapter(self):
         self.compile_run("soc/t5ai/sd_pfs.c", ADAPTER)
 
+    def test_existing_volume_guard_preserves_unknown_header_and_data(self):
+        harness = "#define CONFIG_T5AI_SD_PFS_REQUIRE_EXISTING 1\n" + ADAPTER[:ADAPTER.index("int main(void)")]
+        harness = harness.replace('#include "SOURCE"', r'''
+#include "common.h"
+#include <setjmp.h>
+static jmp_buf refused;
+#undef PBL_ASSERT
+#define PBL_ASSERT(x,...) do { if (!(x)) longjmp(refused,1); } while (0)
+#include "SOURCE"
+''')
+        harness += r"""
+static void expect_refusal(void) {
+  if (setjmp(refused)==0) { __wrap_pfs_init(true); assert(!"must refuse unknown volume"); }
+}
+int main(void) {
+  (void)expect_abort;
+  memset(card,0x6e,sizeof(card));
+  static uint8_t before[sizeof(card)];
+  memcpy(before,card,sizeof(card));
+  expect_refusal();
+  assert(!writes && !formats && !cleanups && !workspace_depth);
+  assert(!memcmp(before,card,sizeof(card)));
+  VolumeHeader good={.version=1,.size=VOLUME_SIZE,
+                     .first_sector=FIRST_SECTOR,.size_inverse=~VOLUME_SIZE};
+  memcpy(good.magic,"PBLSDPFS",8);
+  memcpy(card+HEADER_SECTOR*512u,&good,sizeof(good));
+  card[FIRST_SECTOR*512u]=0x50;
+  memcpy(before,card,sizeof(card));
+  assert(__wrap_pfs_init(true)==0);
+  assert(!writes && !formats && cleanups==1 && !workspace_depth);
+  assert(!memcmp(before,card,sizeof(card)));
+  const unsigned offsets[]={0,8,12,16,20};
+  for(unsigned n=0;n<sizeof(offsets)/sizeof(offsets[0]);++n) {
+    memcpy(card,before,sizeof(card));
+    card[HEADER_SECTOR*512u+offsets[n]]^=1;
+    uint8_t changed=card[HEADER_SECTOR*512u+offsets[n]];
+    expect_refusal();
+    assert(!writes && !formats && cleanups==1 && !workspace_depth);
+    assert(card[HEADER_SECTOR*512u+offsets[n]]==changed);
+    card[HEADER_SECTOR*512u+offsets[n]]^=1;
+    assert(!memcmp(before,card,sizeof(card)));
+  }
+}
+"""
+        self.compile_run("soc/t5ai/sd_pfs.c", harness)
+
     def test_driver(self):
         self.compile_run("drivers/t5ai/sd.c", DRIVER)
 
