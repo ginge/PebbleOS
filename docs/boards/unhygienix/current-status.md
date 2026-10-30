@@ -1,12 +1,75 @@
-# Unhygienix current status — 2026-10-22
+# Unhygienix current status — 2026-10-30
 
 This page supersedes installed-image claims and task dispositions in older dated
 handoffs. Dates refer to Europe/London. Historical captures and failed candidates
 remain evidence; completion by operator decision does not imply new measurements.
 
-## Latest recorded watch state
+## Latest source and recorded device state — 2026-10-30
 
-Production HEAD at this refresh is `87788c85a`. Recent committed changes are
+Production HEAD is `f7f7cbd84ab6dba1098442f88f59ebbfc53b346e` (A2), following
+`f3ebbee4c` (A1 cache coherence and SD defaults). The worktree was clean before
+this documentation refresh. A3 is implemented in the current uncommitted
+worktree; its compact normal image was flashed AP-only at the operator's request.
+
+**Latest verified installed AP:** ELF build ID
+`4245c7ab3e16d7c5449b864b355ea1ba22550993`, compact A3 normal, flashed on
+30 October at approximately 14:57 UTC. The guarded writer reports Flash OK;
+UART confirms the matching build, four-bit SD, the existing 32 MiB volume
+(`new=0`), 49 apps and an encrypted bonded phone session with PPoGATT reopened.
+CP, resources, NOR PFS and bond storage were not flashed or provisioned. The
+107-second receive-only capture is stopped. This is startup/reconnect evidence,
+not longer pressure or soak qualification. See the
+[flash record](/home/baz/Documents/ChatGPT/pebble/artifacts/a3-flash-20261030/RESULTS.md).
+
+[A1 is complete and explicitly accepted by the operator](/home/baz/Documents/ChatGPT/pebble/artifacts/a1-sd-reflash-20261030/RESULTS.md).
+The previously accepted A1 SD AP had ELF build ID
+`d316ed7087345e709826be1605b727bc9d0b1bc6`, flashed AP-only earlier on 30 October.
+UART confirmed four-bit SD-backed PFS, the existing 32 MiB volume (`new=0`),
+48 apps and an encrypted bonded phone session. Terminal watchface transfer
+succeeded; the operator confirmed “all looks good”. Capture stopped. A recorded
+first-launch app fault remains unresolved; 25-cycle, cold-power and overnight
+qualification were not claimed.
+
+[A2 F02/F06 is implemented, host validated and image validated](/home/baz/Documents/ChatGPT/pebble/artifacts/a2-mailbox-20261030/RESULTS.md)
+and is now committed as `f7f7cbd84`. HCI queue-exhaustion diagnostics are bounded
+and reported by the HCI worker; mailbox-owner logging and blocking APIs reject
+before shared log-state/PULSE or transport locks. PM quarantine is checked under
+the transaction mutex before draining responses or publishing another request.
+Both failures reproduced against the entry source and pass corrected scheduling
+regressions with real contending host threads/locks. Validation: 9 focused tests;
+231 port tests plus 75 subtests; 28 shared tests plus 119 subtests. Three optional
+CP execution tests and one shared ARM execution test remain unconfigured.
+Fresh normal/release images passed packaging, map, resource, log-hash and syscall
+checks; linked LTO paths retain the early owner guard. A2 was not flashed or
+device qualified in its implementation session; its corrections are included in
+the later A3 image. Its validation record describes the pre-commit source state;
+the commit above records the subsequent source disposition.
+
+SD PFS, four-bit mode and the existing-volume guard remain enabled by default.
+A2's normal effective configuration exactly matches accepted A1; release retains
+its existing PULSE default. CP inputs/wire ABI, Gabbro app/companion compatibility
+and the one-second heartbeat are unchanged. No provisioning, NOR switch or new
+CP image was performed.
+
+[A3 / F03 is implemented, host/image validated and AP flashed](/home/baz/Documents/ChatGPT/pebble/artifacts/a3-hci-pressure-20261030/RESULTS.md).
+Receive pressure now retains AP copies in the existing 1,285-byte staging budget
+and retries nonblockingly, with explicit recovery on bounded exhaustion/deadline.
+The duplicate payload queue was removed: normal has zero net SRAM increase over
+A2 (20,192-byte linked heap arena); release adds 32 bytes. Validation: 233 port
+tests plus 81 subtests; 28 shared tests plus 119 subtests. Both fresh images pass
+protected packaging/maps/config checks. CP ABI, A1/A2 protections and SD defaults
+remain unchanged. Runtime pressure/heap/stack and longer device qualification
+remain pending; no operator acceptance or resolution of historical app/radio
+faults is inferred from this flash. **Next implementation: A4 / F04 and F05,
+RTC failure cleanup and coherent publication.** Power and architectural work
+remain later packages under the
+[handoff](/home/baz/Documents/ChatGPT/pebble/audits/2026-10-30-tuya-port-review/HANDOFF.md).
+The standing power sequence remains non-display first and display power last;
+these correctness prerequisites do not claim electrical savings.
+
+## Historical SD heap qualification — 2026-10-22
+
+Production HEAD at the 22 October refresh was `87788c85a`. Recent committed changes are
 `d4c9c5321` (display optimisation), `1428d0cb9` (SD PFS), `8ce938615`
 (SD interrupt-race correction), `c79352159` (CP latency-transition fix), and
 `87788c85a` (PFS metadata PSRAM allocation).
@@ -95,9 +158,11 @@ integration task and baseline measurement instructions.
 ## Remaining work
 
 Priority update — 2026-10-30: [power optimization](power-todo.md) is the
-highest-priority workstream. Complete its non-display phases first and leave all
+highest-priority power workstream, following the local correctness packages
+recorded above. Complete its non-display phases first and leave all
 display power work until its final phase. This changes work ordering only; the
-recorded installed-image state and measured results above are unchanged.
+historical measurements above are unchanged; the latest installed state is
+recorded in the 30 October section.
 
 1. Complete the [power TODO](power-todo.md), including measured qualification.
 2. Diagnose remaining Bluetooth supervision timeouts; qualify sustained phone/app

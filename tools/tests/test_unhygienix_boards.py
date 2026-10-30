@@ -543,11 +543,11 @@ class UnhygienixBoardsTest(unittest.TestCase):
             "const size_t request_length = message->request_length", snapshot
         )
         copy = source.index(
-            "memcpy(payload, (const void *)(uintptr_t)request, request_length)",
+            "memcpy(s_rx_payload + s_rx_used, payload, request_length)",
             length_snapshot,
         )
         response = source.index("status = prv_respond_to_event(message)", copy)
-        callback = source.index("callback(payload, request_length)", response)
+        callback = source.index("prv_retry_receive();", response)
         self.assertLess(snapshot, length_snapshot)
         self.assertLess(length_snapshot, copy)
         self.assertLess(copy, response)

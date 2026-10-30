@@ -41,6 +41,8 @@ PBL_LOG_MODULE_DEFINE(t5ai_hci_ipc, LOG_LEVEL_DEBUG);
 #define T5AI_HCI_REQUEST_CAPACITY 8u
 #define T5AI_HCI_WORKER_STACK_SIZE 3072u
 #define T5AI_HCI_SEND_TIMEOUT_MS 2000u
+#define T5AI_HCI_RX_CAPACITY             2u
+#define T5AI_HCI_RX_TIMEOUT_MS           250u
 
 // Subtype values are fixed by the pinned Tuya CP IPC ABI.
 enum {
@@ -108,9 +110,16 @@ static struct {
   uint32_t object;
   bool reported;
 } s_queue_fault;
-static uint8_t s_event_payload[T5AI_HCI_MAX_EVENT_SIZE]
+// Reuse the original event + ACL staging budget for bounded FIFO retention.
+static uint8_t s_rx_payload[T5AI_HCI_MAX_EVENT_SIZE + T5AI_HCI_MAX_ACL_SIZE]
     __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
-static uint8_t s_acl_payload[T5AI_HCI_MAX_ACL_SIZE] __attribute__((aligned(T5AI_SHARED_ALIGNMENT)));
+static struct {
+  size_t length;
+  pbl_tick_t received;
+  uint8_t subtype;
+} s_rx[T5AI_HCI_RX_CAPACITY];
+static size_t s_rx_used;
+static unsigned s_rx_count;
 #ifdef CONFIG_T5AI_HCI_PROFILE
 static T5AIHCIIpcDiagnostics s_diagnostics;
 #endif
@@ -344,11 +353,41 @@ static void prv_report_queue_fault(void) {
   }
 }
 
+// Caller holds s_async_mutex. Never wait for host pools on the ACK worker.
+static void prv_retry_receive(void) {
+  if (prv_faulted()) {
+    s_rx_count = 0u;
+    s_rx_used = 0u;
+    return;
+  }
+  while (s_rx_count != 0u && !prv_faulted()) {
+    if (pbl_uptime_ticks() - s_rx[0].received >= pbl_ms_to_ticks(T5AI_HCI_RX_TIMEOUT_MS)) {
+      PBL_LOG_ERR("T5AI HCI receive capacity deadline");
+      s_rx_count = 0u;
+      s_rx_used = 0u;
+      prv_mark_faulted();
+      return;
+    }
+    T5AIHCIReceiveCallback callback =
+        s_rx[0].subtype == T5AI_HCI_EVENT_TO_HOST ? s_callbacks.event : s_callbacks.acl;
+    if (callback == NULL || !callback(s_rx_payload, s_rx[0].length)) {
+      return;
+    }
+    s_rx_used -= s_rx[0].length;
+    memmove(s_rx_payload, s_rx_payload + s_rx[0].length, s_rx_used);
+    s_rx[0] = s_rx[1];
+    --s_rx_count;
+  }
+}
+
 static void prv_worker(void *context) {
   (void)context;
   while (true) {
     (void)pbl_sem_take(&s_worker_wake, PBL_TICKS(PBL_TICK_FOREVER));
     prv_report_queue_fault();
+    pbl_mutex_lock(&s_async_mutex, PBL_FOREVER);
+    prv_retry_receive();
+    pbl_mutex_unlock(&s_async_mutex);
     T5AIMIPCFrame frame;
     while (prv_dequeue_pending_frame(&frame)) {
       if (prv_retire_request(&frame) || prv_retire_event_response(&frame)) {
@@ -484,22 +523,37 @@ static status_t prv_handle_command(T5AIMIPCFrame *frame, uint8_t expected, bool 
     }
     const uint32_t request = message->request;
     const size_t request_length = message->request_length;
-    uint8_t *payload = subtype == T5AI_HCI_EVENT_TO_HOST ? s_event_payload : s_acl_payload;
-    const size_t capacity = subtype == T5AI_HCI_EVENT_TO_HOST ? sizeof(s_event_payload)
-                                                              : sizeof(s_acl_payload);
+    const size_t capacity =
+        subtype == T5AI_HCI_EVENT_TO_HOST ? T5AI_HCI_MAX_EVENT_SIZE : T5AI_HCI_MAX_ACL_SIZE;
     if (request_length > capacity ||
         !t5ai_cp_mailbox_shared_range_valid((uintptr_t)request, request_length)) {
       return E_ERROR;
     }
     t5ai_cache_invalidate_received((void *)(uintptr_t)request, request_length);
-    memcpy(payload, (const void *)(uintptr_t)request, request_length);
+    const uint8_t *payload = (const void *)(uintptr_t)request;
+    const bool discardable = subtype == T5AI_HCI_EVENT_TO_HOST &&
+                             s_callbacks.discardable_event != NULL &&
+                             s_callbacks.discardable_event(payload, request_length);
+    prv_retry_receive();
+    // Advertising may be discarded without occupying reliable FIFO storage.
+    const bool drop = prv_faulted() || (discardable && s_rx_count != 0u);
+    const bool full =
+        s_rx_count == T5AI_HCI_RX_CAPACITY || request_length > sizeof(s_rx_payload) - s_rx_used;
+    if (!drop && !full) {
+      memcpy(s_rx_payload + s_rx_used, payload, request_length);
+      s_rx[s_rx_count].length = request_length;
+      s_rx[s_rx_count].received = pbl_uptime_ticks();
+      s_rx[s_rx_count].subtype = subtype;
+      s_rx_used += request_length;
+      ++s_rx_count;
+    } else if (!drop && !discardable) {
+      // Reply/ACK normally, but recover explicitly from reliable packet loss.
+      PBL_LOG_ERR("T5AI HCI receive retention exhausted");
+      prv_mark_faulted();
+    }
     status = prv_respond_to_event(message);
     if (PASSED(status)) {
-      T5AIHCIReceiveCallback callback =
-          subtype == T5AI_HCI_EVENT_TO_HOST ? s_callbacks.event : s_callbacks.acl;
-      if (callback != NULL) {
-        callback(payload, request_length);
-      }
+      prv_retry_receive();
     }
   } else if (message->subtype == expected) {
 #ifdef CONFIG_T5AI_HCI_PROFILE
@@ -612,6 +666,10 @@ int t5ai_hci_ipc_start(const T5AIHCICallbacks *callbacks) {
     memset(s_request_in_use, 0, sizeof(s_request_in_use));
     memset(s_event_response_in_use, 0, sizeof(s_event_response_in_use));
   }
+  pbl_mutex_lock(&s_async_mutex, PBL_FOREVER);
+  s_rx_count = 0u;
+  s_rx_used = 0u;
+  pbl_mutex_unlock(&s_async_mutex);
   status_t status = t5ai_cp_mailbox_register(T5AI_MIPC_RX_LOGICAL_CHANNEL, prv_route_frame, NULL);
   if (FAILED(status)) {
     memset(&s_callbacks, 0, sizeof(s_callbacks));
@@ -665,6 +723,8 @@ int t5ai_hci_ipc_stop(void) {
   memset(s_request_in_use, 0, sizeof(s_request_in_use));
   memset(s_event_response_in_use, 0, sizeof(s_event_response_in_use));
   memset(&s_callbacks, 0, sizeof(s_callbacks));
+  s_rx_count = 0u;
+  s_rx_used = 0u;
   pbl_mutex_unlock(&s_async_mutex);
   return status;
 }

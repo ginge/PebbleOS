@@ -6,11 +6,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
-typedef void (*T5AIHCIReceiveCallback)(const uint8_t *data, size_t length);
+// Return false to retain this AP-owned packet for a nonblocking retry.
+typedef bool (*T5AIHCIReceiveCallback)(const uint8_t *data, size_t length);
 
 typedef struct {
   T5AIHCIReceiveCallback event;
   T5AIHCIReceiveCallback acl;
+  bool (*discardable_event)(const uint8_t *data, size_t length);
 } T5AIHCICallbacks;
 
 #ifdef CONFIG_T5AI_HCI_PROFILE
@@ -38,7 +40,7 @@ typedef struct {
 
 /*
  * Controller-only interface to the CP Bluetooth firmware. Receive buffers are
- * borrowed from CP IPC and are valid only for the duration of the callback.
+ * AP-owned copies, borrowed only for the duration of each callback invocation.
  * The implementation serializes synchronous HCI requests independently from
  * asynchronous controller callbacks; physical mailbox ownership is internal
  * to the T5AI dispatcher. It must not start a vendor host stack on either core.

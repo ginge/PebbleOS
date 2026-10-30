@@ -12,6 +12,16 @@ T5AI SoC or individual drivers. Preserve stock shared code and existing companio
 compatibility. Check off implementation and device qualification separately;
 source inspection and host tests do not establish electrical savings.
 
+Local correctness prerequisites are tracked in [current status](current-status.md).
+A1 is operator accepted; A2 logging/PM quarantine is committed. A3 receive-pressure
+handling is host/image validated and flashed AP-only with startup/reconnect
+verified; sustained pressure and live heap/stack qualification remain pending.
+It reuses existing IPC staging, with zero added normal SRAM and 32 bytes added
+in release. A4 RTC cleanup/publication is the next correctness implementation.
+Resume this power sequence after the local correctness packages; HCI polling/sleep
+changes remain separate and should reuse A3 lifecycle tests. No electrical savings
+are claimed by A3's correctness or memory changes.
+
 ## 1 Establish the baseline
 
 - [x] Investigate optional, default-off Wi-Fi: [2026-10-30 findings](wifi-power.md).

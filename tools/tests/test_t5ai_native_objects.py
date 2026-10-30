@@ -163,7 +163,8 @@ int main(void){
 typedef struct {void (*event)(void);void (*acl)(void);} T5AIHCICallbacks;
 static T5AIHCICallbacks s_callbacks;
 static bool s_started,s_faulted,s_accept_frames,fail_register;
-static unsigned s_pending_frame_head,s_pending_frame_count,registrations,exchanges;
+static unsigned s_pending_frame_head,s_pending_frame_count,registrations,exchanges,s_rx_count;
+static size_t s_rx_used;
 static bool s_request_in_use[8],s_event_response_in_use[8];
 """ + declarations + r"""
 static bool prv_started(void){return s_started;}

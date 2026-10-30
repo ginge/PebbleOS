@@ -67,6 +67,7 @@ enum {
 #define T5AI_HCI_MAX_ACL_SIZE (T5AI_HCI_ACL_HEADER_SIZE + 1024u)
 #define T5AI_HCI_ACL_TX_QUEUE_CAPACITY 16u
 #define T5AI_HCI_TRACE_INTERVAL_MS 30000u
+#define T5AI_HCI_TX_DRAIN_TIMEOUT_MS   2500u
 #define T5AI_HCI_LE_SET_ADV_ENABLE_OPCODE \
   BLE_HCI_OP(BLE_HCI_OGF_LE, BLE_HCI_OCF_LE_SET_ADV_ENABLE)
 
@@ -96,8 +97,11 @@ static void prv_log_flash_diagnostics(void) {
 
 #endif
 
+static PBL_MUTEX_DEFINE(s_tx_mutex);
+
 static bool s_started;
 static bool s_reset_scheduled;
+static bool s_acl_tx_active;
 static uint8_t s_active_connections;
 static uint8_t s_advertising_requested;
 static uint8_t s_acl_tx[T5AI_HCI_MAX_ACL_SIZE];
@@ -196,8 +200,14 @@ static void prv_hci_task(void *unused) {
       prv_schedule_reset();
     }
     struct os_mbuf *acl;
-    if (s_acl_tx_queue != NULL && pbl_msgq_get(s_acl_tx_queue, &acl, PBL_NO_WAIT) == 0) {
+    pbl_mutex_lock(&s_tx_mutex, PBL_FOREVER);
+    const bool have_acl = prv_started() && s_acl_tx_queue != NULL &&
+                          pbl_msgq_get(s_acl_tx_queue, &acl, PBL_NO_WAIT) == 0;
+    __atomic_store_n(&s_acl_tx_active, have_acl, __ATOMIC_RELEASE);
+    pbl_mutex_unlock(&s_tx_mutex);
+    if (have_acl) {
       prv_send_queued_acl(acl);
+      __atomic_store_n(&s_acl_tx_active, false, __ATOMIC_RELEASE);
       continue;
     }
     t5ai_hci_ipc_poll();
@@ -230,11 +240,20 @@ static void prv_hci_task(void *unused) {
   }
 }
 
-static void prv_receive_event(const uint8_t *data, size_t length) {
+static bool prv_discardable_event(const uint8_t *data, size_t length) {
+  return prv_event_valid(data, length) && length >= 3u && data[0] == BLE_HCI_EVCODE_LE_META &&
+         (data[2] == BLE_HCI_LE_SUBEV_ADV_RPT || data[2] == BLE_HCI_LE_SUBEV_EXT_ADV_RPT);
+}
+
+static bool prv_deliver_event(const uint8_t *data, size_t length) {
   if (!prv_started() || !prv_event_valid(data, length)) {
     PBL_LOG_ERR("Dropping invalid T5AI HCI event (%u bytes)",
                   (unsigned)length);
-    return;
+    return true;
+  }
+  void *event = ble_transport_alloc_evt(prv_discardable_event(data, length));
+  if (event == NULL) {
+    return false;
   }
   // The CP survives an AP-only reset. Its Bluetooth reset can therefore emit
   // a Disconnection Complete for a link owned by the previous AP generation.
@@ -292,8 +311,9 @@ static void prv_receive_event(const uint8_t *data, size_t length) {
 #endif
 
     if (s_active_connections == 0u) {
+      ble_transport_free(event);
       PBL_LOG_WRN("Dropping stale T5AI HCI disconnect from prior AP generation");
-      return;
+      return true;
     }
     --s_active_connections;
   }
@@ -326,26 +346,21 @@ static void prv_receive_event(const uint8_t *data, size_t length) {
     }
   }
 
-  void *event = ble_transport_alloc_evt(0);
-  if (event == NULL) {
-    PBL_LOG_ERR("T5AI HCI event pool exhausted");
-    return;
-  }
   memcpy(event, data, length);
   const int result = ble_transport_to_hs_evt(event);
   if (result != 0) {
-    /* NimBLE consumes the event on both success and failure. A malformed or
-     * stale controller event must not permanently disable unrelated outbound
-     * ACL traffic; doing so makes the next ATT response hit rc == 0 asserts. */
+    // NimBLE consumes the event on both success and failure.
     PBL_LOG_ERR("T5AI HCI event delivery failed: %d", result);
+    prv_schedule_reset();
   }
+  return true;
 }
 
-static void prv_receive_acl(const uint8_t *data, size_t length) {
+static bool prv_deliver_acl(const uint8_t *data, size_t length) {
   if (!prv_started() || !prv_acl_valid(data, length)) {
     PBL_LOG_ERR("Dropping invalid T5AI HCI ACL packet (%u bytes)",
                   (unsigned)length);
-    return;
+    return true;
   }
 
   struct os_mbuf *acl = ble_transport_alloc_acl_from_ll();
@@ -353,26 +368,50 @@ static void prv_receive_acl(const uint8_t *data, size_t length) {
     if (acl != NULL) {
       os_mbuf_free_chain(acl);
     }
-    PBL_LOG_ERR("T5AI HCI ACL pool exhausted");
-    return;
+    return false;
   }
   const int result = ble_transport_to_hs_acl(acl);
   if (result != 0) {
     /* ble_transport_to_hs_acl() consumes acl regardless of outcome. */
     PBL_LOG_ERR("T5AI HCI ACL delivery failed: %d", result);
+    prv_schedule_reset();
   }
+  return true;
+}
+
+static bool prv_receive_event(const uint8_t *data, size_t length) {
+  if (prv_started() && !prv_event_valid(data, length)) {
+    prv_schedule_reset();
+    return true;
+  }
+  return prv_deliver_event(data, length) || prv_discardable_event(data, length);
+}
+
+static bool prv_receive_acl(const uint8_t *data, size_t length) {
+  if (prv_started() && !prv_acl_valid(data, length)) {
+    prv_schedule_reset();
+    return true;
+  }
+  return prv_deliver_acl(data, length);
 }
 
 void ble_transport_ll_reinit(void) {
   const T5AIHCICallbacks callbacks = {
-      .event = prv_receive_event,
-      .acl = prv_receive_acl,
+    .event = prv_receive_event,
+    .acl = prv_receive_acl,
+    .discardable_event = prv_discardable_event,
   };
 
+  pbl_mutex_lock(&s_tx_mutex, PBL_FOREVER);
+  if (__atomic_load_n(&s_acl_tx_active, __ATOMIC_ACQUIRE)) {
+    pbl_mutex_unlock(&s_tx_mutex);
+    return;
+  }
   __atomic_store_n(&s_reset_scheduled, false, __ATOMIC_RELEASE);
   s_active_connections = 0u;
   s_advertising_requested = 0u;
   prv_set_started(true);
+  pbl_mutex_unlock(&s_tx_mutex);
   if (t5ai_hci_ipc_start(&callbacks) != 0) {
     prv_set_started(false);
     PBL_LOG_ERR("T5AI controller start failed");
@@ -405,15 +444,28 @@ void ble_transport_ll_init(void) {
 }
 
 void ble_transport_ll_deinit(void) {
+  pbl_mutex_lock(&s_tx_mutex, PBL_FOREVER);
   prv_set_started(false);
-  if (t5ai_hci_ipc_stop() != 0) {
-    PBL_LOG_ERR("T5AI controller stop failed");
-  }
+  pbl_mutex_unlock(&s_tx_mutex);
   if (s_acl_tx_queue != NULL) {
     struct os_mbuf *acl;
     while (pbl_msgq_get(s_acl_tx_queue, &acl, PBL_NO_WAIT) == 0) {
       os_mbuf_free_chain(acl);
     }
+  }
+  // An old TX worker may still own a dequeued fragment. Let its bounded IPC
+  // exchange finish before resetting the controller or admitting a new session.
+  const pbl_tick_t start = pbl_uptime_ticks();
+  while (__atomic_load_n(&s_acl_tx_active, __ATOMIC_ACQUIRE) &&
+         pbl_uptime_ticks() - start < pbl_ms_to_ticks(T5AI_HCI_TX_DRAIN_TIMEOUT_MS)) {
+    pbl_thread_sleep(PBL_MSEC(T5AI_HCI_POLL_INTERVAL_MS));
+  }
+  if (__atomic_load_n(&s_acl_tx_active, __ATOMIC_ACQUIRE)) {
+    PBL_LOG_ERR("T5AI HCI old TX did not retire; restart blocked");
+    return;
+  }
+  if (t5ai_hci_ipc_stop() != 0) {
+    PBL_LOG_ERR("T5AI controller stop failed");
   }
 }
 
@@ -439,6 +491,13 @@ int ble_transport_to_ll_cmd_impl(void *buf) {
                    command->data[T5AI_HCI_ADV_ENABLE_OFFSET]);
   }
 
+  // NimBLE clears old connections/credits, then starts resync with HCI Reset.
+  // Recover here on the host task, never on the IPC worker that services start.
+  if (!prv_started() && __atomic_load_n(&s_reset_scheduled, __ATOMIC_ACQUIRE) &&
+      command->opcode == BLE_HCI_OP(BLE_HCI_OGF_CTLR_BASEBAND, BLE_HCI_OCF_CB_RESET)) {
+    ble_transport_ll_deinit();
+    ble_transport_ll_reinit();
+  }
   const int status = prv_started() && length <= T5AI_HCI_MAX_COMMAND_SIZE
                          ? t5ai_hci_ipc_send_command(buf, length)
                          : E_INVALID_OPERATION;
@@ -463,8 +522,18 @@ int ble_transport_to_ll_cmd_impl(void *buf) {
 
 int ble_transport_to_ll_acl_impl(struct os_mbuf *acl) {
   const size_t length = OS_MBUF_PKTLEN(acl);
-  if (prv_started() && s_acl_tx_queue != NULL && length <= T5AI_HCI_MAX_ACL_SIZE &&
-      pbl_msgq_put(s_acl_tx_queue, &acl, PBL_NO_WAIT) == 0) {
+  pbl_mutex_lock(&s_tx_mutex, PBL_FOREVER);
+  if (!prv_started() && __atomic_load_n(&s_reset_scheduled, __ATOMIC_ACQUIRE)) {
+    // The scheduled reset retires this connection and its credits. Consume old
+    // host TX without returning an error into an in-progress ATT response.
+    pbl_mutex_unlock(&s_tx_mutex);
+    os_mbuf_free_chain(acl);
+    return 0;
+  }
+  const bool queued = prv_started() && s_acl_tx_queue != NULL && length <= T5AI_HCI_MAX_ACL_SIZE &&
+                      pbl_msgq_put(s_acl_tx_queue, &acl, PBL_NO_WAIT) == 0;
+  pbl_mutex_unlock(&s_tx_mutex);
+  if (queued) {
     return 0;
   }
   PBL_LOG_ERR("T5AI HCI ACL transmit queue full (%u bytes)",

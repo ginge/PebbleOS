@@ -1,5 +1,44 @@
 # Unhygienix validation and remaining work
 
+## Current correctness packages — 2026-10-30
+
+- [x] **A1 / F01:** committed in `f3ebbee4c`, complete and explicitly operator
+  accepted. The installed SD image reopened the existing volume without
+  provisioning. [Final acceptance record](/home/baz/Documents/ChatGPT/pebble/artifacts/a1-sd-reflash-20261030/RESULTS.md).
+- [x] **A2 / F02 and F06:** committed in `f7f7cbd84`; bounded deferred HCI pressure
+  diagnostics, early mailbox-owner logging/blocking guards and under-lock PM
+  quarantine. Host validation: 9 focused tests; 231 port tests plus 75 subtests;
+  28 shared tests plus 119 subtests. Fresh normal/release packaging and map checks
+  pass. [Validation record](/home/baz/Documents/ChatGPT/pebble/artifacts/a2-mailbox-20261030/RESULTS.md).
+  No standalone A2 flash occurred; its corrections are included in installed A3.
+- [x] **A3 / F03 implementation and host/image validation:** bounded receive
+  retention reuses the original 1,285-byte IPC staging budget, with nonblocking
+  retries and explicit recovery on reliable exhaustion/deadline. Normal adds no
+  SRAM over A2 (20,192-byte linked heap arena); release adds 32 bytes. All 233
+  port tests plus 81 subtests and 28 shared tests plus 119 subtests pass, with
+  the same four optional execution checks unconfigured. Fresh normal/release
+  images pass protected packaging/maps/config checks. Source is uncommitted.
+  [Implementation record](/home/baz/Documents/ChatGPT/pebble/artifacts/a3-hci-pressure-20261030/RESULTS.md).
+- [x] **A3 AP flash and startup/reconnect check:** compact normal build
+  `4245c7ab3e16d7c5449b864b355ea1ba22550993` is installed. UART confirms four-bit
+  SD, the existing 32 MiB volume (`new=0`), 49 apps and encrypted bonded PPoGATT.
+  CP, resources, persistent volumes and bonds were excluded from flashing.
+  [Flash record](/home/baz/Documents/ChatGPT/pebble/artifacts/a3-flash-20261030/RESULTS.md).
+- [ ] **A3 device qualification:** pressure during phone/app transfers, repeated
+  credit/connection recovery, heap largest-block/fragmentation and worker stack
+  high-water; watchface install/launch, 25 reconnect cycles, cold boot/bond
+  restoration and overnight connected idle. Startup verification is not operator
+  acceptance or resolution of historical app/radio faults.
+- [ ] **A4 / F04 and F05 — next implementation:** RTC failure cleanup and coherent
+  time publication; follow the
+  [handoff](/home/baz/Documents/ChatGPT/pebble/audits/2026-10-30-tuya-port-review/HANDOFF.md).
+
+Preserve default SD PFS, four-bit mode, the existing-volume guard, CP wire ABI,
+A1 cache maintenance, A2 owner guards/quarantine and the one-second heartbeat.
+The latest verified AP is compact A3 `4245c7ab`; the 107-second capture is stopped.
+A1's first-launch app fault and longer device checks remain open. Implementation,
+host/image validation and device qualification remain separate dispositions.
+
 ## Highest priority — power optimization — 2026-10-30
 
 Wi-Fi investigation is complete; default-off implementation remains blocked on
@@ -14,13 +53,14 @@ benchmarking; no Wi-Fi-off firmware was flashed and no savings are claimed.
   the final phase. Track implementation and measured device qualification
   separately. Existing stability, data-integrity and release checks remain required.
 
-This priority supersedes the ordering in older dated dispositions below.
+This power sequence follows the local correctness prerequisites above and
+supersedes the power ordering in older dated dispositions below.
 
-## Current disposition — 2026-10-22
+## Historical disposition — 2026-10-22
 
 Use the [current status](../../../docs/boards/unhygienix/current-status.md) for
-latest firmware, measured results and remaining priorities. AP `c0e283f0` is the
-latest verified image: four-bit DMA SD PFS, dedicated 8 KiB PSRAM metadata cache,
+latest firmware, measured results and remaining priorities. AP `c0e283f0` was the
+verified image at the 22 October refresh: four-bit DMA SD PFS, dedicated 8 KiB PSRAM metadata cache,
 about 12 KiB observed free kernel heap and normal notification display. The
 25.56-minute resumed capture had no reboot; seven recovered BLE timeouts and
 one nonfatal oversized-image drop remain open. Capture stopped.

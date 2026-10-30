@@ -1,6 +1,6 @@
 # Unhygienix: The village fishmonger
 
-> Current project status (22 October 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
+> Current project status (30 October 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
 
 `unhygienix` is the PebbleOS target for the Waveshare
 [T5-E1-Touch-AMOLED-1.75](https://www.waveshare.com/wiki/T5-E1-Touch-AMOLED-1.75),
@@ -25,9 +25,29 @@ BOM, battery choices, provisional clearances and unresolved fit requirements.
 Use the [case-design handoff prompt](../../../boards/unhygienix/hardware/docs/case-design-handoff.md) to continue enclosure
 work. These documents describe a preliminary design, not verified hardware.
 
-## Latest implementation status — 2026-10-22
+## Latest implementation status — 2026-10-30
 
-The latest recorded AP is `c0e283f0b861e0d0fbcb70fb9c5fae6e86b84065`, with
+A1 is operator accepted; A2 is committed as `f7f7cbd84`. A3 HCI receive-pressure
+handling is implemented in the uncommitted worktree and validated on host and
+fresh normal/release images. It reuses existing IPC staging: normal has no net
+SRAM increase over A2; release adds 32 bytes.
+
+The latest verified installed AP is compact A3 normal
+`4245c7ab3e16d7c5449b864b355ea1ba22550993`. AP-only flashing and UART confirmed
+the matching build, existing four-bit 32 MiB SD PFS (`new=0`), 49 apps and an
+encrypted bonded phone session. CP, resources, storage and bonds were not
+flashed/provisioned. Capture is stopped. Sustained pressure, heap/stack and longer
+device qualification remain pending; the flash does not imply operator acceptance.
+
+See [current status](current-status.md) for validation and
+[flash evidence](/home/baz/Documents/ChatGPT/pebble/artifacts/a3-flash-20261030/RESULTS.md).
+The next implementation package is A4 RTC cleanup/publication under the
+[handoff](/home/baz/Documents/ChatGPT/pebble/audits/2026-10-30-tuya-port-review/HANDOFF.md).
+SD defaults, A1/A2 protections and the non-display-first power sequence remain.
+
+## Historical implementation status — 2026-10-22
+
+The AP recorded on 22 October is `c0e283f0b861e0d0fbcb70fb9c5fae6e86b84065`, with
 32 MiB four-bit DMA SD PFS and its 8 KiB metadata cache in dedicated PSRAM.
 Notifications display normally; final observed free kernel heap is 11,992 B.
 The resumed 25.56-minute capture contained no reboot, fatal OOM, SD error or
