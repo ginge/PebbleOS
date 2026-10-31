@@ -95,6 +95,21 @@ The timestamped receiver has received data but logs can be buffered for minutes;
 use CRC-valid device timestamps rather than host arrival to classify activity.
 The experiment stream is not an uninterrupted soak. Display remains last.
 
+## SD clock implementation — 2026-10-31
+
+[SD local-clock qualification](../../../docs/boards/unhygienix/sd-idle-clock.md)
+is implemented as `CONFIG_T5AI_SD_IDLE_GATING`, default off. Sixteen relevant
+host tests and both normal image checks pass; candidate FLASH headroom is 8 B.
+Card-ready, command and DMA guards preserve fault quarantine and other owners.
+CP SDIO/source and GDMA/BAKP votes stay held. Both APs boot existing SD/PFS and
+bonded protocol; the fixed-display idle/five-reconnect off/on/off comparison is
+complete. A single nominal USB ABA does not establish causal/repeatable savings.
+The identical off control `86d1dcba…` is restored; CP and display are unchanged.
+Two operator-reported cold recoveries have UART startup gaps, so full captured
+cold qualification stays open. Durable storage, physical mixed-DMA/fault tests,
+a 25-cycle run for this AP and the deferred overnight soak remain open. All SD
+UART/power captures are stopped. See current status for measured values/limits.
+
 ## Current power continuation — 2026-10-31
 
 See [the baseline, I2C candidate and ordered dependency record](../../../docs/boards/unhygienix/non-display-power.md).

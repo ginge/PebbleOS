@@ -105,12 +105,37 @@ static PBL_MUTEX_DEFINE(s_lock);
 static PBL_SEM_DEFINE(s_event, 0, 1);
 static volatile uint32_t s_command_status, s_data_status, s_dma_status;
 static bool s_ready, s_faulted, s_high_capacity;
+#ifdef CONFIG_T5AI_SD_IDLE_GATING
+static volatile bool s_clock_active;
+
+static void prv_clock_acquire(void) {
+  pbl_irq_lock();
+  if (!s_clock_active) {
+    SD(SD_GLOBAL_CONTROL) |= PERIPHERAL_CLOCK_GATE_BYPASS;
+    __DSB();
+    (void)SD(SD_GLOBAL_CONTROL);
+    delay_us(10u);
+    SD(SD_INTERRUPT_MASK) = 0;
+    SD(SD_INTERRUPT_STATUS) = UINT32_MAX;
+    NVIC_ClearPendingIRQ(SDIO_IRQn);
+    s_clock_active = true;
+    NVIC_EnableIRQ(SDIO_IRQn);
+  }
+  pbl_irq_unlock();
+}
+
+static void prv_clock_release(void);
+#endif
 static uint32_t s_rca;
 static uint64_t s_sectors;
 static uint8_t s_bounce[T5AI_SD_MAX_BLOCKS * T5AI_SD_SECTOR_SIZE]
     __attribute__((section(".t5ai_board_cache"), aligned(SD_DMA_CACHE_ALIGNMENT)));
 
 void t5ai_sd_irq(void) {
+#ifdef CONFIG_T5AI_SD_IDLE_GATING
+  if (!s_clock_active)
+    return;
+#endif
   const uint32_t status = SD(SD_INTERRUPT_STATUS);
   const uint32_t pending = status & SD(SD_INTERRUPT_MASK) &
                            (CMD_END | CMD_TIMEOUT | DATA_END | TX_EMPTY | (1u << 5) | (1u << 8));
@@ -140,6 +165,10 @@ void t5ai_sd_irq(void) {
 }
 
 static void prv_dma_done(void *arg, int status) {
+#ifdef CONFIG_T5AI_SD_IDLE_GATING
+  if (!s_clock_active)
+    return;
+#endif
   const bool write = (uintptr_t)arg != 0;
   s_dma_status |= status == 0 ? DMA_FINISH : DMA_ERROR;
   if (write && status == 0) {
@@ -155,6 +184,29 @@ static void prv_reset_data(void) {
   SD(SD_DATA_CONTROL) = 0;
   SD(SD_FIFO_CONTROL) &= ~FIFO_RESET;
 }
+
+#ifdef CONFIG_T5AI_SD_IDLE_GATING
+// The caller has verified card-ready and holds s_lock; shared clocks stay voted on.
+static void prv_clock_release(void) {
+  size_t tx_residue, rx_residue;
+  pbl_irq_lock();
+  if (s_clock_active && !(SD(SD_COMMAND_CONTROL) & 1u) &&
+      pbl_dma_tx_status(&s_tx_dma, &tx_residue) == 0 && !tx_residue &&
+      pbl_dma_tx_status(&s_rx_dma, &rx_residue) == 0 && !rx_residue) {
+    SD(SD_INTERRUPT_MASK) = 0;
+    NVIC_DisableIRQ(SDIO_IRQn);
+    prv_reset_data();
+    SD(SD_FIFO_CONTROL) &= ~SD_CLOCK_ALWAYS_ON;
+    SD(SD_INTERRUPT_STATUS) = UINT32_MAX;
+    NVIC_ClearPendingIRQ(SDIO_IRQn);
+    __DSB();
+    s_clock_active = false;
+    SD(SD_GLOBAL_CONTROL) &= ~PERIPHERAL_CLOCK_GATE_BYPASS;
+    __DSB();
+  }
+  pbl_irq_unlock();
+}
+#endif
 
 static void prv_abort(void) {
   (void)pbl_dma_terminate(&s_tx_dma);
@@ -255,6 +307,9 @@ static int prv_transfer(uint32_t sector, void *buffer, uint32_t count, bool writ
   if (!s_ready || s_faulted) {
     return -ENODEV;
   }
+#ifdef CONFIG_T5AI_SD_IDLE_GATING
+  prv_clock_acquire();
+#endif
   const size_t bytes = count * 512u;
   void *dma_buffer = prv_direct_buffer(buffer, bytes) ? buffer : s_bounce;
   if (write && dma_buffer != buffer) {
@@ -339,6 +394,9 @@ static int prv_transfer(uint32_t sector, void *buffer, uint32_t count, bool writ
     goto fail;
   }
   SD(SD_INTERRUPT_MASK) = 0;
+#ifdef CONFIG_T5AI_SD_IDLE_GATING
+  prv_clock_release();
+#endif
   if (!write) {
     dcache_invalidate(dma_buffer, bytes);
     if (dma_buffer != buffer) {
@@ -423,6 +481,9 @@ int t5ai_sd_init(void) {
       SYSTEM_SDIO_CLOCK_XTAL_DIV256;
   pbl_irq_unlock();
   SD(SD_GLOBAL_CONTROL) = PERIPHERAL_RESET_RELEASE | PERIPHERAL_CLOCK_GATE_BYPASS;
+#ifdef CONFIG_T5AI_SD_IDLE_GATING
+  s_clock_active = true;
+#endif
   prv_abort();
   SD(SD_FIFO_CONTROL) = SD_FIFO_DEFAULT_THRESHOLDS | FIFO_RESET | (1u << 25) | (1u << 27);
   NVIC_SetPriority(SDIO_IRQn, 6u);
@@ -503,11 +564,21 @@ int t5ai_sd_init(void) {
       SYSTEM_SDIO_CLOCK_PLL_DIV16;
   SD(SD_FIFO_CONTROL) &= ~(1u << 27);
   SD(SD_INTERRUPT_MASK) = 0;
+#ifdef CONFIG_T5AI_SD_IDLE_GATING
+  status = prv_wait_ready();
+  if (status)
+    goto fail;
+  s_faulted = false;
+  prv_clock_release();
+#endif
   s_ready = true;
   PBL_LOG_INFO("SD ready: sectors=%lu width=%u", (unsigned long)s_sectors, DATA_WIDTH ? 4u : 1u);
   goto done;
 fail:
-  prv_abort();
+#ifdef CONFIG_T5AI_SD_IDLE_GATING
+  if (s_clock_active)
+#endif
+    prv_abort();
   s_faulted = true;
 done:
   pbl_mutex_unlock(&s_lock);

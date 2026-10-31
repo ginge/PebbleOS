@@ -37,6 +37,15 @@ class T5AIConfigTest(unittest.TestCase):
         self.assertEqual(config.syms["T5AI_SD_4BIT"].str_value, "n")
         self.assertEqual(config.syms["FLASH_T5AI"].str_value, "y")
 
+    def test_sd_idle_gate_is_opt_in_and_requires_sd_pfs(self):
+        config = load_config("unhygienix")
+        gate = config.syms["T5AI_SD_IDLE_GATING"]
+        self.assertEqual(gate.str_value, "n")
+        gate.set_value("y")
+        self.assertEqual(gate.str_value, "y")
+        config.syms["T5AI_SD_PFS"].set_value("n")
+        self.assertEqual(gate.str_value, "n")
+
     def test_header_cache_toggle_preserves_soc_and_transport(self):
         config = load_config("unhygienix")
         soc = config.syms["SOC_T5AI"]
@@ -62,6 +71,7 @@ class T5AIConfigTest(unittest.TestCase):
             with self.subTest(board=board):
                 config = load_config(board, revision)
                 soc = config.syms[soc_name]
+                self.assertNotIn("T5AI_SD_IDLE_GATING", config.syms)
                 for name in ("T5AI_PFS_HEADER_CACHE", "T5AI_CP_HCI_VALIDATED"):
                     option = config.syms[name]
                     option.set_value("y")

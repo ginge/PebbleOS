@@ -98,12 +98,23 @@ complete runtime state and the remaining workload matrix are still open.
   diagnostics; compare current with and without the debug connection.
 - [x] Centralize AP GDMA interrupt/channel ownership in the native DMA controller
   (existing migration); preserve CP channels. Host isolation tests pass.
+- [x] Implement default-off SD controller-local bypass release after card-ready,
+  command completion and drained DMA; reacquire before MMIO/IRQ delivery. Native
+  failure/ownership tests and matched image checks pass. See [SD clock experiment](sd-idle-clock.md).
+- [ ] Qualify SD local gating, electrical benefit, durable PFS and physical fault
+  recovery. Bounded existing-PFS/bonded startup and fixed-display idle/five-reconnect
+  off/on/off windows are complete, without a causal/repeatable saving established.
+  Cold-start captures are incomplete; durability, physical faults, 25 cycles and
+  deferred overnight qualification remain open. Source/domain/CP votes stay held;
+  default off.
 - [ ] Define shared backup-domain/GDMA power ownership for microphone, optional SD
   and display. Preserve all active owners; do not gate the whole domain from
   an individual driver. Defer display-specific changes to phase 9.
+
 Native SD already clears its FIFO `SD_CLOCK_ALWAYS_ON` override after CMD12 and
-status-ready polling. It still retains controller bypass and the CP-managed
-source/domain vote. Audit those separately, including final card busy/drain,
+status-ready polling. The default retains controller bypass and the CP-managed
+source/domain vote. The opt-in experiment releases only local bypass; continue
+qualifying it separately from domain release, including final card busy/drain,
 fault recovery and CP ownership; clearing a FIFO override does not establish
 safe source-clock/domain release. Preserve storage geometry and the existing PFS.
 

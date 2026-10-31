@@ -348,6 +348,17 @@ config T5AI_TICK_PROFILE
       through existing regular timers and KernelBG. No additional thread or
       per-tick logging. Enable identically in off/on comparison images.
 
+config T5AI_SD_IDLE_GATING
+    bool "Release T5AI SD controller clock bypass between transfers"
+    depends on BOARD_UNHYGIENIX && T5AI_SD_PFS
+    default n
+    help
+      Qualification option. Clear only the local controller bypass after card
+      ready, command completion and drained DMA. Restore it before register
+      access and IRQ delivery. Keep bypass on after faults or uncertain drain.
+      Leave CP source/domain votes and shared GDMA untouched. Requires storage,
+      fault/recovery and electrical qualification before default use.
+
 config T5AI_I2C_IDLE_GATING
     bool "Release T5AI I2C local clock bypass between transfers"
     depends on BOARD_UNHYGIENIX && I2C_T5AI

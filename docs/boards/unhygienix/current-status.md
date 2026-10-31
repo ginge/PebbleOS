@@ -4,11 +4,38 @@ This page supersedes installed-image claims and task dispositions in older dated
 handoffs. Dates refer to Europe/London. Historical captures and failed candidates
 remain evidence; completion by operator decision does not imply new measurements.
 
+## SD local-clock checkpoint — 31 October
+
+The [SD clock experiment](sd-idle-clock.md) is implemented as an Unhygienix/SD-only,
+**default-off** option. Sixteen relevant host tests pass. Matched normal images
+pass map/protected-image/resources/log/syscall checks: off `86d1dcba…` uses
+1,638,072 B FLASH; on `d1a3d567…` uses 1,638,392 B, leaving only **8 B**. Shared,
+vendor and display code/policy are preserved. Only the SD option differs.
+
+Both images boot with four-bit SD, the existing 32 MiB PFS (`new=0`), actual
+240 MHz and bonded protocol recovery. Accepted fixed-dim-Nadir off/on/off windows
+record idle **148.467 / 148.127 / 147.968 mW** and gross
+**9.013737 / 8.992238 / 8.989747 J per completed reconnect** (five per batch,
+identical holds/tail). Device-time review and operator display checks are
+complete; known ATT errors are retained. The notification-interrupted return
+attempt is preserved and excluded whole. This single nominal USB comparison
+does not establish a causal/repeatable saving or full hardware qualification.
+Gate activity was not independently probed. Keep default off.
+
+**Installed AP is the identical off control `86d1dcba…`**, with the preceding
+corrected Wi-Fi-off CP selection unchanged; only AP was written. Two reported
+all-power-removed checks restored Nadir/BT automatically but have capture gaps:
+one expected boot lacks SD/PFS records, and the repeat lacks a boot record.
+Full captured cold startup remains open. Storage durability, physical bus/DMA and
+mixed-owner tests, a 25-cycle run for this AP and the operator-deferred overnight
+soak remain open. All SD UART/power captures are stopped after review. CP's earlier
+25-cycle result and its power observations below remain separate.
+
 ## Automated workload checkpoint — 15:19 UTC, 31 October
 
-Corrected Wi-Fi-off CP **`d4d65559…` is currently installed**, with unchanged AP
-`c656055a…`, for consecutive reconnect qualification. Its expected AP startup is
-received. The first pre-qualification readback handshake timed out after
+At this checkpoint, corrected Wi-Fi-off CP **`d4d65559…` was installed**, with
+then-unchanged AP `c656055a…`, for consecutive reconnect qualification. Its expected
+AP startup was received. The first pre-qualification readback handshake timed out after
 commanded resets; its complete trace is preserved, with no received CP crash and
 normal existing-PFS/bonded-session recovery. A fresh-name retry read all 1,114,112
 bytes successfully: active CRCs and exact corrected-off package bytes match, and
