@@ -77,3 +77,21 @@ and reopened the phone session without a watch reboot. The two successful
 October 21 transfer tests remain valid bounded evidence, not complete radio
 qualification. Sustained transfers, reconnect churn, cold boot, long soak and
 energy impact remain open. [Evidence](/home/baz/Documents/ChatGPT/pebble/artifacts/sd-pfs-heap-fix-20261022/results.txt).
+
+## Experimental source-built Wi-Fi profiles — 31 October 2026
+
+Board-owned staged profiles and guarded packaging are documented in
+[Wi-Fi power implementation](../../../../docs/boards/unhygienix/wifi-power.md#source-built-offon-profiles--31-october-2026).
+`tools/unhygienix_cp_build.py` defaults to the off build profile;
+`tools/unhygienix_cp_variant.py` verifies pinned stock/controller inputs, exact
+reviewed link/config hashes and all affected controller relocations. The RF
+correction is in the staged reset source, and the existing latency correction
+uses newly verified ELF symbols. Source-owned ITCM helpers preserve the installed
+controller flash deadlines, launch/wait and actual-ACK fail-stop contract without
+restoring SPI bypass or volatile-protection experiments. Boot-copy bytes are checked.
+
+These schema-2 packages remain experimental and are **not accepted by the normal
+runner**. The legacy packagers/manifest guard are unchanged. A dedicated CP-only
+experiment must regenerate/compare the full package with `validate_package`,
+verify the exact installed rollback, then use the existing bounded CP flasher.
+No qualified production default or saving follows from successful host packaging.

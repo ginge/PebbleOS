@@ -1,0 +1,189 @@
+[
+  {
+    "path": "t5_os/tools/build_tools/cmake/project.cmake",
+    "vendor_sha256": "bd21ea9578bafbca3631333ab2b23987cb163f1b2fd3133bd42fc5ea47ed7c25",
+    "replacements": [
+      {
+        "old": "--Map=${mapfile}>app_memory.txt",
+        "new": "--Map=${mapfile}",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "path": "t5_os/projects/tuya_app/CMakeLists.txt",
+    "vendor_sha256": "f7c8361d00504ebd9043a20b8bc1413de93989cf48876cb81f6caeef1c745eb7",
+    "replacements": [
+      {
+        "old": "project(app)",
+        "new": "project(app)\ninclude(\"${CMAKE_CURRENT_LIST_DIR}/cp/unhygienix.cmake\")",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "path": "t5_os/projects/tuya_app/cp/CMakeLists.txt",
+    "vendor_sha256": "5b20599cea67ecd2df56c7f3347769afbaae5ffc3797f9c1862bef947604b36b",
+    "replacements": [
+      {
+        "old": "set(srcs cp_main.c customer_msg.c)",
+        "new": "set(srcs cp_main.c unhygienix_cp_contract.c unhygienix_ble_rf_init.c unhygienix_flash_contract.S)\nif(CONFIG_WIFI_VNET_CONTROLLER)\n    list(APPEND srcs customer_msg.c)\nendif()",
+        "count": 1
+      },
+      {
+        "old": "set(prev_req controller_if lwip_intf_v2_1 bt)",
+        "new": "set(prev_req bt)\nif(\"$ENV{UNHYGIENIX_CP_WIFI}\" STREQUAL \"on\")\n    list(APPEND prev_req controller_if)\nendif()\nif(\"$ENV{UNHYGIENIX_CP_WIFI}\" STREQUAL \"on\")\n    list(APPEND prev_req lwip_intf_v2_1)\nendif()",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "path": "t5_os/projects/tuya_app/cp/cp_main.c",
+    "vendor_sha256": "9f1b0b59ed0b6103193bec4dc0e22c97953b0c266625132d2b2665c5d006433c",
+    "replacements": [
+      {
+        "old": "        cifd_cust_msg_init();",
+        "new": "#if CONFIG_WIFI_VNET_CONTROLLER\n        cifd_cust_msg_init();\n#endif",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "path": "t5_os/cp/components/controller_if/CMakeLists.txt",
+    "vendor_sha256": "f637014a2970495e3076e506242aa82528da503df413c2bdc5ff6ed1f0a5bc99",
+    "replacements": [
+      {
+        "old": "set(prev_req bk_common bk_wifi lwip_intf_v2_1 bk_pm app demos)",
+        "new": "set(prev_req bk_common bk_pm)",
+        "count": 1
+      },
+      {
+        "old": "#if(CONFIG_WIFI_VNET_CONTROLLER)",
+        "new": "if(\"$ENV{UNHYGIENIX_CP_WIFI}\" STREQUAL \"on\")\n    list(APPEND prev_req bk_wifi lwip_intf_v2_1 app demos)",
+        "count": 1
+      },
+      {
+        "old": "#endif()",
+        "new": "endif()",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "path": "tuyaos/tuyaos_adapter/CMakeLists.txt",
+    "vendor_sha256": "8624fb52e250b05db738e42d6c76e18b678c91f9053fc232383f32def5d1c408",
+    "replacements": [
+      {
+        "old": "    src/system/tkl_network.c\n",
+        "new": "",
+        "count": 1
+      },
+      {
+        "old": "if (\"${CONFIG_CPU_INDEX}\" STREQUAL \"0\")",
+        "new": "if(CONFIG_LWIP)\n    list(APPEND srcs src/system/tkl_network.c)\nendif()\n\nif (\"${CONFIG_CPU_INDEX}\" STREQUAL \"0\")",
+        "count": 1
+      },
+      {
+        "old": "set(priv_requires_list bk_common bk_log bk_cli lwip_intf_v2_1 os_source)",
+        "new": "set(priv_requires_list bk_common bk_log bk_cli os_source)\n    if(\"$ENV{UNHYGIENIX_CP_WIFI}\" STREQUAL \"on\")\n        list(APPEND priv_requires_list lwip_intf_v2_1)\n    endif()",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "path": "tuyaos/tuyaos_adapter/src/driver/tkl_hci_0.c",
+    "vendor_sha256": "5013077efb6c29d06dded46d3c203af59c4ffee9fd444e33611812424eac0a55",
+    "replacements": [
+      {
+        "old": "    bk_bluetooth_init();",
+        "new": "    extern int pebble_ble_init_bt_pll(void);\n    (void)pebble_ble_init_bt_pll();",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "path": "t5_os/cp/components/bk_phy/src/bk_phy_adapter.c",
+    "vendor_sha256": "4e162490c5aff7421b11dd32ad8892e9124b5227675349b4007a67f33af3d069",
+    "replacements": [
+      {
+        "old": "static UINT8 bk_phy_get_wifi_media_mode_config_wrapper(void)\n{\n#if (CONFIG_SOC_BK7258)",
+        "new": "static UINT8 bk_phy_get_wifi_media_mode_config_wrapper(void)\n{\n#if (CONFIG_SOC_BK7258 && CONFIG_WIFI_ENABLE)",
+        "count": 1
+      },
+      {
+        "old": "    ._save_info_item = save_info_item,\n    ._get_info_item  = get_info_item ,\n#endif",
+        "new": "#endif\n\n    ._save_info_item = save_info_item,\n    ._get_info_item  = get_info_item ,",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "path": "t5_os/cp/components/bk_phy/src/bk_rf_adapter.c",
+    "vendor_sha256": "1b6401ca0fd5e78c3e0086a6d0e7565c3fd8b4d4fa1d0da935fa45a1ee786ff9",
+    "replacements": [
+      {
+        "old": "#if (CONFIG_SOC_BK7236XX || CONFIG_SOC_BK7239XX || CONFIG_SOC_BK7286XX)",
+        "new": "#if CONFIG_WIFI_ENABLE && (CONFIG_SOC_BK7236XX || CONFIG_SOC_BK7239XX || CONFIG_SOC_BK7286XX)",
+        "count": 2
+      }
+    ]
+  },
+  {
+    "path": "t5_os/cp/components/bk_libs/CMakeLists.txt",
+    "vendor_sha256": "c36ad694ab7ef28d8b42500698c29613db50d85c81906759ec3a1d834aa40bfd",
+    "replacements": [
+      {
+        "old": "list (JOIN blacklist_elem | blacklist_elem_regax)",
+        "new": "if(NOT CONFIG_WIFI_ENABLE)\n    list(APPEND blacklist_elem libble_wifi_exchange[^.]*\\.a)\nendif()\n\nlist (JOIN blacklist_elem | blacklist_elem_regax)",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "path": "t5_os/cp/middleware/soc/bk7258/hal/flash_ll.h",
+    "vendor_sha256": "ea011023988c2f3aa80f8c78c5bb9f4f6e1ebcb4499c2288a26561ed79ab3e35",
+    "replacements": [
+      {
+        "old": "static inline void flash_ll_soft_reset",
+        "new": "extern uint32_t unhygienix_cp_flash_wait(void *hw);\nextern void unhygienix_cp_flash_launch(void *hw);\n\nstatic inline void flash_ll_soft_reset",
+        "count": 1
+      },
+      {
+        "old": "while (flash_ll_is_busy(hw));",
+        "new": "(void)unhygienix_cp_flash_wait(hw);",
+        "count": 24
+      },
+      {
+        "old": "hw->op_ctrl.op_sw = 1;",
+        "new": "unhygienix_cp_flash_launch(hw);",
+        "count": 5
+      }
+    ]
+  },
+  {
+    "path": "t5_os/cp/middleware/driver/flash/flash_notify.c",
+    "vendor_sha256": "50a314eacd0739f170d543d5ff62dedeb50458cc2c4adf17e017c6b603ab98ad",
+    "replacements": [
+      {
+        "old": "static bk_err_t send_flash_op_state(uint8_t state)",
+        "new": "extern void unhygienix_cp_flash_fatal(void) __attribute__((noreturn));\n\nstatic bk_err_t send_flash_op_state(uint8_t state)",
+        "count": 1
+      },
+      {
+        "old": "if(ret_val != BK_OK)\n\t\treturn ret_val;",
+        "new": "if(ret_val != BK_OK)\n\t\tunhygienix_cp_flash_fatal();",
+        "count": 1
+      },
+      {
+        "old": "return BK_FAIL;",
+        "new": "unhygienix_cp_flash_fatal();",
+        "count": 1
+      },
+      {
+        "old": "\t}\n\n\treturn BK_OK;\n}\n\nbk_err_t mb_flash_op_prepare",
+        "new": "\t}\n\n\tif(flash_erase_ipc_state != IPC_FLASH_OP_ACK)\n\t\tunhygienix_cp_flash_fatal();\n\n\treturn BK_OK;\n}\n\nbk_err_t mb_flash_op_prepare",
+        "count": 1
+      }
+    ]
+  }
+]

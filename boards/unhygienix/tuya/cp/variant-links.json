@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "board": "unhygienix",
+  "stock_sha256": "0edde387b5694ac6687e04d318e4f7346acd29e585b699eba28ed70540d91856",
+  "controller_sha256": "a6dd54ec9e6a85be90528138b7a8f6df64cf1edd8590d35fa2e1f20fa0184443",
+  "latency_source_sha256": "7d1b404bd14bcc10b75428f346574843e6405c621b989478495698265fbbe4cd",
+  "profiles": {
+    "off": {
+      "app.bin": "0ce05f254913624f5572874a994cdaa010fd1f6a581e90f44b3afbcd1908a5cd",
+      "sdkconfig": "13b711f5cf30b3f21da6f9d496d065624eef4bf563a93417f3cb26d2a0e12c2e"
+    },
+    "on": {
+      "app.bin": "438d65ca9eee7a1293c416624691a9452ccfe824955304d8e7612dec7c7e48b0",
+      "sdkconfig": "86145c0fcfd0b9b753556b789820a026cbf394934c2f941974fc5f104050e45a"
+    }
+  },
+  "rejected_links": {
+    "d29975edc44b0613f8f00b7ce20970213a4dec4dabaa43fa8900363b5db40418": "Hardware CP startup MemFault through NULL PHY _get_info_item; first failure preserved."
+  }
+}
