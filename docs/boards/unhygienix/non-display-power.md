@@ -180,7 +180,12 @@ gate before promoting a power policy, as do the device tests below.
    IRQ ownership is implemented, with host channel-isolation tests; this does
    not establish cross-core BAKP/domain power ownership or physical mixed-DMA
    qualification. Do not gate the global controller/domain from MIC or SD.
-3. **Wake/alarm, then tickless:** CP BK7258 declares one AON RTC unit, and its
+3. **Wake/alarm, then tickless:** the [31 October contract review](wake-alarm-contract.md)
+   verifies that pinned CP replies before applying configuration and discards
+   registration errors. An ACK is not an armed-alarm result; persistent payload
+   ownership, a post-application result and generation-aware cancellation are
+   required in addition to asynchronous wake dispatch.
+   CP BK7258 declares one AON RTC unit, and its
    `low_pwr_core.c` registers `lv_rtc` with the CP alarm list/compare. AP must not
    overwrite that compare directly. Pinned PM commands `0x0f` (wake config) and
    `0x10` (asynchronous wake notification) provide a reference protocol, but the
@@ -200,7 +205,10 @@ gate before promoting a power policy, as do the device tests below.
    the permanent application sleep veto remain in place. The one-second CP
    heartbeat must remain serviced. Qualify standby/latch separately from sleep;
    a DTR/RTS warm reset is not a cold-power or shutdown test.
-5. **Sensors:** measure motion-backlight on/off IRQ counts and I2C cost first.
+5. **Sensors:** the [reference/WOM review](sensor-power-review.md) identifies a
+   missing CTRL9 apply/ack sequence and an INT1/INT2 qualification gap in the Tuya
+   helper; do not copy it as a proven wake implementation. Measure motion-backlight
+   on/off IRQ counts and I2C cost first.
    Qualify fitted QMI8658 WOM or bounded FIFO batches against sensitivity,
    requested rates and gesture latency. Keep 100 kHz and current FIFO limits
    until shared touch/RTC/IMU fault/overflow checks pass. Touch reset-on-disable
@@ -214,8 +222,9 @@ gate before promoting a power policy, as do the device tests below.
    UART confirmed accepted 60 ms/latency 4 idle and 15 ms/latency 0 app-message
    states. Compare fixed 120/240 MHz against counted identical completed work,
    elected clocks, accepted radio states and total energy before adding coarse
-   votes/hysteresis. Wi-Fi-off still needs the separately verified CP build,
-   Bluetooth PHY/calibration, variant-aware hooks/manifest and service tests.
+   votes/hysteresis. The later [Wi-Fi record](wifi-power.md) supplies guarded
+   off/on builds, calibration/ABI proofs, actual readbacks and counted reconnect
+   evidence. Cold-power, application/PFS and overnight qualification remain open.
 8. **Qualification:** reconnect counts, actual USB cold boot/bond/face restore,
    sustained transfers, physical bus faults, concurrent MIC/SD/display, heap/
    stack/PFS integrity and overnight idle with periodic UI remain open. Startup
