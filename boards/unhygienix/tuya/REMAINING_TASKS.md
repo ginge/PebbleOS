@@ -1,5 +1,100 @@
 # Unhygienix validation and remaining work
 
+## Automated workload checkpoint — 15:19 UTC, 31 October
+
+Corrected Wi-Fi-off CP **`d4d65559…` is currently installed**, with unchanged AP
+`c656055a…`, for consecutive reconnect qualification. Its expected AP startup is
+received. The first pre-qualification readback handshake timed out after
+commanded resets; its complete trace is preserved, with no received CP crash and
+normal existing-PFS/bonded-session recovery. A fresh-name retry read all 1,114,112
+bytes successfully: active CRCs and exact corrected-off package bytes match, and
+the full physical SHA is `4f2fd6448da1a78d9c918676faccfb4c103dc08df0cdb6fbfa62a829fc0ebd6c`.
+`adb-off-25-A` completed at 15:15:17 UTC after all **25 consecutive cycles**
+and the full recovery tail: exactly 25 disconnects, bonded/encrypted recoveries
+and protocol sessions, no extra termination or new error class detected by the
+harness. The logger closed 0 at 15:15:20. Four notifications and one known ATT
+subscription error were recorded during settling; this functional run's energy
+is excluded from fixed-display comparison. The operator confirmed Bluetooth
+connected and dim Nadir restored/unchanged. Delayed review extends through device
+time 15:15:56, after the 15:15:17 batch end, with no new error class, fault/reset,
+app transfer or extra termination. The counted functional gate is complete;
+full hardware acceptance remains open. The physical cold-power check is armed
+and requested in `cold-off-A`; no fresh boot or operator power-removal result
+has been recorded yet. Overnight observation has not started and is deferred by the operator until
+a later overnight window; it is not a passed or waived qualification gate.
+No experimental image is promoted; production defaults, AP/display policy,
+common source and pinned vendor trees remain unchanged.
+
+The controlled on/off/on sequence completed five encrypted/bonded protocol
+recoveries per batch, after 90 s quiet settling and identical 5 s user-disabled /
+40 s on holds plus a 60 s tail. The operator confirmed dim Nadir throughout each
+completed run and Bluetooth connected afterward. Nominal USB measurements:
+
+| Profile | Elapsed | Energy | Energy / completed reconnect | Mean power |
+| --- | ---: | ---: | ---: | ---: |
+| On A | 293.014 s | 45.586809 J | 9.117362 J | 155.570449 mW |
+| Off A | 291.665 s | 44.996220 J | 8.999244 J | 154.265703 mW |
+| Return on D | 291.861 s | 45.982879 J | 9.196576 J | 157.540354 mW |
+
+Off uses **0.157725 J/completion (1.7225%) less than the mean flanking controls**.
+Return-on drift is **0.079214 J/completion (0.8688%)**. Supply means are
+4.988343 / 4.997812 / 4.997622 V. Report elapsed time and mean power as well as
+energy; this is a small bounded USB observation, not calibrated savings,
+battery-life evidence or full hardware qualification. The clean idle pair is
+148.091 / 150.332 mW (2.240 mW, 1.490% lower off), not a quiet idle ABA.
+
+Late CRC-valid device-time review extends beyond the completed return window and
+finds no notification, transfer, fault or reset inside the three workloads; all
+have the same ten radio parameter updates. Each also records one `No subscription
+found for ATT handle 3` error before successful protocol recovery. Do not call the
+stack error-free. Return B was excluded whole after a notification; return C
+stopped during settling before power or Bluetooth work. Their first traces are
+retained. The operator paused that notification source before quiet return D.
+
+Actual full CP readbacks after the initial on and off workloads match active
+protected CRCs and exact regenerated raw/package bytes. Programmer reads are
+commanded warm reboots, never cold-power checks. `automated-workload-comparison-3.json`
+and `buffered-workloads-review-1449/` retain the accepted sequence and late review.
+The counted batch is complete; true all-power-removed cold boot,
+PFS/application integrity and overnight interaction remain open. The mixed UART
+experiment stream has actual received data; it is not an overnight qualification.
+Original CP `1713dee…` remains the exact rollback. Earlier current-image statements
+below describe their historical phase, superseded by this checkpoint and
+`hardware-phases.jsonl`. Display remains last.
+
+## CP implementation and earlier experiment sequence — 2026-10-31
+
+[Source-built guarded Wi-Fi off/on profiles](../../../docs/boards/unhygienix/wifi-power.md)
+now build reproducibly with pinned inputs and preserve RF/latency corrections,
+native ABI and the installed controller flash deadline/ACK contract. An initial
+off calibration NULL-callback boot fault was preserved and rolled back; the pinned
+callbacks are now retained and covered by the actual ARM path. Twenty-five focused
+host checks pass. Vendor/common source and AP/display configuration are unchanged.
+
+Corrected off `d4d65559…` boots AP `c656055a…`, reopens existing PFS and reconnects
+bonded/encrypted BT. A user app-transfer/fault-contaminated window is excluded
+whole. CRC-valid device timestamps also downgrade both earlier on controls for
+notifications during settling. The fully quiet off/on pair is 148.091 / 150.332 mW,
+a 2.240 mW (1.490%) difference; there is no fully quiet ABA or qualified saving.
+Phone transfer requires app launch and changes display content, so workload
+energy is excluded. On control also faults/relaunches watchface UUID `16183a4f…`
+at PC `0`, LR `0xc89`. Both that and the earlier Pebblecraft fault reproduce with
+the exact original CP (`1713dee…`), restored at that baseline stage, with operator-confirmed recovery
+and CRC-valid existing-PFS/bonded-session evidence. Root cause remains open; do
+not attribute either signature to Wi-Fi removal. Preserve all first traces.
+
+The first fixed 240 s original-CP reconnect batch has five encrypted/protocol
+completions plus a sixth disconnect before its end (that session opens afterward).
+It is excluded from controlled workload-energy acceptance; the operator confirms five manual cycles with dim Nadir
+unchanged. Earlier original-CP disconnects were operator-confirmed
+Bluetooth/range changes, not spontaneous faults. The later automated checkpoint
+records 25 completed candidate reconnects. PFS/application integrity, true cold
+power and deferred overnight interaction remain open.
+Normal CP defaults/runner are unchanged; neither experimental CP is qualified.
+The timestamped receiver has received data but logs can be buffered for minutes;
+use CRC-valid device timestamps rather than host arrival to classify activity.
+The experiment stream is not an uninterrupted soak. Display remains last.
+
 ## Current power continuation — 2026-10-31
 
 See [the baseline, I2C candidate and ordered dependency record](../../../docs/boards/unhygienix/non-display-power.md).

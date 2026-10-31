@@ -1,6 +1,303 @@
 # Unhygienix Wi-Fi optional-feature investigation — 2026-10-30
 
-## Disposition
+## Automated workload checkpoint — 15:19 UTC, 31 October
+
+Corrected Wi-Fi-off CP **`d4d65559…` is currently installed**, with unchanged AP
+`c656055a…`, for consecutive reconnect qualification. Its expected AP startup is
+received. The first pre-qualification readback handshake timed out after
+commanded resets; its complete trace is preserved, with no received CP crash and
+normal existing-PFS/bonded-session recovery. A fresh-name retry read all 1,114,112
+bytes successfully: active CRCs and exact corrected-off package bytes match, and
+the full physical SHA is `4f2fd6448da1a78d9c918676faccfb4c103dc08df0cdb6fbfa62a829fc0ebd6c`.
+`adb-off-25-A` completed at 15:15:17 UTC after all **25 consecutive cycles**
+and the full recovery tail: exactly 25 disconnects, bonded/encrypted recoveries
+and protocol sessions, no extra termination or new error class detected by the
+harness. The logger closed 0 at 15:15:20. Four notifications and one known ATT
+subscription error were recorded during settling; this functional run's energy
+is excluded from fixed-display comparison. The operator confirmed Bluetooth
+connected and dim Nadir restored/unchanged. Delayed review extends through device
+time 15:15:56, after the 15:15:17 batch end, with no new error class, fault/reset,
+app transfer or extra termination. The counted functional gate is complete;
+full hardware acceptance remains open. The physical cold-power check is armed
+and requested in `cold-off-A`; no fresh boot or operator power-removal result
+has been recorded yet. Overnight observation has not started and is deferred by the operator until
+a later overnight window; it is not a passed or waived qualification gate.
+No experimental image is promoted; production defaults, AP/display policy,
+common source and pinned vendor trees remain unchanged.
+
+The controlled on/off/on sequence completed five encrypted/bonded protocol
+recoveries per batch, after 90 s quiet settling and identical 5 s user-disabled /
+40 s on holds plus a 60 s tail. The operator confirmed dim Nadir throughout each
+completed run and Bluetooth connected afterward. Nominal USB measurements:
+
+| Profile | Elapsed | Energy | Energy / completed reconnect | Mean power |
+| --- | ---: | ---: | ---: | ---: |
+| On A | 293.014 s | 45.586809 J | 9.117362 J | 155.570449 mW |
+| Off A | 291.665 s | 44.996220 J | 8.999244 J | 154.265703 mW |
+| Return on D | 291.861 s | 45.982879 J | 9.196576 J | 157.540354 mW |
+
+Off uses **0.157725 J/completion (1.7225%) less than the mean flanking controls**.
+Return-on drift is **0.079214 J/completion (0.8688%)**. Supply means are
+4.988343 / 4.997812 / 4.997622 V. Report elapsed time and mean power as well as
+energy; this is a small bounded USB observation, not calibrated savings,
+battery-life evidence or full hardware qualification. The clean idle pair is
+148.091 / 150.332 mW (2.240 mW, 1.490% lower off), not a quiet idle ABA.
+
+Late CRC-valid device-time review extends beyond the completed return window and
+finds no notification, transfer, fault or reset inside the three workloads; all
+have the same ten radio parameter updates. Each also records one `No subscription
+found for ATT handle 3` error before successful protocol recovery. Do not call the
+stack error-free. Return B was excluded whole after a notification; return C
+stopped during settling before power or Bluetooth work. Their first traces are
+retained. The operator paused that notification source before quiet return D.
+
+Actual full CP readbacks after the initial on and off workloads match active
+protected CRCs and exact regenerated raw/package bytes. Programmer reads are
+commanded warm reboots, never cold-power checks. `automated-workload-comparison-3.json`
+and `buffered-workloads-review-1449/` retain the accepted sequence and late review.
+The counted batch is complete; true all-power-removed cold boot,
+PFS/application integrity and overnight interaction remain open. The mixed UART
+experiment stream has actual received data; it is not an overnight qualification.
+Original CP `1713dee…` remains the exact rollback. Earlier current-image statements
+below describe their historical phase, superseded by this checkpoint and
+`hardware-phases.jsonl`. Display remains last.
+
+## Earlier idle/application experiment sequence — 31 October 2026
+
+Corrected Wi-Fi-off CP `d4d65559…` boots the unchanged AP `c656055a…`, reopens
+existing SD PFS (`new=0`) and reconnects bonded/encrypted Bluetooth. Its 120-second
+quiet, dim-Nadir idle window after 90 seconds settling averaged **29.681765 mA /
+148.091477 mW**. The exact original CP `1713dee…` was restored for the experimental
+control failure and baseline comparison below. The automated checkpoint above
+identifies the later corrected-off installation. USB power/no cell and display
+configuration remained fixed. These are bounded experimental observations, not a qualified production
+selection or battery-life result. Normal CP defaults and runner remain unchanged.
+
+The first off power window is excluded whole: the operator transferred/launched
+an app, accompanied by a notification and two app faults for UUID `873ef5ea…`,
+PC `0x6e69616c`, LR `0x1b0d`. Preserve that trace and compare the same operation on
+the control before attributing the faults. The later automated checkpoint closes counted reconnect work and its bounded
+energy comparison; PFS/application integrity, true cold power and deferred
+overnight interaction remain gates.
+Display work remains last.
+
+### Idle measurements with fixed display
+
+| CP profile / window | Mean current | Mean USB input power | Nominal energy |
+| --- | ---: | ---: | ---: |
+| On A, secondary | 30.081040 mA | 150.087340 mW | 4.992906 mWh |
+| Off B, quiet primary | 29.681765 mA | 148.091477 mW | 4.928155 mWh |
+| On B, secondary | 30.059213 mA | 149.972723 mW | 4.990759 mWh |
+| On C, quiet primary | 30.131727 mA | 150.331772 mW | 5.002707 mWh |
+
+Each measured window is 120 s at about 4.989 V. Device-time review found on A's
+last notification only 37.6 s before recording, and on B's notification/image
+drops only 69.3 s before recording. Neither meets 90 s quiet settling. Both are
+secondary evidence; **the earlier primary ABA calculation is superseded**.
+The quiet off B/on C pair shows **2.240296 mW (1.490%) lower with off**. Its
+one-second mean sample standard deviations are 1.487 / 3.434 mW. This descriptive
+single-pair result has no independent calibrated uncertainty or long-term/workload
+qualification; no battery-life or qualified saving is established. No spike trimming.
+The meter's 0.15 W display agrees with roughly 150 mW; mV is voltage.
+
+Quiet UART can buffer logs for over two minutes. Per-read host timestamps do not
+identify event time. A read-only PULSEv2 decoder verifies COBS, CRC and lengths,
+and extracts embedded RTC timestamps to review settling and measurement activity.
+`idle-device-timestamp-review.json` and `idle-quiet-pair-comparison.json` supersede
+the retained initial host-time calculation. RTC/host offset still limits precise
+workload timing; do not assign exact transfer energy from host arrival alone.
+
+### Application workload blocker and original-CP control
+
+The operator reports transfer requires launch; the loading/app screen appeared.
+The on attempt is excluded from fixed-display workload energy. Validated logs
+show UUID `873ef5ea…` fetched with cleanup result 0, Pebblecraft launched, and
+later watchface UUID `16183a4f-c48d-4702-8a48-1211031a8115` faulted at PC `0`,
+LR `0xc89`, with automatic relaunch. The operator did not see a visible fault.
+The full first control-failure trace and preceding phase are frozen with hashes.
+
+Exact original CP `1713dee…` was restored CP-only; received AP `c656055a…`,
+existing SD PFS (`new=0`) and bonded/encrypted PPoGATT startup are verified. The
+operator repeated the same app operation and restored Nadir. CRC-valid logs on
+that original CP reproduce **both** Pebblecraft `0x6e69616c/0x1b0d` and watchface
+`0/0xc89` signatures. Wi-Fi removal is not required to trigger either. This is
+reproduction evidence, not a root-cause diagnosis or proof the CP cannot contribute.
+Preserve `original-cp-first-workload-failures*` alongside both experimental failures.
+These are app faults; no uncommanded AP reset is established in the bounded trace.
+
+Original CP was restored for the baseline reproduction. The newer automated
+checkpoint above identifies the current image. Neither experimental image is promoted.
+Counted reconnect work with dim Nadir fixed was the next workload alternative;
+the automated checkpoint above records its completion and programmed-byte proofs.
+App usability/PFS integrity, true all-power-removed cold boot and deferred overnight
+periodic interaction remain gates. Do not claim an overnight pass from the mixed experiment stream.
+
+### Counted reconnect alternative
+
+Earlier original-CP disconnects at 13:29:51 and 13:31:06 (encoded `0x0208`) were
+operator-confirmed Bluetooth toggles or range changes; both recovered to encrypted,
+bonded protocol sessions. Do not label them spontaneous failures.
+
+A planned five-cycle original-CP test used a fixed 240 s window beginning
+13:37:24.378 UTC. It contains five disconnect/encrypted/protocol completions, but
+a sixth disconnect at 13:41:19.387 (`0x0215`) before the window ended; its session
+opened at 13:41:36.027 afterward. The operator confirms five manual cycles with dim Nadir unchanged.
+The six link disconnects comprise five peer-power-off (`0x0215`) and one
+remote-user termination (`0x0213`); this does not mean the operator performed six
+manual cycles. The last manual-cycle recovery finished after the window boundary.
+ADB-timed cycles were the next concrete measurement step at that point. The
+later automated checkpoint records the authorized USB/ADB runs; no new watch
+pairing was introduced.
+
+The 24,002 samples nominally integrate to 38.490365 J, but **the whole window is
+excluded from controlled workload-energy acceptance** because the defined batch
+contains extra unfinished work. Do not trim it into a successful five-cycle trial
+or claim saving from dividing that energy by five. No validated app fault or AP
+build/boot log appears inside the defined window. This is original-CP evidence,
+not 25-cycle candidate qualification. All power recordings stopped cleanly.
+
+### Preserved calibration failure and repair
+
+Initial off `e48465c3…` failed before AP startup: CP MemFault, PC `0x0`, LR
+`0x0205d1f7`, in `bk7011_get_rfcali_mode` during `bk_cal_if_init`. PHY OS callback
+offset 64 (`_get_info_item`) was NULL under the vendor Wi-Fi guard. The full
+913,127-byte failed phase, including repeated CP boots, is retained as
+`off-first-failure-complete.rx.bin` with SHA/offset metadata. Exact original CP
+`1713dee…` was restored and dim Nadir/Bluetooth recovery operator-confirmed before
+the corrected trial. This failed phase is not a soak or reconnect pass.
+
+The existing `NET_PARAM=y` already compiled pinned `get_info_item` and
+`save_info_item`; the board overlay now retains their callback assignments
+independently of Wi-Fi. Their no-override result preserves the actual flash/OTP
+calibration fallback. No factory calibration data is fabricated. Linked guards
+require exact callback symbols at table offsets 60/64. ARM tests execute the
+previously failing calibration path with absent/present OTP, reproduce PC=0 for
+a null slot and reject a wrong binding. **25 focused host tests pass**.
+Corrected off raw/config outputs reproduce across separate clean source builds;
+on output is byte-identical after the callback change.
+
+## Source-built off/on profiles — 31 October 2026
+
+This increment supersedes the older build-blocked/no-CP-write dispositions below.
+Entry production HEAD is `26cdf22c6` (the timer work was committed by the operator).
+Changes remain board-owned: staged overlays, CP profile/build/package tools and
+focused tests. Neither pinned vendor submodule nor common Pebble source changed.
+AP/display configuration, resources, storage geometry and pairing storage are fixed.
+
+### Implemented and host validated
+
+`tools/unhygienix_cp_build.py` defaults to the **off build profile** and stages a
+fresh archive of the two verified pinned SDK inputs. It requires GCC
+10.3-2021.10 and CMake 3.31.6, generates the complete matching TuyaOpen header,
+and retains compiler/source/config/output provenance. Hidden TuyaOpen
+`ENABLE_WIFI` remains a board capability; actual CP feature flags select behavior.
+
+The off profile disables Wi-Fi, VNET, CP Wi-Fi IPC, lwIP and Wi-Fi AT support.
+The on control preserves the corresponding pinned features (Wi-Fi CP IPC stays
+off in both). Conditional dependencies remove the CIF customer placeholder,
+network adapter and mbedTLS network socket backend independently of HCI/SYS IPC.
+Crypto otherwise remains enabled. Armino discovers dependencies before CONFIG
+values exist, so the explicit profile is also supplied during that early phase;
+effective CONFIG is checked again after the link. Bluetooth uses the same pinned
+controller archive; off selects `libcom_phy.a`, retaining Bluetooth calibration,
+wake and shared RF votes. Wi-Fi-only PHY queries/DSSS callbacks are guarded, and
+`libble_wifi_exchange` is excluded. Memory/partition ownership is not reclaimed.
+
+The existing RF correction is called directly from the staged HCI-reset source.
+`tools/unhygienix_cp_variant.py` verifies the pinned stock input, exact reviewed
+raw/config hashes, controller archive SHA, every instruction and relocation in
+the scheduler/TX/max-latency functions, and both parameter-application calls.
+It compiles the existing latency correction against the new ELF's verified
+symbols. The compiled mailbox/HCI/PM contract matches the native AP. Unknown
+images remain rejected; the legacy fixed-hash/address packagers and normal runner
+were not weakened or relabelled. Experimental schema-2 packages are separate
+from normal `t5ai_cp` packaging and remain `flash_qualified: false`.
+
+A clean on build exposed missing dependency propagation, fixed in the board
+recipe. The first library check also confused the retained `bk_phy` adapter with
+the proprietary Wi-Fi archive; it now examines only vendor `bk_libs` paths.
+A static `app_wifi_init` may be inlined; the on check requires the externally
+linked Wi-Fi/CIF/TCP-IP services, while off rejects all four names.
+
+Reconfiguration duplicated the `-lm -lgcc -lc -lnosys` groups and changed GNU ld
+veneer ordering. The canonical link records relative work paths and collapses
+only immediately repeated complete runtime groups. The pre-guard off/on links
+then matched raw SHA and command across two independently compiled directories.
+These were actual differing outputs, not exact stock reproduction. Final guarded profiles have fresh source builds and reviewed hashes; corrected
+off raw/config outputs reproduce across separate clean directories and on remains
+byte-identical after the callback repair. Quota failures and superseded binaries remain frozen. Disposable staged
+SDK copies were removed only after retaining their outputs/logs/overlay sources.
+
+### Preserve the installed flash contract
+
+The pre-write CP-only readback received all **1,114,112 physical bytes** and
+matches the recorded installed latency-fixed CP's protected prefix. Its active
+993,564-byte logical image hashes to
+`1713dee17dd98cd8aea8114a438d24ed87112585c16c45960221c4b96f344efb`;
+active CRCs pass, and the full physical backup retains unreferenced tail bytes.
+The read command caused a commanded warm boot, not a cold-power qualification.
+
+That installed CP also contains controller deadline/ACK protections. The first
+stock-derived packages lacked them and were **not flashed**. The final board
+`flash_contract.S` carries forward RAM launch/wait, the five-second independent
+32 kHz AON bound and the existing fail-stop/reset reason. Staged flash low-level
+waits and launches use it; notification errors, elapsed timeout and iteration-cap
+exhaustion without a real ACK fail-stop before proceeding. Stock controller and
+protection operations remain; paused SPI/volatile/ownership experiments and their
+old diagnostic counters were not restored. The boot copy table and raw ITCM load
+bytes are verified, not just symbol presence.
+
+The 25-test final suite includes native execution of the actual staged
+notification code with immediate/delayed/missing/wrong ACK, write failure,
+powered-off AP and stalled-time cases. Unicorn executes both profiles' linked
+RAM launch/wait, timeout and counter-wrap paths, checks the fail-stop register
+writes and rejects instruction fetches outside ITCM while waiting. The controller
+replay covers both interval-application paths, wrap, the captured failure and
+normal latency behavior. Hardware behavior and PFS integrity still require tests.
+Ruff passes. clang-format 21 was used with unknown-key warnings for two newer
+repository style options; the repository style file was preserved.
+
+| Guarded profile | Base FLASH | Static RAM | ITCM | Packaged logical bytes |
+| --- | ---: | ---: | ---: | ---: |
+| off (corrected) | 349,752 B | 63,580 B | 2,648 B | 349,788 B |
+| on | 971,768 B | 122,940 B | 16,144 B | 971,804 B |
+
+The on ITCM region has only 208 B headroom. These are image sizes, **not energy
+savings**. CP PSRAM heap, AP reservations and flash partitions remain unchanged.
+Exact reviewed base SHA: off `0ce05f25…`, on `438d65ca…`; packaged SHA: off
+`d4d65559…`, on `41b823a4…`. Earlier off `e48465c3…` is rejected. Full hashes are in the board link contract and
+frozen package manifests.
+
+### Device experiment and remaining gates
+
+The dedicated experiment script regenerates and compares the complete package,
+then validates vectors/CRC and the exact readback-matching rollback before each
+CP-only write. On occupies `0x22000..0x11e162`; corrected off ends at `0x7cbc6`;
+both stay below AP `0x132000`. A bounded early-fault watcher restores the exact
+original CP if a startup CP fault is received. This does not replace subsequent
+supervision, PFS and reconnect qualification.
+
+All CP operations are phase-marked with UTC and UART offsets in
+`hardware-phases.jsonl`. The received stream `baseline-soak-v3` includes commanded
+read/flash resets and the first failure; it is not an uninterrupted overnight pass.
+Preserve received bytes and first failures, and do not infer health from a merely
+waiting capture process.
+
+Matched idle and completed reconnect-workload observations, exact programmed CP
+bytes and 25 consecutive reconnects are recorded in the automated checkpoint
+above. Whole contaminated windows are excluded. Storage/application integrity,
+all-power-removed cold boot and deferred overnight connected idle with periodic
+UI interaction remain qualification gates. Any uncommanded AP reset blocks
+acceptance. Retain original CP rollback `1713dee…`. Production default-off and
+normal-runner integration remain pending these gates. Subsequent non-display
+phases follow the ordered power TODO; display is last.
+
+Evidence: `/home/baz/Documents/ChatGPT/pebble/artifacts/wifi-off-implementation-20261031/`.
+It includes failed first attempts, source snapshots, ELF/bin/map/config and link
+commands, pre-write full CP readback/identity, package proofs, tests and phase logs.
+The older sections below retain their dated historical evidence limits.
+
+## Original investigation disposition
 
 Investigation complete; **default-off implementation blocked, electrical and
 device qualification pending**. Native PebbleOS AP already has no Wi-Fi stack.

@@ -19,40 +19,55 @@ A5 was committed in `add66a5e5`; the subsequent native-driver migration is in
 ownership is centralized in `drivers/dma/t5ai.c`. Physical correctness/stability
 qualification remains open. See the [31 October continuation](non-display-power.md)
 for exact images, measurement limitations and ordered implementation dependencies.
-No new power policy is enabled by default and no savings are claimed.
+No new power policy is enabled by default. Bounded USB measurements below are
+separate from calibrated or fully hardware-qualified savings.
 
 ## 1 Establish the baseline
 
 - [x] Investigate optional, default-off Wi-Fi: [findings and 31 October revalidation](wifi-power.md).
   Native AP has no Wi-Fi stack; verified stock/recorded-installed CP initializes
-  Wi-Fi and acquires MAC/PHY/clock/RF votes. Present idle electrical state is
-  unmeasured. Current builds and last recorded installed AP/CP are frozen with
+  Wi-Fi and acquires MAC/PHY/clock/RF votes. Per-block Wi-Fi electrical state is
+  unmeasured; bounded system input-power comparisons are recorded below. Current builds and last recorded installed AP/CP are frozen with
   hashes under `artifacts/wifi-optional-20261030/baseline/` in the reference workspace.
-- [ ] **Wi-Fi implementation — blocked:** pinned runtime deinit is unsupported.
-  Vendor Bluetooth-only build selects different PHY/calibration code; current
-  fixed-hash/fixed-address CP hook packaging cannot accept a relinked CP. Stage
-  a reproducible CP build, resolve VNET/CLI/PM dependencies and introduce verified
-  off/on CP variants with default off. The 31 October staged CP-only build
-  previously stopped before configuration. CMake and verified vendor GCC 10.3
-  are now provisioned in an isolated environment; the continuation records the
-  later CP build disposition: configuration/prebuild pass, then C compilation
-  stopped at the missing matching TuyaOpen-generated `tuya_kconfig.h` header.
-  The later timer continuation recovered matching archived hardware configuration
-  and completes the isolated Wi-Fi-on CP ELF/bin build. Effective CONFIG matches
-  pinned stock; binary hashes differ (linker veneers), so exact reproduction and
-  guarded off/on variant integration remain open. The project unconditionally registers a CIF customer handler
-  and requires VNET/lwIP; resolve those separately from HCI/SYS IPC.
-  Preserve Bluetooth, shared RF/PHY,
-  mailbox services and supervision; see the exact [integration steps](wifi-power.md#exact-implementation-dependency-and-next-step).
-- [ ] **Wi-Fi qualification — pending:** build/test both CP variants, verify
-  service/Bluetooth regressions and measure matched idle/workload current against
-  a verified baseline. The FNB58 is now available: 1,976 samples on 31 October
-  averaged 29.486 mA at 4.98388 V (USB, minimum dimming, Bluetooth connected).
-  Charging state and installed identities remain unknown; this is a setup reading,
-  with no off/on comparison or savings claim. No new firmware flashed. Investigation completion does not close implementation or
-  device/electrical qualification.
-- [ ] Record firmware/AP and CP identities, effective build configuration,
-  fitted cell, supply voltage and measurement setup.
+- [x] Build isolated board-owned Wi-Fi off/on CP profiles with pinned inputs,
+  conditional VNET/lwIP/PHY dependencies, source RF correction, exact image/config
+  guards, relocation-verified latency correction and native ABI contract.
+  Preserve the readback-verified installed controller flash ACK/deadline contract
+  in ITCM; 25 focused host tests pass. See [the latest implementation](wifi-power.md#source-built-offon-profiles--31-october-2026).
+- [ ] Integrate a qualified production default-off selection. Experimental
+  packaging defaults to off, but normal CP packaging/runner and installed control
+  selection remain separate. Final corrected raw/config hashes reproduce across clean source builds;
+  device/PFS/service behavior and energy acceptance remain gates. Runtime deinit
+  remains unsupported. No fixed-hash/address guard was weakened.
+- [ ] **Wi-Fi qualification — bounded measurements and 25 reconnects complete:**
+  initial off `e48465c3…` faulted through a NULL calibration callback; its complete
+  first failure and exact rollback are retained. Pinned callbacks are now kept
+  independently of Wi-Fi, covered by the actual ARM path in 25 host tests.
+  Corrected off `d4d65559…` is installed with AP `c656055a…`; actual on/off CP
+  readbacks match the guarded raw/protected packages and CRCs. Existing SD PFS
+  reopens and bonded/encrypted Bluetooth reconnects.
+  Quiet idle off/on is 148.091 / 150.332 mW: 2.240 mW (1.490%) lower in a single
+  pair. Earlier notification-contaminated controls are secondary; no fully quiet
+  idle ABA is established. Fixed-dim-Nadir on/off/on workloads completed five
+  encrypted/protocol recoveries per batch: 9.117362 / 8.999244 / 9.196576 J per
+  completion. Off is 1.7225% below the mean flanking controls; on drift is 0.8688%.
+  The separate 25-consecutive-cycle run completed exact disconnect/encryption/
+  protocol counts and full tail, with post-run dim Nadir/BT confirmation and
+  delayed review. Known ATT errors are retained; its energy is excluded because
+  notifications occurred during settling. Failed readback handshake, successful
+  retry and all excluded measurement attempts remain preserved.
+  Pebblecraft `0x6e69616c/0x1b0d` and watchface `0/0xc89` faults reproduce on exact
+  original CP `1713dee…`; root cause and application/PFS integrity remain open.
+  True all-power-removed cold boot is pending; overnight observation is deferred.
+  Production default-off integration remains gated. No calibrated battery-life
+  or fully hardware-qualified saving is claimed. See [current status](current-status.md).
+- [x] Record firmware/AP and CP identities, effective build configuration,
+  fitted cell, supply voltage and measurement setup. Frozen AP `c656055a…`,
+  actual on/off CP readbacks and guarded effective configs are retained. Setup:
+  USB/no cell, dim Nadir, bonded Bluetooth, authorized USB Android phone with
+  scan policy 1; workload mean supply 4.988343–4.997812 V. Numeric panel luminance
+  and battery-side current are unmeasured; FNB58 records USB input (0.15 W is
+  150 mW, not mV). This records the baseline, not hardware qualification.
 - [ ] Measure connected idle, disconnected advertising, scripted interaction,
   app transfer, motion wake, and microphone recording followed by idle. Hold
   display brightness and content fixed throughout the non-display phases.
@@ -65,8 +80,9 @@ No new power policy is enabled by default and no savings are claimed.
 
 31 October baseline progress is recorded in [the continuation](non-display-power.md):
 AP identity and no-cell USB setup verified, exact off/on images frozen and matched
-idle windows recorded with display settings fixed. CP readback, sparse complete
-runtime state and the completed-workload matrix remain open.
+idle windows recorded with display settings fixed. The later CP readbacks and
+counted reconnect workloads are in [current status](current-status.md). Sparse
+complete runtime state and the remaining workload matrix are still open.
 
 ## 2 Balance non-display peripheral clocks
 
@@ -169,6 +185,9 @@ open gates, not implemented suspend behavior.
   than inferring Wi-Fi or RF power from AP inactivity.
 
 ## 8 Qualify non-display savings
+
+The operator deferred the overnight soak to a later overnight window. It remains
+an open qualification gate; no soak is running or recorded as passed.
 
 - [ ] Compare each change against the baseline, with display configuration held
   fixed. Record average current, energy per completed task and wake latency.
