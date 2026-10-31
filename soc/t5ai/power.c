@@ -78,3 +78,10 @@ void t5ai_power_sync_tick_clock(void) {
     SysTick->VAL = 0u;
   }
 }
+
+#ifdef CONFIG_T5AI_TICKLESS_WFI
+uint32_t t5ai_power_wfi_clock_min_hz(void) {
+  const uint32_t minimum = t5ai_cp_mailbox_wfi_clock_min_hz();
+  return minimum != 0u && prv_core_clock_hz() >= minimum ? minimum : 0u;
+}
+#endif

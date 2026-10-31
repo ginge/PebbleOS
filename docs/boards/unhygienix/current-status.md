@@ -4,11 +4,49 @@ This page supersedes installed-image claims and task dispositions in older dated
 handoffs. Dates refer to Europe/London. Historical captures and failed candidates
 remain evidence; completion by operator decision does not imply new measurements.
 
+## Latest timer continuation — 2026-10-31
+
+Production entry HEAD is `198385cb0`, which committed the preceding I2C work;
+the worktree was clean before this timer increment. The new SoC/driver-local
+`T5AI_TICKLESS_WFI` option remains default off. It extends the already-owned
+SysTick during ordinary WFI, keeping the application veto and active vote, and
+restores periodic ticks on wake. CP source/divider ordering revealed a transient
+160 MHz floor during 240/320 MHz switching; the deadline uses that bound.
+
+The final relevant native driver/storage/timer/PM suite passes 36 tests; normal
+and matched release images pass map/protected/resource/log-hash/syscall checks.
+Three legacy display DMA test errors still reference removed functions; those
+retained failures are separate from the passing current non-display suite.
+Two initial candidates increased steady tick IRQ count; first traces are preserved.
+Final candidate `f2f070e4…` avoids shortening the periodic timer and avoids a
+synthetic IRQ ahead of a still-running periodic tick. Steady counts drop from
+60,000 to about 56,300 IRQs per minute with correct elapsed tick totals.
+
+Settled, operator-confirmed dim-Nadir/Bluetooth means: timer on **30.070 mA /
+149.888 mW**, off **30.030 mA / 149.690 mW**, both about 4.9846 V. No saving is
+demonstrated; this is a clean pair, not a completed ABA/workload-energy matrix.
+Earlier different-screen and notification-contaminated windows are excluded
+explicitly, not trimmed. A supervision-timeout disconnect/recovery on the off
+control is retained; baseline radio stability remains unqualified.
+
+The normal default-off image is `c656055a2c73c30defa3c8939c00b67af2771c95`, FLASH
+1,638,072 B (328 B free), RAM 97,824 B. Final startup/capture disposition is in
+[the experiment record](tickless-wfi.md). CP, resources and PFS were preserved.
+Wi-Fi-on CP now builds in isolation with recovered matching configuration, but
+binary SHA differs from pinned stock and guarded off/on variants remain unfinished.
+No CP was flashed. Display work remains last. The cold-power redo captures the expected AP boot; the operator reports Nadir and
+Bluetooth running. Cold storage/reconnect logs are incomplete after receiver
+reattachment, so full cold-start qualification remains open. Current baseline
+capture is `baseline-soak-v3/` (PID 760489), with a valid received AP frame verified
+at 11:27:48 UTC; earlier receivers/gaps are preserved and stopped. Overnight and
+25-cycle qualification are pending. The older installed/capture claims below
+describe the earlier run.
+
 ## Latest power continuation — 2026-10-31
 
 [Baseline, I2C candidate, measurement and dependency record](non-display-power.md)
 supersedes the old A5 installed/source and display-default assumptions below.
-Current production HEAD is `2eacc9eaa`; A5 was committed in `add66a5e5`, followed
+The earlier continuation started at `2eacc9eaa`; A5 was committed in `add66a5e5`, followed
 by the native-driver migration in `2eacc9eaa`. Entry hardware identity was verified
 as native PSRAM build `6b314eb5…`, not A5. The exact installed rollback archive
 is preserved. USB-only/no-cell, dimmed Nadir and connected Bluetooth were confirmed

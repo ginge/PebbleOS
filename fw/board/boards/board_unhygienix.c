@@ -30,6 +30,7 @@
 #include <pbl/soc/t5ai/interrupt_profile.h>
 #include <pbl/soc/t5ai/memory.h>
 #include <pbl/soc/t5ai/power.h>
+#include <pbl/soc/t5ai/tick.h>
 #include <pbl/soc/t5ai/reboot_trace.h>
 #include <pbl/soc/t5ai/state_trace.h>
 
@@ -284,6 +285,9 @@ void board_init(void) {
 
   // Vote after the scheduler and CP mailbox are ready; keep the active rate at 240 MHz.
   t5ai_power_init();
+#ifdef CONFIG_T5AI_TICK_PROFILE
+  t5ai_tick_profile_start();
+#endif
 
   // The boot stages map PSRAM; verify the handoff before any framebuffer use.
   (void)t5ai_cp_mailbox_enable_psram();

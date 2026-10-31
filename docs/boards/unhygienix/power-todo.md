@@ -14,7 +14,7 @@ source inspection and host tests do not establish electrical savings.
 
 Local correctness history is tracked in [current status](current-status.md).
 A5 was committed in `add66a5e5`; the subsequent native-driver migration is in
-`2eacc9eaa`. The 31 October entry AP was verified as native PSRAM build
+`2eacc9eaa`; I2C qualification was subsequently committed as `198385cb0`. The 31 October entry AP was verified as native PSRAM build
 `6b314eb5…`; historical A5 installed/default claims are superseded. Current DMA
 ownership is centralized in `drivers/dma/t5ai.c`. Physical correctness/stability
 qualification remains open. See the [31 October continuation](non-display-power.md)
@@ -36,7 +36,11 @@ No new power policy is enabled by default and no savings are claimed.
   previously stopped before configuration. CMake and verified vendor GCC 10.3
   are now provisioned in an isolated environment; the continuation records the
   later CP build disposition: configuration/prebuild pass, then C compilation
-  stops at the missing matching TuyaOpen-generated `tuya_kconfig.h` header. The project unconditionally registers a CIF customer handler
+  stopped at the missing matching TuyaOpen-generated `tuya_kconfig.h` header.
+  The later timer continuation recovered matching archived hardware configuration
+  and completes the isolated Wi-Fi-on CP ELF/bin build. Effective CONFIG matches
+  pinned stock; binary hashes differ (linker veneers), so exact reproduction and
+  guarded off/on variant integration remain open. The project unconditionally registers a CIF customer handler
   and requires VNET/lwIP; resolve those separately from HCI/SYS IPC.
   Preserve Bluetooth, shared RF/PHY,
   mailbox services and supervision; see the exact [integration steps](wifi-power.md#exact-implementation-dependency-and-next-step).
@@ -81,6 +85,12 @@ runtime state and the completed-workload matrix remain open.
 - [ ] Define shared backup-domain/GDMA power ownership for microphone, optional SD
   and display. Preserve all active owners; do not gate the whole domain from
   an individual driver. Defer display-specific changes to phase 9.
+Native SD already clears its FIFO `SD_CLOCK_ALWAYS_ON` override after CMD12 and
+status-ready polling. It still retains controller bypass and the CP-managed
+source/domain vote. Audit those separately, including final card busy/drain,
+fault recovery and CP ownership; clearing a FIFO override does not establish
+safe source-clock/domain release. Preserve storage geometry and the existing PFS.
+
 - [ ] Verify error, cancellation and repeated initialization paths release each
   acquired resource exactly once.
 
@@ -90,6 +100,14 @@ single CP-managed AON RTC and native wake-notification prerequisites. These are
 open gates, not implemented suspend behavior.
 
 ## 3 Implement the wake timer and tickless idle
+
+- [x] Implement an opt-in ordinary-WFI timer contract using the AP-owned SysTick,
+  acknowledged CP veto/vote guards and a conservative 160 MHz transient floor.
+  Native sanitizer tests and matched release image checks pass. This is separate
+  from CP AON wake routing and retained sleep. See [timer experiment](tickless-wfi.md).
+- [ ] Qualify that opt-in contract on hardware: steady AON/tick accounting,
+  deadlines and heartbeat, connected idle/workload energy, external wake, transfers,
+  faults, reconnect/cold-power and overnight soak. Keep default off.
 
 - [ ] Establish ownership of an AON compare or another suitable low-power wake
   timer and qualify its AP/CP interrupt and wake routing.

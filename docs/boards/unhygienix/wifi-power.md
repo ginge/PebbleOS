@@ -19,13 +19,22 @@ the CP still initializes it, so none was added.
 [The non-display continuation](non-display-power.md) supersedes the tooling and
 installed-image assumptions in the earlier revalidation below. CMake 3.31.6 and
 the SHA-256-verified vendor GCC 10.3 toolchain are now provisioned under `/tmp`.
-The staged Wi-Fi-on CP passes configuration/prebuild and reaches C compilation,
-then stops at the matching TuyaOpen-generated `tuya_kconfig.h` header missing
-from its build environment. The retained failure and next reproduction steps
-are recorded in the continuation evidence. No reproducible stock CP or off/on CP
-variants have been packaged or flashed, and the fixed-address/hash hook and
-Bluetooth calibration/service qualification gates remain. Non-display AP-only
-experiments are separate from Wi-Fi; they preserve the installed CP.
+The recovered hardware-generated TuyaOpen header and build parameters match the
+pinned TuyaOpen/T5AI commits and Waveshare board. The isolated Wi-Fi-on CP now
+completes compilation, ELF link, binary generation and size report with verified
+GCC 10.3 and Python 3.12. A staging-only CMake map-filename correction is retained;
+production vendor sources remain unchanged. Effective CONFIG values match the
+archived pinned stock, and both binaries are 971,156 B, but SHA differs: 1,467
+bytes and 169 linker-veneer symbols differ. Non-veneer symbol addresses/sizes/types
+match. This is build recovery, not byte-identical stock reproduction.
+
+Evidence and the executable environment probe are in
+`/home/baz/Documents/ChatGPT/pebble/artifacts/tickless-wfi-20261031/cp-config-recovery/`
+and `cp-on-linked/`. No off variant, variant-aware guarded packaging or CP device
+qualification passed; no CP was flashed. Preserve the fixed-hash rejection of
+this relink until source/ELF-verified RF/latency integration and Bluetooth-only
+PHY/calibration/service checks are implemented. Non-display AP-only experiments
+preserve the installed CP.
 
 ## Revalidation and measured setup reading — 2026-10-31
 

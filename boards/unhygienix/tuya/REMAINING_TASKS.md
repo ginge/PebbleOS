@@ -3,7 +3,7 @@
 ## Current power continuation — 2026-10-31
 
 See [the baseline, I2C candidate and ordered dependency record](../../../docs/boards/unhygienix/non-display-power.md).
-Production HEAD is `2eacc9eaa`; A5 is committed (`add66a5e5`) and the later native
+The first continuation started at `2eacc9eaa`; A5 is committed (`add66a5e5`) and the later native
 migration supersedes the historical transport/installed-image statements below.
 Entry AP `6b314eb5…` was verified by UART; CP readback remains unverified and CP
 was not written. USB-only/no-cell, dimmed Nadir and Bluetooth were operator confirmed.
@@ -15,6 +15,16 @@ arbitration remains open. Display source/policy/configuration are held fixed.
 Wake/tickless, retained sleep, sensors, memory and CPU/radio work remain in the
 ordered power TODO; the sleep veto and SysTick are retained. No measured saving
 or full qualification is claimed. See current status for the final installed ID.
+
+The next increment starts from committed I2C HEAD `198385cb0`. A default-off
+AP-local ordinary-WFI timer extension and sparse qualification counters are
+implemented and host/release-image tested. It retains the veto/active vote,
+uses the audited 160 MHz transition floor and avoids CP RTC compare ownership.
+Bounded device accounting passes; about 6% fewer tick IRQs shows no demonstrated
+electrical saving (30.070 mA on / 30.030 mA off), so the option stays off.
+Counted-workload energy, full wake deadlines, reconnect/cold-power and soak gates
+remain open. See the
+[timer experiment and final installed disposition](../../../docs/boards/unhygienix/tickless-wfi.md).
 
 ## Historical correctness packages — 2026-10-30
 

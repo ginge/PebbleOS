@@ -1,5 +1,10 @@
 # Non-display power continuation — 31 October 2026
 
+A later increment starts from committed I2C HEAD `198385cb0`; its opt-in ordinary-
+WFI timer experiment, recovered CP build environment and final device/capture
+state are in [the timer continuation](tickless-wfi.md). That record supersedes
+the source-head, installed-image and stopped-capture statements below.
+
 Power work remains in progress. This record supersedes the old A5 installed-image
 and retired display-transport assumptions in the power handoff. No electrical
 saving or completed retained-sleep contract is established by the changes below.

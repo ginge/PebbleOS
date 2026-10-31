@@ -60,3 +60,8 @@ status_t t5ai_cp_mailbox_vote_app_sleep(bool allow_sleep);
 status_t t5ai_cp_mailbox_vote_cpu1_frequency(T5AICpuFrequency frequency);
 status_t t5ai_cp_mailbox_log(const void *data, size_t length);
 bool t5ai_cp_mailbox_shared_range_valid(uintptr_t address, size_t length);
+
+#ifdef CONFIG_T5AI_TICKLESS_WFI
+// Nonblocking; zero unless CP acknowledged the sleep veto and a >=240 MHz vote.
+uint32_t t5ai_cp_mailbox_wfi_clock_min_hz(void);
+#endif

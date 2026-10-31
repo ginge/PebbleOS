@@ -329,6 +329,25 @@ config T5AI_I2C_RX_FIFO
       Experimental bounded 4/8/12-byte receive interrupts with a one-byte
       tail. Retain byte-driven writes, bus frequency and completion semantics.
 
+config T5AI_TICKLESS_WFI
+    bool "Extend the AP SysTick deadline during ordinary WFI"
+    default n
+    help
+      Qualification option. Keep the CP application sleep veto and active CPU
+      vote. Extend the already-owned core timer to about 70 ms, waking one
+      kernel tick before the next scheduler deadline. Restore periodic ticks
+      after external or timer wake and account elapsed AON time in SysTick.
+      Requires acknowledged CP votes and a known elected clock. This does not
+      implement retained sleep or take ownership of the CP AON alarm.
+
+config T5AI_TICK_PROFILE
+    bool "Report sparse AP tick and extended-WFI counters"
+    default n
+    help
+      Qualification counters in SysTick and idle, reported once per minute
+      through existing regular timers and KernelBG. No additional thread or
+      per-tick logging. Enable identically in off/on comparison images.
+
 config T5AI_I2C_IDLE_GATING
     bool "Release T5AI I2C local clock bypass between transfers"
     depends on BOARD_UNHYGIENIX && I2C_T5AI

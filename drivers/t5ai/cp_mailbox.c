@@ -87,6 +87,16 @@ static bool s_heartbeat_in_flight;
 static uint64_t s_next_heartbeat_ticks;
 static bool s_runtime_initialized;
 static bool s_pm_faulted;
+#ifdef CONFIG_T5AI_TICKLESS_WFI
+static bool s_app_sleep_veto;
+static bool s_wfi_clock_vote;
+
+uint32_t t5ai_cp_mailbox_wfi_clock_min_hz(void) {
+  // CP switches 240/320 MHz through 320 MHz divided by two.
+  return s_app_sleep_veto && s_wfi_clock_vote && !s_pm_faulted ? 160000000u : 0u;
+}
+#endif
+
 static bool s_log_faulted;
 
 bool t5ai_cp_mailbox_shared_range_valid(uintptr_t address, size_t length) {
@@ -339,6 +349,10 @@ void t5ai_cp_mailbox_discard_pending(void) {
   pbl_irq_lock();
   s_pm_queue.head = 0u;
   s_pm_queue.count = 0u;
+#ifdef CONFIG_T5AI_TICKLESS_WFI
+  s_app_sleep_veto = false;
+  s_wfi_clock_vote = false;
+#endif
   pbl_irq_unlock();
   while (pbl_sem_take(&s_pm_queue.ready, PBL_TICKS(0u)) == 0) {
   }
@@ -421,6 +435,15 @@ static status_t prv_pm_request(uint8_t command, uint32_t parameter1, uint32_t pa
     status = E_INVALID_OPERATION;
     goto out;
   }
+#ifdef CONFIG_T5AI_TICKLESS_WFI
+  // Invalidate under the transaction mutex, before CP can change either vote.
+  if (command == CP_PM_SLEEP_COMMAND && parameter1 == CP_PM_SLEEP_APP_MODULE) {
+    s_app_sleep_veto = false;
+  }
+  if (command == CP_PM_CPU_FREQUENCY_COMMAND && parameter1 == CP_PM_CPU1_MODULE) {
+    s_wfi_clock_vote = false;
+  }
+#endif
   while (pbl_sem_take(&s_pm_queue.ready, PBL_TICKS(0u)) == 0) {
     T5AICPMailboxFrame stale;
     (void)prv_dequeue(CP_PM_RX_CHANNEL, &stale);
@@ -445,6 +468,18 @@ static status_t prv_pm_request(uint8_t command, uint32_t parameter1, uint32_t pa
   }
   const T5AIMailboxMessage *response = (const void *)frame.address;
   status = (uint8_t)response->header == command && response->parameter1 == 0u ? S_SUCCESS : E_ERROR;
+#ifdef CONFIG_T5AI_TICKLESS_WFI
+  if (status == S_SUCCESS) {
+    if (command == CP_PM_SLEEP_COMMAND && parameter1 == CP_PM_SLEEP_APP_MODULE) {
+      s_app_sleep_veto = parameter2 == 0u;
+    }
+    if (command == CP_PM_CPU_FREQUENCY_COMMAND && parameter1 == CP_PM_CPU1_MODULE) {
+      s_wfi_clock_vote = parameter2 >= T5AICpuFrequency_240MHz &&
+                         parameter2 <= T5AICpuFrequency_480MHz;
+    }
+  }
+#endif
+
 out:
   pbl_mutex_unlock(&s_pm_mutex);
   return status;

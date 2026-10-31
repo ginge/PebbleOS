@@ -37,9 +37,17 @@ void pbl_soc_idle(pbl_tick_t expected_idle_ticks) {
   const uint32_t profile_start = t5ai_interrupt_profile_irq_enter();
   __disable_irq();
   if (pbl_idle_confirm()) {
+#ifdef CONFIG_T5AI_TICKLESS_WFI
+    const bool extended = t5ai_tick_prepare_idle(expected_idle_ticks);
+#endif
     __DSB();
     __WFI();
     __ISB();
+#ifdef CONFIG_T5AI_TICKLESS_WFI
+    if (extended) {
+      t5ai_tick_resume_idle();
+    }
+#endif
   }
   t5ai_interrupt_profile_irq_exit(3, profile_start);
   __enable_irq();
