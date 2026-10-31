@@ -103,13 +103,22 @@ static status_t t5ai_cp_mailbox_enable_psram(void) {
   assert(SysTick->LOAD == 239999u && SysTick->VAL == 0u);
   stage = 3; return S_SUCCESS;
 }
-static bool prv_validate_framebuffer_ram(void) { assert(stage == 3); stage = 4; return true; }
-static void t5ai_boot_splash_render(void) { assert(stage == 4); stage = 5; }
+static uint32_t __t5ai_framebuffer_start__[1], __t5ai_framebuffer_end__[1];
+static uint32_t __t5ai_display_dma_start__[1], __t5ai_display_dma_end__[1];
+static bool prv_validate_psram_range(volatile uint32_t *words, const uint32_t *end) {
+  if (stage == 3) {
+    assert(words == __t5ai_framebuffer_start__ && end == __t5ai_framebuffer_end__);
+  } else {
+    assert(stage == 4 && words == __t5ai_display_dma_start__ && end == __t5ai_display_dma_end__);
+  }
+  ++stage; return true;
+}
+static void t5ai_boot_splash_render(void) { assert(stage == 5); stage = 6; }
 static const int backlight;
 #define BACKLIGHT (&backlight)
 static const struct { unsigned backlight_on_percent; } BOARD_CONFIG = {100};
 static int pbl_backlight_set_brightness(const int *bl, unsigned brightness) {
-  assert(bl == BACKLIGHT && brightness == 100 && stage == 5); stage = 6; return 0;
+  assert(bl == BACKLIGHT && brightness == 100 && stage == 6); stage = 7; return 0;
 }
 BOARD_STARTUP
 int main(void) {
@@ -121,7 +130,7 @@ int main(void) {
   SysTick->CTRL = 1u; SysTick->LOAD = 59999u; SysTick->VAL = 17u;
   stage = 1; // Device registry has initialized the I2C parent.
   board_init();
-  assert(votes == 1 && stage == 6 && s_initialized);
+  assert(votes == 1 && stage == 7 && s_initialized);
   return 0;
 }
 """.replace("BOARD_STARTUP", startup)

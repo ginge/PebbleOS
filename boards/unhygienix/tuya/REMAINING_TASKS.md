@@ -1,6 +1,22 @@
 # Unhygienix validation and remaining work
 
-## Current correctness packages — 2026-10-30
+## Current power continuation — 2026-10-31
+
+See [the baseline, I2C candidate and ordered dependency record](../../../docs/boards/unhygienix/non-display-power.md).
+Production HEAD is `2eacc9eaa`; A5 is committed (`add66a5e5`) and the later native
+migration supersedes the historical transport/installed-image statements below.
+Entry AP `6b314eb5…` was verified by UART; CP readback remains unverified and CP
+was not written. USB-only/no-cell, dimmed Nadir and Bluetooth were operator confirmed.
+Local I2C bypass gating is implemented and host/image tested as a default-off
+qualification option. Startup/SD/bonded reconnection and an off/on/off measurement
+sequence do not close fault, counted-workload or long-term qualification.
+The current controller centralizes AP DMA IRQ ownership; shared-domain/CP power
+arbitration remains open. Display source/policy/configuration are held fixed.
+Wake/tickless, retained sleep, sensors, memory and CPU/radio work remain in the
+ordered power TODO; the sleep veto and SysTick are retained. No measured saving
+or full qualification is claimed. See current status for the final installed ID.
+
+## Historical correctness packages — 2026-10-30
 
 - [x] **A1 / F01:** committed in `f3ebbee4c`, complete and explicitly operator
   accepted. The installed SD image reopened the existing volume without

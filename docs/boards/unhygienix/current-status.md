@@ -1,10 +1,48 @@
-# Unhygienix current status — 2026-10-30
+# Unhygienix current status — 2026-10-31
 
 This page supersedes installed-image claims and task dispositions in older dated
 handoffs. Dates refer to Europe/London. Historical captures and failed candidates
 remain evidence; completion by operator decision does not imply new measurements.
 
-## Latest source and recorded device state — 2026-10-30
+## Latest power continuation — 2026-10-31
+
+[Baseline, I2C candidate, measurement and dependency record](non-display-power.md)
+supersedes the old A5 installed/source and display-default assumptions below.
+Current production HEAD is `2eacc9eaa`; A5 was committed in `add66a5e5`, followed
+by the native-driver migration in `2eacc9eaa`. Entry hardware identity was verified
+as native PSRAM build `6b314eb5…`, not A5. The exact installed rollback archive
+is preserved. USB-only/no-cell, dimmed Nadir and connected Bluetooth were confirmed
+by the operator. CP was preserved; its current hash was not read back.
+
+The board-local `T5AI_I2C_IDLE_GATING` candidate defaults off and releases only
+local bypass after STOP/bus-free, restoring it before the next transaction. It
+retains bypass on stuck STOP and preserves shared domain/source clocks. Normal
+control/on images pass packaging/maps and relevant host regressions; the stale
+power-startup fixture was corrected for both native PSRAM ranges. Candidate
+startup/SD/bonded reconnection and operator normal-running checks passed.
+
+Matched off/on/off means were **30.011 / 30.072 / 29.996 mA** at about
+4.9854 V, each from 11,980 samples (about **0.150 W**). No saving is demonstrated.
+The off control is restored: verified installed AP build ID
+`7c7d8a292457cb60338229e845a382b1a3329b77`, phone version
+`v4.41.2-901-g2eacc9eaa-dirty`. Resources match the previous archive; SD/PFS/apps
+and bonded reconnection were preserved. Candidate `1ce0c3b7…` remains opt-in,
+not promoted. Normal control/on, final-source default-off and release/on image checks pass.
+The final combined host regression passes 37 tests; Ruff passes. All captures
+are stopped; no overnight soak is running. Source edits
+in this continuation remain uncommitted; existing documentation edits were
+preserved. Exact evidence and qualification limits are in the linked record.
+
+Wake ownership/notification routing, complete tickless/retained-sleep contract,
+peripheral source/domain ownership, sensors, shared memory and counted-workload
+CPU/radio energy remain unfinished. SysTick and application sleep veto remain.
+No display configuration/source or CP behavior was changed. The current native
+DMA controller centrally owns AP routes; old two-row IRQ timing remains historical
+evidence, not a result for the current transport. Physical fault/concurrency,
+25-cycle, true cold-boot and overnight qualification remain open. Details and
+concrete ordered next steps are in the linked continuation record.
+
+## Historical source and recorded device state — 2026-10-30
 
 Production HEAD is `bf10c6435930c7d0f12ab335faf67c29f1d14b0c` (A4 committed),
 following A3 `06079008a`, A2 `f7f7cbd84` and A1 `f3ebbee4c`. A5 remaining local
@@ -166,6 +204,34 @@ AP map check passed. Host UARTs were enumerated; a six-second runtime read
 received 246 B and then stopped. This did not re-establish installed identities,
 measure current or qualify a new firmware image. See the report for the next CP
 integration task and baseline measurement instructions.
+
+## Wi-Fi revalidation — 2026-10-31
+
+At production HEAD `2eacc9eaa9682f9e30e72abf1211b8675ecdef67`, default-off
+Wi-Fi implementation remains blocked and device/electrical qualification remains
+pending. [Updated ownership, CP build attempt and measurement](wifi-power.md#revalidation-and-measured-setup-reading--2026-10-31)
+confirm the unchanged CP startup/deinit constraints and available Bluetooth-only
+PHY libraries. The staged CP-only build generated partitions but stopped before
+configuration at missing CMake; vendor GCC 10.3 and resolution of unconditional
+project CIF/VNET dependencies are the concrete next steps before variant packaging.
+No firmware source/default changed or flashing occurred. The pre-existing
+`tooling.md` worktree change was preserved.
+
+The stock-derived CP hook build/manifest and archived AP map validation passed.
+Of 70 host checks, 68 passed; the old board-startup fixture errored and old button
+source assertion failed against this entry HEAD following the driver API migration.
+No fresh AP/full CP build or Wi-Fi-off behavior is validated by these checks.
+
+The now-connected FNB58 returned 1,976 CRC-enabled samples, mean 4.98388 V,
+29.486 mA / 146.954 mW. Operator reports USB power, lowest screen dimming and
+Bluetooth connected; battery/charging state and installed firmware identities
+remain unverified. This is a setup reading, not measured Wi-Fi savings or a
+controlled baseline. A six-second UART probe received 168/24 bytes on if00/if02
+without a decoded identity log. Both captures are stopped. Evidence:
+`/home/baz/Documents/ChatGPT/pebble/artifacts/wifi-optional-20261031/`.
+The implementation and qualification checklist items remain separate and open.
+Continue with controlled baseline/CP integration as documented; no remaining
+power work was started.
 
 ## Completed work and retained configuration
 

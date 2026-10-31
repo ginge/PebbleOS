@@ -12,24 +12,18 @@ T5AI SoC or individual drivers. Preserve stock shared code and existing companio
 compatibility. Check off implementation and device qualification separately;
 source inspection and host tests do not establish electrical savings.
 
-Local correctness prerequisites are tracked in [current status](current-status.md).
-A1 is operator accepted; A2 logging/PM quarantine is committed. A3 receive-pressure
-handling is host/image validated and flashed AP-only with startup/reconnect
-verified; sustained pressure and live heap/stack qualification remain pending.
-It reuses existing IPC staging, with zero added normal SRAM and 32 bytes added
-in release. A4 RTC cleanup/publication is committed as `bf10c6435`. A5 eFuse,
-idle-gate and shared-GDMA corrections are implemented and host/image validated;
-normal A5 `901c6c58` is AP-only flashed with startup/bonded reconnection verified.
-A5 remains uncommitted. A3 pressure, A4 RTC fault/interrupted-write and A5 physical
-eFuse/idle/mixed-DMA qualification remain open. Display IRQ/worker defaults and
-display power policy are unchanged.
-Resume this power sequence after the local correctness packages; HCI polling/sleep
-changes remain separate and should reuse A3 lifecycle tests. No electrical savings
-are claimed by these correctness or memory changes.
+Local correctness history is tracked in [current status](current-status.md).
+A5 was committed in `add66a5e5`; the subsequent native-driver migration is in
+`2eacc9eaa`. The 31 October entry AP was verified as native PSRAM build
+`6b314eb5…`; historical A5 installed/default claims are superseded. Current DMA
+ownership is centralized in `drivers/dma/t5ai.c`. Physical correctness/stability
+qualification remains open. See the [31 October continuation](non-display-power.md)
+for exact images, measurement limitations and ordered implementation dependencies.
+No new power policy is enabled by default and no savings are claimed.
 
 ## 1 Establish the baseline
 
-- [x] Investigate optional, default-off Wi-Fi: [2026-10-30 findings](wifi-power.md).
+- [x] Investigate optional, default-off Wi-Fi: [findings and 31 October revalidation](wifi-power.md).
   Native AP has no Wi-Fi stack; verified stock/recorded-installed CP initializes
   Wi-Fi and acquires MAC/PHY/clock/RF votes. Present idle electrical state is
   unmeasured. Current builds and last recorded installed AP/CP are frozen with
@@ -38,12 +32,20 @@ are claimed by these correctness or memory changes.
   Vendor Bluetooth-only build selects different PHY/calibration code; current
   fixed-hash/fixed-address CP hook packaging cannot accept a relinked CP. Stage
   a reproducible CP build, resolve VNET/CLI/PM dependencies and introduce verified
-  off/on CP variants with default off. Preserve Bluetooth, shared RF/PHY,
+  off/on CP variants with default off. The 31 October staged CP-only build
+  previously stopped before configuration. CMake and verified vendor GCC 10.3
+  are now provisioned in an isolated environment; the continuation records the
+  later CP build disposition: configuration/prebuild pass, then C compilation
+  stops at the missing matching TuyaOpen-generated `tuya_kconfig.h` header. The project unconditionally registers a CIF customer handler
+  and requires VNET/lwIP; resolve those separately from HCI/SYS IPC.
+  Preserve Bluetooth, shared RF/PHY,
   mailbox services and supervision; see the exact [integration steps](wifi-power.md#exact-implementation-dependency-and-next-step).
 - [ ] **Wi-Fi qualification — pending:** build/test both CP variants, verify
   service/Bluetooth regressions and measure matched idle/workload current against
-  the frozen baseline when instrumentation arrives. No savings claimed; no new
-  firmware flashed. Investigation completion does not close implementation or
+  a verified baseline. The FNB58 is now available: 1,976 samples on 31 October
+  averaged 29.486 mA at 4.98388 V (USB, minimum dimming, Bluetooth connected).
+  Charging state and installed identities remain unknown; this is a setup reading,
+  with no off/on comparison or savings claim. No new firmware flashed. Investigation completion does not close implementation or
   device/electrical qualification.
 - [ ] Record firmware/AP and CP identities, effective build configuration,
   fitted cell, supply voltage and measurement setup.
@@ -57,20 +59,35 @@ are claimed by these correctness or memory changes.
   audio shutdown, disabled amplifier/gyro, unused-accelerometer shutdown and
   touch reset on disable.
 
+31 October baseline progress is recorded in [the continuation](non-display-power.md):
+AP identity and no-cell USB setup verified, exact off/on images frozen and matched
+idle windows recorded with display settings fixed. CP readback, sparse complete
+runtime state and the completed-workload matrix remain open.
+
 ## 2 Balance non-display peripheral clocks
 
-- [ ] Add balanced I2C clock acquisition/release and validate local automatic
-  gating. Wait for physical STOP/bus-free before gating; retain recovery and
+- [x] Implement default-off local I2C bypass release/acquisition with sanitized
+  STOP/fault/cancel/recovery tests and normal image validation.
+- [ ] Qualify local automatic gating and a repeatable electrical benefit; system
+  source-clock/CP vote release is still separate. The option remains default off.
+  Wait for physical STOP/bus-free before gating; retain recovery and
   timeout behaviour on the shared touch/RTC/IMU bus.
 - [ ] Add balanced UART local gating and CP clock-vote release where supported.
   Drain TX first and define the required RX/wake behaviour.
 - [ ] Reduce routine production serial traffic while retaining bounded fault
   diagnostics; compare current with and without the debug connection.
-- [ ] Define shared backup-domain/GDMA ownership for microphone, optional SD
+- [x] Centralize AP GDMA interrupt/channel ownership in the native DMA controller
+  (existing migration); preserve CP channels. Host isolation tests pass.
+- [ ] Define shared backup-domain/GDMA power ownership for microphone, optional SD
   and display. Preserve all active owners; do not gate the whole domain from
   an individual driver. Defer display-specific changes to phase 9.
 - [ ] Verify error, cancellation and repeated initialization paths release each
   acquired resource exactly once.
+
+See [current ownership/dependency findings](non-display-power.md#non-display-dependencies-and-concrete-next-actions)
+for CP-owned runtime UART, drain/RX semantics, shared-domain arbitration, the
+single CP-managed AON RTC and native wake-notification prerequisites. These are
+open gates, not implemented suspend behavior.
 
 ## 3 Implement the wake timer and tickless idle
 
@@ -147,7 +164,8 @@ are claimed by these correctness or memory changes.
 Start this phase after completing or explicitly recording blockers for the
 non-display phases above. Preserve the earlier measured polling baseline:
 [the current status](current-status.md) records IRQ completion as slower at the
-qualified two-row batch size; reassess energy as well as frame time.
+historical two-row batch size; the current native transport has different
+batching/completion. Reassess energy as well as frame time at its actual size.
 
 - [ ] Define active, dim always-on and asleep AMOLED states. Separate the
   current nonzero brightness floor from true screen sleep.
@@ -156,8 +174,10 @@ qualified two-row batch size; reassess energy as well as frame time.
   including delays, redraw and serialized transitions with in-flight DMA.
 - [ ] Gate display QSPI locally between transfers; balance CP power/clock votes
   at suitable idle boundaries without disturbing other domain owners.
-- [ ] Fix shared GDMA IRQ ownership before reconsidering display completion
-  interrupts: microphone shutdown must not disable an active display route.
+- [x] Centralize shared GDMA IRQ/channel ownership (native migration); the old
+  facade/teardown path is retired. This alone is not physical qualification.
+- [ ] Qualify mixed microphone/display/SD operation and CP coexistence before
+  reconsidering any display completion experiment.
 - [ ] Compare polling and IRQ completion energy, latency and frame time while
   preserving batching and overlap. Keep the measured winner.
 - [ ] Measure dim-watchface and panel-asleep states separately; qualify wake,

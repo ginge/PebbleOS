@@ -10,6 +10,65 @@ configuration is separate.
 Run commands from the PebbleOS repository root. Keep supplied build inputs and
 generated validation artifacts under `build/`.
 
+## FNB58 USB power measurement
+
+The host tooling includes live FNB58 power logging for firmware comparisons.
+The meter exposes USB VID:PID `2e3c:5558`; connect its Micro-USB PC port to the
+host with a data cable and route the measured supply/load through its measurement
+ports. Use ordinary 5 V measurement mode for Unhygienix.
+
+The installed [capture launcher](/home/baz/Documents/ChatGPT/pebble/.tools/fnb58-power)
+uses an isolated Python environment and the open-source
+[FNIRSI USB logger](https://github.com/baryluk/fnirsi-usb-power-data-logger),
+pinned to `746e4d38515a5309156cc96fb466cd6e29c771c0`. Local compatibility fixes
+space startup commands by 25 ms, avoid whole-device USB resets/reconfiguration,
+and claim only the measurement HID interface. Preserve these fixes when updating
+the logger; see the [setup guide and compatibility patch](/home/baz/Documents/ChatGPT/pebble/artifacts/fnb58-setup/README.md).
+
+Run these absolute-path commands on the host; they do not depend on the current
+PebbleOS checkout directory:
+
+```sh
+# Start background CSV capture, or inspect/stop an existing capture.
+/home/baz/Documents/ChatGPT/pebble/.tools/fnb58-power start
+/home/baz/Documents/ChatGPT/pebble/.tools/fnb58-power status
+/home/baz/Documents/ChatGPT/pebble/.tools/fnb58-power stop
+
+# Alternatively, record for 60 seconds with live terminal summaries.
+/home/baz/Documents/ChatGPT/pebble/.tools/fnb58-power record --duration 60
+
+# Follow one-second summaries during background recording.
+tail -f /home/baz/Documents/ChatGPT/pebble/logs/power/monitor.log
+```
+
+Only one recording may run at a time. Each recording has a UTC-stamped directory
+under `/home/baz/Documents/ChatGPT/pebble/logs/power/`, containing `samples.csv`,
+`usb.log` and, after shutdown, `summary.json`. `latest.json` identifies the current
+or most recent recording. Samples include voltage, current, calculated power,
+temperature and integrated energy/charge. CRC checking is enabled; the requested
+rate is 100 samples/second and terminal summaries update about once per second.
+
+A meter-specific udev rule grants the existing `dialout` group USB access. It is
+already installed on this host. For a fresh setup, run the
+[USB access installer](/home/baz/Documents/ChatGPT/pebble/artifacts/fnb58-setup/install-usb-access.sh)
+in a host terminal; it requires sudo authentication. Do not replace it with the
+upstream rule granting every user access to multiple meter models. If sandbox
+USB access fails, use the authorized host hardware-access workflow. Confirm fresh
+received timestamps and an increasing sample count before reporting capture as
+live; a running process or stale status file alone is insufficient.
+
+The setup was verified on 30 October 2026 with 1,480 CRC-checked samples and
+clean CSV/summary shutdown. This records capability, not a claim that a capture
+is currently running. USB input power includes charging and conversion losses;
+it does not establish battery-side sleep current. Hold supply voltage, battery
+and charging state, display content/brightness and radio conditions constant for
+comparisons. Account for debug back-power and meter consumption. Host-derived
+sample timestamps and nominal-interval energy integration can be affected by USB
+delays or lost/rejected packets; displayed resolution is not measurement accuracy.
+
+Use this capability for the baseline and measurement steps in the
+[power TODO](power-todo.md), keeping display power optimization in its final phase.
+
 ## Current validation baseline — 2026-10-17
 
 The [operator handoff](current-status.md)

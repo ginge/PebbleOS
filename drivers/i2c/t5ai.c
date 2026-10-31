@@ -188,6 +188,15 @@ static void prv_clear_bus(const struct pbl_i2c_bus *bus) {
   PBL_ASSERTN(pbl_pinctrl_select_state(&prv_dev(bus)->pinctrl, PBL_PINCTRL_STATE_DEFAULT) == 0);
 }
 
+static void prv_release_idle_clock(const struct pbl_i2c_bus *bus) {
+#ifdef CONFIG_T5AI_I2C_IDLE_GATING
+  // STOP and bus-free are complete. Keep the shared BAKP domain and source clock on.
+  NVIC_DisableIRQ(prv_dev(bus)->irqn);
+  NVIC_ClearPendingIRQ(prv_dev(bus)->irqn);
+  prv_regs(bus)->global_control &= ~T5AI_I2C_GLOBAL_CLOCK_GATE_BYPASS;
+#endif
+}
+
 static int prv_init(const struct pbl_i2c_bus *bus) {
   PBL_ASSERTN(prv_dev(bus)->base == T5AI_I2C0_BASE);
   PBL_ASSERTN(prv_dev(bus)->frequency != 0u);
@@ -225,6 +234,7 @@ static int prv_init(const struct pbl_i2c_bus *bus) {
   NVIC_ClearPendingIRQ(prv_dev(bus)->irqn);
   NVIC_SetPriority(prv_dev(bus)->irqn, T5AI_I2C_IRQ_PRIORITY);
   NVIC_EnableIRQ(prv_dev(bus)->irqn);
+  prv_release_idle_clock(bus);
   return 0;
 }
 
@@ -234,6 +244,11 @@ static void prv_enable(const struct pbl_i2c_bus *bus) {
   prv_regs(bus)->global_control |= T5AI_I2C_GLOBAL_CLOCK_GATE_BYPASS;
   prv_regs(bus)->config |= T5AI_I2C_CONFIG_ENABLE;
   delay_us(T5AI_I2C_ENABLE_SETTLE_US);
+#ifdef CONFIG_T5AI_I2C_IDLE_GATING
+  // The pinned HAL requires bypass throughout transfers to read ACK reliably.
+  NVIC_ClearPendingIRQ(prv_dev(bus)->irqn);
+  NVIC_EnableIRQ(prv_dev(bus)->irqn);
+#endif
 }
 
 static void prv_disable(const struct pbl_i2c_bus *bus) {
@@ -242,11 +257,16 @@ static void prv_disable(const struct pbl_i2c_bus *bus) {
   while ((prv_regs(bus)->status & T5AI_I2C_STATUS_BUSY) && us++ < T5AI_I2C_STOP_TIMEOUT_US) {
     delay_us(1u);
   }
-  if (prv_regs(bus)->status & T5AI_I2C_STATUS_BUSY) {
+  const bool stopped = (prv_regs(bus)->status & T5AI_I2C_STATUS_BUSY) == 0u;
+  if (!stopped) {
     prv_dev(bus)->state->recovery_required = true;
   }
   delay_us(T5AI_I2C_BUS_FREE_US);
   prv_regs(bus)->config &= ~T5AI_I2C_CONFIG_ENABLE;
+  // A stuck STOP keeps bypass asserted until recovery; never gate a live bus.
+  if (stopped) {
+    prv_release_idle_clock(bus);
+  }
 }
 
 static void prv_abort(const struct pbl_i2c_bus *bus) {
@@ -325,10 +345,10 @@ static int prv_start(const struct pbl_i2c_bus *bus, uint16_t addr, struct pbl_i2
 static void prv_irq_handler(const struct pbl_i2c_bus *bus) {
   T5AII2CRegisters *regs = prv_regs(bus);
   struct pbl_i2c_t5ai_state *state = prv_dev(bus)->state;
-  const uint32_t status = regs->status;
   if (!state->active) {
     return;
   }
+  const uint32_t status = regs->status;
   if ((status & (T5AI_I2C_STATUS_TIMEOUT | T5AI_I2C_STATUS_ARB_LOST)) != 0U) {
     prv_abort(bus);
     pbl_i2c_bus_complete(bus, (status & T5AI_I2C_STATUS_TIMEOUT) ? -ETIMEDOUT : -EIO);

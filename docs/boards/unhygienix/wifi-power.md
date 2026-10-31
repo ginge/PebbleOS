@@ -14,6 +14,130 @@ build configuration or original build output was changed. No power saving is
 claimed. A board Kconfig switch alone would misleadingly report Wi-Fi off while
 the CP still initializes it, so none was added.
 
+## Later power continuation — 2026-10-31
+
+[The non-display continuation](non-display-power.md) supersedes the tooling and
+installed-image assumptions in the earlier revalidation below. CMake 3.31.6 and
+the SHA-256-verified vendor GCC 10.3 toolchain are now provisioned under `/tmp`.
+The staged Wi-Fi-on CP passes configuration/prebuild and reaches C compilation,
+then stops at the matching TuyaOpen-generated `tuya_kconfig.h` header missing
+from its build environment. The retained failure and next reproduction steps
+are recorded in the continuation evidence. No reproducible stock CP or off/on CP
+variants have been packaged or flashed, and the fixed-address/hash hook and
+Bluetooth calibration/service qualification gates remain. Non-display AP-only
+experiments are separate from Wi-Fi; they preserve the installed CP.
+
+## Revalidation and measured setup reading — 2026-10-31
+
+This section supersedes the earlier session's tool/hardware availability claims,
+not its frozen firmware identities. Production HEAD is
+`2eacc9eaa9682f9e30e72abf1211b8675ecdef67`; the existing local change to
+`tooling.md` was preserved. Repository/board/workspace instructions, the power
+TODO and current status were read. No firmware source or build default changed.
+Default-off implementation remains **blocked**; device/electrical qualification
+remains **pending**. No firmware was flashed and no other power work was begun.
+
+### Rechecked ownership and integration dependency
+
+The pinned T5AI revision still matches `sdk.lock.json`. Re-extracting the archived
+CP ELF reproduces the stock binary SHA-256
+`0edde387b5694ac6687e04d318e4f7346acd29e585b699eba28ed70540d91856`.
+The native AP still has no Wi-Fi stack. CP `bk_init()` still calls
+`app_wifi_init()` before Bluetooth, and `wifi_init()` acquires MAC/PHY power,
+MAC/PHY clocks and `RF_BY_WIFI_BIT` before creating the Wi-Fi tasks. Both deinit
+entry points remain unsupported. These establish a normal-boot executable path
+and attempted acquisition, not current runtime votes, successful initialization
+on this boot, or a measured Wi-Fi power cost.
+
+Bluetooth-only selection retains PHY/RF adapters when Bluetooth is enabled.
+`nm` confirms both `libcom_phy.a` and `libcom_phy_nspe.a` export
+`bk_cal_if_init` and `phy_wakeup_for_bluetooth`. The required library is present.
+The unresolved dependency is a working CP project and verified packaging:
+
+- `projects/tuya_app/cp/CMakeLists.txt` unconditionally requires `controller_if`
+  and `lwip_intf_v2_1`. Its `cp_main.c:user_app_main()` unconditionally calls
+  `cifd_cust_msg_init()`; `customer_msg.c` registers its callback with
+  `cif_register_customer_msg_handler`. The handler currently handles a BLE-data
+  command as a placeholder, but removing it still requires an explicit project
+  decision. `controller_if/CMakeLists.txt` has its VNET guard commented out.
+  Setting `WIFI_ENABLE=n` alone cannot demonstrate exclusion of this subsystem.
+- Preserve `tuya_ipc_init()` independently: `tuya_tkl_ipc.c` dispatches HCI and
+  SYS messages through `tkl_ipc_init`; it is distinct from the CIF customer
+  handler. Preserve CP boot of the AP, heartbeat supervision, general mailbox,
+  PM/flash/ADC services and Bluetooth IPC. Do not remove all mailbox code with
+  VNET. No service ABI qualification of an off variant has occurred.
+- The AP PSRAM layout has since gained a dedicated display DMA reservation at
+  `0x60024000`, size 16 KiB, in addition to display and SD metadata regions.
+  Preserve it and the CP heap at `0x60700000`; no Wi-Fi memory was reclaimed.
+- Existing RF/latency hooks and manifest validation remain bound to the stock
+  image and fixed function locations. A relink needs source-integrated fixes
+  or newly verified exact-ELF hooks and variant-aware manifests. Do not bypass
+  the current hash guards. A nominal AP option would leave the old CP active.
+
+### CP build attempt and host validation
+
+A separate copy of pinned T5AI was staged at
+`/tmp/unhygienix-wifi-sdk-20261031`; the vendor submodule was not edited.
+The CP-only command was `make bk7258_cp PROJECT=tuya_app
+BUILD_DIR=/tmp/unhygienix-wifi-sdk-20261031/build APP_NAME=tuya_app
+APP_VERSION=1.0.0 -j2`, with Python 3.12/project site-packages and
+`TUYA_TOOLCHAIN_PATH` pointing to the available ARM GCC 14.2 toolchain.
+Partition/region generation succeeded, but Armino stopped before configuration
+or compilation because `cmake` is unavailable. The host check also found no
+CMake executable. A first invocation's Python import error was resolved by
+selecting Python 3.12 explicitly; the retained final log is `cp-on-build.log`.
+This was a tooling probe, not stock reproduction or an off-variant link test.
+
+The SDK's `toolchain_get.sh` and BK7258 `soc_config.mk` require GCC
+10.3-2021.10. That compiler was not found in the inspected host/tool directories;
+the available 14.2 compiler is sufficient for existing hooks but does not prove
+reproducible vendor CP output. The SDK pins the Linux x86-64 compiler archive to
+SHA-256 `97dbb4f019ad1650b732faffcc881689cedc14e2b7ee863d390e0a41ef16c9a3`.
+Next: provision CMake and that verified toolchain into an isolated build
+environment, reproduce the stock-on CP with the archived effective config, then
+resolve the project/CIF dependencies above and build off/on profiles. Preserve
+partition/shared-memory geometry and perform the variant packaging and ABI checks
+listed in the original integration steps before changing the board default.
+
+The unchanged stock-derived RF/latency hook build and CP manifest validation
+passed. Rechecking the archived AP map passed; this is not a fresh AP build.
+The same 70 host checks were rerun: **68 passed, one failed and one errored**.
+`test_board_startup_elects_clock` uses a fixture for the old framebuffer-range
+helper; current board startup uses linker range symbols and
+`prv_validate_psram_range`. `test_unhygienix_pairing_uses_its_two_present_buttons`
+expects old button declarations, now replaced by `PBL_GPIO_KEYS_DEFINE`.
+Both reproduce on entry source without Wi-Fi edits; no unrelated driver/test
+changes were made. Do not carry forward the earlier 70/70 claim to this HEAD.
+No fresh AP or full CP image build passed in this session.
+
+### Hardware and power observation
+
+Host enumeration now finds FNB58 `2e3c:5558` as well as both CH342 UARTs.
+The existing CRC-enabled logger received **1,976 samples**, then stopped cleanly
+(exit 0). The recording ran 09:34:48–09:35:10 UTC / Europe/London on 31 October:
+mean 4.98388 V, **29.486 mA**, **146.954 mW**, observed current 29.20–42.88 mA.
+Raw samples, USB diagnostics and summary are retained. Operator reports USB
+power, screen at lowest dimming and Bluetooth connected. Battery state of charge,
+charging current, numeric brightness, display content and actual installed AP/CP
+identities were not established. This is a bounded reading of that connected
+setup, not a controlled firmware baseline or Wi-Fi saving. USB power includes
+charger/regulator effects; nominal-sample energy integration and instrument
+accuracy limitations from the tooling guide apply.
+
+A separate six-second, read-only 460800-baud UART probe received 168 bytes on
+`if00` and 24 on `if02`; both descriptors were closed and terminal settings
+restored. Those bytes are not a decoded identity/boot log and were not used to
+establish installed firmware or service health. No capture or soak remains running.
+
+Evidence is at
+[/home/baz/Documents/ChatGPT/pebble/artifacts/wifi-optional-20261031/](/home/baz/Documents/ChatGPT/pebble/artifacts/wifi-optional-20261031/).
+Keep the earlier frozen baseline intact; it predates the latest recorded A5 AP
+and must not be relabelled as today's installed image. The next power task is
+to record actual firmware identities and charging/setup conditions for a controlled
+baseline, then complete the CP build/variant gate above and compare matched
+on/off images. If this gate remains blocked, explicitly retain that status before
+moving to phase 2. No phase 2 or display power work was started.
+
 ## Evidence and identities
 
 Production source inspected at `4d9976caa8b8cbc8f3cbfbc14c79c92b8649f86f`;

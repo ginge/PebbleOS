@@ -329,6 +329,17 @@ config T5AI_I2C_RX_FIFO
       Experimental bounded 4/8/12-byte receive interrupts with a one-byte
       tail. Retain byte-driven writes, bus frequency and completion semantics.
 
+config T5AI_I2C_IDLE_GATING
+    bool "Release T5AI I2C local clock bypass between transfers"
+    depends on BOARD_UNHYGIENIX && I2C_T5AI
+    default n
+    help
+      Qualification option. Clear only the controller-local bypass after STOP
+      and bus-free; restore it before enabling the controller and its IRQ.
+      Keep bypass on after a stuck STOP until bus recovery. Leave the shared
+      backup domain, CP votes and system source clock unchanged. Requires
+      touch/RTC/IMU, fault/recovery and electrical validation before default use.
+
 config T5AI_I2C_PROFILE
     bool "Measure T5AI I2C interrupt entries and handler cycles"
     depends on T5AI_QMI8658_PROFILE
