@@ -18,6 +18,7 @@ from tools.unhygienix_image import (
     PEBBLE_RESOURCES_SIZE,
     encode_pebble_application,
     encode_protected_blocks,
+    firmware_layout_record,
 )
 
 
@@ -28,11 +29,13 @@ class UnhygienixRunnerTest(unittest.TestCase):
         self.root = Path(self.directory.name)
         self.raw = self.root / "pebbleos.bin"
         self.revision = {
-            "TIMESTAMP": "1234567890", "TAG": "v4.41.0-1-g123456789",
+            "TIMESTAMP": "1234567890",
+            "TAG": "v4.41.0-1-g123456789",
             "COMMIT": "123456789",
         }
         revision_patch = patch(
-            "tools.flash_unhygienix_firmware.current_revision", return_value=self.revision
+            "tools.flash_unhygienix_firmware.current_revision",
+            return_value=self.revision,
         )
         revision_patch.start()
         self.addCleanup(revision_patch.stop)
@@ -40,9 +43,11 @@ class UnhygienixRunnerTest(unittest.TestCase):
             (0x28066000).to_bytes(4, "little")
             + (0x02120141).to_bytes(4, "little")
             + bytes(64)
-            + struct.pack("<I32s8sBBB", 1234567890, b"v4.41.0-1-g123456789",
-                          b"1234567", 0, 21, 1)
+            + struct.pack(
+                "<I32s8sBBB", 1234567890, b"v4.41.0-1-g123456789", b"1234567", 0, 21, 1
+            )
             + b"later ROM section"
+            + firmware_layout_record()
         )
         self.raw.write_bytes(self.image)
         self.protected = self.root / "pebbleos.t5ai-crc.bin"
@@ -81,7 +86,9 @@ class UnhygienixRunnerTest(unittest.TestCase):
             pbpack=str(self.resources),
             tool=lambda name: None,
         )
-        runner = make_runner(build, SimpleNamespace(tyutool_tty="/dev/test"), ("flash",))
+        runner = make_runner(
+            build, SimpleNamespace(tyutool_tty="/dev/test"), ("flash",)
+        )
         commands = self.commands(runner)
         self.assertEqual(len(commands), 1)
         self.assertIn("-s 0x132000", commands[0])
@@ -120,16 +127,42 @@ class UnhygienixRunnerTest(unittest.TestCase):
         self.assertIn("-s " + hex(PEBBLE_FILESYSTEM_PHYSICAL_OFFSET), commands[1])
 
     def test_stale_phone_version_rejected_before_any_write(self):
-        for field, value in (("TAG", "v4.41.2"), ("COMMIT", "abcdef012"),
-                             ("TIMESTAMP", "1234567891")):
+        for field, value in (
+            ("TAG", "v4.41.2"),
+            ("COMMIT", "abcdef012"),
+            ("TIMESTAMP", "1234567891"),
+        ):
             with self.subTest(field=field):
                 revision = dict(self.revision, **{field: value})
                 runner = self.runner(resources=True, provision=True, cp=True)
                 with (
-                    patch("tools.flash_unhygienix_firmware.current_revision",
-                          return_value=revision),
+                    patch(
+                        "tools.flash_unhygienix_firmware.current_revision",
+                        return_value=revision,
+                    ),
                     patch.object(runner, "call") as call,
                     self.assertRaisesRegex(RunnerError, "rebuild"),
+                ):
+                    runner.run("flash")
+                call.assert_not_called()
+
+    def test_missing_duplicate_and_old_layout_rejected_before_any_write(self):
+        record = firmware_layout_record()
+        for replacement in (
+            b"",
+            record + record,
+            record.replace(
+                (0x1A0000).to_bytes(4, "little"), (0x190000).to_bytes(4, "little")
+            ),
+        ):
+            with self.subTest(record=replacement):
+                image = self.image.replace(record, replacement)
+                self.raw.write_bytes(image)
+                self.protected.write_bytes(encode_pebble_application(image))
+                runner = self.runner(resources=True, provision=True, cp=True)
+                with (
+                    patch.object(runner, "call") as call,
+                    self.assertRaisesRegex(RunnerError, "image layout"),
                 ):
                     runner.run("flash")
                 call.assert_not_called()

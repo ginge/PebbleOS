@@ -22,6 +22,7 @@ from tools.unhygienix_image import (
     PEBBLE_AP_SLOT_PHYSICAL_SIZE,
     PEBBLE_AP_SLOT_SIZE,
     PRIMARY_AP_APP_XIP_BASE,
+    validate_firmware_layout,
     verify_protected_blocks,
 )
 
@@ -35,10 +36,12 @@ def validate_firmware(raw_path: Path, protected_path: Path) -> tuple[bytes, byte
         raise ValueError("protected firmware exceeds the Pebble AP slot")
 
     decoded = verify_protected_blocks(protected)
-    if decoded[:len(raw)] != raw:
+    if decoded[: len(raw)] != raw:
         raise ValueError("protected firmware does not decode to pebbleos.bin")
-    if any(byte != PADDING_BYTE for byte in decoded[len(raw):]):
-        raise ValueError("protected firmware has non-erased bytes after the logical image")
+    if any(byte != PADDING_BYTE for byte in decoded[len(raw) :]):
+        raise ValueError(
+            "protected firmware has non-erased bytes after the logical image"
+        )
 
     initial_sp = int.from_bytes(raw[0:4], "little")
     reset_vector = int.from_bytes(raw[4:8], "little")
@@ -50,16 +53,23 @@ def validate_firmware(raw_path: Path, protected_path: Path) -> tuple[bytes, byte
         < PRIMARY_AP_APP_XIP_BASE + PEBBLE_AP_SLOT_SIZE
     ):
         raise ValueError(f"invalid reset vector 0x{reset_vector:08x}")
+    validate_firmware_layout(raw)
     return raw, protected
 
 
 def current_revision() -> dict:
     # Resolve git from the source tree even when invoked from another directory.
     output = subprocess.check_output(
-        [sys.executable, "-c",
-         ("import json; from tools.gitinfo import get_git_revision; "
-          "print(json.dumps(get_git_revision()))")],
-        cwd=ROOT, text=True,
+        [
+            sys.executable,
+            "-c",
+            (
+                "import json; from tools.gitinfo import get_git_revision; "
+                "print(json.dumps(get_git_revision()))"
+            ),
+        ],
+        cwd=ROOT,
+        text=True,
     )
     return json.loads(output)
 
@@ -74,7 +84,9 @@ def validate_current_version(raw: bytes) -> str:
     )
     offset = raw.find(prefix)
     # Metadata may precede other ROM sections, so do not assume a binary footer.
-    if offset < 0 or raw[offset + len(prefix):offset + len(prefix) + 3] != bytes((0, 21, 1)):
+    if offset < 0 or raw[offset + len(prefix) : offset + len(prefix) + 3] != bytes(
+        (0, 21, 1)
+    ):
         raise ValueError(
             f"firmware version does not match checkout ({tag}, {commit}); "
             "rebuild this Unhygienix build directory with pbl build before flashing"
@@ -91,11 +103,13 @@ def main() -> int:
     parser.add_argument("--tyutool", type=Path, required=True)
     parser.add_argument("--port", type=Path, required=True)
     parser.add_argument(
-        "--flash", action="store_true",
+        "--flash",
+        action="store_true",
         help="perform the write; without this flag validation is read-only",
     )
     parser.add_argument(
-        "--allow-older-version", action="store_true",
+        "--allow-older-version",
+        action="store_true",
         help="Explicit rollback: allow metadata from an older checkout",
     )
     args = parser.parse_args()
@@ -119,8 +133,19 @@ def main() -> int:
         return 0
 
     command = [
-        str(args.tyutool), "write", "-d", "t5ai", "-p", str(args.port),
-        "-s", hex(start), "--end", hex(end), "-f", str(args.protected), "--plain",
+        str(args.tyutool),
+        "write",
+        "-d",
+        "t5ai",
+        "-p",
+        str(args.port),
+        "-s",
+        hex(start),
+        "--end",
+        hex(end),
+        "-f",
+        str(args.protected),
+        "--plain",
     ]
     subprocess.run(command, check=True)
     return 0

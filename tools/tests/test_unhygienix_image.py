@@ -5,18 +5,10 @@ import importlib.util
 import unittest
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
-SPEC = importlib.util.spec_from_file_location(
-    "check_unhygienix_image_map", ROOT / "tools/check_unhygienix_image_map.py"
-)
-MODULE = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(MODULE)
-
 from tools.unhygienix_image import (
     PEBBLE_AP_PHYSICAL_OFFSET,
     PEBBLE_FILESYSTEM_PHYSICAL_OFFSET,
     PEBBLE_FILESYSTEM_SIZE,
-    PEBBLE_AP_SLOT_SIZE,
     PEBBLE_RESOURCES_LOGICAL_OFFSET,
     PEBBLE_RESOURCES_SIZE,
     PFS_ERASED_PAGE_FLAGS,
@@ -25,8 +17,16 @@ from tools.unhygienix_image import (
     PFS_VERSION,
     build_empty_pfs,
     build_pebble_flash_image,
+    firmware_layout_record,
     verify_protected_blocks,
 )
+
+ROOT = Path(__file__).resolve().parents[2]
+SPEC = importlib.util.spec_from_file_location(
+    "check_unhygienix_image_map", ROOT / "tools/check_unhygienix_image_map.py"
+)
+MODULE = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(MODULE)
 
 
 class UnhygienixImageMapTest(unittest.TestCase):
@@ -50,7 +50,7 @@ T5AI_DISPLAY_RAM 0x60000000         0x00020000         rw
         text = (
             """\
 Memory Configuration
-FLASH            0x02120000         0x00190000         xr
+FLASH            0x02120000         0x001a0000         xr
 .isr_vector     0x02120000      0x140
 .text           0x02120140    0x10000
 .kernel_data    0x28010000      0x100 load address 0x02130140
@@ -60,20 +60,29 @@ FLASH            0x02120000         0x00190000         xr
         self.assertEqual(MODULE.validate_map(text), [])
 
     def test_sd_pfs_flags_have_a_separate_bounded_ap_region(self):
-        base = ("FLASH 0x02120000 0x00190000 xr\n"
-                ".isr_vector 0x02120000 0x140\n" + self.LAYOUT)
-        flags = ("T5AI_PFS_RAM 0x60020000 0x2000 rw\n"
-                 ".t5ai_pfs_flags 0x60020000 0x2000\n")
+        base = (
+            "FLASH 0x02120000 0x001a0000 xr\n"
+            ".isr_vector 0x02120000 0x140\n" + self.LAYOUT
+        )
+        flags = "T5AI_PFS_RAM 0x60020000 0x2000 rw\n.t5ai_pfs_flags 0x60020000 0x2000\n"
         self.assertEqual(MODULE.validate_map(base + flags), [])
-        wrapped = flags.replace(".t5ai_pfs_flags 0x", ".t5ai_pfs_flags\n                0x")
+        wrapped = flags.replace(
+            ".t5ai_pfs_flags 0x", ".t5ai_pfs_flags\n                0x"
+        )
         self.assertEqual(MODULE.validate_map(base + wrapped), [])
-        for bad in (flags.replace("0x60020000", "0x60700000"),
-                    flags.replace("0x2000 rw", "0x4000 rw"),
-                    flags.replace(".t5ai_pfs_flags 0x60020000 0x2000",
-                                  ".t5ai_pfs_flags 0x60020000 0x2004"),
-                    flags.splitlines()[1] + "\n", flags.splitlines()[0] + "\n"):
+        for bad in (
+            flags.replace("0x60020000", "0x60700000"),
+            flags.replace("0x2000 rw", "0x4000 rw"),
+            flags.replace(
+                ".t5ai_pfs_flags 0x60020000 0x2000", ".t5ai_pfs_flags 0x60020000 0x2004"
+            ),
+            flags.splitlines()[1] + "\n",
+            flags.splitlines()[0] + "\n",
+        ):
             with self.subTest(layout=bad):
-                self.assertTrue(any("SD PFS" in e for e in MODULE.validate_map(base + bad)))
+                self.assertTrue(
+                    any("SD PFS" in e for e in MODULE.validate_map(base + bad))
+                )
 
     def test_rejects_broader_flash_region(self):
         text = (
@@ -89,7 +98,7 @@ FLASH            0x02000000         0x00800000         xr
     def test_rejects_section_and_load_address_outside_slot(self):
         text = (
             """\
-FLASH            0x02120000         0x00190000         xr
+FLASH            0x02120000         0x001a0000         xr
 .isr_vector     0x02120000      0x140
 .text           0x02010000       0x20
 .kernel_data    0x28010000       0x20 load address 0x02410000
@@ -100,14 +109,53 @@ FLASH            0x02120000         0x00190000         xr
         self.assertTrue(any("VMA" in error for error in errors))
         self.assertTrue(any("load address" in error for error in errors))
 
+    def test_rejects_old_slot_and_load_crossing_new_boundary(self):
+        base = (
+            "FLASH 0x02120000 0x001a0000 xr\n.isr_vector 0x02120000 0x140\n"
+            + self.LAYOUT
+        )
+        self.assertEqual(MODULE.validate_map(base), [])
+        self.assertEqual(
+            MODULE.validate_map(
+                base + ".kernel_bss 0x28012000 0x13000 load address 0x022c0000\n"
+            ),
+            [],
+        )
+        self.assertEqual(
+            MODULE.validate_map(
+                base + ".kernel_bss 0x28012000 0x13000 load address 0x022bfff0\n"
+            ),
+            [],
+        )
+        self.assertTrue(
+            any(
+                "FLASH region" in e
+                for e in MODULE.validate_map(base.replace("0x001a0000", "0x00190000"))
+            )
+        )
+        self.assertTrue(
+            any(
+                "load address" in e
+                for e in MODULE.validate_map(
+                    base + ".kernel_data 0x28010000 0x20 load address 0x022bfff0\n"
+                )
+            )
+        )
+        self.assertTrue(
+            any(
+                "VMA" in e
+                for e in MODULE.validate_map(base + ".flash 0x022bfff0 0x20\n")
+            )
+        )
+
     def test_rejects_map_without_flash_outputs(self):
-        text = "FLASH 0x02120000 0x00190000 xr\n"
+        text = "FLASH 0x02120000 0x001a0000 xr\n"
         errors = MODULE.validate_map(text)
         self.assertTrue(any("no output section" in error for error in errors))
 
     def test_rejects_bad_runtime_layout_and_vendor_objects(self):
         text = """\
-FLASH            0x02120000         0x00190000         xr
+FLASH            0x02120000         0x001a0000         xr
 .isr_vector     0x02120004      0x13c
 .text           0x02120140    0x10000 boards/unhygienix/tuya/src/main.c.1.o
 """ + self.LAYOUT.replace("0x28014000 _heap_start", "0x2802b000 _heap_start")
@@ -117,7 +165,7 @@ FLASH            0x02120000         0x00190000         xr
         self.assertTrue(any("vendor/reference" in error for error in errors))
 
     def test_flash_images_contain_firmware_resources_and_formatted_pfs(self):
-        firmware = b"firmware"
+        firmware = b"firmware" + firmware_layout_record()
         resources = b"resources"
         protected = build_pebble_flash_image(firmware, resources)
         protected_prefix_size = (

@@ -6,6 +6,7 @@
 
 import argparse
 import hashlib
+import struct
 import sys
 from pathlib import Path
 
@@ -14,11 +15,13 @@ if not __package__:
 
 from tools.t5ai_image import (
     LOGICAL_BLOCK_SIZE,
-    PHYSICAL_BLOCK_SIZE,
     PADDING_BYTE,
-    crc16 as crc16,
+    PHYSICAL_BLOCK_SIZE,
     encode_protected_blocks,
     verify_protected_blocks,
+)
+from tools.t5ai_image import (
+    crc16 as crc16,  # noqa: PLC0414 - Public compatibility re-export.
 )
 
 # Pinned BK7258 tuya_app partition geometry. The CSV sizes are physical flash
@@ -45,22 +48,47 @@ PRIMARY_AP_APP_XIP_BASE = T5AI_XIP_BASE + PRIMARY_AP_APP_LOGICAL_OFFSET
 
 # Pebble intentionally links only the first part of the factory AP partition.
 # This is not a second factory/OTA partition and must not be packaged as one.
-PEBBLE_AP_SLOT_SIZE = 0x00190000
+PEBBLE_AP_SLOT_SIZE = 0x001A0000
 PEBBLE_AP_SLOT_PHYSICAL_SIZE = (
     PEBBLE_AP_SLOT_SIZE * PHYSICAL_BLOCK_SIZE // LOGICAL_BLOCK_SIZE
 )
 
 PEBBLE_AP_PHYSICAL_OFFSET = PRIMARY_AP_APP_PHYSICAL_OFFSET
-PEBBLE_RESOURCES_LOGICAL_OFFSET = 0x00190000
+PEBBLE_RESOURCES_LOGICAL_OFFSET = PEBBLE_AP_SLOT_SIZE
 PEBBLE_RESOURCES_SIZE = 0x00100000
 PEBBLE_FILESYSTEM_PHYSICAL_OFFSET = 0x00500000
 PEBBLE_FILESYSTEM_SIZE = 0x002C0000
 PEBBLE_SHARED_PRF_PHYSICAL_OFFSET = PRIMARY_OTA_PHYSICAL_OFFSET
 PEBBLE_SHARED_PRF_SIZE = 0x00010000
+# Preserve the board's first reserved crash-data range as well as factory bounds.
+PEBBLE_CRASH_DATA_PHYSICAL_OFFSET = 0x00450000
+PEBBLE_LAYOUT_MAGIC = b"PBLT5LY2"
+PEBBLE_LAYOUT_VERSION = 2
 PFS_PAGE_SIZE = 0x1000
 PFS_VERSION = 0x5001
 PFS_ERASED_PAGE_FLAGS = 0xFE
 PFS_INITIAL_ERASE_COUNT = 1
+
+
+def firmware_layout_record() -> bytes:
+    return struct.pack(
+        "<8s5I",
+        PEBBLE_LAYOUT_MAGIC,
+        PEBBLE_LAYOUT_VERSION,
+        PRIMARY_AP_APP_XIP_BASE,
+        PEBBLE_AP_SLOT_SIZE,
+        PEBBLE_RESOURCES_LOGICAL_OFFSET,
+        PEBBLE_RESOURCES_SIZE,
+    )
+
+
+def validate_firmware_layout(firmware: bytes) -> None:
+    expected = firmware_layout_record()
+    if firmware.count(PEBBLE_LAYOUT_MAGIC) != 1 or expected not in firmware:
+        raise ValueError(
+            "firmware image layout does not match the current firmware/resource bank; "
+            "rebuild or restore a matched legacy firmware/resource pair"
+        )
 
 
 def encode_pebble_application(data: bytes) -> bytes:
@@ -71,7 +99,6 @@ def encode_pebble_application(data: bytes) -> bytes:
             f"{len(data)} > {PEBBLE_AP_SLOT_SIZE} bytes"
         )
     return encode_protected_blocks(data)
-
 
 
 def build_empty_pfs() -> bytes:
@@ -96,7 +123,6 @@ def build_empty_pfs() -> bytes:
     return bytes(filesystem)
 
 
-
 def build_pebble_flash_image(firmware: bytes, resources: bytes) -> bytes:
     """Build the protected AP image containing firmware and system resources."""
     if len(firmware) > PEBBLE_RESOURCES_LOGICAL_OFFSET:
@@ -104,13 +130,16 @@ def build_pebble_flash_image(firmware: bytes, resources: bytes) -> bytes:
     if len(resources) > PEBBLE_RESOURCES_SIZE:
         raise ValueError("Pebble system resources exceed the T5AI resource bank")
 
+    validate_pinned_ap_layout()
+    validate_firmware_layout(firmware)
     protected_logical_size = PEBBLE_RESOURCES_LOGICAL_OFFSET + PEBBLE_RESOURCES_SIZE
     protected_logical = bytearray([PADDING_BYTE]) * protected_logical_size
     protected_logical[: len(firmware)] = firmware
-    protected_logical[PEBBLE_RESOURCES_LOGICAL_OFFSET :
-                      PEBBLE_RESOURCES_LOGICAL_OFFSET + len(resources)] = resources
+    protected_logical[
+        PEBBLE_RESOURCES_LOGICAL_OFFSET : PEBBLE_RESOURCES_LOGICAL_OFFSET
+        + len(resources)
+    ] = resources
     return encode_protected_blocks(protected_logical)
-
 
 
 def validate_pinned_ap_layout() -> None:
@@ -132,12 +161,17 @@ def validate_pinned_ap_layout() -> None:
         raise ValueError("pinned T5AI AP partition size is not 34:32 aligned")
     if PEBBLE_AP_SLOT_SIZE > PRIMARY_AP_APP_LOGICAL_SIZE:
         raise ValueError("Pebble AP slot exceeds the factory AP partition")
+    if PEBBLE_RESOURCES_LOGICAL_OFFSET != PEBBLE_AP_SLOT_SIZE:
+        raise ValueError("resource bank must begin at the firmware slot boundary")
     protected_end = PRIMARY_AP_APP_PHYSICAL_OFFSET + (
         (PEBBLE_RESOURCES_LOGICAL_OFFSET + PEBBLE_RESOURCES_SIZE)
-        * PHYSICAL_BLOCK_SIZE // LOGICAL_BLOCK_SIZE
+        * PHYSICAL_BLOCK_SIZE
+        // LOGICAL_BLOCK_SIZE
     )
     if protected_end > PRIMARY_AP_APP_PHYSICAL_OFFSET + PRIMARY_AP_APP_PHYSICAL_SIZE:
         raise ValueError("firmware and resources exceed the factory AP partition")
+    if protected_end > PEBBLE_CRASH_DATA_PHYSICAL_OFFSET:
+        raise ValueError("firmware and resources overlap reserved crash data")
     if PEBBLE_FILESYSTEM_PHYSICAL_OFFSET < (
         PEBBLE_SHARED_PRF_PHYSICAL_OFFSET + PEBBLE_SHARED_PRF_SIZE
     ):
@@ -148,9 +182,9 @@ def validate_pinned_ap_layout() -> None:
         raise ValueError("Pebble filesystem exceeds the factory OTA data partition")
 
 
-
-def package_ap_qio(base_qio: bytes, protected_ap: bytes,
-                   expected_base_sha256: str) -> bytes:
+def package_ap_qio(
+    base_qio: bytes, protected_ap: bytes, expected_base_sha256: str
+) -> bytes:
     """Overlay a checked Pebble AP payload onto trusted Tuya boot/CP bytes."""
     validate_pinned_ap_layout()
     actual_digest = hashlib.sha256(base_qio).hexdigest()
@@ -159,7 +193,9 @@ def package_ap_qio(base_qio: bytes, protected_ap: bytes,
             f"base QIO SHA-256 mismatch: {actual_digest} != {expected_base_sha256}"
         )
     if len(base_qio) < PRIMARY_AP_APP_PHYSICAL_OFFSET:
-        raise ValueError("base QIO does not contain the complete bootloader and CP prefix")
+        raise ValueError(
+            "base QIO does not contain the complete bootloader and CP prefix"
+        )
     if not protected_ap or len(protected_ap) > PEBBLE_AP_SLOT_PHYSICAL_SIZE:
         raise ValueError("protected AP payload is empty or exceeds the AP slot")
 
@@ -175,6 +211,7 @@ def package_ap_qio(base_qio: bytes, protected_ap: bytes,
     ):
         raise ValueError(f"invalid T5AI reset vector 0x{reset_vector:08x}")
 
+    validate_firmware_layout(logical)
     ap_end = PRIMARY_AP_APP_PHYSICAL_OFFSET + len(protected_ap)
     partition_end = PRIMARY_AP_APP_PHYSICAL_OFFSET + PRIMARY_AP_APP_PHYSICAL_SIZE
     if ap_end > partition_end:
@@ -182,12 +219,15 @@ def package_ap_qio(base_qio: bytes, protected_ap: bytes,
     # Some vendor QIO artifacts end at the last used AP block rather than at the
     # partition boundary. Extend such an artifact with the checked Pebble payload;
     # when the base is longer, preserve every byte after the overlay unchanged.
-    output = (base_qio[:PRIMARY_AP_APP_PHYSICAL_OFFSET] + protected_ap
-              + base_qio[ap_end:])
-    if output[:PRIMARY_AP_APP_PHYSICAL_OFFSET] != base_qio[:PRIMARY_AP_APP_PHYSICAL_OFFSET]:
+    output = (
+        base_qio[:PRIMARY_AP_APP_PHYSICAL_OFFSET] + protected_ap + base_qio[ap_end:]
+    )
+    if (
+        output[:PRIMARY_AP_APP_PHYSICAL_OFFSET]
+        != base_qio[:PRIMARY_AP_APP_PHYSICAL_OFFSET]
+    ):
         raise AssertionError("QIO packaging changed the bootloader/CP prefix")
     return output
-
 
 
 def main() -> int:
@@ -197,11 +237,12 @@ def main() -> int:
     args = parser.parse_args()
 
     validate_pinned_ap_layout()
-    encoded = encode_pebble_application(args.input.read_bytes())
+    firmware = args.input.read_bytes()
+    validate_firmware_layout(firmware)
+    encoded = encode_pebble_application(firmware)
     args.output.write_bytes(encoded)
     verify_protected_blocks(encoded)
     return 0
-
 
 
 if __name__ == "__main__":

@@ -7,12 +7,12 @@ import re
 from pathlib import Path
 
 SLOT_BEGIN = 0x02120000
-SLOT_END = 0x022B0000
+SLOT_END = 0x022C0000
 NOR_BEGIN = 0x02000000
 NOR_END = 0x02800000
 
 EXPECTED_MEMORY = {
-    "FLASH": (0x02120000, 0x00190000),
+    "FLASH": (0x02120000, 0x001A0000),
     "RAM": (0x28010000, 0x0001F000),
     "T5AI_DISPLAY_RAM": (0x60000000, 0x00020000),
 }
@@ -56,11 +56,13 @@ def validate_map(text: str) -> list[str]:
     # GNU ld places long output-section names on a line of their own.
     pfs_flags = re.search(
         r"^\.t5ai_pfs_flags\s+0x([0-9a-fA-F]+)\s+0x([0-9a-fA-F]+)",
-        text, re.MULTILINE,
+        text,
+        re.MULTILINE,
     )
     pfs_flags_section = (
         (int(pfs_flags.group(1), 16), int(pfs_flags.group(2), 16))
-        if pfs_flags else None
+        if pfs_flags
+        else None
     )
 
     for line in text.splitlines():
@@ -96,7 +98,15 @@ def validate_map(text: str) -> list[str]:
                     "is outside firmware slot 0"
                 )
         if load_address is not None and NOR_BEGIN <= load_address < NOR_END:
-            if not SLOT_BEGIN <= load_address < SLOT_END:
+            # BSS/stack map entries have synthetic LMAs but occupy no flash bytes.
+            no_load = name in (
+                ".kernel_ro_bss",
+                ".kernel_bss",
+                ".stack",
+                ".kernel_heap",
+            )
+            load_size = 0 if no_load else size
+            if load_address < SLOT_BEGIN or load_address + load_size > SLOT_END:
                 errors.append(
                     f"{name} load address 0x{load_address:08x} is outside "
                     "firmware slot 0"

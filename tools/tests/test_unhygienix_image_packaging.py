@@ -1,13 +1,15 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 
-import unittest
 import hashlib
+import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from tools import unhygienix_image as image
 from tools.unhygienix_image import (
-    PEBBLE_AP_SLOT_SIZE,
     PEBBLE_AP_SLOT_PHYSICAL_SIZE,
+    PEBBLE_AP_SLOT_SIZE,
     PEBBLE_FILESYSTEM_PHYSICAL_OFFSET,
     PEBBLE_FILESYSTEM_SIZE,
     PEBBLE_RESOURCES_LOGICAL_OFFSET,
@@ -24,6 +26,7 @@ from tools.unhygienix_image import (
     crc16,
     encode_pebble_application,
     encode_protected_blocks,
+    firmware_layout_record,
     package_ap_qio,
     validate_pinned_ap_layout,
     verify_protected_blocks,
@@ -91,8 +94,9 @@ class UnhygienixImagePackagingTest(unittest.TestCase):
         self.assertEqual(PRIMARY_AP_APP_XIP_BASE, 0x02120000)
         self.assertEqual(PRIMARY_AP_APP_PHYSICAL_SIZE, 0x3B8000)
         self.assertEqual(PRIMARY_AP_APP_LOGICAL_SIZE, 0x380000)
-        self.assertEqual(PEBBLE_AP_SLOT_SIZE, 0x190000)
-        self.assertEqual(PEBBLE_RESOURCES_LOGICAL_OFFSET, 0x190000)
+        self.assertEqual(PEBBLE_AP_SLOT_SIZE, 0x1A0000)
+        self.assertEqual(PEBBLE_AP_SLOT_PHYSICAL_SIZE, 0x1BA000)
+        self.assertEqual(PEBBLE_RESOURCES_LOGICAL_OFFSET, 0x1A0000)
         self.assertEqual(PEBBLE_RESOURCES_SIZE, 0x100000)
         self.assertEqual(PRIMARY_OTA_PHYSICAL_OFFSET, 0x4EA000)
         self.assertEqual(PRIMARY_OTA_PHYSICAL_SIZE, 0x2DF000)
@@ -100,6 +104,26 @@ class UnhygienixImagePackagingTest(unittest.TestCase):
         self.assertEqual(PEBBLE_SHARED_PRF_SIZE, 0x10000)
         self.assertEqual(PEBBLE_FILESYSTEM_PHYSICAL_OFFSET, 0x500000)
         self.assertEqual(PEBBLE_FILESYSTEM_SIZE, 0x2C0000)
+
+    def test_expansion_preserves_reserved_regions_and_rejects_overlap(self):
+        self.assertEqual(PEBBLE_AP_SLOT_SIZE - 0x190000, 64 * 1024)
+        self.assertEqual(PEBBLE_RESOURCES_LOGICAL_OFFSET, PEBBLE_AP_SLOT_SIZE)
+        protected_end = (
+            PRIMARY_AP_APP_PHYSICAL_OFFSET
+            + (PEBBLE_RESOURCES_LOGICAL_OFFSET + PEBBLE_RESOURCES_SIZE) * 34 // 32
+        )
+        self.assertEqual(protected_end, 0x3FC000)
+        self.assertLess(protected_end, image.PEBBLE_CRASH_DATA_PHYSICAL_OFFSET)
+        with (
+            patch.object(image, "PEBBLE_RESOURCES_LOGICAL_OFFSET", 0x190000),
+            self.assertRaisesRegex(ValueError, "slot boundary"),
+        ):
+            validate_pinned_ap_layout()
+        with (
+            patch.object(image, "PEBBLE_RESOURCES_SIZE", 0x160000),
+            self.assertRaisesRegex(ValueError, "reserved crash data"),
+        ):
+            validate_pinned_ap_layout()
 
     def test_pebble_payload_is_bounded_below_factory_ap_capacity(self):
         self.assertLess(PEBBLE_AP_SLOT_SIZE, PRIMARY_AP_APP_LOGICAL_SIZE)
@@ -117,6 +141,7 @@ class UnhygienixImagePackagingTest(unittest.TestCase):
             (0x28020000).to_bytes(4, "little")
             + (PRIMARY_AP_APP_XIP_BASE + 0x101).to_bytes(4, "little")
             + b"Pebble"
+            + firmware_layout_record()
         )
         protected = encode_pebble_application(vector)
         packaged = package_ap_qio(base, protected, digest)
@@ -143,6 +168,7 @@ class UnhygienixImagePackagingTest(unittest.TestCase):
             (0x28020000).to_bytes(4, "little")
             + (PRIMARY_AP_APP_XIP_BASE + 0x101).to_bytes(4, "little")
             + b"Pebble image larger than the vendor application"
+            + firmware_layout_record()
         )
         protected = encode_pebble_application(vector)
         packaged = package_ap_qio(base, protected, digest)
@@ -156,6 +182,8 @@ class UnhygienixImagePackagingTest(unittest.TestCase):
         valid_vector = (0x28020000).to_bytes(4, "little") + (
             PRIMARY_AP_APP_XIP_BASE + 0x101
         ).to_bytes(4, "little")
+        with self.assertRaisesRegex(ValueError, "image layout"):
+            package_ap_qio(base, encode_protected_blocks(valid_vector), digest)
         with self.assertRaisesRegex(ValueError, "SHA-256 mismatch"):
             package_ap_qio(base, encode_protected_blocks(valid_vector), "0" * 64)
         with self.assertRaisesRegex(ValueError, "stack pointer"):
