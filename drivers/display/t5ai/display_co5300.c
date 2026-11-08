@@ -26,6 +26,9 @@ static unsigned s_retries;
 #ifdef CONFIG_T5AI_DISPLAY_FAULT_TEST
 static bool s_injected;
 #endif
+#ifdef CONFIG_T5AI_AMOLED_SLEEP_ON_DISABLE
+static bool s_disabled, s_reprepare, s_full_redraw, s_sleep_complete, s_enable_pending;
+#endif
 static uint16_t s_rgb565[64];
 static uint16_t s_panel_source_x[PANEL_WIDTH];
 #define DISPLAY_BATCH_ROWS  8u
@@ -112,6 +115,9 @@ static int prv_send(uint16_t y0, uint16_t y1, const void *pixels, size_t length)
 }
 static int prv_init(const struct pbl_display *disp) {
   (void)disp;
+#ifdef CONFIG_T5AI_AMOLED_SLEEP_ON_DISABLE
+  s_disabled = s_reprepare = s_full_redraw = s_sleep_complete = s_enable_pending = false;
+#endif
   prv_init_conversion_tables();
   int ret = pbl_panel_prepare(&CO5300.panel);
   return ret != 0 ? ret : pbl_panel_enable(&CO5300.panel);
@@ -119,14 +125,39 @@ static int prv_init(const struct pbl_display *disp) {
 static int prv_enable(const struct pbl_display *disp) {
   (void)disp;
   pbl_mutex_lock(&co5300_lock, PBL_FOREVER);
+#ifdef CONFIG_T5AI_AMOLED_SLEEP_ON_DISABLE
+  int ret = 0;
+  if (s_reprepare) {
+    ret = pbl_panel_prepare(&CO5300.panel);
+    if (ret == 0)
+      s_full_redraw = s_enable_pending = true;
+  } else if (!s_enable_pending) {
+    ret = pbl_panel_enable(&CO5300.panel);
+  }
+  if (ret == 0)
+    s_disabled = s_reprepare = s_sleep_complete = false;
+#else
   const int ret = pbl_panel_enable(&CO5300.panel);
+#endif
   pbl_mutex_unlock(&co5300_lock);
   return ret;
 }
 static int prv_disable(const struct pbl_display *disp) {
   (void)disp;
   pbl_mutex_lock(&co5300_lock, PBL_FOREVER);
+#ifdef CONFIG_T5AI_AMOLED_SLEEP_ON_DISABLE
+  int ret = 0;
+  if (!s_sleep_complete) {
+    s_disabled = s_reprepare = true;
+    s_enable_pending = false;
+    ret = pbl_panel_disable(&CO5300.panel);
+    if (ret == 0)
+      ret = pbl_panel_unprepare(&CO5300.panel);
+    s_sleep_complete = ret == 0;
+  }
+#else
   const int ret = pbl_panel_disable(&CO5300.panel);
+#endif
   pbl_mutex_unlock(&co5300_lock);
   return ret;
 }
@@ -143,6 +174,16 @@ static int prv_update(const struct pbl_display *disp, const struct pbl_display_b
   const uint32_t start = t5ai_rtc_get_raw_ticks();
 #endif
   pbl_mutex_lock(&co5300_lock, PBL_FOREVER);
+#ifdef CONFIG_T5AI_AMOLED_SLEEP_ON_DISABLE
+  if (s_disabled) {
+    pbl_mutex_unlock(&co5300_lock);
+    return -EHOSTDOWN;
+  }
+  if (s_full_redraw) {
+    y0 = 0u;
+    y1 = disp->height - 1u;
+  }
+#endif
   int ret = 0;
 #ifdef CONFIG_T5AI_DISPLAY_RECOVERY
 retry:
@@ -186,6 +227,16 @@ retry:
     goto retry;
   }
 #endif
+#ifdef CONFIG_T5AI_AMOLED_SLEEP_ON_DISABLE
+  // Reset loses GRAM; show the panel only after a successful full redraw.
+  if (ret == 0 && s_enable_pending) {
+    ret = pbl_panel_enable(&CO5300.panel);
+    if (ret == 0)
+      s_enable_pending = false;
+  }
+  if (ret == 0)
+    s_full_redraw = false;
+#endif
   pbl_mutex_unlock(&co5300_lock);
 #ifdef CONFIG_T5AI_DISPLAY_PROFILE
   g_t5ai_draw_stats.frames++;
@@ -200,6 +251,12 @@ retry:
 static int prv_clear(const struct pbl_display *disp) {
   (void)disp;
   pbl_mutex_lock(&co5300_lock, PBL_FOREVER);
+#ifdef CONFIG_T5AI_AMOLED_SLEEP_ON_DISABLE
+  if (s_disabled) {
+    pbl_mutex_unlock(&co5300_lock);
+    return -EHOSTDOWN;
+  }
+#endif
   memset(s_pixels, 0, sizeof(s_pixels));
   int ret = 0;
   for (uint16_t y = 0; y < PANEL_HEIGHT; y += DISPLAY_BATCH_ROWS * 2u) {

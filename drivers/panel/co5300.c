@@ -3,10 +3,10 @@
 #include <pbl/soc/t5ai/delay.h>
 #include <pbl/util/misc.h>
 
-#define CO5300_QSPI_WRITE_COMMAND        0x02u
-#define CO5300_QSPI_RESERVED             0x00u
-#define CO5300_QSPI_HEADER_BYTES         4u
-#define CO5300_REGISTER_VALUE_BYTES      1u
+#define CO5300_QSPI_WRITE_COMMAND   0x02u
+#define CO5300_QSPI_RESERVED        0x00u
+#define CO5300_QSPI_HEADER_BYTES    4u
+#define CO5300_REGISTER_VALUE_BYTES 1u
 
 #define CO5300_CMD_SLEEP_IN              0x10u
 #define CO5300_CMD_SLEEP_OUT             0x11u
@@ -22,8 +22,8 @@
 #define CO5300_CMD_SPI_MODE              0xc4u
 #define CO5300_CMD_PAGE_SELECT           0xfeu
 
-#define CO5300_PAGE_STANDARD             0x00u
-#define CO5300_PAGE_CMD2_EXTENSION       0x20u
+#define CO5300_PAGE_STANDARD       0x00u
+#define CO5300_PAGE_CMD2_EXTENSION 0x20u
 // Preserve the module vendor's page-20 settings; register functions are undocumented.
 #define CO5300_PAGE20_REG_19             0x19u
 #define CO5300_PAGE20_REG_19_INIT        0x10u
@@ -35,10 +35,11 @@
 #define CO5300_CONTROL_BRIGHTNESS_ENABLE (1u << 5)
 #define CO5300_HBM_BRIGHTNESS_MAX        0xffu
 
-#define CO5300_RESET_PRE_DELAY_US        20000u
-#define CO5300_RESET_PULSE_US            200000u
-#define CO5300_RESET_SETTLE_US           120000u
-#define CO5300_SLEEP_OUT_DELAY_US        200000u
+#define CO5300_RESET_PRE_DELAY_US 20000u
+#define CO5300_RESET_PULSE_US     200000u
+#define CO5300_RESET_SETTLE_US    120000u
+#define CO5300_SLEEP_OUT_DELAY_US 200000u
+#define CO5300_SLEEP_IN_DELAY_US  200000u
 
 static uint8_t s_brightness;
 static bool s_prepared;
@@ -58,6 +59,9 @@ int pbl_panel_co5300_init(const struct pbl_device *dev) {
 }
 static int prv_prepare(const struct pbl_panel *panel) {
   (void)panel;
+#ifdef CONFIG_T5AI_AMOLED_SLEEP_ON_DISABLE
+  s_prepared = false;
+#endif
   (void)pbl_gpio_set(&CO5300.reset, true);
   delay_us(CO5300_RESET_PRE_DELAY_US);
   (void)pbl_gpio_set(&CO5300.reset, false);
@@ -105,6 +109,10 @@ static int prv_disable(const struct pbl_panel *panel) {
 static int prv_unprepare(const struct pbl_panel *panel) {
   (void)panel;
   int ret = prv_command(CO5300_CMD_SLEEP_IN, nullptr, 0);
+#ifdef CONFIG_T5AI_AMOLED_SLEEP_ON_DISABLE
+  if (ret == 0)
+    delay_us(CO5300_SLEEP_IN_DELAY_US);
+#endif
   s_prepared = false;
   return ret;
 }

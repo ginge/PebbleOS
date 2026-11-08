@@ -3,34 +3,33 @@
 
 #include <pbl/logging/logging.h>
 PBL_LOG_MODULE_DEFINE(hci_t5ai, LOG_LEVEL_DEBUG);
-#include <pbl/soc/t5ai/hci_ipc.h>
-#include <pbl/soc/t5ai/power.h>
-#include <pbl/soc/t5ai/flash_ipc.h>
-
-#include <kernel/pebble_tasks.h>
-
-#include <pbl/kernel/kernel.h>
-
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 
+#include <pbl/kernel/kernel.h>
+#include <pbl/soc/t5ai/flash_ipc.h>
+#include <pbl/soc/t5ai/hci_ipc.h>
+#include <pbl/soc/t5ai/power.h>
+
+#include <kernel/pebble_tasks.h>
+
 /* transport.h requires the mbuf definition first. */
-#include <os/os_mbuf.h>
+#include <host/ble_hs.h>
 #include <nimble/hci_common.h>
 #include <nimble/transport.h>
-#include <host/ble_hs.h>
+#include <os/os_mbuf.h>
 
-#define T5AI_HCI_TASK_STACK_BYTES 1024u
-#define T5AI_HCI_TASK_PRIORITY (PBL_PRIO_IDLE + 3u)
-#define T5AI_HCI_ACL_RETRY_DELAY_MS 5u
-#define T5AI_HCI_POLL_INTERVAL_MS 5u
-#define T5AI_HCI_LE_CONNECTION_PREFIX_SIZE 6u
+#define T5AI_HCI_TASK_STACK_BYTES            1024u
+#define T5AI_HCI_TASK_PRIORITY               (PBL_PRIO_IDLE + 3u)
+#define T5AI_HCI_ACL_RETRY_DELAY_MS          5u
+#define T5AI_HCI_POLL_INTERVAL_MS            5u
+#define T5AI_HCI_LE_CONNECTION_PREFIX_SIZE   6u
 #define T5AI_HCI_LE_CONNECTION_COMPLETE_SIZE 21u
-#define T5AI_HCI_COMMAND_RESULT_SIZE 6u
-#define T5AI_HCI_READ_ADDRESS_COMPLETE_SIZE 12u
-#define T5AI_HCI_ADV_PARAMS_SIZE 15u
+#define T5AI_HCI_COMMAND_RESULT_SIZE         6u
+#define T5AI_HCI_READ_ADDRESS_COMPLETE_SIZE  12u
+#define T5AI_HCI_ADV_PARAMS_SIZE             15u
 
 // HCI packets omit the UART H4 type byte. Event offsets include the event header;
 // advertising offsets address command parameters, excluding the command header.
@@ -59,17 +58,16 @@ enum {
 };
 
 #define T5AI_HCI_COMMAND_HEADER_SIZE 3u
-#define T5AI_HCI_EVENT_HEADER_SIZE 2u
-#define T5AI_HCI_ACL_HEADER_SIZE 4u
-#define T5AI_HCI_MAX_COMMAND_SIZE (T5AI_HCI_COMMAND_HEADER_SIZE + UINT8_MAX)
-#define T5AI_HCI_MAX_EVENT_SIZE (T5AI_HCI_EVENT_HEADER_SIZE + UINT8_MAX)
+#define T5AI_HCI_EVENT_HEADER_SIZE   2u
+#define T5AI_HCI_ACL_HEADER_SIZE     4u
+#define T5AI_HCI_MAX_COMMAND_SIZE    (T5AI_HCI_COMMAND_HEADER_SIZE + UINT8_MAX)
+#define T5AI_HCI_MAX_EVENT_SIZE      (T5AI_HCI_EVENT_HEADER_SIZE + UINT8_MAX)
 // The CP transport admits a 1024-byte ACL payload plus its four-byte HCI header.
-#define T5AI_HCI_MAX_ACL_SIZE (T5AI_HCI_ACL_HEADER_SIZE + 1024u)
-#define T5AI_HCI_ACL_TX_QUEUE_CAPACITY 16u
-#define T5AI_HCI_TRACE_INTERVAL_MS 30000u
-#define T5AI_HCI_TX_DRAIN_TIMEOUT_MS   2500u
-#define T5AI_HCI_LE_SET_ADV_ENABLE_OPCODE \
-  BLE_HCI_OP(BLE_HCI_OGF_LE, BLE_HCI_OCF_LE_SET_ADV_ENABLE)
+#define T5AI_HCI_MAX_ACL_SIZE             (T5AI_HCI_ACL_HEADER_SIZE + 1024u)
+#define T5AI_HCI_ACL_TX_QUEUE_CAPACITY    16u
+#define T5AI_HCI_TRACE_INTERVAL_MS        30000u
+#define T5AI_HCI_TX_DRAIN_TIMEOUT_MS      2500u
+#define T5AI_HCI_LE_SET_ADV_ENABLE_OPCODE BLE_HCI_OP(BLE_HCI_OGF_LE, BLE_HCI_OCF_LE_SET_ADV_ENABLE)
 
 // Decode little-endian HCI fields without assuming alignment of the CP buffer.
 static uint16_t prv_read_le16(const uint8_t *data, size_t offset) {
@@ -78,10 +76,11 @@ static uint16_t prv_read_le16(const uint8_t *data, size_t offset) {
 
 #ifdef CONFIG_T5AI_FLASH_PROFILE
 static void prv_log_flash_operation(const char *name, const T5AIFlashOperationDiagnostics *sample) {
-  PBL_LOG_DBG("T5AI flash timing: op=%s count=%lu max_ms=%lu last_ms=%lu tick=%lu offset=%lx len=%lu",
-      name, (unsigned long)sample->count, (unsigned long)sample->max_ms,
-      (unsigned long)sample->last_ms, (unsigned long)sample->last_tick,
-      (unsigned long)sample->last_offset, (unsigned long)sample->last_length);
+  PBL_LOG_DBG(
+      "T5AI flash timing: op=%s count=%lu max_ms=%lu last_ms=%lu tick=%lu offset=%lx len=%lu", name,
+      (unsigned long)sample->count, (unsigned long)sample->max_ms, (unsigned long)sample->last_ms,
+      (unsigned long)sample->last_tick, (unsigned long)sample->last_offset,
+      (unsigned long)sample->last_length);
 }
 
 static void prv_log_flash_diagnostics(void) {
@@ -91,13 +90,21 @@ static void prv_log_flash_diagnostics(void) {
   prv_log_flash_operation("write", &diagnostics.write);
   prv_log_flash_operation("erase", &diagnostics.erase);
   PBL_LOG_DBG("T5AI flash active: command=%lu tick=%lu now=%lu",
-      (unsigned long)diagnostics.active_command, (unsigned long)diagnostics.active_tick,
-      (unsigned long)pbl_uptime_ticks());
+              (unsigned long)diagnostics.active_command, (unsigned long)diagnostics.active_tick,
+              (unsigned long)pbl_uptime_ticks());
 }
 
 #endif
 
 static PBL_MUTEX_DEFINE(s_tx_mutex);
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+#define T5AI_HCI_QUIET_POLL_INTERVAL_MS 100u
+static PBL_SEM_DEFINE(s_hci_work, 0, 1);
+
+void t5ai_hci_notify_work(void) {
+  (void)pbl_sem_give(&s_hci_work);
+}
+#endif
 
 static bool s_started;
 static bool s_reset_scheduled;
@@ -106,22 +113,21 @@ static uint8_t s_active_connections;
 static uint8_t s_advertising_requested;
 static uint8_t s_acl_tx[T5AI_HCI_MAX_ACL_SIZE];
 PBL_THREAD_STACK_DEFINE(s_hci_task_stack, T5AI_HCI_TASK_STACK_BYTES);
-static struct pbl_thread * s_hci_task;
+static struct pbl_thread *s_hci_task;
 static struct pbl_msgq *s_acl_tx_queue;
 static PBL_MSGQ_DEFINE(s_acl_tx_messages, sizeof(struct os_mbuf *), T5AI_HCI_ACL_TX_QUEUE_CAPACITY);
 
 #ifdef CONFIG_T5AI_HCI_PROFILE
 static void prv_log_task_state(PebbleTask task) {
-  struct pbl_thread * handle = pebble_task_get_thread(task);
+  struct pbl_thread *handle = pebble_task_get_thread(task);
   if (handle == NULL) {
     return;
   }
   struct pbl_thread_stack_info stack;
   pbl_thread_stack_info(handle, &stack);
-  PBL_LOG_DBG("T5AI task snapshot: task=%c state=%u prio=%u stack=%u",
-                 pebble_task_get_char(task), (unsigned)pbl_thread_state(handle),
-                 (unsigned)pbl_thread_prio_get(handle),
-                 (unsigned)stack.high_water / sizeof(uint32_t));
+  PBL_LOG_DBG("T5AI task snapshot: task=%c state=%u prio=%u stack=%u", pebble_task_get_char(task),
+              (unsigned)pbl_thread_state(handle), (unsigned)pbl_thread_prio_get(handle),
+              (unsigned)stack.high_water / sizeof(uint32_t));
 }
 
 #endif
@@ -134,11 +140,29 @@ static void prv_set_started(bool started) {
   __atomic_store_n(&s_started, started, __ATOMIC_RELEASE);
 }
 
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+bool t5ai_hci_sleep_ready(void) {
+  return prv_started() && !__atomic_load_n(&s_reset_scheduled, __ATOMIC_ACQUIRE) &&
+         !__atomic_load_n(&s_acl_tx_active, __ATOMIC_ACQUIRE) && s_acl_tx_queue != NULL &&
+         pbl_msgq_num_used(s_acl_tx_queue) == 0u && t5ai_hci_ipc_sleep_ready();
+}
+#endif
+
+static void prv_wait_for_work(void) {
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+  const unsigned wait_ms =
+      t5ai_hci_ipc_sleep_ready() ? T5AI_HCI_QUIET_POLL_INTERVAL_MS : T5AI_HCI_POLL_INTERVAL_MS;
+  (void)pbl_sem_take(&s_hci_work, PBL_MSEC(wait_ms));
+#else
+  pbl_thread_sleep(PBL_MSEC(T5AI_HCI_POLL_INTERVAL_MS));
+#endif
+}
+
 static void prv_schedule_reset(void) {
   bool expected = false;
   prv_set_started(false);
-  if (__atomic_compare_exchange_n(&s_reset_scheduled, &expected, true, false,
-                                  __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+  if (__atomic_compare_exchange_n(&s_reset_scheduled, &expected, true, false, __ATOMIC_ACQ_REL,
+                                  __ATOMIC_ACQUIRE)) {
     ble_hs_sched_reset(BLE_HS_ECONTROLLER);
   }
 }
@@ -158,8 +182,7 @@ static void prv_send_queued_acl(struct os_mbuf *acl) {
   const size_t length = OS_MBUF_PKTLEN(acl);
   if (length > sizeof(s_acl_tx) || os_mbuf_copydata(acl, 0, length, s_acl_tx) != 0 ||
       !prv_acl_valid(s_acl_tx, length)) {
-    PBL_LOG_ERR("Dropping invalid queued T5AI HCI ACL packet (%u bytes)",
-                  (unsigned)length);
+    PBL_LOG_ERR("Dropping invalid queued T5AI HCI ACL packet (%u bytes)", (unsigned)length);
     os_mbuf_free_chain(acl);
     return;
   }
@@ -182,7 +205,7 @@ static void prv_send_queued_acl(struct os_mbuf *acl) {
     }
     ++failures;
     PBL_LOG_WRN("T5AI HCI ACL transmit deferred: status=%d len=%u retry=%u", status,
-                  (unsigned)length, failures);
+                (unsigned)length, failures);
     t5ai_hci_ipc_poll();
     pbl_thread_sleep(PBL_MSEC(T5AI_HCI_ACL_RETRY_DELAY_MS));
   }
@@ -218,17 +241,16 @@ static void prv_hci_task(void *unused) {
 #ifdef CONFIG_T5AI_HCI_PROFILE
       T5AIHCIIpcDiagnostics diagnostics;
       t5ai_hci_ipc_get_diagnostics(&diagnostics);
-      const unsigned queued = s_acl_tx_queue == NULL ? 0u :
-          (unsigned)pbl_msgq_num_used(s_acl_tx_queue);
+      const unsigned queued =
+          s_acl_tx_queue == NULL ? 0u : (unsigned)pbl_msgq_num_used(s_acl_tx_queue);
       PBL_LOG_DBG("T5AI HCI heartbeat: active=%u adv=%u queue=%u started=%u fault=%u",
-                     s_active_connections, s_advertising_requested, queued,
-                     diagnostics.started, diagnostics.faulted);
-      PBL_LOG_DBG("T5AI HCI heartbeat counters: rx=%lu evt=%lu acl=%lu cmd=%lu busy=%lu",
-                     (unsigned long)diagnostics.frames_received,
-                     (unsigned long)diagnostics.events_received,
-                     (unsigned long)diagnostics.acl_received,
-                     (unsigned long)diagnostics.commands_received,
-                     (unsigned long)diagnostics.send_busy_retries);
+                  s_active_connections, s_advertising_requested, queued, diagnostics.started,
+                  diagnostics.faulted);
+      PBL_LOG_DBG(
+          "T5AI HCI heartbeat counters: rx=%lu evt=%lu acl=%lu cmd=%lu busy=%lu",
+          (unsigned long)diagnostics.frames_received, (unsigned long)diagnostics.events_received,
+          (unsigned long)diagnostics.acl_received, (unsigned long)diagnostics.commands_received,
+          (unsigned long)diagnostics.send_busy_retries);
 #endif
 #ifdef CONFIG_T5AI_FLASH_PROFILE
       prv_log_flash_diagnostics();
@@ -236,7 +258,7 @@ static void prv_hci_task(void *unused) {
       last_trace_tick = now;
     }
 #endif
-    pbl_thread_sleep(PBL_MSEC(T5AI_HCI_POLL_INTERVAL_MS));
+    prv_wait_for_work();
   }
 }
 
@@ -247,8 +269,7 @@ static bool prv_discardable_event(const uint8_t *data, size_t length) {
 
 static bool prv_deliver_event(const uint8_t *data, size_t length) {
   if (!prv_started() || !prv_event_valid(data, length)) {
-    PBL_LOG_ERR("Dropping invalid T5AI HCI event (%u bytes)",
-                  (unsigned)length);
+    PBL_LOG_ERR("Dropping invalid T5AI HCI event (%u bytes)", (unsigned)length);
     return true;
   }
   void *event = ble_transport_alloc_evt(prv_discardable_event(data, length));
@@ -274,10 +295,10 @@ static bool prv_deliver_event(const uint8_t *data, size_t length) {
       length >= T5AI_HCI_LE_CONNECTION_COMPLETE_SIZE &&
       data[T5AI_HCI_LE_SUBEVENT_OFFSET] == BLE_HCI_LE_SUBEV_CONN_COMPLETE) {
     PBL_LOG_DBG("T5AI link result: status=%u handle=%u interval=%u latency=%u timeout=%u",
-                   data[T5AI_HCI_LE_STATUS_OFFSET], prv_read_le16(data, T5AI_HCI_LE_HANDLE_OFFSET),
-                   prv_read_le16(data, T5AI_HCI_LE_INTERVAL_OFFSET),
-                   prv_read_le16(data, T5AI_HCI_LE_LATENCY_OFFSET),
-                   prv_read_le16(data, T5AI_HCI_LE_TIMEOUT_OFFSET));
+                data[T5AI_HCI_LE_STATUS_OFFSET], prv_read_le16(data, T5AI_HCI_LE_HANDLE_OFFSET),
+                prv_read_le16(data, T5AI_HCI_LE_INTERVAL_OFFSET),
+                prv_read_le16(data, T5AI_HCI_LE_LATENCY_OFFSET),
+                prv_read_le16(data, T5AI_HCI_LE_TIMEOUT_OFFSET));
   }
 
   if (data[T5AI_HCI_EVENT_CODE_OFFSET] == BLE_HCI_EVCODE_DISCONN_CMP) {
@@ -287,21 +308,23 @@ static bool prv_deliver_event(const uint8_t *data, size_t length) {
 #ifdef CONFIG_T5AI_HCI_PROFILE
     T5AIHCIIpcDiagnostics diagnostics;
     t5ai_hci_ipc_get_diagnostics(&diagnostics);
-    PBL_LOG_DBG("T5AI HCI disconnect snapshot: rx=%lu ack=%lu cmd=%lu evt=%lu acl=%lu rsp=%lu mack=%lu",
+    PBL_LOG_DBG(
+        "T5AI HCI disconnect snapshot: rx=%lu ack=%lu cmd=%lu evt=%lu acl=%lu rsp=%lu mack=%lu",
         (unsigned long)diagnostics.frames_received,
         (unsigned long)diagnostics.transport_acks_received,
         (unsigned long)diagnostics.commands_received, (unsigned long)diagnostics.events_received,
         (unsigned long)diagnostics.acl_received, (unsigned long)diagnostics.responses_sent,
         (unsigned long)diagnostics.mipc_acks_sent);
     PBL_LOG_DBG("T5AI HCI pressure: busy=%lu sendto=%lu exchto=%lu req=%u/%lu rsp=%u/%lu",
-        (unsigned long)diagnostics.send_busy_retries, (unsigned long)diagnostics.send_timeouts,
-        (unsigned long)diagnostics.exchange_timeouts, diagnostics.request_slots_in_use,
-        (unsigned long)diagnostics.request_exhaustions, diagnostics.response_slots_in_use,
-        (unsigned long)diagnostics.response_exhaustions);
+                (unsigned long)diagnostics.send_busy_retries,
+                (unsigned long)diagnostics.send_timeouts,
+                (unsigned long)diagnostics.exchange_timeouts, diagnostics.request_slots_in_use,
+                (unsigned long)diagnostics.request_exhaustions, diagnostics.response_slots_in_use,
+                (unsigned long)diagnostics.response_exhaustions);
     PBL_LOG_DBG("T5AI HCI queue: pend=%u/%lu started=%u fault=%u",
-        diagnostics.pending_queue_high_water,
-        (unsigned long)diagnostics.pending_queue_exhaustions, diagnostics.started,
-        diagnostics.faulted);
+                diagnostics.pending_queue_high_water,
+                (unsigned long)diagnostics.pending_queue_exhaustions, diagnostics.started,
+                diagnostics.faulted);
     prv_log_task_state(PebbleTask_KernelMain);
     prv_log_task_state(PebbleTask_KernelBackground);
     prv_log_task_state(PebbleTask_App);
@@ -323,26 +346,27 @@ static bool prv_deliver_event(const uint8_t *data, size_t length) {
     const uint16_t opcode = prv_read_le16(data, T5AI_HCI_COMPLETE_OPCODE_OFFSET);
     if (data[T5AI_HCI_COMPLETE_STATUS_OFFSET] != 0u) {
       PBL_LOG_WRN("T5AI HCI command rejected: opcode=%04x status=%u", opcode,
-                    data[T5AI_HCI_COMPLETE_STATUS_OFFSET]);
+                  data[T5AI_HCI_COMPLETE_STATUS_OFFSET]);
     }
     if (opcode == BLE_HCI_OP(BLE_HCI_OGF_INFO_PARAMS, BLE_HCI_OCF_IP_RD_BD_ADDR) &&
         length >= T5AI_HCI_READ_ADDRESS_COMPLETE_SIZE &&
         data[T5AI_HCI_COMPLETE_STATUS_OFFSET] == 0u) {
-      PBL_LOG_DBG("T5AI controller address: %02x:%02x:%02x:%02x:%02x:%02x",
+      PBL_LOG_DBG(
+          "T5AI controller address: %02x:%02x:%02x:%02x:%02x:%02x",
           data[T5AI_HCI_COMPLETE_ADDRESS_OFFSET + 5u], data[T5AI_HCI_COMPLETE_ADDRESS_OFFSET + 4u],
           data[T5AI_HCI_COMPLETE_ADDRESS_OFFSET + 3u], data[T5AI_HCI_COMPLETE_ADDRESS_OFFSET + 2u],
           data[T5AI_HCI_COMPLETE_ADDRESS_OFFSET + 1u], data[T5AI_HCI_COMPLETE_ADDRESS_OFFSET]);
     }
     if (opcode == T5AI_HCI_LE_SET_ADV_ENABLE_OPCODE) {
       PBL_LOG_DBG("T5AI HCI advertising command complete: status=%u",
-                     data[T5AI_HCI_COMPLETE_STATUS_OFFSET]);
+                  data[T5AI_HCI_COMPLETE_STATUS_OFFSET]);
     }
   } else if (data[T5AI_HCI_EVENT_CODE_OFFSET] == BLE_HCI_EVCODE_COMMAND_STATUS &&
              length >= T5AI_HCI_COMMAND_RESULT_SIZE) {
     const uint16_t opcode = prv_read_le16(data, T5AI_HCI_STATUS_OPCODE_OFFSET);
     if (opcode == T5AI_HCI_LE_SET_ADV_ENABLE_OPCODE) {
       PBL_LOG_DBG("T5AI HCI advertising command status: status=%u",
-                     data[T5AI_HCI_STATUS_STATUS_OFFSET]);
+                  data[T5AI_HCI_STATUS_STATUS_OFFSET]);
     }
   }
 
@@ -358,8 +382,7 @@ static bool prv_deliver_event(const uint8_t *data, size_t length) {
 
 static bool prv_deliver_acl(const uint8_t *data, size_t length) {
   if (!prv_started() || !prv_acl_valid(data, length)) {
-    PBL_LOG_ERR("Dropping invalid T5AI HCI ACL packet (%u bytes)",
-                  (unsigned)length);
+    PBL_LOG_ERR("Dropping invalid T5AI HCI ACL packet (%u bytes)", (unsigned)length);
     return true;
   }
 
@@ -429,10 +452,12 @@ void ble_transport_ll_init(void) {
   ble_transport_ll_reinit();
   if (s_hci_task == NULL) {
     struct pbl_thread_attr parameters = {
-        .entry = prv_hci_task, .name = "T5AIHCI",
-        .stack = s_hci_task_stack,
-        .stack_size = sizeof(s_hci_task_stack),
-        .prio = T5AI_HCI_TASK_PRIORITY, .privileged = true,
+      .entry = prv_hci_task,
+      .name = "T5AIHCI",
+      .stack = s_hci_task_stack,
+      .stack_size = sizeof(s_hci_task_stack),
+      .prio = T5AI_HCI_TASK_PRIORITY,
+      .privileged = true,
     };
     pebble_task_create(PebbleTask_BTHCI, &parameters);
     s_hci_task = pebble_task_get_thread(PebbleTask_BTHCI);
@@ -478,17 +503,17 @@ int ble_transport_to_ll_cmd_impl(void *buf) {
       command->length == T5AI_HCI_ADV_PARAMS_SIZE) {
     const uint8_t *p = command->data;
     PBL_LOG_DBG("T5AI advertising parameters: min=%u max=%u type=%u addr=%u channels=%u filter=%u",
-        prv_read_le16(p, T5AI_HCI_ADV_MIN_INTERVAL_OFFSET),
-        prv_read_le16(p, T5AI_HCI_ADV_MAX_INTERVAL_OFFSET), p[T5AI_HCI_ADV_TYPE_OFFSET],
-        p[T5AI_HCI_ADV_ADDRESS_TYPE_OFFSET], p[T5AI_HCI_ADV_CHANNEL_MAP_OFFSET],
-        p[T5AI_HCI_ADV_FILTER_POLICY_OFFSET]);
+                prv_read_le16(p, T5AI_HCI_ADV_MIN_INTERVAL_OFFSET),
+                prv_read_le16(p, T5AI_HCI_ADV_MAX_INTERVAL_OFFSET), p[T5AI_HCI_ADV_TYPE_OFFSET],
+                p[T5AI_HCI_ADV_ADDRESS_TYPE_OFFSET], p[T5AI_HCI_ADV_CHANNEL_MAP_OFFSET],
+                p[T5AI_HCI_ADV_FILTER_POLICY_OFFSET]);
   }
 
   const bool is_advert_enable =
       command->opcode == T5AI_HCI_LE_SET_ADV_ENABLE_OPCODE && command->length >= 1u;
   if (is_advert_enable) {
     PBL_LOG_DBG("T5AI HCI advertising request: enable=%u",
-                   command->data[T5AI_HCI_ADV_ENABLE_OFFSET]);
+                command->data[T5AI_HCI_ADV_ENABLE_OFFSET]);
   }
 
   // NimBLE clears old connections/credits, then starts resync with HCI Reset.
@@ -507,8 +532,7 @@ int ble_transport_to_ll_cmd_impl(void *buf) {
       s_advertising_requested = command->data[T5AI_HCI_ADV_ENABLE_OFFSET];
     }
   } else {
-    PBL_LOG_ERR("T5AI HCI command transmit failed (%u bytes)",
-                  (unsigned)length);
+    PBL_LOG_ERR("T5AI HCI command transmit failed (%u bytes)", (unsigned)length);
     if (t5ai_hci_ipc_faulted()) {
       prv_schedule_reset();
     }
@@ -534,10 +558,12 @@ int ble_transport_to_ll_acl_impl(struct os_mbuf *acl) {
                       pbl_msgq_put(s_acl_tx_queue, &acl, PBL_NO_WAIT) == 0;
   pbl_mutex_unlock(&s_tx_mutex);
   if (queued) {
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+    t5ai_hci_notify_work();
+#endif
     return 0;
   }
-  PBL_LOG_ERR("T5AI HCI ACL transmit queue full (%u bytes)",
-                (unsigned)length);
+  PBL_LOG_ERR("T5AI HCI ACL transmit queue full (%u bytes)", (unsigned)length);
   os_mbuf_free_chain(acl);
   return BLE_ERR_MEM_CAPACITY;
 }

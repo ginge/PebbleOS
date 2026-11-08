@@ -4,7 +4,7 @@
 
 void t5ai_tick_start(void);
 
-#ifdef CONFIG_T5AI_TICKLESS_WFI
+#if defined(CONFIG_T5AI_TICKLESS_WFI) || defined(CONFIG_T5AI_RETAINED_SLEEP)
 #include <stdbool.h>
 #include <stdint.h>
 // Call with interrupts masked, only around ordinary WFI after idle confirmation.
@@ -19,4 +19,11 @@ typedef struct {
 } T5AITickProfile;
 extern T5AITickProfile t5ai_tick_profile;
 void t5ai_tick_profile_start(void);
+#endif
+
+#ifdef CONFIG_T5AI_RETAINED_SLEEP
+#include <stdbool.h>
+#include <stdint.h>
+uint32_t t5ai_tick_idle_deadline(uint32_t max_ticks);
+bool t5ai_tick_prepare_retained(void);
 #endif

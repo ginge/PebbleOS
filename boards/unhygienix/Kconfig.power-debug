@@ -1,0 +1,472 @@
+# SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
+# SPDX-License-Identifier: Apache-2.0
+
+menu "Retained-sleep qualification and CP investigation"
+    depends on T5AI_RETAINED_SLEEP
+
+config T5AI_RETAINED_SLEEP_TEST
+    bool "Limit retained-sleep qualification to twelve entries"
+    depends on T5AI_RETAINED_SLEEP && LOG
+    default n
+    help
+      Wait thirty seconds after board startup for the bonded session to settle.
+      Report bounded resume/retention checks and stop after twelve entries,
+      twenty-four requests or the first error. Leaves the application veto held after cleanup.
+
+config T5AI_RETAINED_SLEEP_PM_FIFO_DIAGNOSTIC
+    bool "Encode terminal PM FIFO/interrupt state in AP reset reason"
+    depends on T5AI_RETAINED_SLEEP_TEST
+    default n
+    help
+      On PM transaction timeout only, use the AP-owned 0x40-0x4f range for
+      CP/AP RX-pending, enabled AP mailbox route and AP interrupt-mask bits.
+      No FIFO read/acknowledgement or peripheral ownership change occurs.
+      The frozen configuration distinguishes this from restore-timeout codes.
+
+config T5AI_RETAINED_SLEEP_CP_IRQ_DIAGNOSTIC
+    bool "Snapshot CP mailbox route, mask and halted state on PM timeout"
+    depends on T5AI_RETAINED_SLEEP_PM_FIFO_DIAGNOSTIC
+    default n
+    help
+      Select the alternate AP-owned reset-reason encoding for CP system
+      mailbox route, peripheral IRQ enable, interrupt mask and core halt.
+      Reads shared status only and never changes CP state or consumes FIFO.
+
+config T5AI_RETAINED_SLEEP_CP_TRACE_DIAGNOSTIC
+    bool "Read the hash-bound CP stage record on PM timeout"
+    depends on T5AI_RETAINED_SLEEP_PM_FIFO_DIAGNOSTIC && !T5AI_RETAINED_SLEEP_CP_IRQ_DIAGNOSTIC
+    default n
+    help
+      Diagnostic only. The frozen AP artifact must bind the address to the
+      actual verified CP ELF and package. Invalidates a CP-owned cache line,
+      validates magic/inverse and checks the current transaction generation.
+      Encodes valid, same-generation, restored and veto-restored bits in 0x40-0x4f.
+      Never writes CP memory, consumes FIFO or changes routing.
+
+config T5AI_RETAINED_SLEEP_CP_BOUNDARY_DIAGNOSTIC
+    bool "Distinguish CP restoration and final interrupt release at timeout"
+    depends on T5AI_RETAINED_SLEEP_CP_TRACE_DIAGNOSTIC
+    default n
+    help
+      Read-only current-generation stage encoding for a hash-bound CP record.
+      0x41 restoration started; 0x42 APP veto restored; 0x43 ready revoked;
+      0x44 wake sent; 0x45 interrupts released; 0x46 another valid stage.
+      Invalid, torn or other-generation records encode 0x40.
+
+config T5AI_RETAINED_SLEEP_CP_TRACE_ADDRESS
+    hex "Verified CP stage-record symbol address"
+    depends on T5AI_RETAINED_SLEEP_CP_TRACE_DIAGNOSTIC || T5AI_RETAINED_SLEEP_CP_RUNTIME_RELEASE_DIAGNOSTIC
+    default 0
+
+config T5AI_RETAINED_SLEEP_CP_STATE_DIAGNOSTIC
+    bool "Read hash-bound CP cancellation/critical state on PM timeout"
+    depends on T5AI_RETAINED_SLEEP_PM_FIFO_DIAGNOSTIC
+    depends on !T5AI_RETAINED_SLEEP_CP_IRQ_DIAGNOSTIC && !T5AI_RETAINED_SLEEP_CP_TRACE_DIAGNOSTIC
+    default n
+    help
+      Read-only diagnostics for a verified CP ELF with non-cacheable private
+      SRAM. Bind each symbol and its size in the frozen AP artifact. Encodes
+      cancelled, prepared, resources active and nonzero RTOS critical nesting
+      in 0x40-0x4f. Independent live reads are not an atomic CP snapshot.
+
+config T5AI_RETAINED_SLEEP_CP_CRITICAL_DIAGNOSTIC
+    bool "Measure CP critical nesting throughout native cancellation"
+    depends on T5AI_RETAINED_SLEEP_CP_STATE_DIAGNOSTIC
+    default n
+    help
+      Read-only sampling during the active Cancel transaction. Reset bits 0-2
+      contain nesting saturated at seven; bit 3 requires an unchanged nonzero
+      value for one second with no sampling gap exceeding 100 milliseconds.
+
+config T5AI_RETAINED_SLEEP_CP_RECEIVE_DIAGNOSTIC
+    bool "Record the committed CP receive stage on a mailbox timeout"
+    depends on T5AI_RETAINED_SLEEP_TEST
+    default n
+    help
+      Read only the exact ELF-bound CP receive record. Timeout low bits
+      identify a committed receive stage; zero means an invalid snapshot.
+      Observation continues after the cleanup lease retires.
+
+config T5AI_RETAINED_SLEEP_CP_RECEIVE_OWNER_DIAGNOSTIC
+    bool "Compare the last CP receive frame with the timed-out physical owner"
+    depends on T5AI_RETAINED_SLEEP_CP_RECEIVE_DIAGNOSTIC
+    default n
+    help
+      Alternate timeout encoding: bits 0/1 compare channel/sequence with
+      the active AP frame, bit 2 records ACK and bit 3 CP RX FIFO queued.
+      Reasons 0x40-0x4f contain these properties; 0x50 is an invalid record.
+      The FIFO is sampled separately from the committed record. Neither
+      matching properties nor a returned callback proves current delivery.
+
+config T5AI_RETAINED_SLEEP_CP_RECEIVE_ADDRESS
+    hex "Verified CP receive record address"
+    depends on T5AI_RETAINED_SLEEP_CP_RECEIVE_DIAGNOSTIC
+    default 0
+
+config T5AI_RETAINED_SLEEP_CP_RUNTIME_DIAGNOSTIC
+    bool "Read hash-bound CP scheduler/task/exception state at timeout"
+    depends on T5AI_RETAINED_SLEEP_CP_STATE_DIAGNOSTIC
+    depends on !T5AI_RETAINED_SLEEP_CP_CRITICAL_DIAGNOSTIC
+    default n
+    help
+      Read-only independent snapshots after final CP release. Encodes CP
+      exception entry, idle task, suspended scheduler and over one second of
+      pending ticks in bits 0-3. Exact ELF/config/task-layout binding required.
+
+config T5AI_RETAINED_SLEEP_CP_TASK_POINTER_ADDRESS
+    hex "Verified CP current-task pointer address"
+    depends on T5AI_RETAINED_SLEEP_CP_RUNTIME_DIAGNOSTIC
+    default 0
+
+config T5AI_RETAINED_SLEEP_CP_SCHEDULER_ADDRESS
+    hex "Verified CP scheduler-suspended counter address"
+    depends on T5AI_RETAINED_SLEEP_CP_RUNTIME_DIAGNOSTIC
+    default 0
+
+config T5AI_RETAINED_SLEEP_CP_PENDING_TICKS_ADDRESS
+    hex "Verified CP pending-ticks counter address"
+    depends on T5AI_RETAINED_SLEEP_CP_RUNTIME_DIAGNOSTIC
+    default 0
+
+config T5AI_RETAINED_SLEEP_CP_EXCEPTION_BASE_ADDRESS
+    hex "Verified vendor power-management shared block address"
+    depends on T5AI_RETAINED_SLEEP_CP_RUNTIME_DIAGNOSTIC
+    default 0
+
+config T5AI_RETAINED_SLEEP_CP_IDLE_TCB_ADDRESS
+    hex "Verified CP static idle TCB symbol value (comparison only)"
+    depends on T5AI_RETAINED_SLEEP_CP_RUNTIME_DIAGNOSTIC
+    default 0
+
+config T5AI_RETAINED_SLEEP_CP_RUNTIME_RELEASE_DIAGNOSTIC
+    bool "Use runtime bit 3 for current-generation final CP release"
+    depends on T5AI_RETAINED_SLEEP_CP_RUNTIME_DIAGNOSTIC
+    default n
+    help
+      Bit 3 reports a valid matching-generation InterruptsReleased record
+      instead of a pending-tick backlog. Bind the CP stage record address.
+
+config T5AI_RETAINED_SLEEP_CP_CLEANUP_IRQ_DIAGNOSTIC
+    bool "Use timeout bits for the last CP cleanup IRQ snapshot"
+    depends on T5AI_RETAINED_SLEEP_CP_RUNTIME_DIAGNOSTIC
+    default n
+    help
+      Bits 0..3 copy the bound CP cleanup snapshot. Its interpretation must
+      accompany the exact CP ELF address: route gates and delivery blockers
+      are distinct words. This diagnostic does not alter CP interrupt masks.
+
+config T5AI_RETAINED_SLEEP_CP_CLEANUP_IRQ_ADDRESS
+    hex "Verified CP cleanup IRQ state word address"
+    depends on T5AI_RETAINED_SLEEP_CP_CLEANUP_IRQ_DIAGNOSTIC
+    default 0
+
+config T5AI_RETAINED_SLEEP_CP_TICK_HZ
+    int "Verified CP scheduler tick frequency"
+    depends on T5AI_RETAINED_SLEEP_CP_RUNTIME_DIAGNOSTIC
+    range 1 10000
+    default 1000
+
+config T5AI_RETAINED_SLEEP_CP_CANCELLED_ADDRESS
+    hex "Verified CP Cancellation flag address"
+    depends on T5AI_RETAINED_SLEEP_CP_STATE_DIAGNOSTIC
+    default 0
+
+config T5AI_RETAINED_SLEEP_CP_PREPARED_ADDRESS
+    hex "Verified CP Prepared flag address"
+    depends on T5AI_RETAINED_SLEEP_CP_STATE_DIAGNOSTIC
+    default 0
+
+config T5AI_RETAINED_SLEEP_CP_RESOURCES_ADDRESS
+    hex "Verified CP Resources-active flag address"
+    depends on T5AI_RETAINED_SLEEP_CP_STATE_DIAGNOSTIC
+    default 0
+
+config T5AI_RETAINED_SLEEP_CP_CRITICAL_ADDRESS
+    hex "Verified CP RTOS critical nesting address"
+    depends on T5AI_RETAINED_SLEEP_CP_STATE_DIAGNOSTIC
+    default 0
+
+config T5AI_RETAINED_SLEEP_TEST_ENTRY_LIMIT
+    int "AP return target for the bounded retained-sleep trial"
+    depends on T5AI_RETAINED_SLEEP_TEST
+    range 1 128
+    default 12
+
+config T5AI_RETAINED_SLEEP_TEST_REQUEST_LIMIT
+    int "Maximum preparation requests in the bounded retained-sleep trial"
+    depends on T5AI_RETAINED_SLEEP_TEST
+    range 1 256
+    default 24
+
+config T5AI_RETAINED_SLEEP_RESOURCES_ONLY
+    bool "Bounded CP preparation and rollback control without clock shutdown"
+    depends on T5AI_RETAINED_SLEEP_TEST && !T5AI_RETAINED_SLEEP_WAKE_ONLY
+    default n
+    help
+      Requires CP ABI v8. Allow normal CP resource preparation but reject HAL
+      entry before any clock or voltage change. Require observed resource
+      preparation and zero CP WFI entries at the bounded endpoint.
+
+config T5AI_RETAINED_SLEEP_CLOCKS_ONLY
+    bool "Bounded CP low-clock restore control without CP WFI"
+    depends on T5AI_RETAINED_SLEEP_TEST && !T5AI_RETAINED_SLEEP_WAKE_ONLY && !T5AI_RETAINED_SLEEP_RESOURCES_ONLY
+    default n
+    help
+      Requires CP ABI v9. Exercise ordinary resource, clock and voltage setup
+      and restoration, skipping CP WFI. Record final alarm lead and hardware
+      wake settings. Require low-clock evidence and zero CP WFI entries.
+
+config T5AI_RETAINED_SLEEP_WFI_KEEP_HF
+    bool "Skip software HF shutdown during bounded real CP WFI"
+    depends on T5AI_RETAINED_SLEEP_TEST && !T5AI_RETAINED_SLEEP_CLOCKS_ONLY
+    depends on !T5AI_RETAINED_SLEEP_WAKE_ONLY && !T5AI_RETAINED_SLEEP_RESOURCES_ONLY
+    default n
+    help
+      Requires CP ABI v24. Exercise real CP WFI with normal module/domain and
+      voltage handling while skipping software HF shutdown. Hardware PMU clock
+      halting remains unchanged. Post-WFI UART markers preserve external stage
+      evidence. This diagnostic does not qualify high-frequency clock shutdown.
+
+config T5AI_RETAINED_SLEEP_NO_HW_MASK
+    bool "Keep CP hardware interrupt wake enabled during bounded WFI"
+    depends on T5AI_RETAINED_SLEEP_TEST && !T5AI_RETAINED_SLEEP_CLOCKS_ONLY
+    depends on !T5AI_RETAINED_SLEEP_WAKE_ONLY && !T5AI_RETAINED_SLEEP_RESOURCES_ONLY
+    default n
+    help
+      Requires CP ABI v26. Isolate the CPU0 hardware interrupt mask with
+      optional software HF shutdown. Preserve PRIMASK, all pending-interrupt checks,
+      alarm lead and the complete suspend/restore contract. This bounded
+      diagnostic does not qualify global low-voltage residency.
+
+config T5AI_RETAINED_SLEEP_VENDOR_FLASH_IDLE
+    bool "Use vendor flash-idle predicate during bounded retained sleep"
+    depends on T5AI_RETAINED_SLEEP_NO_HW_MASK && !T5AI_RETAINED_SLEEP_WFI_KEEP_HF
+    default n
+    help
+      Requires CP ABI v27. Match the vendor hardware flash-idle sleep bit while
+      retaining software flash ownership, a final flash-controller busy check,
+      AP/CP WFI requirements and the global bus-idle requirement. This bounded
+      isolation needs fresh PMU wake evidence before global sleep qualification.
+
+config T5AI_RETAINED_SLEEP_VENDOR_CPU_IDLE
+    bool "Use vendor CPU0-WFI predicate during bounded retained sleep"
+    depends on T5AI_RETAINED_SLEEP_VENDOR_FLASH_IDLE
+    default n
+    help
+      Requires CP ABI v28. Match the vendor CPU0-WFI condition bit while
+      preserving actual CP deep-WFI execution, AP WFI, global bus-idle and
+      the complete flash ownership, busy, IRQ and deadline admission checks.
+      Require PMU wake evidence before claiming global low-voltage sleep.
+
+config T5AI_RETAINED_SLEEP_VENDOR_SUBCORES_ON
+    bool "Use the selected vendor subcores-on sleep condition"
+    depends on T5AI_RETAINED_SLEEP_VENDOR_CPU_IDLE
+    default n
+    help
+      Requires CP ABI v29 and the pinned PM_LV_SUBCORES_ON configuration.
+      Match its global-enable-only hardware WFI predicate. Preserve the native
+      software AP-suspend publication, actual AP/CP WFI, SRAM restore wait,
+      flash ownership/busy checks and all IRQ/deadline guards.
+
+config T5AI_RETAINED_SLEEP_VENDOR_KEEP_HF
+    bool "Skip software HF shutdown with the selected vendor condition"
+    depends on T5AI_RETAINED_SLEEP_VENDOR_SUBCORES_ON
+    default n
+    help
+      Requires CP ABI v33. Keep the selected global-only hardware condition,
+      actual CP WFI and all ownership/IRQ/deadline guards. Skip software HF
+      shutdown and enable the existing leased UART stage markers. Hardware
+      PMU clock halting is unchanged; compare unmasked and masked controls.
+
+config T5AI_RETAINED_SLEEP_VENDOR_MASKED
+    bool "Use the CPU0 hardware mask with the selected vendor condition"
+    depends on T5AI_RETAINED_SLEEP_VENDOR_SUBCORES_ON
+    default n
+    help
+      Requires CP ABI v30. Bounded mask-only comparison after final IRQ, flash
+      and deadline admission. Save and restore the exact prior hardware mask;
+      retain PRIMASK and the complete AP suspend and wake contract.
+
+config T5AI_RETAINED_SLEEP_MASKED_CP_WFI
+    bool "Require CPU0 WFI before masked PMU admission"
+    depends on T5AI_RETAINED_SLEEP_VENDOR_MASKED && T5AI_RETAINED_SLEEP_VENDOR_KEEP_HF
+    default n
+    help
+      Requires CP ABI v34. Bounded admission-order control: keep software HF
+      enabled and require actual CPU0 WFI before global sleep can start. AP
+      publication, bus idle, owner leases and all final wake guards remain.
+
+config T5AI_RETAINED_SLEEP_CP_WAKE_ONLY
+    bool "Wake AP through the restored CP mailbox during retained sleep"
+    depends on T5AI_RETAINED_SLEEP_TEST && !T5AI_RETAINED_SLEEP_WAKE_ONLY
+    default n
+    help
+      Requires CP ABI v36 raw-GPIO admission checks. Bounded comparison with
+      the pinned vendor AP wake contract. During AP
+      WFI route only mailbox interrupts to AP; CP owns the AON alarm and PMU
+      wake handling and restores shared resources before sending resume.
+      Preserve AP GPIO configuration and pending acknowledgement ownership;
+      restore all AP interrupt routes before returning to application code.
+
+config T5AI_RETAINED_SLEEP_VENDOR_LPO_HALT
+    bool "Use the pinned vendor LPO halt setting during bounded native sleep"
+    depends on T5AI_RETAINED_SLEEP_TEST && !T5AI_RETAINED_SLEEP_WAKE_ONLY
+    depends on !T5AI_RETAINED_SLEEP_CLOCKS_ONLY && !T5AI_RETAINED_SLEEP_RESOURCES_ONLY
+    depends on !T5AI_RETAINED_SLEEP_NO_HW_MASK && !T5AI_RETAINED_SLEEP_VENDOR_FLASH_IDLE
+    depends on !T5AI_RETAINED_SLEEP_WFI_KEEP_HF && !T5AI_RETAINED_SLEEP_VENDOR_KEEP_HF
+    default n
+    help
+      Requires CP ABI v38. Keep the pinned HAL's halt_lpo bit during the full
+      native CPU0/AP-WFI and flash-idle contract, with software HF shutdown.
+      The vendor accounts elapsed sleep with the same AON RTC across this
+      setting. Require measured counter continuity and correct deadlines;
+      save and restore the prior LPO halt bit when cancelling the lease.
+
+config T5AI_RETAINED_SLEEP_KEEP_HF
+    bool "Keep high-frequency clocks on during bounded CP clock control"
+    depends on T5AI_RETAINED_SLEEP_CLOCKS_ONLY
+    default n
+    help
+      Requires CP ABI v10. Exercise the core/flash low-clock and voltage path
+      without disabling high-frequency clocks or entering CP WFI. This isolates
+      oscillator shutdown from the surrounding preparation and restoration.
+
+config T5AI_RETAINED_SLEEP_DOMAIN_BYPASS
+    bool "Bounded CP voltage/clock control without domain or bus isolation setup"
+    depends on T5AI_RETAINED_SLEEP_KEEP_HF && !T5AI_RETAINED_SLEEP_CORE_ONLY
+    default n
+    help
+      Requires CP ABI v20. Skip only the HAL power-domain and bus-isolation
+      setup, keeping its register backup and balanced restoration. Retain the
+      voltage/analog path, resource callbacks and core/flash clock changes.
+      This bounded diagnostic skips CP WFI and keeps high-frequency clocks on.
+
+config T5AI_RETAINED_SLEEP_RETAIN_MODULE_STATE
+    bool "Preserve module restore flags in the no-domain polling control"
+    depends on T5AI_RETAINED_SLEEP_DOMAIN_BYPASS
+    default n
+    help
+      Requires CP ABI v21. Skip marking all modules as state-lost only in this
+      bounded no-WFI, no-domain-shutdown diagnostic. Keep the normal real-sleep
+      module invalidation path. This control cannot qualify retained sleep.
+
+config T5AI_RETAINED_SLEEP_AP_ACTIVE_WAIT
+    bool "Bounded AP SRAM polling control without AP WFI"
+    depends on T5AI_RETAINED_SLEEP_DOMAIN_BYPASS || T5AI_RETAINED_SLEEP_MASK_BARRIER_CONTROL || T5AI_RETAINED_SLEEP_CLOCKS_ONLY
+    default n
+    help
+      Publish the AP coordination flag but poll from SRAM instead of entering
+      AP WFI. These CP controls skip CP WFI; clock changes follow the
+      selected control. Keep the same clock restoration, timeout and cleanup
+      checks. This isolates AP wake delivery from execution and restoration;
+      it cannot qualify sleep.
+
+config T5AI_RETAINED_SLEEP_CORE_ONLY
+    bool "Bounded CP core and flash clock switch without power changes"
+    depends on T5AI_RETAINED_SLEEP_KEEP_HF
+    default n
+    help
+      Requires CP ABI v11. Switch the core and flash clocks to 26 MHz and back
+      while skipping power-domain and voltage configuration, high-frequency
+      clock shutdown, and CP WFI. Require observed low-clock transitions.
+
+config T5AI_RETAINED_SLEEP_FLASH_RESTORE_ONLY
+    bool "Add the CP flash restore callback to the core-only control"
+    depends on T5AI_RETAINED_SLEEP_CORE_ONLY
+    default n
+    help
+      Requires CP ABI v13. Repeat the core/flash low-clock control and call
+      the ordinary flash power-saving exit while AP is suspended. Continue
+      to bypass power-domain/voltage changes, HF shutdown and CP WFI.
+
+config T5AI_RETAINED_SLEEP_BSP_RESTORE_ONLY
+    bool "Add CP watchdog and BSP restore to the core-only control"
+    depends on T5AI_RETAINED_SLEEP_CORE_ONLY && !T5AI_RETAINED_SLEEP_FLASH_RESTORE_ONLY
+    default n
+    help
+      Requires matching CP ABI v15. Pair the ordinary interrupt/task watchdog
+      stop with the full BSP restore callback on the core/flash clock control.
+      Bypass power-domain/voltage changes, HF shutdown and CP WFI.
+
+config T5AI_RETAINED_SLEEP_TEST_AT_UTC
+    int "UTC epoch second for the bounded retained-sleep pilot"
+    depends on T5AI_RETAINED_SLEEP_TEST
+    range 0 2147483647
+    default 0
+    help
+      Zero disables the pilot. Allow new preparation/entry only for twenty seconds
+      from this timestamp. Cleanup remains available afterward. Startup settling
+      exceeds this window, preventing re-entry after a watchdog reset even when
+      SRAM markers were cleared. Requires a trusted progressing wall clock.
+
+config T5AI_RETAINED_SLEEP_PERSISTENT_TRACE
+    bool "Borrow the CP reset-reason field during a bounded sleep trial"
+    depends on T5AI_RETAINED_SLEEP_TEST && T5AI_RETAINED_SLEEP_VENDOR_LPO_HALT
+    default n
+    help
+      Keep an owned CP stage across a watchdog reset. Restore the previous CP
+      field on cancellation, preserving AP and PMU fields. The traced ITCM leaf
+      records its return before accessing a stack or SRAM. Diagnostic only.
+
+config T5AI_RETAINED_SLEEP_ANALOG_WAKE_TEST
+    bool "Borrow the unused analog timer as an independent bounded wake"
+    depends on T5AI_RETAINED_SLEEP_PERSISTENT_TRACE
+    default n
+    help
+      Refuse an enabled timer or an active analog latch. Preserve its current
+      clock source and restore timer enable/period before AP resumes. Require
+      a long idle window and retain the private AON alarm and watchdog guard.
+      Diagnostic only; analog timing and global residency need measurement.
+
+config T5AI_RETAINED_SLEEP_DEADLINE_PROFILE_ONLY
+    bool "Observe idle deadlines without arming retained sleep"
+    depends on T5AI_RETAINED_SLEEP_TEST
+    default n
+    help
+      Record the longest scheduler budget in the explicit UTC test window.
+      Copy existing timed-thread/timer metadata under the IRQ lock, without
+      changing deadlines or adding timers. Never prepare a CP sleep lease.
+
+config T5AI_RETAINED_SLEEP_ANALOG_DOMAINS_RETAINED
+    bool "Retain domains while exercising the real CP WFI path"
+    depends on T5AI_RETAINED_SLEEP_ANALOG_WAKE_TEST
+    default n
+    help
+      Isolate domain and bus-isolation preparation from the bounded clock/WFI
+      transition. Keep the analog fallback, private alarm and watchdog guard.
+      Unlike the older domain control, actually execute CP WFI with HF shutdown.
+      Diagnostic only; this does not establish production retention or savings.
+
+config T5AI_RETAINED_SLEEP_SHALLOW_WFI_CONTROL
+    bool "Use shallow CP WFI in the bounded domain-retention control"
+    depends on T5AI_RETAINED_SLEEP_ANALOG_DOMAINS_RETAINED
+    default n
+    help
+      Keep the masked WFI leaf, analog fallback and clock transition, but clear
+      CP SLEEPDEEP to isolate global sleep admission from interrupt wake routing.
+      Read back the selected architecture state and restore SCR on every return.
+      This diagnostic does not qualify global retained sleep or energy savings.
+
+config T5AI_RETAINED_SLEEP_MASK_BARRIER_CONTROL
+    bool "Round-trip the CP hardware interrupt mask without WFI"
+    depends on T5AI_RETAINED_SLEEP_ANALOG_DOMAINS_RETAINED
+    depends on !T5AI_RETAINED_SLEEP_SHALLOW_WFI_CONTROL
+    default n
+    help
+      Exercise the mask store and DSB in a stack-free ITCM leaf, then restore
+      the original control word without WFI. Keep domains retained and CP
+      SLEEPDEEP clear. Stop after one returned clock cycle and require balanced
+      mask state and zero CP WFI attempts. This is not sleep qualification.
+      Returned barriers have caused I2C/ADC interrupt-delivery failure on this
+      board; they are not a qualified substitute for a WFI/wake handshake.
+
+config T5AI_RETAINED_SLEEP_MASK_ONLY_CONTROL
+    bool "Isolate CP hardware mask at unchanged clocks and voltage"
+    depends on T5AI_RETAINED_SLEEP_MASK_BARRIER_CONTROL
+    default n
+    help
+      Skip low-voltage resource callbacks, clock switching and voltage changes.
+      Retain deadline/IRQ admission, the stack-free mask leaf, timer restoration
+      and AP cleanup. Diagnostic only; neither CPU executes WFI.
+
+endmenu

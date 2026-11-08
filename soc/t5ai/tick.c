@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include <pbl/kernel/idle.h>
+#include <pbl/kernel/irq.h>
 #include <pbl/soc/t5ai/power.h>
 #include <pbl/soc/t5ai/rtc.h>
 #include <pbl/soc/t5ai/tick.h>
@@ -22,7 +23,7 @@ T5AITickProfile t5ai_tick_profile;
 #define TICK_ADD(field, value) ((void)0)
 #endif
 
-#ifdef CONFIG_T5AI_TICKLESS_WFI
+#if defined(CONFIG_T5AI_TICKLESS_WFI) || defined(CONFIG_T5AI_RETAINED_SLEEP)
 #define T5AI_SYSTICK_MAX_CYCLES (1u << 24)
 #define T5AI_SYSTICK_RUNNING \
   (SysTick_CTRL_ENABLE_Msk | SysTick_CTRL_TICKINT_Msk | SysTick_CTRL_CLKSOURCE_Msk)
@@ -46,6 +47,7 @@ void t5ai_tick_resume_idle(void) {
   }
 }
 
+#ifdef CONFIG_T5AI_TICKLESS_WFI
 bool t5ai_tick_prepare_idle(uint32_t max_ticks) {
   const uint32_t minimum_hz = t5ai_power_wfi_clock_min_hz();
   const uint32_t ctrl = SysTick->CTRL & T5AI_SYSTICK_RUNNING;
@@ -88,6 +90,35 @@ bool t5ai_tick_prepare_idle(uint32_t max_ticks) {
     return false;
   }
   TICK_ADD(extended, 1u);
+  return true;
+}
+#endif
+#endif
+
+#ifdef CONFIG_T5AI_RETAINED_SLEEP
+#define T5AI_SLEEP_SCHEDULER_GUARD_TICKS 1u
+uint32_t t5ai_tick_idle_deadline(uint32_t max_ticks) {
+  pbl_irq_lock();
+  const uint32_t horizon = INT32_MAX / AON_TICKS_PER_KERNEL_TICK;
+  uint32_t ticks = max_ticks > horizon ? horizon : max_ticks;
+  ticks = ticks > T5AI_SLEEP_SCHEDULER_GUARD_TICKS ? ticks - T5AI_SLEEP_SCHEDULER_GUARD_TICKS : 0u;
+  const uint32_t deadline = s_accounted + ticks * AON_TICKS_PER_KERNEL_TICK;
+  pbl_irq_unlock();
+  return deadline;
+}
+
+bool t5ai_tick_prepare_retained(void) {
+  const uint32_t ctrl = SysTick->CTRL & T5AI_SYSTICK_RUNNING;
+  if (s_idle_ctrl != 0u || ctrl != T5AI_SYSTICK_RUNNING ||
+      (SCB->ICSR & (SCB_ICSR_PENDSTSET_Msk | SCB_ICSR_VECTPENDING_Msk)))
+    return false;
+  s_idle_ctrl = ctrl;
+  SysTick->CTRL = 0u;
+  __DSB();
+  if (SCB->ICSR & (SCB_ICSR_PENDSTSET_Msk | SCB_ICSR_VECTPENDING_Msk)) {
+    t5ai_tick_resume_idle();
+    return false;
+  }
   return true;
 }
 #endif

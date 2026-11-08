@@ -8,6 +8,11 @@ from tools.tests import test_t5ai_sd_pfs as sd_model
 PREFIX = r"""
 #define CONFIG_T5AI_SD_IDLE_GATING 1
 #include "common.h"
+#include <stdarg.h>
+#undef PBL_LOG_ERR
+static void sd_test_log(const char *fmt,...);
+#define PBL_LOG_ERR(...) sd_test_log(__VA_ARGS__)
+static unsigned state_logs;
 #undef NVIC_EnableIRQ
 static unsigned irq_enabled, irq_clears, fail_pinctrl, busy_polls, fail_ready;
 static int force_dma_status_error;
@@ -19,6 +24,18 @@ static void irq_clear(unsigned irq) {assert(irq==SDIO_IRQn);++irq_clears;}
 #define NVIC_ClearPendingIRQ(irq) irq_clear(irq)
 """
 MAIN = r"""
+static void sd_test_log(const char *fmt,...) {
+ if(strncmp(fmt,"SD state ",9))return;
+ ++state_logs;va_list ap;va_start(ap,fmt);
+ assert(va_arg(ap,unsigned long)==s_command_status);
+ assert(va_arg(ap,unsigned long)==s_data_status);
+ assert(va_arg(ap,unsigned long)==SD(SD_INTERRUPT_MASK));
+ assert(va_arg(ap,unsigned long)==SD(SD_DATA_CONTROL));
+ assert(va_arg(ap,unsigned long)==SD(SD_FIFO_CONTROL));
+ assert(va_arg(ap,unsigned long)<=4);
+ assert(va_arg(ap,int)==0);
+ va_end(ap);
+}
 static void expect_idle(void) {
  assert(!s_clock_active && !irq_enabled);
  assert(!(SD(SD_GLOBAL_CONTROL)&PERIPHERAL_CLOCK_GATE_BYPASS));
@@ -72,12 +89,18 @@ int main(void) {
  assert(s_faulted && s_clock_active);s_faulted=false;fail_data=2;
  assert(t5ai_sd_read(4,output,1)==-ETIMEDOUT && s_faulted && s_clock_active);
  assert(CH(0,DMA_CHANNEL_CONTROL)==0x123456 && CH(1,DMA_CHANNEL_CONTROL)==0xabcdef);
+#ifdef CONFIG_T5AI_POWER_PROFILE
+ T5AISDPowerStats stats;t5ai_sd_power_stats(NULL);t5ai_sd_power_stats(&stats);
+ assert(stats.acquires==12 && stats.releases==12 && stats.fallbacks==3 && stats.errors==3);
+ assert(state_logs==3);
+ assert(stats.read_bytes==14336 && stats.written_bytes==12288 && stats.clock_active);
+#endif
  puts("PASS: SD local clock lifetime, card busy, shared owners, late IRQ, retry and fault quarantine");
 }
 """
 
 
-def harness():
+def harness(profile=False):
     source = sd_model.DRIVER[: sd_model.DRIVER.index("int main(void)")]
     source = source.replace(
         "(void)p;(void)state;return 0;}",
@@ -99,13 +122,20 @@ def harness():
         "response=(fail_ready || busy_polls)?0xe00:0x900;"
         "if(busy_polls)--busy_polls;++ready_polls;",
     )
-    return PREFIX + source + MAIN
+    prefix = ""
+    if profile:
+        prefix = (
+            "#define CONFIG_T5AI_POWER_PROFILE 1\n"
+            + f'#include "{sd_model.ROOT / "include/pbl/drivers/t5ai/sd.h"}"\n'
+        )
+    return prefix + PREFIX + source + MAIN
 
 
 class SDIdleClockTest(unittest.TestCase):
     def test_local_gate_four_bit_and_one_bit(self):
         for four_bit in [True, False]:
-            with self.subTest(four_bit=four_bit):
-                sd_model.SDTests().compile_run(
-                    "drivers/t5ai/sd.c", harness(), four_bit=four_bit
-                )
+            for profile in [False, True]:
+                with self.subTest(four_bit=four_bit, profile=profile):
+                    sd_model.SDTests().compile_run(
+                        "drivers/t5ai/sd.c", harness(profile), four_bit=four_bit
+                    )

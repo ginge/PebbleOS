@@ -223,8 +223,12 @@ class TicklessWFITest(unittest.TestCase):
     def test_deadline_pending_wrap_external_wake_and_clock_changes(self):
         power = (ROOT / "soc/t5ai/power.c").read_text()
         power = re.sub(r"^#include .*$", "", power, flags=re.MULTILINE)
-        power = power.replace("*(volatile uint32_t *)0x44010020u", "hw_mode")
-        power = power.replace("*(volatile uint32_t *)0x44010014u", "hw_cpu1")
+        power = power.replace(
+            "*(volatile uint32_t *)T5AI_SYSTEM_CLOCK_MODE_ADDRESS", "hw_mode"
+        )
+        power = power.replace(
+            "*(volatile uint32_t *)T5AI_SYSTEM_CPU1_CLOCK_ADDRESS", "hw_cpu1"
+        )
         idle = body((ROOT / "soc/t5ai/idle.c").read_text(), "pbl_soc_idle")
         header = f'#include "{ROOT / "include/pbl/soc/t5ai/tick.h"}"\n'
         power_header = f'#include "{ROOT / "include/pbl/soc/t5ai/power.h"}"\n'
@@ -238,9 +242,61 @@ class TicklessWFITest(unittest.TestCase):
             ),
         )
 
+    def test_retained_tick_pending_wrap_and_exact_once(self):
+        power = re.sub(
+            r"^#include .*$",
+            "",
+            (ROOT / "soc/t5ai/power.c").read_text(),
+            flags=re.MULTILINE,
+        )
+        power = power.replace(
+            "*(volatile uint32_t *)T5AI_SYSTEM_CLOCK_MODE_ADDRESS", "hw_mode"
+        )
+        power = power.replace(
+            "*(volatile uint32_t *)T5AI_SYSTEM_CPU1_CLOCK_ADDRESS", "hw_cpu1"
+        )
+        header = f'#include "{ROOT / "include/pbl/soc/t5ai/tick.h"}"\n'
+        power_header = f'#include "{ROOT / "include/pbl/soc/t5ai/power.h"}"\n'
+        extra = "static unsigned locks;static void pbl_irq_lock(void){++locks;}static void pbl_irq_unlock(void){assert(locks);--locks;}\n"
+        main = r"""
+static void service(void){SCB->ICSR=0;SysTick_Handler();}
+int main(void){
+ masked=true;hw_mode=0x31;hw_cpu1=16;SystemCoreClock=240000000;
+ SysTick->CTRL=7;t5ai_tick_start();
+ assert(t5ai_tick_idle_deadline(10)==288 && !locks);
+ assert(t5ai_tick_prepare_retained() && !SysTick->CTRL);
+ assert(!t5ai_tick_prepare_retained());
+ aon=100;t5ai_tick_resume_idle();assert(SysTick->CTRL==7 && SysTick->LOAD==239999);
+ service();assert(ticks==3 && s_accounted==96);service();assert(ticks==3);
+ // Fractions survive repeated sub-tick external wakes.
+ for(unsigned i=0;i<4;++i){assert(t5ai_tick_prepare_retained());aon+=8;t5ai_tick_resume_idle();service();}
+ assert(ticks==4 && s_accounted==128);
+ SCB->ICSR=7u<<12;assert(!t5ai_tick_prepare_retained() && SysTick->CTRL==7);
+ SCB->ICSR=0;race=true;assert(!t5ai_tick_prepare_retained() && SysTick->CTRL==7);
+ assert(SCB->ICSR&SCB_ICSR_PENDSTSET_Msk);service();assert(ticks==5);
+ aon=UINT32_MAX-15;t5ai_tick_start();assert(t5ai_tick_idle_deadline(3)==48);
+ assert(t5ai_tick_prepare_retained());aon+=80;t5ai_tick_resume_idle();service();assert(ticks==7 && aon-s_accounted==16);
+ assert(t5ai_tick_idle_deadline(0)==s_accounted && t5ai_tick_idle_deadline(1)==s_accounted);
+ return 0;
+}
+"""
+        run(
+            "soc/t5ai/tick.c",
+            PREFIX + header + power_header + power + extra,
+            main,
+            defines=("CONFIG_T5AI_RETAINED_SLEEP", "CONFIG_T5AI_TICK_PROFILE"),
+            transform=lambda text: text.replace(
+                "SCB->ICSR = SCB_ICSR_PENDSTSET_Msk;", "pend_systick();"
+            ),
+        )
+
     def test_cp_contract_requires_success_and_invalidates_before_send(self):
         cp = (ROOT / "drivers/t5ai/cp_mailbox.c").read_text()
-        code = body(cp, "t5ai_cp_mailbox_wfi_clock_min_hz") + body(cp, "prv_pm_request")
+        code = (
+            body(cp, "t5ai_cp_mailbox_wfi_clock_min_hz")
+            + body(cp, "prv_pm_exchange")
+            + body(cp, "prv_pm_request")
+        )
         run(
             "soc/t5ai/tick.c",
             PM_PREFIX,

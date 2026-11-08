@@ -1,4 +1,8 @@
 /* SPDX-License-Identifier: Apache-2.0 */
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+#include <pbl/soc/t5ai/sleep.h>
+#endif
+
 #include <errno.h>
 
 #include <pbl/drivers/dma/t5ai.h>
@@ -8,19 +12,19 @@
 
 #include <cmsis_core.h>
 
-#define DMA_BASE                      0x45020000u
-#define DMA_REG(offset)               (*(volatile uint32_t *)(DMA_BASE + (offset)))
-#define DMA_CHANNEL_BASE              0x40u
-#define DMA_CHANNEL_STRIDE            0x40u
+#define DMA_BASE           0x45020000u
+#define DMA_REG(offset)    (*(volatile uint32_t *)(DMA_BASE + (offset)))
+#define DMA_CHANNEL_BASE   0x40u
+#define DMA_CHANNEL_STRIDE 0x40u
 #define DMA_CHANNEL_REG(channel, offset) \
   DMA_REG(DMA_CHANNEL_BASE + (channel) * DMA_CHANNEL_STRIDE + (offset))
 
-#define DMA_GLOBAL_CONTROL            0x08u
-#define DMA_SECURE_ATTRIBUTE          0x10u
-#define DMA_PRIVILEGED_ATTRIBUTE      0x14u
-#define DMA_INTERRUPT_ALLOCATION      0x28u
-#define DMA_GLOBAL_RESET_RELEASE      (1u << 0)
-#define DMA_GLOBAL_CLOCK_GATE_BYPASS  (1u << 1)
+#define DMA_GLOBAL_CONTROL           0x08u
+#define DMA_SECURE_ATTRIBUTE         0x10u
+#define DMA_PRIVILEGED_ATTRIBUTE     0x14u
+#define DMA_INTERRUPT_ALLOCATION     0x28u
+#define DMA_GLOBAL_RESET_RELEASE     (1u << 0)
+#define DMA_GLOBAL_CLOCK_GATE_BYPASS (1u << 1)
 
 #define DMA_CHANNEL_CONTROL           0x00u
 #define DMA_DESTINATION_ADDRESS       0x04u
@@ -63,13 +67,13 @@
 #define DMA_STATUS_INTERRUPTS (DMA_STATUS_FINISH | DMA_STATUS_HALF | DMA_STATUS_BUS_ERROR)
 
 // Only AP channels 0..3 are configured or acknowledged; CP channels are untouched.
-#define DMA_AP_CHANNEL_COUNT              4u
-#define DMA_AP_CHANNEL_MASK               ((1u << DMA_AP_CHANNEL_COUNT) - 1u)
-#define DMA_MAX_TRANSFER_BYTES            (1u << DMA_CONTROL_LENGTH_SHIFT)
-#define DMA_AP_SRAM_BASE                  0x28010000u
-#define DMA_AP_SRAM_END                   0x28066000u
-#define DMA_IRQ_PRIORITY                  6u
-#define DMA_POWER_SETTLE_US               10u
+#define DMA_AP_CHANNEL_COUNT   4u
+#define DMA_AP_CHANNEL_MASK    ((1u << DMA_AP_CHANNEL_COUNT) - 1u)
+#define DMA_MAX_TRANSFER_BYTES (1u << DMA_CONTROL_LENGTH_SHIFT)
+#define DMA_AP_SRAM_BASE       0x28010000u
+#define DMA_AP_SRAM_END        0x28066000u
+#define DMA_IRQ_PRIORITY       6u
+#define DMA_POWER_SETTLE_US    10u
 
 #define SYSTEM_BASE                       0x44010000u
 #define SYSTEM_REG(offset)                (*(volatile uint32_t *)(SYSTEM_BASE + (offset)))
@@ -97,6 +101,10 @@ static int prv_terminate(const struct pbl_dma_controller *ctrl, uint8_t c) {
   __DSB();
   (void)DMA_CHANNEL_REG(c, DMA_CHANNEL_CONTROL);
   DMA_CHANNEL_REG(c, DMA_CHANNEL_STATUS) = DMA_STATUS_INTERRUPTS;
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+  if (s_channels[c].active)
+    t5ai_sleep_unblock(T5AISleepOwner_DMA);
+#endif
   s_channels[c].active = false;
   pbl_irq_unlock();
   return 0;
@@ -172,6 +180,9 @@ static int prv_start(const struct pbl_dma_controller *ctrl, uint8_t c, void *buf
   s->dir = dir;
   s->cyclic = period != 0;
   s->active = true;
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+  t5ai_sleep_block(T5AISleepOwner_DMA);
+#endif
   __DSB();
   DMA_CHANNEL_REG(c, DMA_CHANNEL_CONTROL) =
       ((len - 1u) << DMA_CONTROL_LENGTH_SHIFT) | (encoding << DMA_CONTROL_SOURCE_WIDTH_SHIFT) |
@@ -223,6 +234,9 @@ void pbl_dma_t5ai_irq_handler(void) {
     if ((status & DMA_STATUS_BUS_ERROR) ||
         (s->cyclic && (status & (DMA_STATUS_HALF | DMA_STATUS_FINISH)) ==
                           (DMA_STATUS_HALF | DMA_STATUS_FINISH))) {
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+      t5ai_sleep_fault();
+#endif
       prv_terminate(&T5AI_DMA, c);
       pbl_dma_complete(&T5AI_DMA, c, -EIO);
     } else if (status & (s->cyclic ? DMA_STATUS_HALF | DMA_STATUS_FINISH : DMA_STATUS_FINISH)) {

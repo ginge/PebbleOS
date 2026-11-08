@@ -8,6 +8,16 @@
 #include <pbl/kernel/thread.h>
 #include <pbl/services/new_timer/new_timer.h>
 
+#ifdef CONFIG_T5AI_POWER_PROFILE
+typedef struct {
+  uint32_t irqs, watchdogs, passes, acquired;
+  uint32_t interval_us, batch;
+  uint8_t id, revision, odr, watermark;
+  bool identity_valid, initialized, active, shake, recovery, irq_armed;
+} T5AIQMIPowerStats;
+void t5ai_qmi8658_power_stats(T5AIQMIPowerStats *stats);
+#endif
+
 /* One sensor instance is supported. */
 struct pbl_qmi8658_state {
   TimerID timer;

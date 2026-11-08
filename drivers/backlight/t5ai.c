@@ -6,6 +6,10 @@
 #include <pbl/drivers/panel/co5300.h>
 
 static uint8_t prv_get_level(const struct pbl_backlight *bl, uint8_t brightness) {
+#ifdef CONFIG_T5AI_AMOLED_ZERO_BRIGHTNESS
+  if (brightness == 0u)
+    return 0u;
+#endif
   const uint8_t level = ((uint16_t)brightness * UINT8_MAX + 99u) / 100u;
   return level < T5AI_AMOLED_MIN_BRIGHTNESS ? T5AI_AMOLED_MIN_BRIGHTNESS : level;
 }

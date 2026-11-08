@@ -259,6 +259,11 @@ static void samples(unsigned n) {
  fifo_bytes=n*6; fifo_status=0x40;
 }
 int main(void) {
+#ifdef CONFIG_T5AI_POWER_PROFILE
+ T5AIQMIPowerStats pm;
+ t5ai_qmi8658_power_stats(NULL);t5ai_qmi8658_power_stats(&pm);
+ assert(!pm.initialized && !pm.identity_valid && !pm.irqs && !io);
+#endif
  pbl_qmi8658_ops.init(&sensor.accel);
 #ifdef CONFIG_T5AI_ACCEL_DISABLED
  assert(io==1 && !sensor_state.initialized && !created && !irq_enabled && !timer_ms);
@@ -272,10 +277,20 @@ int main(void) {
  assert(!sensor_state.shake_enabled && !sensor_state.poll_pending);
  return 0;
 #endif
+#ifdef CONFIG_T5AI_POWER_PROFILE
+ unsigned snapshot_io=io;t5ai_qmi8658_power_stats(&pm);
+ assert(io==snapshot_io && pm.initialized && pm.identity_valid && !pm.active);
+ assert(pm.id==5 && pm.revision==0x7c);
+#endif
  assert(sensor_state.initialized && created==1 && !sensor_state.active);
  set_count(1); assert(sensor_state.active && sensor_state.watermark==1 && irq_enabled && timer_ms==100);
  now_ms+=100; samples(1); inject_irq=true; acquire(true); inject_irq=false;
  assert(queued && !irq_enabled); deliver(); assert(delivered==1 && irq_enabled);
+#ifdef CONFIG_T5AI_POWER_PROFILE
+ snapshot_io=io;t5ai_qmi8658_power_stats(&pm);
+ assert(io==snapshot_io && pm.irqs>=2 && pm.passes==1 && pm.acquired==1);
+ assert(pm.active && pm.watermark==1 && pm.irq_armed && pm.batch==1);
+#endif
  assert(sensor_state.last_sample.x==500 && sensor_state.last_sample.y==-1000 && sensor_state.last_sample.z==-1000);
  AccelDriverSample peek; unsigned old=io;
  assert(read_sample(&peek)==S_SUCCESS && io==old);
@@ -378,6 +393,9 @@ int main(void) {
 class QMI8658FifoTest(unittest.TestCase):
     def test_interrupt_fifo_transitions_and_recovery(self):
         self.run_driver([])
+
+    def test_sparse_power_state(self):
+        self.run_driver(["-DCONFIG_T5AI_POWER_PROFILE=1"])
 
     def test_disabled(self):
         self.run_driver(["-DCONFIG_T5AI_ACCEL_DISABLED=1"])

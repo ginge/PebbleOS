@@ -91,3 +91,27 @@ class T5AII2CIdleClockTest(unittest.TestCase):
         base.T5AII2CRecoveryTest.run_harness(
             self, "#define CONFIG_T5AI_I2C_IDLE_GATING 1\n" + prefix + MAIN
         )
+
+    def test_retained_owner_survives_stuck_stop_and_recovery(self):
+        prefix = base.HARNESS.split("int main(void)")[0]
+        spies = r"""
+#include <pbl/soc/t5ai/sleep.h>
+static unsigned held;
+void t5ai_sleep_block(T5AISleepOwner owner){assert(owner==T5AISleepOwner_I2C && !held);++held;}
+void t5ai_sleep_unblock(T5AISleepOwner owner){assert(owner==T5AISleepOwner_I2C && held==1);--held;}
+void t5ai_sleep_fault(void){assert(0);}
+"""
+        prefix = prefix.replace(
+            '#include "drivers/i2c/t5ai.c"', spies + '\n#include "drivers/i2c/t5ai.c"'
+        )
+        main = MAIN.replace(
+            "assert(elapsed==205 && hw.recovery_required);",
+            "assert(held==1);assert(elapsed==205 && hw.recovery_required);",
+        )
+        main = main.replace("return 0;", "assert(!held);return 0;")
+        base.T5AII2CRecoveryTest.run_harness(
+            self,
+            "#define CONFIG_T5AI_I2C_IDLE_GATING 1\n#define CONFIG_T5AI_RETAINED_SLEEP 1\n"
+            + prefix
+            + main,
+        )

@@ -106,18 +106,22 @@ static void prv_service_update(void *context) {
     s_charge_known = charge;
   }
   const bool update = s_notify || (s_service_requested && s_retry && now >= s_retry_at);
+#if !defined(CONFIG_T5AI_BATTERY_QUIET_SUCCESS) || defined(CONFIG_T5AI_POWER_PROFILE)
   const bool sampled = s_notify && PASSED(s_sample.status);
-  const bool failed = s_notify && FAILED(s_sample.status);
   const int millivolts = s_sample.millivolts;
+#endif
+  const bool failed = s_notify && FAILED(s_sample.status);
   const status_t status = s_sample.status;
   const T5AISaradcDiagnostics diagnostics = s_last_diagnostics;
   const uint16_t peak = s_last_peak;
   s_notify = false;
   pbl_irq_unlock();
+#if !defined(CONFIG_T5AI_BATTERY_QUIET_SUCCESS) || defined(CONFIG_T5AI_POWER_PROFILE)
   if (sampled) {
     PBL_LOG_DBG("Battery ADC sample: raw=%u mv=%d elapsed=%lu ms", peak, millivolts,
                 (unsigned long)diagnostics.elapsed_ms);
   }
+#endif
   if (failed) {
     // Logging uses synchronous CP IPC, so it must run off the mailbox owner.
     PBL_LOG_ERR("Battery ADC failed: command=%u status=%ld cp=%d elapsed=%lu ms raw=%u",
@@ -126,8 +130,10 @@ static void prv_service_update(void *context) {
   }
   if (changed) {
     // This board has CHRG only: connected remains the documented charging proxy.
-    PebbleEvent event = {.type = PEBBLE_BATTERY_CONNECTION_EVENT,
-                         .battery_connection = {.is_connected = charge}};
+    PebbleEvent event = {
+      .type = PEBBLE_BATTERY_CONNECTION_EVENT,
+      .battery_connection = {.is_connected = charge}
+    };
     event_put(&event);
   }
   if (update) {

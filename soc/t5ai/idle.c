@@ -2,19 +2,22 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <pbl/kernel/idle.h>
-
-#include <kernel/util/idle.h>
 #include <pbl/soc/t5ai/interrupt_profile.h>
 #include <pbl/soc/t5ai/tick.h>
 
-#include "pbl/soc/t5ai/power.h"
+#include <kernel/util/idle.h>
+#ifdef CONFIG_T5AI_RETAINED_SLEEP
+#include <pbl/soc/t5ai/sleep.h>
+#endif
+
 #include "pbl/drivers/rtc.h"
 #include "pbl/services/analytics/analytics.h"
-
-#include <cmsis_core.h>
+#include "pbl/soc/t5ai/power.h"
 
 #include <inttypes.h>
 #include <stdio.h>
+
+#include <cmsis_core.h>
 
 static RtcTicks s_wfi_ticks;
 static RtcTicks s_last_stats_ticks;
@@ -33,10 +36,18 @@ void pbl_soc_idle(pbl_tick_t expected_idle_ticks) {
     return;
   }
 
+#ifdef CONFIG_T5AI_RETAINED_SLEEP
+  const uint32_t deadline = t5ai_tick_idle_deadline(expected_idle_ticks);
+  t5ai_sleep_service(deadline);
+#endif
   const RtcTicks start = rtc_get_ticks();
   const uint32_t profile_start = t5ai_interrupt_profile_irq_enter();
   __disable_irq();
   if (pbl_idle_confirm()) {
+#ifdef CONFIG_T5AI_RETAINED_SLEEP
+    if (t5ai_sleep_enter(deadline))
+      goto woke;
+#endif
 #ifdef CONFIG_T5AI_TICKLESS_WFI
     const bool extended = t5ai_tick_prepare_idle(expected_idle_ticks);
 #endif
@@ -49,8 +60,14 @@ void pbl_soc_idle(pbl_tick_t expected_idle_ticks) {
     }
 #endif
   }
+#ifdef CONFIG_T5AI_RETAINED_SLEEP
+woke:
+#endif
   t5ai_interrupt_profile_irq_exit(3, profile_start);
   __enable_irq();
+#ifdef CONFIG_T5AI_RETAINED_SLEEP
+  t5ai_sleep_service(deadline);
+#endif
   s_wfi_ticks += rtc_get_ticks() - start;
 }
 

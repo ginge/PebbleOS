@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Exercise PM quarantine with two callers contending on a real mutex."""
+
 import unittest
 
 from tools.tests.test_t5ai_mailbox_failures import COMMON, run, source
@@ -10,7 +11,9 @@ from tools.tests.test_t5ai_native_objects import body
 class PMQuarantineTest(unittest.TestCase):
     def test_queued_pm_caller_preserves_timeout_quarantine(self):
         cp = source("drivers/t5ai/cp_mailbox.c")
-        code = COMMON + r"""
+        code = (
+            COMMON
+            + r"""
 #define CP_PM_RX_CHANNEL 0x42
 #define CP_PM_TX_CHANNEL 0x12
 #define CP_RUNTIME_TIMEOUT_MS 5000
@@ -78,8 +81,9 @@ static status_t t5ai_mailbox_channel_send(unsigned channel,const T5AIMailboxMess
  pthread_mutex_unlock(&gate);return 0;
 }
 """
+        )
         code += body(cp, "prv_enqueue") + body(cp, "prv_dequeue")
-        code += body(cp, "prv_pm_request")
+        code += body(cp, "prv_pm_exchange") + body(cp, "prv_pm_request")
         code += r"""
 static void *request(void *arg){caller=(uintptr_t)arg;result[caller]=prv_pm_request(2,caller,1);return NULL;}
 int main(void){

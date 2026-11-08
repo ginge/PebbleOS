@@ -1,47 +1,86 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/soc/t5ai/power.h>
-#include <pbl/soc/t5ai/cp_mailbox.h>
-#include <pbl/logging/logging.h>
 #include "system/profiler.h"
-#include <cmsis_core.h>
 
 #include <stdbool.h>
 #include <stdint.h>
 
+#include <pbl/logging/logging.h>
+#include <pbl/soc/t5ai/cp_mailbox.h>
+#include <pbl/soc/t5ai/power.h>
+
+#include <cmsis_core.h>
+
 PBL_LOG_MODULE_DEFINE(soc_t5ai_power, LOG_LEVEL_DEBUG);
+
+// BK7258 SYS register byte addresses from the pinned Tuya BSP.
+#define T5AI_SYSTEM_CLOCK_MODE_ADDRESS       0x44010020u
+#define T5AI_SYSTEM_CPU0_CLOCK_ADDRESS       0x44010010u
+#define T5AI_SYSTEM_CPU1_CLOCK_ADDRESS       0x44010014u
+#define T5AI_SYSTEM_ANALOG_CONTROL_9_ADDRESS 0x44010124u
+
+#define T5AI_CORE_CLOCK_SOURCE_SHIFT 4u
+#define T5AI_CORE_CLOCK_SOURCE_MASK  (3u << T5AI_CORE_CLOCK_SOURCE_SHIFT)
+#define T5AI_CORE_CLOCK_DIVIDER_MASK 15u
+#define T5AI_CPU_FULL_SPEED_ENABLE   (1u << 4u)
+#define T5AI_CPU_HALF_SPEED_DIVIDER  2u
+
+#define T5AI_CORE_SOURCE_XTAL_26MHZ  0u
+#define T5AI_CORE_SOURCE_DPLL_320MHZ 2u
+#define T5AI_CORE_SOURCE_DPLL_480MHZ 3u
+
+#define T5AI_XTAL_CLOCK_HZ     26000000u
+#define T5AI_DPLL_320_CLOCK_HZ 320000000u
+#define T5AI_DPLL_480_CLOCK_HZ 480000000u
 
 static bool s_initialized;
 
-static uint32_t prv_core_clock_hz(void) {
-  // The CP arbitrates all module votes, so an accepted 240 MHz vote is a
-  // minimum, not necessarily the elected clock. Read the CPU1 clock tree.
-  const uint32_t mode = *(volatile uint32_t *)0x44010020u;
-  const uint32_t cpu1 = *(volatile uint32_t *)0x44010014u;
+static uint32_t prv_clock_hz(uint32_t mode, uint32_t cpu) {
   uint32_t source_hz;
-  switch ((mode >> 4u) & 3u) {
-    case 0u:
-      source_hz = 26000000u;
+  switch ((mode & T5AI_CORE_CLOCK_SOURCE_MASK) >> T5AI_CORE_CLOCK_SOURCE_SHIFT) {
+    case T5AI_CORE_SOURCE_XTAL_26MHZ:
+      source_hz = T5AI_XTAL_CLOCK_HZ;
       break;
-    case 2u:
-      source_hz = 320000000u;
+    case T5AI_CORE_SOURCE_DPLL_320MHZ:
+      source_hz = T5AI_DPLL_320_CLOCK_HZ;
       break;
-    case 3u:
-      source_hz = 480000000u;
+    case T5AI_CORE_SOURCE_DPLL_480MHZ:
+      source_hz = T5AI_DPLL_480_CLOCK_HZ;
       break;
     default:
       // DCO frequency depends on calibration; do not invent a clock rate.
       return 0u;
   }
-  const uint32_t core_hz = source_hz / ((mode & 15u) + 1u);
-  return (cpu1 & (1u << 4u)) ? core_hz : core_hz / 2u;
+  // The divider field encodes divisor minus one.
+  const uint32_t core_divider = (mode & T5AI_CORE_CLOCK_DIVIDER_MASK) + 1u;
+  const uint32_t core_hz = source_hz / core_divider;
+  return (cpu & T5AI_CPU_FULL_SPEED_ENABLE) ? core_hz : core_hz / T5AI_CPU_HALF_SPEED_DIVIDER;
 }
+
+static uint32_t prv_core_clock_hz(void) {
+  return prv_clock_hz(*(volatile uint32_t *)T5AI_SYSTEM_CLOCK_MODE_ADDRESS,
+                      *(volatile uint32_t *)T5AI_SYSTEM_CPU1_CLOCK_ADDRESS);
+}
+
+#ifdef CONFIG_T5AI_POWER_PROFILE
+void t5ai_power_clock_profile(T5AIClockProfile *profile) {
+  *profile = (T5AIClockProfile){
+    .mode = *(volatile uint32_t *)T5AI_SYSTEM_CLOCK_MODE_ADDRESS,
+    .cpu0 = *(volatile uint32_t *)T5AI_SYSTEM_CPU0_CLOCK_ADDRESS,
+    .cpu1 = *(volatile uint32_t *)T5AI_SYSTEM_CPU1_CLOCK_ADDRESS,
+    .ana9 = *(volatile uint32_t *)T5AI_SYSTEM_ANALOG_CONTROL_9_ADDRESS,
+  };
+  profile->cpu0_hz = prv_clock_hz(profile->mode, profile->cpu0);
+  profile->ap_hz = prv_clock_hz(profile->mode, profile->cpu1);
+}
+#endif
 
 void t5ai_power_init(void) {
   if (!s_initialized) {
-    // Like Round 2, elect the active clock once. Scheduler WFI handles idle
-    // without repeatedly changing CP0/Bluetooth clocks, bus clocks or voltage.
+    // This CP module vote elects shared CPU/bus clocks and voltage, including
+    // the CPU0 running Bluetooth. Request it once, never on each idle entry.
+    // Active work stays at 240 MHz. Low-power clocks belong to coordinated sleep.
     const status_t status = t5ai_cp_mailbox_vote_cpu1_frequency(T5AICpuFrequency_240MHz);
     if (status != S_SUCCESS) {
       PBL_LOG_ERR("Active CPU clock vote failed: %ld", (long)status);
@@ -85,3 +124,7 @@ uint32_t t5ai_power_wfi_clock_min_hz(void) {
   return minimum != 0u && prv_core_clock_hz() >= minimum ? minimum : 0u;
 }
 #endif
+
+uint32_t t5ai_power_clock_hz(void) {
+  return prv_core_clock_hz();
+}

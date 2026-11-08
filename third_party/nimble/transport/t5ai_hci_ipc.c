@@ -5,42 +5,41 @@
 #include <pbl/soc/t5ai/cache.h>
 #include <pbl/soc/t5ai/reboot_trace.h>
 PBL_LOG_MODULE_DEFINE(t5ai_hci_ipc, LOG_LEVEL_DEBUG);
-#include <pbl/kernel/kernel.h>
-#include <pbl/soc/t5ai/memory.h>
-#include <pbl/soc/t5ai/cp_mailbox.h>
-#include <pbl/soc/t5ai/hci_ipc.h>
-#include <pbl/soc/t5ai/mipc.h>
-
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 
+#include <pbl/kernel/kernel.h>
+#include <pbl/soc/t5ai/cp_mailbox.h>
+#include <pbl/soc/t5ai/hci_ipc.h>
+#include <pbl/soc/t5ai/memory.h>
+#include <pbl/soc/t5ai/mipc.h>
 
 // Shared objects must start on a BK7258 data-cache line.
 #define T5AI_HCI_MESSAGE_WIRE_SIZE 20u
-#define T5AI_HCI_WORKER_PRIORITY (CONFIG_KERNEL_NUM_PRIORITIES - 2u)
+#define T5AI_HCI_WORKER_PRIORITY   (CONFIG_KERNEL_NUM_PRIORITIES - 2u)
 // Bounded waits for the persistent worker to drain frames and retire CP ownership.
-#define T5AI_HCI_RECOVERY_DRAIN_TIMEOUT_MS 50u
-#define T5AI_HCI_STOP_RETIRE_TIMEOUT_MS 250u
-#define T5AI_HCI_BUSY_RETRY_DELAY_MS 1u
+#define T5AI_HCI_RECOVERY_DRAIN_TIMEOUT_MS  50u
+#define T5AI_HCI_STOP_RETIRE_TIMEOUT_MS     250u
+#define T5AI_HCI_BUSY_RETRY_DELAY_MS        1u
 #define T5AI_HCI_OWNERSHIP_POLL_INTERVAL_MS 1u
-#define T5AI_HCI_NO_EXPECTED_SUBTYPE UINT8_MAX
+#define T5AI_HCI_NO_EXPECTED_SUBTYPE        UINT8_MAX
 
-#define T5AI_MIPC_CPU_AP 1u
-#define T5AI_MIPC_CPU_CP 0u
+#define T5AI_MIPC_CPU_AP         1u
+#define T5AI_MIPC_CPU_CP         0u
 #define T5AI_MIPC_SEND_FLAG_SYNC 1u
-#define T5AI_HCI_TYPE 0u
-#define T5AI_SYSTEM_TYPE 1u
-#define T5AI_SYSTEM_REBOOT 0u
+#define T5AI_HCI_TYPE            0u
+#define T5AI_SYSTEM_TYPE         1u
+#define T5AI_SYSTEM_REBOOT       0u
 // Buffer capacities include the HCI event/ACL header, matching the CP transport.
-#define T5AI_HCI_MAX_EVENT_SIZE (2u + UINT8_MAX)
-#define T5AI_HCI_MAX_ACL_SIZE (4u + 1024u)
-#define T5AI_HCI_PENDING_FRAME_CAPACITY 8u
+#define T5AI_HCI_MAX_EVENT_SIZE          (2u + UINT8_MAX)
+#define T5AI_HCI_MAX_ACL_SIZE            (4u + 1024u)
+#define T5AI_HCI_PENDING_FRAME_CAPACITY  8u
 #define T5AI_HCI_EVENT_RESPONSE_CAPACITY 8u
-#define T5AI_HCI_REQUEST_CAPACITY 8u
-#define T5AI_HCI_WORKER_STACK_SIZE 3072u
-#define T5AI_HCI_SEND_TIMEOUT_MS 2000u
+#define T5AI_HCI_REQUEST_CAPACITY        8u
+#define T5AI_HCI_WORKER_STACK_SIZE       3072u
+#define T5AI_HCI_SEND_TIMEOUT_MS         2000u
 #define T5AI_HCI_RX_CAPACITY             2u
 #define T5AI_HCI_RX_TIMEOUT_MS           250u
 
@@ -90,13 +89,16 @@ static uint16_t s_exchange_result;
 static bool s_started;
 static bool s_faulted;
 static bool s_accept_frames;
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+static bool s_system_reboot_pending;
+#endif
 static PBL_MUTEX_DEFINE(s_sync_mutex);
 static PBL_MUTEX_DEFINE(s_async_mutex);
 static PBL_SEM_DEFINE(s_worker_wake, 0, 1);
 static PBL_SEM_DEFINE(s_exchange_ready, 0, 1);
 static struct pbl_thread s_worker_task;
 PBL_THREAD_STACK_DEFINE(s_worker_stack, T5AI_HCI_WORKER_STACK_SIZE)
-    __attribute__((section(".t5ai_board_cache")));
+__attribute__((section(".t5ai_board_cache")));
 static bool s_worker_created;
 static volatile uint8_t s_expected_subtype = T5AI_HCI_NO_EXPECTED_SUBTYPE;
 static T5AIHCIPendingFrame s_pending_frames[T5AI_HCI_PENDING_FRAME_CAPACITY]
@@ -141,6 +143,9 @@ static void prv_set_started(bool started) {
 static void prv_mark_faulted(void) {
   __atomic_store_n(&s_faulted, true, __ATOMIC_RELEASE);
   prv_set_started(false);
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+  t5ai_hci_notify_work();
+#endif
 }
 
 static uint8_t prv_next_sequence(void) {
@@ -174,7 +179,7 @@ static status_t prv_send_frame(T5AIMIPCFrame *frame) {
   ++s_diagnostics.send_timeouts;
 #endif
   PBL_LOG_ERR("T5AI HCI MIPC send timed out: header=%08lx object=%08lx",
-                (unsigned long)frame->header, (unsigned long)frame->object);
+              (unsigned long)frame->header, (unsigned long)frame->object);
   return E_AGAIN;
 }
 
@@ -182,10 +187,10 @@ static status_t prv_mipc_ack(T5AIMIPCFrame *received, T5AIMIPCData *remote_data)
   remote_data->result = 0;
   t5ai_cache_clean(remote_data, sizeof(*remote_data));
   T5AIMIPCFrame ack = {
-      .header = t5ai_mipc_frame_header(t5ai_mipc_header(T5AI_MIPC_CPU_AP, T5AI_MIPC_TYPE_ACK), 0, 0,
-                                       prv_next_sequence(), T5AI_MIPC_TX_LOGICAL_CHANNEL),
-      .object = received->object,
-      .result = t5ai_mipc_data_crc(remote_data),
+    .header = t5ai_mipc_frame_header(t5ai_mipc_header(T5AI_MIPC_CPU_AP, T5AI_MIPC_TYPE_ACK), 0, 0,
+                                     prv_next_sequence(), T5AI_MIPC_TX_LOGICAL_CHANNEL),
+    .object = received->object,
+    .result = t5ai_mipc_data_crc(remote_data),
   };
   return prv_send_frame(&ack);
 }
@@ -207,16 +212,16 @@ static status_t prv_prepare_outbound(T5AIHCIOutbound *outbound, const void *payl
   outbound->config = (T5AIMIPCChannelConfig){.name = name_pointer};
   outbound->handle = (T5AIMIPCHandle){.config = config_pointer};
   outbound->data = (T5AIMIPCData){
-      .handle = handle_pointer,
-      .data = payload_pointer,
-      .size = (uint32_t)length,
-      .flags = synchronous ? T5AI_MIPC_SEND_FLAG_SYNC : 0,
+    .handle = handle_pointer,
+    .data = payload_pointer,
+    .size = (uint32_t)length,
+    .flags = synchronous ? T5AI_MIPC_SEND_FLAG_SYNC : 0,
   };
   outbound->frame = (T5AIMIPCFrame){
-      .header = t5ai_mipc_frame_header(t5ai_mipc_header(T5AI_MIPC_CPU_AP, T5AI_MIPC_TYPE_COMMAND),
-                                       0, 0, prv_next_sequence(), T5AI_MIPC_TX_LOGICAL_CHANNEL),
-      .object = data_pointer,
-      .result = t5ai_mipc_data_crc(&outbound->data),
+    .header = t5ai_mipc_frame_header(t5ai_mipc_header(T5AI_MIPC_CPU_AP, T5AI_MIPC_TYPE_COMMAND), 0,
+                                     0, prv_next_sequence(), T5AI_MIPC_TX_LOGICAL_CHANNEL),
+    .object = data_pointer,
+    .result = t5ai_mipc_data_crc(&outbound->data),
   };
   t5ai_cache_clean(payload, length);
   t5ai_cache_clean(&outbound->config, sizeof(outbound->config));
@@ -265,8 +270,7 @@ static bool prv_retire_event_response(const T5AIMIPCFrame *frame) {
   bool retired = false;
   pbl_irq_lock();
   for (size_t i = 0; i < T5AI_HCI_EVENT_RESPONSE_CAPACITY; ++i) {
-    if (s_event_response_in_use[i] &&
-        prv_is_transport_ack(frame, &s_event_responses[i].data)) {
+    if (s_event_response_in_use[i] && prv_is_transport_ack(frame, &s_event_responses[i].data)) {
       s_event_response_in_use[i] = false;
       retired = true;
       break;
@@ -396,8 +400,7 @@ static void prv_worker(void *context) {
 #endif
         continue;
       }
-      if ((uint8_t)frame.header !=
-          t5ai_mipc_header(T5AI_MIPC_CPU_CP, T5AI_MIPC_TYPE_COMMAND)) {
+      if ((uint8_t)frame.header != t5ai_mipc_header(T5AI_MIPC_CPU_CP, T5AI_MIPC_TYPE_COMMAND)) {
         continue;
       }
       pbl_mutex_lock(&s_async_mutex, PBL_FOREVER);
@@ -407,8 +410,8 @@ static void prv_worker(void *context) {
       pbl_mutex_unlock(&s_async_mutex);
       if (FAILED(status)) {
         PBL_LOG_ERR("T5AI HCI command handling failed: status=%ld header=%08lx expected=%u",
-                      (long)status, (unsigned long)frame.header,
-                      (unsigned)__atomic_load_n(&s_expected_subtype, __ATOMIC_ACQUIRE));
+                    (long)status, (unsigned long)frame.header,
+                    (unsigned)__atomic_load_n(&s_expected_subtype, __ATOMIC_ACQUIRE));
         prv_mark_faulted();
       }
       if (matched) {
@@ -422,8 +425,7 @@ static void prv_route_frame(uint8_t logical_channel, const T5AICPMailboxFrame *f
                             void *context) {
   (void)context;
   if (!__atomic_load_n(&s_accept_frames, __ATOMIC_ACQUIRE) ||
-      logical_channel != T5AI_MIPC_RX_LOGICAL_CHANNEL ||
-      frame->length != sizeof(T5AIMIPCFrame)) {
+      logical_channel != T5AI_MIPC_RX_LOGICAL_CHANNEL || frame->length != sizeof(T5AIMIPCFrame)) {
     (void)t5ai_cp_mailbox_acknowledge_frame(frame, false);
     return;
   }
@@ -447,12 +449,14 @@ static void prv_route_frame(uint8_t logical_channel, const T5AICPMailboxFrame *f
   }
   // Reporting may wait for logging/PULSE locks; only the HCI worker may do it.
   (void)pbl_sem_give(&s_worker_wake);
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+  t5ai_hci_notify_work();
+#endif
 }
 
 static status_t prv_decode_remote(T5AIMIPCFrame *frame, T5AIMIPCData **remote_data,
                                   T5AIHCIMessage **message) {
-  if (!t5ai_cp_mailbox_shared_range_valid((uintptr_t)frame->object,
-                                           sizeof(T5AIMIPCData))) {
+  if (!t5ai_cp_mailbox_shared_range_valid((uintptr_t)frame->object, sizeof(T5AIMIPCData))) {
     return E_ERROR;
   }
   *remote_data = (T5AIMIPCData *)(uintptr_t)frame->object;
@@ -462,7 +466,7 @@ static status_t prv_decode_remote(T5AIMIPCFrame *frame, T5AIMIPCData **remote_da
    * result fields can race the diagnostic CRC across CPUs. */
   if ((*remote_data)->size != sizeof(T5AIHCIMessage) ||
       !t5ai_cp_mailbox_shared_range_valid((uintptr_t)(*remote_data)->data,
-                                           sizeof(T5AIHCIMessage))) {
+                                          sizeof(T5AIHCIMessage))) {
     return E_ERROR;
   }
   *message = (T5AIHCIMessage *)(uintptr_t)(*remote_data)->data;
@@ -582,7 +586,8 @@ static status_t prv_exchange(uint8_t subtype, const void *payload, size_t length
     return E_OUT_OF_RESOURCES;
   }
   request->message = (T5AIHCIMessage){.type = T5AI_HCI_TYPE, .subtype = subtype};
-  if (payload != NULL && (!prv_pointer(payload, &request->message.request) || length > UINT32_MAX)) {
+  if (payload != NULL &&
+      (!prv_pointer(payload, &request->message.request) || length > UINT32_MAX)) {
     s_request_in_use[request - s_requests] = false;
     return E_RANGE;
   }
@@ -730,27 +735,31 @@ int t5ai_hci_ipc_stop(void) {
 }
 
 int t5ai_hci_ipc_send_command(const uint8_t *data, size_t length) {
-  return !prv_started() || prv_faulted() || data == NULL ? E_INVALID_OPERATION
-                                    : prv_locked_exchange(T5AI_HCI_COMMAND, data, length);
+  return !prv_started() || prv_faulted() || data == NULL
+             ? E_INVALID_OPERATION
+             : prv_locked_exchange(T5AI_HCI_COMMAND, data, length);
 }
 
 int t5ai_hci_ipc_send_acl(const uint8_t *data, size_t length) {
-  return !prv_started() || prv_faulted() || data == NULL ? E_INVALID_OPERATION
-                                    : prv_locked_exchange(T5AI_HCI_ACL, data, length);
+  return !prv_started() || prv_faulted() || data == NULL
+             ? E_INVALID_OPERATION
+             : prv_locked_exchange(T5AI_HCI_ACL, data, length);
 }
 
 int t5ai_hci_ipc_request_system_reboot(void) {
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+  s_system_reboot_pending = true;
+#endif
   t5ai_reboot_trace_event(T5RebootTrace_CPResetRequest, 0u);
   /* CPU1's local NVIC reset leaves CPU0 and the Bluetooth radio alive. Match
    * Tuya's AP reset path by asking CPU0 to perform the whole-chip reboot. The
    * request is intentionally asynchronous because a successful CPU0 handler
    * reboots before it can return a logical response. */
   s_system_reboot_request.message = (T5AIHCIMessage){
-      .type = T5AI_SYSTEM_TYPE,
-      .subtype = T5AI_SYSTEM_REBOOT,
+    .type = T5AI_SYSTEM_TYPE,
+    .subtype = T5AI_SYSTEM_REBOOT,
   };
-  return prv_prepare_outbound(&s_system_reboot_request,
-                              &s_system_reboot_request.message,
+  return prv_prepare_outbound(&s_system_reboot_request, &s_system_reboot_request.message,
                               sizeof(s_system_reboot_request.message), false);
 }
 
@@ -782,5 +791,18 @@ void t5ai_hci_ipc_get_diagnostics(T5AIHCIIpcDiagnostics *diagnostics) {
     diagnostics->response_slots_in_use += s_event_response_in_use[i] ? 1u : 0u;
   }
   pbl_irq_unlock();
+}
+#endif
+
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+bool t5ai_hci_ipc_sleep_ready(void) {
+  pbl_irq_lock();
+  const bool ready =
+      prv_started() && !prv_faulted() && s_accept_frames && !s_system_reboot_pending &&
+      s_pending_frame_count == 0u && s_rx_count == 0u &&
+      __atomic_load_n(&s_expected_subtype, __ATOMIC_ACQUIRE) == T5AI_HCI_NO_EXPECTED_SUBTYPE &&
+      prv_all_outbound_retired();
+  pbl_irq_unlock();
+  return ready;
 }
 #endif

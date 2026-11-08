@@ -2,11 +2,11 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #pragma once
 
+#include "system/status_codes.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-
-#include "system/status_codes.h"
 
 #include <pbl/soc/t5ai/mailbox_protocol.h>
 
@@ -44,9 +44,18 @@ bool t5ai_mailbox_channel_faulted(void);
 
 /* Pre-scheduler control traffic has a separate polling path. Runtime users
  * must use the task-owned APIs above. */
-status_t t5ai_mailbox_channel_bootstrap_send(uint8_t channel,
-                                             const T5AIMailboxMessage *message,
+status_t t5ai_mailbox_channel_bootstrap_send(uint8_t channel, const T5AIMailboxMessage *message,
                                              T5AIMailboxMessage *ack, uint32_t timeout_ms);
 
 /* True only in the runtime owner task, never in an interrupt or bootstrap. */
 bool t5ai_mailbox_channel_is_owner(void);
+
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+bool t5ai_mailbox_channel_sleep_ready(void);
+#endif
+
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_TEST
+// Report retained terminal metadata only after the mailbox has restarted.
+bool t5ai_mailbox_channel_test_timeout_output(void);
+void t5ai_mailbox_channel_dump_previous_timeout(void);
+#endif

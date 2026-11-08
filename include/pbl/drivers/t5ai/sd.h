@@ -18,3 +18,12 @@ void t5ai_sd_irq(void);
 // Recursive driver lock protects the shared DMA workspace across adapter RMW.
 uint8_t *t5ai_sd_lock_workspace(void);
 void t5ai_sd_unlock_workspace(void);
+
+#ifdef CONFIG_T5AI_POWER_PROFILE
+typedef struct {
+  uint32_t acquires, releases, fallbacks, errors;
+  uint32_t read_bytes, written_bytes;
+  bool clock_active;
+} T5AISDPowerStats;
+void t5ai_sd_power_stats(T5AISDPowerStats *stats);
+#endif

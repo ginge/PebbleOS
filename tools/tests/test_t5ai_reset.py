@@ -1,17 +1,19 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 
+import re
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
+from tools.tests.test_t5ai_native_objects import body
+
 ROOT = Path(__file__).resolve().parents[2]
 
 HEADERS = {
-    "pbl/kernel/sched.h": '#pragma once\n#include <pbl/kernel/kernel.h>\n',
-    "pbl/kernel/types.h": '#pragma once\n',
-
+    "pbl/kernel/sched.h": "#pragma once\n#include <pbl/kernel/kernel.h>\n",
+    "pbl/kernel/types.h": "#pragma once\n",
     "pbl/kernel/compiler.h": """
 #pragma once
 #define PBL_PACKED __attribute__((packed))
@@ -53,6 +55,7 @@ extern unsigned reports;
 }
 
 RESET_HARNESS = r"""
+#include <stdbool.h>
 #include <assert.h>
 #include <string.h>
 #include <sys/mman.h>
@@ -245,6 +248,7 @@ int main(void) {
 }
 """
 
+
 class T5AIResetTest(unittest.TestCase):
     def compile_run(self, source, headers=None, flags=()):
         with tempfile.TemporaryDirectory() as temporary:
@@ -257,38 +261,107 @@ class T5AIResetTest(unittest.TestCase):
             harness.write_text(source)
             executable = directory / "test"
             subprocess.run(
-                ["cc", "-std=gnu11", "-Wall", "-Wextra", "-Werror",
-                 "-Wno-address-of-packed-member", "-I", str(directory),
-                 "-I", str(ROOT / "include"), "-I", str(ROOT / "fw"),
-                 *flags, str(harness), "-o", str(executable)], check=True,
+                [
+                    "cc",
+                    "-std=gnu11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-Wno-address-of-packed-member",
+                    "-I",
+                    str(directory),
+                    "-I",
+                    str(ROOT / "include"),
+                    "-I",
+                    str(ROOT / "fw"),
+                    *flags,
+                    str(harness),
+                    "-o",
+                    str(executable),
+                ],
+                check=True,
             )
             subprocess.run([str(executable)], check=True)
 
     def test_boot_snapshot_and_configured_watchdog_period(self):
         for period in (1, 1234, 30000, 65535):
             with self.subTest(period=period):
-                self.compile_run(RESET_HARNESS, HEADERS, (
-                    "-DCONFIG_WATCHDOG=1", "-DCONFIG_SOC_T5AI=1", "-DCONFIG_T5AI_REBOOT_TRACE=1",
-                    f"-DCONFIG_WATCHDOG_TIMEOUT_MS={period}",
-                    f'-DWATCHDOG_SOURCE="{ROOT / "drivers/watchdog/t5ai.c"}"',
-                    f'-DREBOOT_SOURCE="{ROOT / "soc/t5ai/reboot_reason.c"}"',
-            f'-DCOMMON_REBOOT_SOURCE="{ROOT / "fw/system/reboot_reason.c"}"',
-                ))
+                self.compile_run(
+                    RESET_HARNESS,
+                    HEADERS,
+                    (
+                        "-DCONFIG_WATCHDOG=1",
+                        "-DCONFIG_SOC_T5AI=1",
+                        "-DCONFIG_T5AI_REBOOT_TRACE=1",
+                        f"-DCONFIG_WATCHDOG_TIMEOUT_MS={period}",
+                        f'-DWATCHDOG_SOURCE="{ROOT / "drivers/watchdog/t5ai.c"}"',
+                        f'-DREBOOT_SOURCE="{ROOT / "soc/t5ai/reboot_reason.c"}"',
+                        f'-DCOMMON_REBOOT_SOURCE="{ROOT / "fw/system/reboot_reason.c"}"',
+                    ),
+                )
+
+    def test_reset_reason_latch_keys_and_other_owner_fields(self):
+        source = (ROOT / "drivers/watchdog/t5ai.c").read_text()
+        source = source.replace("__attribute__((always_inline)) ", "")
+        commit = body(source, "prv_commit_reset_reason")
+        commit = re.sub(r"T5AI_AON_PMU_R25 = ([^;]+);", r"fake_key(\1);", commit)
+        code = (
+            r"""
+#include <assert.h>
+#include <stdint.h>
+static uint32_t live, latched, keys[2], count;
+#define T5AI_AON_PMU_R0 live
+#define T5AI_AP_RESET_REASON_SHIFT 24u
+#define T5AI_AP_RESET_REASON_MASK (0x7fu << 24)
+#define T5AI_RESET_REASON_COMMIT_KEY_1 0x424b55aau
+#define T5AI_RESET_REASON_COMMIT_KEY_2 0xbdb4aa55u
+#define __DSB() ((void)0)
+static void fake_key(uint32_t key) {
+  assert(count < 2); keys[count++] = key;
+  if(count == 2) {
+    assert(keys[0] == 0x424b55aau && keys[1] == 0xbdb4aa55u);
+    latched = live;
+  }
+}
+"""
+            + commit
+            + body(source, "t5ai_reset_reason_set_ap")
+            + r"""
+int main(void) {
+  for(unsigned reason=0;reason<256;++reason) {
+    count=0;latched=0;live=0x00812343u;
+    t5ai_reset_reason_set_ap(reason);
+    assert(count==2 && latched==live);
+    assert((latched & ~T5AI_AP_RESET_REASON_MASK)==0x00812343u);
+    assert((latched >> 24)==(reason & 0x7fu));
+  }
+  return 0;
+}
+"""
+        )
+        self.compile_run(code)
 
     def test_reset_reason_without_diagnostics(self):
-        self.compile_run(RESET_HARNESS, HEADERS, (
-            "-DCONFIG_WATCHDOG=1", "-DCONFIG_SOC_T5AI=1",
-            "-DCONFIG_WATCHDOG_TIMEOUT_MS=30000",
-            f'-DWATCHDOG_SOURCE="{ROOT / "drivers/watchdog/t5ai.c"}"',
-            f'-DREBOOT_SOURCE="{ROOT / "soc/t5ai/reboot_reason.c"}"',
-            f'-DCOMMON_REBOOT_SOURCE="{ROOT / "fw/system/reboot_reason.c"}"',
-        ))
+        self.compile_run(
+            RESET_HARNESS,
+            HEADERS,
+            (
+                "-DCONFIG_WATCHDOG=1",
+                "-DCONFIG_SOC_T5AI=1",
+                "-DCONFIG_WATCHDOG_TIMEOUT_MS=30000",
+                f'-DWATCHDOG_SOURCE="{ROOT / "drivers/watchdog/t5ai.c"}"',
+                f'-DREBOOT_SOURCE="{ROOT / "soc/t5ai/reboot_reason.c"}"',
+                f'-DCOMMON_REBOOT_SOURCE="{ROOT / "fw/system/reboot_reason.c"}"',
+            ),
+        )
 
     def test_heartbeat_late_execution_and_tick_wrap(self):
         source = (ROOT / "drivers/t5ai/cp_mailbox.c").read_text()
-        start = source.index("pbl_tick_t t5ai_cp_mailbox_heartbeat_poll(void) {")
-        end = source.index("\nstatic status_t prv_pm_request", start)
-        self.compile_run(HEARTBEAT_HARNESS.replace("FUNCTION", source[start:end]))
+        self.compile_run(
+            HEARTBEAT_HARNESS.replace(
+                "FUNCTION", body(source, "t5ai_cp_mailbox_heartbeat_poll")
+            )
+        )
 
 
 if __name__ == "__main__":

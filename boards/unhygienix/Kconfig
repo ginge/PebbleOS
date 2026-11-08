@@ -348,6 +348,157 @@ config T5AI_TICK_PROFILE
       through existing regular timers and KernelBG. No additional thread or
       per-tick logging. Enable identically in off/on comparison images.
 
+config T5AI_AMOLED_ZERO_BRIGHTNESS
+    bool "Allow true zero AMOLED brightness"
+    depends on BOARD_UNHYGIENIX && BACKLIGHT_T5AI
+    default n
+    help
+      Map logical zero to raw zero instead of the always-on dim floor.
+      Nonzero brightness preserves the existing floor. This changes the
+      visible timeout policy; raw zero is not panel Sleep In.
+
+config T5AI_AMOLED_SLEEP_ON_DISABLE
+    bool "Sleep the AMOLED on explicit display disable"
+    depends on BOARD_UNHYGIENIX && DISPLAY_CO5300_T5AI
+    default n
+    help
+      Serialize Display Off and Sleep In with transfers. Wake uses the
+      vendor reset/prepare sequence and redraws the full next framebuffer.
+      This applies to explicit display disable, not backlight timeout.
+      The conservative settling delay and physical wake need qualification.
+
+config T5AI_UART_IDLE_GATING
+    bool "Release AP UART bypass after final TX completion with RX disabled"
+    depends on BOARD_UNHYGIENIX && UART_T5AI
+    default n
+    help
+      Qualification option for the AP UART driver only. Wait for FIFO empty
+      and TX-finish, preserve RX wake by retaining bypass while RX is enabled,
+      and retain clocks after uncertain drain. CP logging UART and source votes
+      are unchanged. Four-bit SD pins are not reclaimed to activate AP UART0.
+
+config T5AI_BATTERY_QUIET_SUCCESS
+    bool "Suppress successful battery sample serial logs"
+    depends on BOARD_UNHYGIENIX && BATTERY_T5AI
+    default n
+    help
+      Qualification option; retain ADC failure logs and service timing.
+      Power profiling still reports successful samples. Do not infer a power
+      saving without matched measurements or change the CP logging clock vote.
+
+config T5AI_POWER_PROFILE
+    bool "Sparse T5AI power qualification counters"
+    depends on BOARD_UNHYGIENIX && T5AI_TICK_PROFILE && T5AI_SD_PFS && LOG
+    default n
+    help
+      Report cumulative SD bypass acquisitions/releases/fallbacks, failed I/O,
+      completed bytes, actual CPU clock and IMU identity/configuration/wake
+      counters through the existing minute timer. Failure snapshots stay bounded.
+      No extra task or per-transfer logs. Enable identically in matched release
+      control/candidate images. Counts are software transitions, not electrical
+      proof of gating. Unsigned counters wrap modulo 2^32.
+
+config T5AI_SLEEP_GUARD_TEST
+    bool "Qualify one AON watchdog reset from SRAM WFI"
+    select T5AI_NATIVE_ALARM
+    depends on BOARD_UNHYGIENIX && WATCHDOG && LOG
+    depends on !T5AI_RETAINED_SLEEP && !T5AI_TICKLESS_WFI
+    select RAMFUNC
+    default n
+    help
+      Destructive qualification only. Requires the exact CP guard-write lease.
+      Acquire an alarm/sleep lease but never publish AP WFI, so APP stays awake.
+      The alarm wake cannot reset the CPU. Keep normal clocks.
+      After startup settling and transaction drain, arm only in the explicit
+      two-second UTC slot below. With no slot, or after it, never enter WFI.
+      Do not rely on SRAM/boot-cause markers surviving a whole-chip reset.
+      Reset attribution/timing remain unqualified; no low-voltage sleep here.
+
+config T5AI_SLEEP_GUARD_TEST_AT_UTC
+    int "UTC epoch second for the independent watchdog qualification slot"
+    depends on T5AI_SLEEP_GUARD_TEST
+    range 0 2147483647
+    default 0
+    help
+      Zero disables arming. Use a reviewed future UTC slot after the image has
+      booted and settled. Arming is allowed for two seconds from this timestamp;
+      later boots fail closed even if SRAM and boot-cause state were cleared.
+      Requires a trusted, progressing wall clock. Stop after bounded wait/drain.
+
+config T5AI_POWER_SAVINGS
+    bool "Enable the CP-awake AP and peripheral power profile"
+    depends on BOARD_UNHYGIENIX && T5AI_SD_PFS && I2C_T5AI && UART_T5AI && BATTERY_T5AI
+    depends on !T5AI_TICKLESS_WFI
+    select T5AI_RETAINED_SLEEP
+    select T5AI_RETAINED_SLEEP_WAKE_ONLY
+    select T5AI_SD_IDLE_GATING
+    select T5AI_I2C_IDLE_GATING
+    select T5AI_UART_IDLE_GATING
+    select T5AI_BATTERY_QUIET_SUCCESS
+    default n
+    help
+      Select the existing CP-awake AP sleep and local peripheral clock policies.
+      Requires the matching board alarm-server CP. Keep the ordinary dim display
+      defaults; no CP low-voltage, shared clock/domain shutdown or fixed CPU
+      frequency experiment is selected. Qualification remains board-specific.
+
+config T5AI_RETAINED_SLEEP
+    bool "Enable guarded AP retained idle"
+    depends on BOARD_UNHYGIENIX && !T5AI_TICKLESS_WFI
+    select T5AI_NATIVE_ALARM
+    select RAMFUNC
+    default n
+    help
+      Requires the exact board CP retained-sleep ABI. Arm an owned alarm before
+      stopping SysTick; recheck all peripheral/IPC blockers and deadlines with
+      interrupts masked. Production idle keeps CP awake and leaves shared clocks,
+      voltage and memory active. Runs the AP WFI/wake gate from SRAM. Unknown CP state,
+      active sibling CPU, transaction ambiguity or retention failure blocks sleep.
+      The board enables this policy by default; hardware qualification remains
+      separate from configuration and requires reconnect, cold-power and soak.
+
+config T5AI_RETAINED_SLEEP_WAKE_ONLY
+    bool "AP-only deep WFI with CP kept awake" if T5AI_RETAINED_SLEEP_TEST
+    depends on T5AI_RETAINED_SLEEP
+    default y if !T5AI_RETAINED_SLEEP_TEST
+    default n
+    help
+      Use guarded AP deep WFI, alarm and mailbox restoration with
+      CP APP sleep veto held. Takes precedence over CP transition diagnostics.
+      Every return requires zero CP WFI, resource suspend, clock transition and
+      native mask-barrier cycles. The CP must support these diagnostic counters.
+      This proves AP wake delivery, not electrical savings or CP deep sleep.
+
+config T5AI_NATIVE_ALARM
+    bool "Use the board-owned CP applied wake-alarm contract"
+    depends on BOARD_UNHYGIENIX
+    default n
+    help
+      Requires the separately built CP sleep-contract overlay. Inline scalar
+      requests carry monotonic generations; CP replies after arm/cancel applies.
+      Native wake events bypass synchronous PM replies. Unknown CP ABI, timeout
+      or invalid generation fails closed. Does not release the application veto
+      or enable retained sleep by itself.
+
+config T5AI_NATIVE_ALARM_TEST
+    bool "Run a bounded arm/fire/cancel qualification at startup"
+    depends on T5AI_NATIVE_ALARM && !T5AI_RETAINED_SLEEP && !T5AI_SLEEP_GUARD_TEST && LOG
+    default n
+    help
+      Keep normal ticks and the application sleep veto. A six-step diagnostic
+      verifies one physical alarm delivery and a cancelled alarm with no event.
+      Stops on its first error. Does not enable retained sleep.
+
+config T5AI_PM_WAKE_EVENTS
+    bool "Keep asynchronous CP wake events separate from PM replies"
+    depends on BOARD_UNHYGIENIX
+    default n
+    help
+      Qualification prerequisite for wake/alarm routing. Retain bounded scalar
+      wake snapshots independently of synchronous replies. Overflow is sticky
+      and must inhibit future retained sleep. Does not arm an alarm, release
+      the application veto or stop SysTick. Legacy events have no generation.
+
 config T5AI_SD_IDLE_GATING
     bool "Release T5AI SD controller clock bypass between transfers"
     depends on BOARD_UNHYGIENIX && T5AI_SD_PFS
@@ -386,3 +537,6 @@ config T5AI_I2C_RX_FIFO_LIMIT4
     help
       Compare shorter bounded ISR bursts against the twelve-byte maximum.
       Keep the same bus clock and single-byte tail policy.
+
+
+rsource "Kconfig.power-debug"

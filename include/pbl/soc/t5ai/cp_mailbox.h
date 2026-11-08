@@ -65,3 +65,16 @@ bool t5ai_cp_mailbox_shared_range_valid(uintptr_t address, size_t length);
 // Nonblocking; zero unless CP acknowledged the sleep veto and a >=240 MHz vote.
 uint32_t t5ai_cp_mailbox_wfi_clock_min_hz(void);
 #endif
+
+#ifdef CONFIG_T5AI_PM_WAKE_EVENTS
+typedef struct {
+  uint32_t mode;
+  uint32_t source;
+  uint32_t detail;
+} T5AIPMWakeEvent;
+
+// Nonblocking task-context consumption; events never satisfy a PM request.
+status_t t5ai_cp_mailbox_take_wake_event(T5AIPMWakeEvent *event);
+// Sticky loss count: a future sleep coordinator must refuse sleep after loss.
+uint32_t t5ai_cp_mailbox_wake_events_lost(void);
+#endif

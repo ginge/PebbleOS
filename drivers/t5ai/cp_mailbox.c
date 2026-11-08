@@ -12,50 +12,56 @@
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/mailbox_channel.h>
 #include <pbl/soc/t5ai/memory.h>
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+#include <pbl/soc/t5ai/sleep.h>
+#endif
+#ifdef CONFIG_T5AI_NATIVE_ALARM
+#include <pbl/soc/t5ai/native_alarm.h>
+#endif
 #include <pbl/soc/t5ai/reboot_trace.h>
 #include <pbl/soc/t5ai/rtc.h>
 
 #define CP_LOG_TAG_SHIFT 16u
 
-#define CP_CONTROL_CHANNEL 0x10u
-#define CP_CONTROL_RX_CHANNEL 0x40u
-#define CP_RESPONSE_FLAG 0x80u
-#define CP_ACK_STATE_PENDING 1u
-#define CP_ACK_STATE_COMPLETE 2u
-#define CP_POWER_UP_COMMAND 1u
-#define CP_HEARTBEAT_COMMAND 2u
-#define CP_PM_TX_CHANNEL 0x12u
-#define CP_PM_RX_CHANNEL 0x42u
-#define CP_PM_CLOCK_COMMAND 2u
-#define CP_PM_UART0_CLOCK 2u
-#define CP_PM_CLOCK_ENABLE 1u
-#define CP_PM_POWER_COMMAND 1u
-#define CP_PM_SLEEP_COMMAND 3u
-#define CP_PM_PSRAM_POWER_COMMAND 7u
+#define CP_CONTROL_CHANNEL          0x10u
+#define CP_CONTROL_RX_CHANNEL       0x40u
+#define CP_RESPONSE_FLAG            0x80u
+#define CP_ACK_STATE_PENDING        1u
+#define CP_ACK_STATE_COMPLETE       2u
+#define CP_POWER_UP_COMMAND         1u
+#define CP_HEARTBEAT_COMMAND        2u
+#define CP_PM_TX_CHANNEL            0x12u
+#define CP_PM_RX_CHANNEL            0x42u
+#define CP_PM_CLOCK_COMMAND         2u
+#define CP_PM_UART0_CLOCK           2u
+#define CP_PM_CLOCK_ENABLE          1u
+#define CP_PM_POWER_COMMAND         1u
+#define CP_PM_SLEEP_COMMAND         3u
+#define CP_PM_PSRAM_POWER_COMMAND   7u
 #define CP_PM_CPU_FREQUENCY_COMMAND 4u
-#define CP_PM_QSPI0_CLOCK 20u
-#define CP_PM_SDIO_CLOCK 22u
-#define CP_PM_BAKP_SDIO_POWER 91u
-#define CP_PM_BAKP_DMA0_POWER 93u
-#define CP_PM_AHBP_QSPI_POWER 101u
-#define CP_PM_AUDP_AUDIO_POWER 122u
-#define CP_PM_AUDIO_CLOCK 30u
-#define CP_PM_POWER_ON 0u
-#define CP_PM_PSRAM_APP_MODULE 9u
-#define CP_PM_SLEEP_APP_MODULE 12u
-#define CP_PM_CPU1_MODULE 38u
-#define CP_LOG_CHANNEL 0x1eu
-#define CP_LOG_ASSERT_OUT_COMMAND 4u
-#define CP_LOG_STATIC_TAG 0xffffu
-#define CP_LOG_BUFFER_SIZE 160u
-#define CP_FLASH_NOTIFY_RX_CHANNEL 0x4bu
-#define CP_FLASH_NOTIFY_REQUEST 1u
-#define CP_FLASH_NOTIFY_ACK 2u
-#define CP_RUNTIME_TIMEOUT_MS 5000u
-#define CP_HEARTBEAT_PERIOD_MS 1000u
-#define CP_PM_TIMEOUT_MS 100u
-#define CP_STARTUP_TIMEOUT_MS 2000u
-#define CP_QUEUE_DEPTH 4u
+#define CP_PM_QSPI0_CLOCK           20u
+#define CP_PM_SDIO_CLOCK            22u
+#define CP_PM_BAKP_SDIO_POWER       91u
+#define CP_PM_BAKP_DMA0_POWER       93u
+#define CP_PM_AHBP_QSPI_POWER       101u
+#define CP_PM_AUDP_AUDIO_POWER      122u
+#define CP_PM_AUDIO_CLOCK           30u
+#define CP_PM_POWER_ON              0u
+#define CP_PM_PSRAM_APP_MODULE      9u
+#define CP_PM_SLEEP_APP_MODULE      12u
+#define CP_PM_CPU1_MODULE           38u
+#define CP_LOG_CHANNEL              0x1eu
+#define CP_LOG_ASSERT_OUT_COMMAND   4u
+#define CP_LOG_STATIC_TAG           0xffffu
+#define CP_LOG_BUFFER_SIZE          160u
+#define CP_FLASH_NOTIFY_RX_CHANNEL  0x4bu
+#define CP_FLASH_NOTIFY_REQUEST     1u
+#define CP_FLASH_NOTIFY_ACK         2u
+#define CP_RUNTIME_TIMEOUT_MS       5000u
+#define CP_HEARTBEAT_PERIOD_MS      1000u
+#define CP_PM_TIMEOUT_MS            100u
+#define CP_STARTUP_TIMEOUT_MS       2000u
+#define CP_QUEUE_DEPTH              4u
 
 typedef struct {
   T5AICPMailboxFrame frames[CP_QUEUE_DEPTH];
@@ -94,6 +100,51 @@ static bool s_wfi_clock_vote;
 uint32_t t5ai_cp_mailbox_wfi_clock_min_hz(void) {
   // CP switches 240/320 MHz through 320 MHz divided by two.
   return s_app_sleep_veto && s_wfi_clock_vote && !s_pm_faulted ? 160000000u : 0u;
+}
+#endif
+
+#ifdef CONFIG_T5AI_PM_WAKE_EVENTS
+#define CP_PM_WAKE_NOTIFY_COMMAND 0x10u
+static T5AIPMWakeEvent s_wake_events[CP_QUEUE_DEPTH];
+static uint8_t s_wake_head, s_wake_count;
+static uint32_t s_wake_lost;
+
+static bool prv_enqueue_wake(const T5AIMailboxMessage *message) {
+  pbl_irq_lock();
+  if (s_wake_count == CP_QUEUE_DEPTH) {
+    if (s_wake_lost != UINT32_MAX)
+      ++s_wake_lost;
+    pbl_irq_unlock();
+    return false;
+  }
+  const uint8_t tail = (s_wake_head + s_wake_count) % CP_QUEUE_DEPTH;
+  s_wake_events[tail] =
+      (T5AIPMWakeEvent){message->parameter1, message->parameter2, message->parameter3};
+  ++s_wake_count;
+  pbl_irq_unlock();
+  return true;
+}
+
+status_t t5ai_cp_mailbox_take_wake_event(T5AIPMWakeEvent *event) {
+  if (event == NULL)
+    return E_INVALID_ARGUMENT;
+  pbl_irq_lock();
+  if (s_wake_count == 0u) {
+    pbl_irq_unlock();
+    return E_AGAIN;
+  }
+  *event = s_wake_events[s_wake_head];
+  s_wake_head = (s_wake_head + 1u) % CP_QUEUE_DEPTH;
+  --s_wake_count;
+  pbl_irq_unlock();
+  return S_SUCCESS;
+}
+
+uint32_t t5ai_cp_mailbox_wake_events_lost(void) {
+  pbl_irq_lock();
+  const uint32_t lost = s_wake_lost;
+  pbl_irq_unlock();
+  return lost;
 }
 #endif
 
@@ -173,11 +224,30 @@ static void prv_receive(T5AIMailboxMessage *message, void *context) {
     return;
   }
 
+#ifdef CONFIG_T5AI_NATIVE_ALARM
+  if (channel == CP_PM_RX_CHANNEL && (uint8_t)message->header == T5AI_PM_NATIVE_SLEEP_RESUMED) {
+    t5ai_native_alarm_resume_notify(message->parameter1, message->parameter2, message->parameter3);
+    return;
+  }
+  if (channel == CP_PM_RX_CHANNEL && (uint8_t)message->header == T5AI_PM_NATIVE_ALARM_WAKE) {
+    t5ai_native_alarm_notify(message->parameter1, message->parameter2, message->parameter3);
+    return;
+  }
+#endif
+
+#ifdef CONFIG_T5AI_PM_WAKE_EVENTS
+  if (channel == CP_PM_RX_CHANNEL && (uint8_t)message->header == CP_PM_WAKE_NOTIFY_COMMAND) {
+    if (!prv_enqueue_wake(message))
+      message->header |= T5AI_MAILBOX_HEADER_COMMUNICATION_FAILED;
+    return;
+  }
+#endif
+
   Route route = s_routes[index];
   if (route.callback != NULL) {
     T5AICPMailboxFrame frame = {
-        .address = (uintptr_t)message,
-        .length = sizeof(*message),
+      .address = (uintptr_t)message,
+      .length = sizeof(*message),
     };
     memcpy(frame.snapshot, message, sizeof(*message));
     frame.address = (uintptr_t)frame.snapshot;
@@ -251,7 +321,7 @@ status_t t5ai_cp_mailbox_send(const void *data, size_t length) {
   memcpy(&message, data, sizeof(message));
   const uint8_t channel = (uint8_t)(message.header >> T5AI_MAILBOX_HEADER_CHANNEL_SHIFT);
   status = t5ai_mailbox_channel_send_async(channel, &message, prv_transmit_complete,
-                                            (void *)(uintptr_t)channel);
+                                           (void *)(uintptr_t)channel);
   return status;
 }
 
@@ -368,7 +438,7 @@ void t5ai_cp_mailbox_announce_power_up(void) {
 static void prv_heartbeat_complete(const T5AIMailboxMessage *ack, status_t status, void *context) {
   (void)context;
   t5ai_reboot_trace_event(T5RebootTrace_HeartbeatAck,
-                         FAILED(status) ? (uint32_t)status : (ack ? ack->parameter3 : UINT32_MAX));
+                          FAILED(status) ? (uint32_t)status : (ack ? ack->parameter3 : UINT32_MAX));
   /* Tuya normally completes heartbeat processing in the physical ACK. */
   if (PASSED(status) && ack != NULL && ack->parameter3 == CP_ACK_STATE_COMPLETE) {
     s_heartbeat_in_flight = false;
@@ -384,17 +454,17 @@ static void prv_heartbeat(void) {
     t5ai_reboot_trace_event(T5RebootTrace_HeartbeatSkip,
                             (!__atomic_load_n(&s_runtime_initialized, __ATOMIC_ACQUIRE) ? 1u : 0u) |
                                 (s_heartbeat_in_flight ? 2u : 0u) |
-                           (t5ai_mailbox_channel_faulted() ? 4u : 0u));
+                                (t5ai_mailbox_channel_faulted() ? 4u : 0u));
     return;
   }
   s_heartbeat_parameter = 0u;
   ++s_control_sequence;
   s_control_message = (T5AIMailboxMessage){
-      .header = CP_HEARTBEAT_COMMAND |
-                ((uint32_t)s_control_sequence << T5AI_MAILBOX_HEADER_SEQUENCE_SHIFT) |
-                ((uint32_t)CP_CONTROL_CHANNEL << T5AI_MAILBOX_HEADER_CHANNEL_SHIFT),
-      .parameter1 = (uint32_t)(uintptr_t)&s_heartbeat_parameter,
-      .parameter2 = sizeof(s_heartbeat_parameter),
+    .header = CP_HEARTBEAT_COMMAND |
+              ((uint32_t)s_control_sequence << T5AI_MAILBOX_HEADER_SEQUENCE_SHIFT) |
+              ((uint32_t)CP_CONTROL_CHANNEL << T5AI_MAILBOX_HEADER_CHANNEL_SHIFT),
+    .parameter1 = (uint32_t)(uintptr_t)&s_heartbeat_parameter,
+    .parameter2 = sizeof(s_heartbeat_parameter),
   };
   t5ai_cache_clean(&s_heartbeat_parameter, sizeof(s_heartbeat_parameter));
   s_heartbeat_in_flight = true;
@@ -421,7 +491,8 @@ pbl_tick_t t5ai_cp_mailbox_heartbeat_poll(void) {
   return period;
 }
 
-static status_t prv_pm_request(uint8_t command, uint32_t parameter1, uint32_t parameter2) {
+static status_t prv_pm_exchange(uint8_t command, uint32_t parameter1, uint32_t parameter2,
+                                uint32_t parameter3, T5AIMailboxMessage *reply) {
   if (t5ai_mailbox_channel_is_owner()) {
     return E_INVALID_OPERATION;
   }
@@ -430,6 +501,9 @@ static status_t prv_pm_request(uint8_t command, uint32_t parameter1, uint32_t pa
     return status;
   }
   pbl_mutex_lock(&s_pm_mutex, PBL_FOREVER);
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+  t5ai_sleep_block(T5AISleepOwner_Mailbox);
+#endif
   // A queued caller must not drain or reuse a session poisoned by its predecessor.
   if (s_pm_faulted) {
     status = E_INVALID_OPERATION;
@@ -449,9 +523,10 @@ static status_t prv_pm_request(uint8_t command, uint32_t parameter1, uint32_t pa
     (void)prv_dequeue(CP_PM_RX_CHANNEL, &stale);
   }
   s_pm_message = (T5AIMailboxMessage){
-      .header = command,
-      .parameter1 = parameter1,
-      .parameter2 = parameter2,
+    .header = command,
+    .parameter1 = parameter1,
+    .parameter2 = parameter2,
+    .parameter3 = parameter3,
   };
   T5AIMailboxMessage physical_ack;
   status = t5ai_mailbox_channel_send(CP_PM_TX_CHANNEL, &s_pm_message, &physical_ack,
@@ -467,6 +542,8 @@ static status_t prv_pm_request(uint8_t command, uint32_t parameter1, uint32_t pa
     goto out;
   }
   const T5AIMailboxMessage *response = (const void *)frame.address;
+  if (reply != NULL)
+    *reply = *response;
   status = (uint8_t)response->header == command && response->parameter1 == 0u ? S_SUCCESS : E_ERROR;
 #ifdef CONFIG_T5AI_TICKLESS_WFI
   if (status == S_SUCCESS) {
@@ -474,16 +551,37 @@ static status_t prv_pm_request(uint8_t command, uint32_t parameter1, uint32_t pa
       s_app_sleep_veto = parameter2 == 0u;
     }
     if (command == CP_PM_CPU_FREQUENCY_COMMAND && parameter1 == CP_PM_CPU1_MODULE) {
-      s_wfi_clock_vote = parameter2 >= T5AICpuFrequency_240MHz &&
-                         parameter2 <= T5AICpuFrequency_480MHz;
+      s_wfi_clock_vote =
+          parameter2 >= T5AICpuFrequency_240MHz && parameter2 <= T5AICpuFrequency_480MHz;
     }
   }
 #endif
 
 out:
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+  if (s_pm_faulted)
+    t5ai_sleep_fault();
+  t5ai_sleep_unblock(T5AISleepOwner_Mailbox);
+#endif
   pbl_mutex_unlock(&s_pm_mutex);
   return status;
 }
+
+static status_t prv_pm_request(uint8_t command, uint32_t parameter1, uint32_t parameter2) {
+  return prv_pm_exchange(command, parameter1, parameter2, 0u, NULL);
+}
+
+#ifdef CONFIG_T5AI_NATIVE_ALARM
+status_t t5ai_cp_mailbox_alarm_request(T5AIAlarmOperation operation, uint32_t generation,
+                                       uint32_t ticks, uint32_t *applied, uint32_t *abi) {
+  T5AIMailboxMessage reply = {0};
+  const status_t status =
+      prv_pm_exchange(T5AI_PM_NATIVE_ALARM_COMMAND, generation, ticks, operation, &reply);
+  *applied = reply.parameter2;
+  *abi = reply.parameter3;
+  return status;
+}
+#endif
 
 status_t t5ai_cp_mailbox_enable_uart0_clock(void) {
   return prv_pm_request(CP_PM_CLOCK_COMMAND, CP_PM_UART0_CLOCK, CP_PM_CLOCK_ENABLE);
@@ -494,9 +592,8 @@ status_t t5ai_cp_mailbox_enable_sd(void) {
   if (FAILED(status))
     return status;
   status = prv_pm_request(CP_PM_POWER_COMMAND, CP_PM_BAKP_DMA0_POWER, CP_PM_POWER_ON);
-  return FAILED(status)
-             ? status
-             : prv_pm_request(CP_PM_CLOCK_COMMAND, CP_PM_SDIO_CLOCK, CP_PM_CLOCK_ENABLE);
+  return FAILED(status) ? status
+                        : prv_pm_request(CP_PM_CLOCK_COMMAND, CP_PM_SDIO_CLOCK, CP_PM_CLOCK_ENABLE);
 }
 
 status_t t5ai_cp_mailbox_enable_qspi0(void) {
@@ -579,9 +676,9 @@ status_t t5ai_cp_mailbox_log(const void *data, size_t length) {
     s_log_buffer[0] = 1u;
     memcpy(&s_log_buffer[1], cursor, chunk);
     s_log_message = (T5AIMailboxMessage){
-        .header = CP_LOG_ASSERT_OUT_COMMAND,
-        .parameter1 = (uint32_t)(uintptr_t)s_log_buffer,
-        .parameter2 = (uint32_t)(chunk + 1u) | (CP_LOG_STATIC_TAG << CP_LOG_TAG_SHIFT),
+      .header = CP_LOG_ASSERT_OUT_COMMAND,
+      .parameter1 = (uint32_t)(uintptr_t)s_log_buffer,
+      .parameter2 = (uint32_t)(chunk + 1u) | (CP_LOG_STATIC_TAG << CP_LOG_TAG_SHIFT),
     };
     t5ai_cache_clean(s_log_buffer, chunk + 1u);
     T5AIMailboxMessage ack;

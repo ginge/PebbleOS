@@ -55,3 +55,11 @@ void t5ai_hci_ipc_poll(void);
 #ifdef CONFIG_T5AI_HCI_PROFILE
 void t5ai_hci_ipc_get_diagnostics(T5AIHCIIpcDiagnostics *diagnostics);
 #endif
+
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+// Nonblocking final idle checks include logical leases beyond physical mailbox ACK.
+bool t5ai_hci_ipc_sleep_ready(void);
+bool t5ai_hci_sleep_ready(void);
+// Latched work notification; a signal before the worker waits is retained.
+void t5ai_hci_notify_work(void);
+#endif

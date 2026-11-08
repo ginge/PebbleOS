@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Full T5AI driver: asynchronous service demand, validity, retries and charge events."""
+
 import re
 import unittest
 from pathlib import Path
@@ -14,6 +15,7 @@ HARNESS = r"""
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #include "system/status_codes.h"
 #include <pbl/drivers/battery.h>
 #define PBL_LOG_MODULE_DEFINE(...)
@@ -36,7 +38,11 @@ static uint64_t now;
 static unsigned depth,context,requests,updates,events,configures,registrations,queued;
 static int gpio_error,irq_error;
 static bool charge,drop;
-static void check_log(const char *fmt,...){assert(context==1);(void)fmt;}
+static unsigned sampled_logs,failed_logs;
+static void check_log(const char *fmt,...){assert(context==1);
+ if(strstr(fmt,"Battery ADC sample:"))++sampled_logs;
+ if(strstr(fmt,"Battery ADC failed:"))++failed_logs;
+}
 static status_t request_error;
 static void (*regular_cb)(void *),(*irq_cb)(void *),(*work)(void *);
 static void (*completion)(status_t,uint16_t,void *);
@@ -87,13 +93,40 @@ static __attribute__((unused)) void begin(void){context=1;battery_init();unavail
  assert(!battery_get_millivolts() && requests==1);}
 """
 
+
 class T5AIBatteryTest(unittest.TestCase):
-    def run_driver(self, checks):
-        headers = {n: "" for n in re.findall(r'#include [<"]([^>"\n]+)[>"]', DRIVER.read_text())
-                   if "/" in n and n != "pbl/drivers/battery.h"}
-        headers["system/status_codes.h"] = (ROOT / "fw/system/status_codes.h").read_text()
-        run_c(HARNESS.replace("DRIVER_SOURCE", '"'+str(DRIVER)+'"')+
-              "\nint main(void){\n"+checks+"\nreturn 0;}\n", headers)
+    def run_driver(self, checks, profile=False, quiet=False):
+        headers = {
+            n: ""
+            for n in re.findall(r'#include [<"]([^>"\n]+)[>"]', DRIVER.read_text())
+            if "/" in n and n != "pbl/drivers/battery.h"
+        }
+        headers["system/status_codes.h"] = (
+            ROOT / "fw/system/status_codes.h"
+        ).read_text()
+        run_c(
+            ("#define CONFIG_T5AI_POWER_PROFILE 1\n" if profile else "")
+            + ("#define CONFIG_T5AI_BATTERY_QUIET_SUCCESS 1\n" if quiet else "")
+            + HARNESS.replace("DRIVER_SOURCE", '"' + str(DRIVER) + '"')
+            + "\nint main(void){\n"
+            + checks
+            + "\nreturn 0;}\n",
+            headers,
+        )
+
+    def test_sample_logging_opt_in_preserves_failure_logs(self):
+        for profile in [False, True]:
+            for quiet in [False, True]:
+                self.run_driver(
+                    f"""
+ begin();done(0,2200);tick();drain();
+ assert(sampled_logs=={int(not quiet or profile)});
+ now+=60000;unavailable();done(E_ERROR,0);tick();drain();
+ assert(failed_logs==1);
+""",
+                    profile=profile,
+                    quiet=quiet,
+                )
 
     def test_startup_demand_coalescing_and_freshness(self):
         self.run_driver(r"""

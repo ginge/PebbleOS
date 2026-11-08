@@ -2,6 +2,10 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+#include <pbl/soc/t5ai/sleep.h>
+#endif
+
 #include <errno.h>
 #include <stdint.h>
 
@@ -128,6 +132,70 @@ static T5AII2CRegisters *prv_regs(const struct pbl_i2c_bus *bus) {
   return (T5AII2CRegisters *)prv_dev(bus)->base;
 }
 
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_TEST
+#ifndef CONFIG_T5AI_I2C_PROFILE
+#include <pbl/logging/logging.h>
+PBL_LOG_MODULE_DEFINE(t5ai_i2c_sleep_diag, LOG_LEVEL_DEBUG);
+#endif
+#define T5AI_I2C_IRQ_BANK_BITS            32u
+#define T5AI_SYSTEM_CPU1_INTERRUPT_STATUS (*(volatile uint32_t *)0x440100a8u)
+#define T5AI_SYSTEM_CP_CONTROL            (*(volatile uint32_t *)0x44010010u)
+#define T5AI_SYSTEM_AP_CONTROL            (*(volatile uint32_t *)0x44010014u)
+static struct {
+  int result;
+  uint32_t status, config, global, route, pending, nvic_enable, nvic_pending;
+  uint32_t cp, ap, clocks, power, icsr, basepri, address, phase;
+  bool captured, reported;
+} s_first_failure;
+
+static void prv_failure_capture(const struct pbl_i2c_bus *bus, int result) {
+  if (s_first_failure.captured)
+    return;
+  const unsigned bank = (unsigned)prv_dev(bus)->irqn / T5AI_I2C_IRQ_BANK_BITS;
+  s_first_failure.result = result;
+  s_first_failure.status = prv_regs(bus)->status;
+  s_first_failure.config = prv_regs(bus)->config;
+  s_first_failure.global = prv_regs(bus)->global_control;
+  s_first_failure.route = T5AI_SYSTEM_CPU1_INTERRUPT_ENABLE;
+  s_first_failure.pending = T5AI_SYSTEM_CPU1_INTERRUPT_STATUS;
+  s_first_failure.nvic_enable = NVIC->ISER[bank];
+  s_first_failure.nvic_pending = NVIC->ISPR[bank];
+  s_first_failure.cp = T5AI_SYSTEM_CP_CONTROL;
+  s_first_failure.ap = T5AI_SYSTEM_AP_CONTROL;
+  s_first_failure.clocks = T5AI_SYSTEM_DEVICE_CLOCK_ENABLE;
+  s_first_failure.power = T5AI_SYSTEM_POWER_SLEEP_WAKEUP;
+  s_first_failure.icsr = SCB->ICSR;
+  s_first_failure.basepri = __get_BASEPRI();
+  s_first_failure.address = prv_dev(bus)->state->addr;
+  s_first_failure.phase = prv_dev(bus)->state->phase;
+  s_first_failure.captured = true;
+}
+
+// Report from transfer cleanup, never from the ISR that latched the evidence.
+static void prv_failure_report(void) {
+  pbl_irq_lock();
+  if (!s_first_failure.captured || s_first_failure.reported) {
+    pbl_irq_unlock();
+    return;
+  }
+  const __typeof__(s_first_failure) f = s_first_failure;
+  s_first_failure.reported = true;
+  pbl_irq_unlock();
+  PBL_LOG_ERR("T5I2CFAIL result=%d status=%lx config=%lx global=%lx", f.result,
+              (unsigned long)f.status, (unsigned long)f.config, (unsigned long)f.global);
+  PBL_LOG_ERR("T5I2CFAIL route=%lx pending=%lx nvic_en=%lx nvic_pending=%lx",
+              (unsigned long)f.route, (unsigned long)f.pending, (unsigned long)f.nvic_enable,
+              (unsigned long)f.nvic_pending);
+  PBL_LOG_ERR("T5I2CFAIL cp=%lx ap=%lx clocks=%lx power=%lx", (unsigned long)f.cp,
+              (unsigned long)f.ap, (unsigned long)f.clocks, (unsigned long)f.power);
+  PBL_LOG_ERR("T5I2CFAIL icsr=%lx basepri=%lx address=%lx phase=%lu", (unsigned long)f.icsr,
+              (unsigned long)f.basepri, (unsigned long)f.address, (unsigned long)f.phase);
+}
+#else
+#define prv_failure_capture(bus, result) ((void)0)
+#define prv_failure_report()             ((void)0)
+#endif
+
 static void prv_complete(const struct pbl_i2c_bus *bus, int status) {
   if (prv_dev(bus)->state->active) {
     prv_dev(bus)->state->active = false;
@@ -239,6 +307,12 @@ static int prv_init(const struct pbl_i2c_bus *bus) {
 }
 
 static void prv_enable(const struct pbl_i2c_bus *bus) {
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+  if (!prv_dev(bus)->state->sleep_held) {
+    t5ai_sleep_block(T5AISleepOwner_I2C);
+    prv_dev(bus)->state->sleep_held = true;
+  }
+#endif
   T5AI_SYSTEM_POWER_SLEEP_WAKEUP &= ~T5AI_I2C_BACKUP_POWER_DOWN;
   T5AI_SYSTEM_DEVICE_CLOCK_ENABLE |= T5AI_I2C_CLOCK_ENABLE;
   prv_regs(bus)->global_control |= T5AI_I2C_GLOBAL_CLOCK_GATE_BYPASS;
@@ -266,11 +340,19 @@ static void prv_disable(const struct pbl_i2c_bus *bus) {
   // A stuck STOP keeps bypass asserted until recovery; never gate a live bus.
   if (stopped) {
     prv_release_idle_clock(bus);
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+    if (prv_dev(bus)->state->sleep_held) {
+      prv_dev(bus)->state->sleep_held = false;
+      t5ai_sleep_unblock(T5AISleepOwner_I2C);
+    }
+#endif
   }
+  prv_failure_report();
 }
 
 static void prv_abort(const struct pbl_i2c_bus *bus) {
   pbl_irq_lock();
+  prv_failure_capture(bus, -ETIMEDOUT);
   prv_dev(bus)->state->active = false;
   T5AII2CRegisters *regs = prv_regs(bus);
   prv_stop(regs);
@@ -350,6 +432,7 @@ static void prv_irq_handler(const struct pbl_i2c_bus *bus) {
   }
   const uint32_t status = regs->status;
   if ((status & (T5AI_I2C_STATUS_TIMEOUT | T5AI_I2C_STATUS_ARB_LOST)) != 0U) {
+    prv_failure_capture(bus, (status & T5AI_I2C_STATUS_TIMEOUT) ? -ETIMEDOUT : -EIO);
     prv_abort(bus);
     pbl_i2c_bus_complete(bus, (status & T5AI_I2C_STATUS_TIMEOUT) ? -ETIMEDOUT : -EIO);
     return;
@@ -359,6 +442,7 @@ static void prv_irq_handler(const struct pbl_i2c_bus *bus) {
   }
   if ((status & T5AI_I2C_STATUS_ACK) == 0U &&
       (state->addressing || state->phase == T5AI_I2C_WRITE)) {
+    prv_failure_capture(bus, state->addressing ? -ENXIO : -EIO);
     prv_stop(regs);
     prv_complete(bus, state->addressing ? -ENXIO : -EIO);
     return;

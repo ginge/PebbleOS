@@ -3,13 +3,16 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <cmsis_core.h>
+
 #include <pbl/mcu/cache.h>
 
-#define FAULT_STACK_BYTES 512u
-#define POLL_LIMIT        200000u
-#define TIMEOUT_TICKS     3200u // 100 ms for the entire fault report at 32 kHz.
-#define MAX_MPU_REGIONS   16u
+#include <cmsis_core.h>
+
+#define FAULT_STACK_BYTES       512u
+#define POLL_LIMIT              200000u
+#define TIMEOUT_TICKS           3200u // 100 ms for the entire fault report at 32 kHz.
+#define MAX_MPU_REGIONS         16u
+#define FAULT_AON_COUNT_ADDRESS 0x4400020cu
 #ifndef REG32
 #define REG32(address) (*(volatile uint32_t *)(address))
 #endif
@@ -48,11 +51,11 @@ static size_t prv_field(size_t at, const char *label, uint32_t value) {
 }
 
 static bool prv_send(size_t length, uint32_t start) {
-  if ((uint32_t)(REG32(0x4400020cu) - start) >= TIMEOUT_TICKS)
+  if ((uint32_t)(REG32(FAULT_AON_COUNT_ADDRESS) - start) >= TIMEOUT_TICKS)
     return false;
   unsigned polls = POLL_LIMIT;
   while (REG32(0x41000060u) & 1u) {
-    if (!--polls || (uint32_t)(REG32(0x4400020cu) - start) >= TIMEOUT_TICKS)
+    if (!--polls || (uint32_t)(REG32(FAULT_AON_COUNT_ADDRESS) - start) >= TIMEOUT_TICKS)
       return false;
   }
   // Same pinned assert-out ABI as cp_mailbox_log, using independent storage.
@@ -73,7 +76,7 @@ static bool prv_send(size_t length, uint32_t start) {
     dcache_invalidate(s_text, sizeof(s_text));
     if (s_text[0] == 0)
       return true;
-  } while (--polls && (uint32_t)(REG32(0x4400020cu) - start) < TIMEOUT_TICKS);
+  } while (--polls && (uint32_t)(REG32(FAULT_AON_COUNT_ADDRESS) - start) < TIMEOUT_TICKS);
   return false;
 }
 
@@ -90,6 +93,38 @@ static bool prv_end(size_t at, uint32_t start) {
   s_text[at++] = '\n';
   return prv_send(at, start);
 }
+
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_TEST
+#define FAULT_MAILBOX_WORD_COUNT 17u
+#define FAULT_HEX_WORD_BYTES     9u
+#define FAULT_WORD_PREFIX        "T5MB:"
+
+bool t5ai_fault_trace_words(const uint32_t *words, size_t count) {
+  if (!words || count != FAULT_MAILBOX_WORD_COUNT)
+    return false;
+  _Static_assert(
+      1u + sizeof(FAULT_WORD_PREFIX) - 1u + FAULT_MAILBOX_WORD_COUNT * FAULT_HEX_WORD_BYTES + 1u <=
+          sizeof(s_text),
+      "Emergency mailbox record exceeds private buffer");
+  const uint32_t primask = __get_PRIMASK();
+  __disable_irq();
+  // A failed publication may still belong to CP. Never overwrite that text.
+  dcache_invalidate(s_text, sizeof(s_text));
+  bool sent = false;
+  if (s_text[0] == 0u && !s_entered) {
+    const uint32_t start = REG32(FAULT_AON_COUNT_ADDRESS);
+    size_t at = prv_begin(FAULT_WORD_PREFIX);
+    for (size_t i = 0; i < count; ++i) {
+      s_text[at++] = ' ';
+      at = prv_hex(at, words[i]);
+    }
+    s_text[at++] = '\n';
+    sent = prv_send(at, start);
+  }
+  __set_PRIMASK(primask);
+  return sent;
+}
+#endif
 
 static bool prv_origin(uint32_t *frame, uint32_t exc_return, uint32_t cfsr, uint32_t **origin,
                        uint32_t *origin_exc) {
@@ -130,7 +165,7 @@ __attribute__((used, noinline)) void t5ai_fault_trace_capture(uint32_t *frame, u
   if (s_entered)
     return;
   s_entered = true;
-  const uint32_t start = REG32(0x4400020cu);
+  const uint32_t start = REG32(FAULT_AON_COUNT_ADDRESS);
   const uint32_t cfsr = SCB->CFSR;
   const uint32_t type = MPU->TYPE, ctrl = MPU->CTRL, selector = MPU->RNR;
   const uint32_t mair0 = MPU->MAIR0, mair1 = MPU->MAIR1;
@@ -210,7 +245,7 @@ __attribute__((used, noinline)) void t5ai_fault_trace_capture(uint32_t *frame, u
 }
 
 // Save state without using the interrupted stack. Switch its limit before pushing.
-#ifndef T5AI_FAULT_TRACE_TEST
+#if defined(CONFIG_T5AI_FAULT_TRACE) && !defined(T5AI_FAULT_TRACE_TEST)
 __attribute__((naked)) void HardFault_Handler(void) {
   __asm volatile(
       "tst lr, #4\n"

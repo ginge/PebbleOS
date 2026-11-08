@@ -1,10 +1,11 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Exercise actual minimal fault formatting and bounded emergency publication."""
-from pathlib import Path
+
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 HARNESS = r"""
@@ -47,13 +48,18 @@ static volatile uint32_t *reg(uintptr_t address) {
   }
 }
 #define REG32(address) (*reg(address))
+#define CONFIG_T5AI_RETAINED_SLEEP_TEST 1
+static uint32_t hw_primask;
+#define __get_PRIMASK() hw_primask
+#define __disable_irq() (hw_primask=1)
+#define __set_PRIMASK(value) (hw_primask=(value))
 #define T5AI_FAULT_TRACE_TEST
 #include "soc/t5ai/fault_trace.c"
 void dcache_flush(const void *p, size_t size) {
   assert((uintptr_t)p % 32 == 0 && size % 32 == 0); ++flushes;
   if (p == s_text) {
     unsigned n = s_message[2] & 0xffff;
-    assert(n < sizeof(s_text));
+    assert(n <= sizeof(s_text));
     unsigned used=strlen(output);
     assert(used+n < sizeof(output));
     memcpy(output+used, s_text+1, n-1); output[used+n-1]=0;
@@ -75,11 +81,29 @@ static void capture(uint32_t *frame, uint32_t exc) {
   assert(mpu.RNR == 7);
   assert(s_message[0] == 0x1efe0004 && s_message[2] >> 16 == 0xffff);
   unsigned n = s_message[2] & 0xffff;
-  assert(n < sizeof(s_text));
+  assert(n <= sizeof(s_text));
   s_text[n] = 0;
   assert(strstr(output, "T5FAULT") && strstr(output,"hfsr=40000000"));
 }
 int main(void) {
+
+  uint32_t words[17];
+  for (unsigned i=0;i<17;++i) words[i]=i;
+  release=1;
+  assert(t5ai_fault_trace_words(words,17) && hw_primask==0);
+  assert(!strncmp(output,"T5MB: 00000000 00000001",23));
+  assert(strstr(output," 00000010\n"));
+  assert((s_message[2]&0xffff)==sizeof(s_text));
+  assert(!t5ai_fault_trace_words(words,16));
+  assert(!t5ai_fault_trace_words(0,17));
+  hw_primask=1;fifo=1;tx_size=0;clock_step=800;
+  assert(!t5ai_fault_trace_words(words,17) && hw_primask==1 && !tx_size);
+  assert(clock_low<10000); // One bounded emergency publication budget.
+  hw_primask=0;fifo=0;clock_low=clock_step=0;release=0;s_text[0]=0;
+  assert(!t5ai_fault_trace_words(words,17) && !hw_primask);
+  unsigned before=flushes;
+  assert(!t5ai_fault_trace_words(words,17) && flushes==before);
+  release=1;clock_low=clock_step=0;
   uint32_t *frame = mmap((void *)0x28020000, 4096, PROT_READ|PROT_WRITE,
        MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE, -1, 0);
   assert(frame == (void *)0x28020000);
@@ -176,9 +200,22 @@ class FaultTraceTests(unittest.TestCase):
             )
             (tmp / "test.c").write_text(HARNESS)
             subprocess.run(
-                ["cc", "-no-pie", "-std=gnu11", "-Wall", "-Wextra", "-Werror",
-                 "-Wno-pointer-to-int-cast", "-I", str(tmp), "-I", str(ROOT),
-                 str(tmp / "test.c"), "-o", str(tmp / "test")],
+                [
+                    "cc",
+                    "-no-pie",
+                    "-std=gnu11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-Wno-pointer-to-int-cast",
+                    "-I",
+                    str(tmp),
+                    "-I",
+                    str(ROOT),
+                    str(tmp / "test.c"),
+                    "-o",
+                    str(tmp / "test"),
+                ],
                 check=True,
             )
             subprocess.run([str(tmp / "test")], check=True, timeout=10)

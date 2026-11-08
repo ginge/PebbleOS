@@ -704,3 +704,18 @@ uint32_t t5ai_mb_ipc_async_poll(void) {
   }
   return wait_ms;
 }
+
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+bool t5ai_mb_ipc_sleep_ready(void) {
+  // Includes logical response and buffer leases beyond physical FIFO completion.
+  if (!s_initialized)
+    return false;
+  for (unsigned i = 0; i < MB_IPC_SOCKET_COUNT; ++i) {
+    const T5AIMbIpcSocket *socket = &s_sockets[i];
+    if (socket->allocated && (socket->poisoned || socket->tx_in_process || socket->rx_in_process ||
+                              socket->async.phase != AsyncIdle))
+      return false;
+  }
+  return true;
+}
+#endif

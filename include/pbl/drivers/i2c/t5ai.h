@@ -19,6 +19,9 @@ struct pbl_i2c_t5ai_state {
   bool addressing;
   bool recovery_required;
   bool active;
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+  bool sleep_held;
+#endif
 };
 struct pbl_i2c_t5ai {
   struct pbl_i2c_bus bus;

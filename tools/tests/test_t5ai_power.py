@@ -1,10 +1,10 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -20,7 +20,7 @@ void t5ai_power_sync_tick_clock(void);
 #include <stdbool.h>
 typedef int status_t;
 #define S_SUCCESS 0
-typedef enum {T5AICpuFrequency_120MHz=3,T5AICpuFrequency_240MHz=4} T5AICpuFrequency;
+typedef enum {T5AICpuFrequency_240MHz=4} T5AICpuFrequency;
 status_t t5ai_cp_mailbox_vote_cpu1_frequency(T5AICpuFrequency);
 """,
     "pbl/soc/t5ai/freertos.h": """
@@ -145,12 +145,22 @@ int main(void) {
                 header.write_text(contents)
             (directory / "startup.c").write_text(source)
             executable = directory / "startup"
-            subprocess.run([
-                "cc", "-std=gnu11", "-Wall", "-Wextra", "-Werror",
-                "-I", str(directory),
-                f'-DT5AI_POWER_SOURCE="{ROOT / "soc/t5ai/power.c"}"',
-                str(directory / "startup.c"), "-o", str(executable),
-            ], check=True)
+            subprocess.run(
+                [
+                    "cc",
+                    "-std=gnu11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-I",
+                    str(directory),
+                    f'-DT5AI_POWER_SOURCE="{ROOT / "soc/t5ai/power.c"}"',
+                    str(directory / "startup.c"),
+                    "-o",
+                    str(executable),
+                ],
+                check=True,
+            )
             subprocess.run([str(executable)], check=True)
 
     def test_active_clock_election(self):

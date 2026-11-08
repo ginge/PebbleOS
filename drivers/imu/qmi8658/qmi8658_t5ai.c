@@ -106,6 +106,30 @@ static const QMI8658Rate s_rates[] = {
 // Serialize whole FIFO command/read/resume transactions against configuration.
 
 static const struct pbl_qmi8658 *s_dev;
+#ifdef CONFIG_T5AI_POWER_PROFILE
+static T5AIQMIPowerStats s_power;
+#define QMI_POWER_ADD(field, value) (s_power.field += (value))
+void t5ai_qmi8658_power_stats(T5AIQMIPowerStats *stats) {
+  if (stats == NULL)
+    return;
+  pbl_irq_lock();
+  *stats = s_power;
+  if (s_dev != NULL) {
+    stats->initialized = s_dev->state->initialized;
+    stats->active = s_dev->state->active;
+    stats->shake = s_dev->state->shake_enabled;
+    stats->recovery = s_dev->state->recovery_required;
+    stats->irq_armed = s_dev->state->irq_armed;
+    stats->odr = s_dev->state->odr;
+    stats->watermark = s_dev->state->watermark;
+    stats->interval_us = s_dev->state->interval_us;
+    stats->batch = s_dev->state->num_samples;
+  }
+  pbl_irq_unlock();
+}
+#else
+#define QMI_POWER_ADD(field, value) ((void)0)
+#endif
 static bool prv_queue_work(void (*work)(void));
 #include "qmi8658_profile.h"
 
@@ -302,6 +326,7 @@ static void prv_schedule(void) {
 }
 
 static void prv_int2_handler(void *arg) {
+  QMI_POWER_ADD(irqs, 1u);
   qmi_profile_irq();
   s_dev->state->irq_started = qmi_profile_io_start();
   s_dev->state->watermark_seen = s_dev->state->watermark > 1u;
@@ -312,6 +337,7 @@ static void prv_int2_handler(void *arg) {
 
 static void prv_timer_callback(void *context) {
   (void)context;
+  QMI_POWER_ADD(watchdogs, 1u);
   qmi_profile_watchdog();
   // No bus work on NewTimers. A persistent high pad generates at most one
   // worker pass per watchdog period, including after transfer failures.
@@ -578,6 +604,8 @@ static void prv_acquire_sample(void) {
     s_dev->state->sample_generation = s_dev->state->generation;
   }
   pbl_mutex_unlock(&s_dev->state->io_lock);
+  QMI_POWER_ADD(passes, 1u);
+  QMI_POWER_ADD(acquired, count);
   qmi_profile_acquire_end(count);
   if (!count || !prv_queue_work(prv_deliver_sample)) {
     if (count) {
@@ -601,6 +629,9 @@ static int prv_init(const struct pbl_accel *accel) {
   if (s_dev && &s_dev->accel != accel)
     return -ENOTSUP;
   s_dev = container_of(accel, const struct pbl_qmi8658, accel);
+#ifdef CONFIG_T5AI_POWER_PROFILE
+  s_power.identity_valid = false;
+#endif
   s_dev->state->watermark = 1;
   s_dev->state->odr = QMI8658_ODR_125HZ;
   s_dev->state->initialized = false;
@@ -623,6 +654,11 @@ static int prv_init(const struct pbl_accel *accel) {
     pbl_sleep_ms(QMI8658_RESET_SETTLE_MS);
     ok = ok && prv_read(QMI8658_WHO_AM_I, id, 1u) && prv_read(QMI8658_WHO_AM_I + 1u, id + 1u, 1u) &&
          id[0] == QMI8658_ID;
+#ifdef CONFIG_T5AI_POWER_PROFILE
+    s_power.id = id[0];
+    s_power.revision = id[1];
+    s_power.identity_valid = ok;
+#endif
     ok = ok && prv_write(QMI8658_CTRL1, QMI8658_CTRL1_INIT) && prv_write(QMI8658_CTRL8, 0x80u) &&
          prv_write(QMI8658_CTRL7, 0u);
     if (ok)

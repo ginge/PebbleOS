@@ -1,6 +1,10 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+#include <pbl/soc/t5ai/sleep.h>
+#endif
+
 #include <errno.h>
 #include <string.h>
 
@@ -28,6 +32,8 @@
 #define SDIO_BASE_ADDRESS                    0x458d0000u
 #define SYSTEM_CPU1_INTERRUPT_ENABLE_ADDRESS 0x44010088u
 #define SYSTEM_SDIO_CLOCK_CONTROL_ADDRESS    0x44010024u
+#define SYSTEM_CLOCK_MODE_ADDRESS            0x44010020u
+#define SYSTEM_CPU1_CLOCK_ADDRESS            0x44010014u
 
 #define SD_GLOBAL_CONTROL     0x08u
 #define SD_COMMAND_CONTROL    0x10u
@@ -105,6 +111,14 @@ static PBL_MUTEX_DEFINE(s_lock);
 static PBL_SEM_DEFINE(s_event, 0, 1);
 static volatile uint32_t s_command_status, s_data_status, s_dma_status;
 static bool s_ready, s_faulted, s_high_capacity;
+#ifdef CONFIG_T5AI_POWER_PROFILE
+static T5AISDPowerStats s_power_stats;
+static uint32_t s_setup_mask_before, s_setup_mask_after;
+static uint32_t s_dma_irq_sd, s_dma_irq_mask, s_sd_irq_status, s_sd_irq_mask;
+#define SD_POWER_ADD(field, value) (s_power_stats.field += (value))
+#else
+#define SD_POWER_ADD(field, value) ((void)0)
+#endif
 #ifdef CONFIG_T5AI_SD_IDLE_GATING
 static volatile bool s_clock_active;
 
@@ -119,6 +133,7 @@ static void prv_clock_acquire(void) {
     SD(SD_INTERRUPT_STATUS) = UINT32_MAX;
     NVIC_ClearPendingIRQ(SDIO_IRQn);
     s_clock_active = true;
+    SD_POWER_ADD(acquires, 1u);
     NVIC_EnableIRQ(SDIO_IRQn);
   }
   pbl_irq_unlock();
@@ -142,6 +157,10 @@ void t5ai_sd_irq(void) {
   if (!pending) {
     return;
   }
+#ifdef CONFIG_T5AI_POWER_PROFILE
+  s_sd_irq_status = status;
+  s_sd_irq_mask = SD(SD_INTERRUPT_MASK);
+#endif
   if (pending & (CMD_END | CMD_TIMEOUT)) {
     s_command_status |= status & (CMD_END | CMD_TIMEOUT | CMD_CRC_FAIL);
   }
@@ -176,6 +195,10 @@ static void prv_dma_done(void *arg, int status) {
     if (SD(SD_INTERRUPT_STATUS) & TX_EMPTY)
       s_data_status |= TX_EMPTY;
     SD(SD_INTERRUPT_MASK) |= TX_EMPTY;
+#ifdef CONFIG_T5AI_POWER_PROFILE
+    s_dma_irq_sd = SD(SD_INTERRUPT_STATUS);
+    s_dma_irq_mask = SD(SD_INTERRUPT_MASK);
+#endif
   }
   pbl_sem_give(&s_event);
 }
@@ -203,6 +226,9 @@ static void prv_clock_release(void) {
     s_clock_active = false;
     SD(SD_GLOBAL_CONTROL) &= ~PERIPHERAL_CLOCK_GATE_BYPASS;
     __DSB();
+    SD_POWER_ADD(releases, 1u);
+  } else if (s_clock_active) {
+    SD_POWER_ADD(fallbacks, 1u);
   }
   pbl_irq_unlock();
 }
@@ -315,6 +341,12 @@ static int prv_transfer(uint32_t sector, void *buffer, uint32_t count, bool writ
   if (write && dma_buffer != buffer) {
     memcpy(dma_buffer, buffer, bytes);
   }
+#ifdef CONFIG_T5AI_POWER_PROFILE
+  pbl_irq_lock();
+  s_setup_mask_before = s_setup_mask_after = 0;
+  s_dma_irq_sd = s_dma_irq_mask = s_sd_irq_status = s_sd_irq_mask = 0;
+  pbl_irq_unlock();
+#endif
   int status = prv_wait_ready();
   if (status) {
     goto fail;
@@ -354,8 +386,17 @@ static int prv_transfer(uint32_t sector, void *buffer, uint32_t count, bool writ
     status = prv_dma_start(channel, dma_buffer, bytes, true);
     if (status != 0)
       goto fail;
+    // The DMA callback also updates this mask; exclude it across the RMW.
+    pbl_irq_lock();
+#ifdef CONFIG_T5AI_POWER_PROFILE
+    s_setup_mask_before = SD(SD_INTERRUPT_MASK);
+#endif
     SD(SD_INTERRUPT_MASK) |= SD_TX_FIFO_CLOCK_GATE; // Gate SD clock when transmit FIFO needs data.
     SD(SD_DATA_CONTROL) |= 1u << 16;
+#ifdef CONFIG_T5AI_POWER_PROFILE
+    s_setup_mask_after = SD(SD_INTERRUPT_MASK);
+#endif
+    pbl_irq_unlock();
   }
   const uint64_t deadline = pbl_uptime_ms() + TRANSFER_MS;
   while (!(s_dma_status & DMA_FINISH) || !(s_data_status & (write ? TX_EMPTY : (1u << 3)))) {
@@ -397,6 +438,14 @@ static int prv_transfer(uint32_t sector, void *buffer, uint32_t count, bool writ
 #ifdef CONFIG_T5AI_SD_IDLE_GATING
   prv_clock_release();
 #endif
+#ifdef CONFIG_T5AI_POWER_PROFILE
+  pbl_irq_lock();
+  if (write)
+    SD_POWER_ADD(written_bytes, bytes);
+  else
+    SD_POWER_ADD(read_bytes, bytes);
+  pbl_irq_unlock();
+#endif
   if (!write) {
     dcache_invalidate(dma_buffer, bytes);
     if (dma_buffer != buffer) {
@@ -405,34 +454,91 @@ static int prv_transfer(uint32_t sector, void *buffer, uint32_t count, bool writ
   }
   return 0;
 fail:
+#ifdef CONFIG_T5AI_POWER_PROFILE
+  pbl_irq_lock();
+  const uint32_t failed_sd_status = SD(SD_INTERRUPT_STATUS);
+  const uint32_t failed_dma_status = s_dma_status;
+  const uint32_t failed_setup_before = s_setup_mask_before, failed_setup_after = s_setup_mask_after;
+  const uint32_t failed_dma_sd = s_dma_irq_sd, failed_dma_mask = s_dma_irq_mask;
+  const uint32_t failed_irq_sd = s_sd_irq_status, failed_irq_mask = s_sd_irq_mask;
+  const uint32_t failed_cpu_mode = REG(SYSTEM_CLOCK_MODE_ADDRESS),
+                 failed_cpu1 = REG(SYSTEM_CPU1_CLOCK_ADDRESS);
+  const uint32_t failed_sd_clock = REG(SYSTEM_SDIO_CLOCK_CONTROL_ADDRESS);
+  const uint32_t failed_command_status = s_command_status;
+  const uint32_t failed_data_status = s_data_status;
+  const uint32_t failed_mask = SD(SD_INTERRUPT_MASK);
+  const uint32_t failed_control = SD(SD_DATA_CONTROL);
+  const uint32_t failed_fifo = SD(SD_FIFO_CONTROL);
+  size_t failed_residue = 0;
+  const int failed_dma = pbl_dma_tx_status(write ? &s_tx_dma : &s_rx_dma, &failed_residue);
+  pbl_irq_unlock();
+#endif
+  SD_POWER_ADD(errors, 1u);
   PBL_LOG_ERR("SD I/O failed: write=%u sector=%lu count=%lu error=%d cmd=%u sd=%08lx dma=%08lx",
               write, (unsigned long)sector, (unsigned long)count, status, s_last_command,
+#ifdef CONFIG_T5AI_POWER_PROFILE
+              (unsigned long)failed_sd_status, (unsigned long)failed_dma_status);
+#else
               (unsigned long)SD(SD_INTERRUPT_STATUS), (unsigned long)s_dma_status);
+#endif
+#ifdef CONFIG_T5AI_POWER_PROFILE
+  PBL_LOG_ERR("SD state cmd=%08lx data=%08lx mask=%08lx ctl=%08lx fifo=%08lx left=%lu dma=%d",
+              (unsigned long)failed_command_status, (unsigned long)failed_data_status,
+              (unsigned long)failed_mask, (unsigned long)failed_control, (unsigned long)failed_fifo,
+              (unsigned long)failed_residue, failed_dma);
+  PBL_LOG_ERR("SD path setup=%08lx/%08lx dma=%08lx/%08lx irq=%08lx/%08lx",
+              (unsigned long)failed_setup_before, (unsigned long)failed_setup_after,
+              (unsigned long)failed_dma_sd, (unsigned long)failed_dma_mask,
+              (unsigned long)failed_irq_sd, (unsigned long)failed_irq_mask);
+  PBL_LOG_ERR("SD clocks mode=%08lx cpu1=%08lx sd=%08lx", (unsigned long)failed_cpu_mode,
+              (unsigned long)failed_cpu1, (unsigned long)failed_sd_clock);
+#endif
   prv_abort();
   s_faulted = true;
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+  t5ai_sleep_fault();
+#endif
   return status;
 }
 
 int t5ai_sd_read(uint32_t sector, void *buffer, uint32_t count) {
   pbl_mutex_lock(&s_lock, PBL_FOREVER);
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+  t5ai_sleep_block(T5AISleepOwner_SD);
+#endif
   const int result = prv_transfer(sector, buffer, count, false);
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+  t5ai_sleep_unblock(T5AISleepOwner_SD);
+#endif
   pbl_mutex_unlock(&s_lock);
   return result;
 }
 
 int t5ai_sd_write(uint32_t sector, const void *buffer, uint32_t count) {
   pbl_mutex_lock(&s_lock, PBL_FOREVER);
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+  t5ai_sleep_block(T5AISleepOwner_SD);
+#endif
   const int result = prv_transfer(sector, (void *)buffer, count, true);
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+  t5ai_sleep_unblock(T5AISleepOwner_SD);
+#endif
   pbl_mutex_unlock(&s_lock);
   return result;
 }
 
 uint8_t *t5ai_sd_lock_workspace(void) {
   pbl_mutex_lock(&s_lock, PBL_FOREVER);
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+  t5ai_sleep_block(T5AISleepOwner_SD);
+#endif
   return s_bounce;
 }
 
 void t5ai_sd_unlock_workspace(void) {
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+  t5ai_sleep_unblock(T5AISleepOwner_SD);
+#endif
   pbl_mutex_unlock(&s_lock);
 }
 
@@ -442,6 +548,9 @@ uint64_t t5ai_sd_sector_count(void) {
 
 int t5ai_sd_init(void) {
   pbl_mutex_lock(&s_lock, PBL_FOREVER);
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+  t5ai_sleep_block(T5AISleepOwner_SD);
+#endif
   int status = 0;
   if (s_ready) {
     status = s_faulted ? -EIO : 0;
@@ -580,7 +689,28 @@ fail:
 #endif
     prv_abort();
   s_faulted = true;
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+  t5ai_sleep_fault();
+#endif
 done:
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+  t5ai_sleep_unblock(T5AISleepOwner_SD);
+#endif
   pbl_mutex_unlock(&s_lock);
   return status;
 }
+
+#ifdef CONFIG_T5AI_POWER_PROFILE
+void t5ai_sd_power_stats(T5AISDPowerStats *stats) {
+  if (stats == NULL)
+    return;
+  pbl_irq_lock();
+  *stats = s_power_stats;
+#ifdef CONFIG_T5AI_SD_IDLE_GATING
+  stats->clock_active = s_clock_active;
+#else
+  stats->clock_active = s_ready;
+#endif
+  pbl_irq_unlock();
+}
+#endif

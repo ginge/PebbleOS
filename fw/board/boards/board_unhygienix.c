@@ -30,9 +30,10 @@
 #include <pbl/soc/t5ai/interrupt_profile.h>
 #include <pbl/soc/t5ai/memory.h>
 #include <pbl/soc/t5ai/power.h>
-#include <pbl/soc/t5ai/tick.h>
 #include <pbl/soc/t5ai/reboot_trace.h>
+#include <pbl/soc/t5ai/reset.h>
 #include <pbl/soc/t5ai/state_trace.h>
+#include <pbl/soc/t5ai/tick.h>
 
 #include <cmsis_core.h>
 
@@ -276,6 +277,12 @@ void board_early_init(void) {
   watchdog_init();
   t5ai_state_trace_start();
 }
+#ifdef CONFIG_T5AI_NATIVE_ALARM_TEST
+#include <pbl/soc/t5ai/native_alarm.h>
+#endif
+#ifdef CONFIG_T5AI_RETAINED_SLEEP
+#include <pbl/soc/t5ai/sleep.h>
+#endif
 void board_init(void) {
   // Keep CP awake until the AP implements the low-voltage suspend/resume contract.
   const status_t status = t5ai_cp_mailbox_vote_app_sleep(false);
@@ -285,6 +292,9 @@ void board_init(void) {
 
   // Vote after the scheduler and CP mailbox are ready; keep the active rate at 240 MHz.
   t5ai_power_init();
+#ifdef CONFIG_T5AI_NATIVE_ALARM_TEST
+  t5ai_native_alarm_test_start();
+#endif
 #ifdef CONFIG_T5AI_TICK_PROFILE
   t5ai_tick_profile_start();
 #endif
@@ -296,4 +306,10 @@ void board_init(void) {
   // Device initialization precedes PSRAM validation; render only after it is ready.
   t5ai_boot_splash_render();
   PBL_ASSERTN(pbl_backlight_set_brightness(BACKLIGHT, BOARD_CONFIG.backlight_on_percent) == 0);
+#ifdef CONFIG_T5AI_SLEEP_GUARD_TEST
+  t5ai_sleep_guard_test_start();
+#endif
+#ifdef CONFIG_T5AI_RETAINED_SLEEP
+  t5ai_sleep_start();
+#endif
 }

@@ -21,8 +21,9 @@ void t5ai_mb_ipc_discard(T5AIMbIpcSocket *socket);
 void t5ai_mb_ipc_poison(T5AIMbIpcSocket *socket);
 
 /* Nonblocking client operations. Completion runs on the mailbox owner, never an ISR.
- * Control payloads are limited to 256 bytes. Request/response storage must remain stable until completion, and until reset
- * after an ambiguous failure. Do not mix these with synchronous calls on a socket. */
+ * Control payloads are limited to 256 bytes. Request/response storage must remain stable until
+ * completion, and until reset after an ambiguous failure. Do not mix these with synchronous calls
+ * on a socket. */
 typedef void (*T5AIMbIpcCompletion)(status_t status, void *context);
 status_t t5ai_mb_ipc_open_async(uint8_t client_port, uint8_t server_port, T5AIMbIpcSocket **socket,
                                 uint64_t deadline_ms, T5AIMbIpcCompletion callback, void *context);
@@ -31,3 +32,7 @@ status_t t5ai_mb_ipc_exchange_async(T5AIMbIpcSocket *socket, uint8_t command, co
                                     T5AIMbIpcCompletion callback, void *context);
 /* Mailbox-owner only. Returns milliseconds until progress/deadline, or UINT32_MAX. */
 uint32_t t5ai_mb_ipc_async_poll(void);
+
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+bool t5ai_mb_ipc_sleep_ready(void);
+#endif

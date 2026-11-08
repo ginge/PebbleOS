@@ -121,6 +121,34 @@ class GdmaTest(unittest.TestCase):
     def test_native_single_cyclic_errors_termination_and_channel_isolation(self):
         run("drivers/dma/t5ai.c", PREFIX, MAIN, transform=model)
 
+    def test_retained_owners_hold_cyclic_and_release_after_stop(self):
+        header = f'#include "{ROOT / "include/pbl/soc/t5ai/sleep.h"}"\n'
+        spies = r"""
+static unsigned held,faults;
+static void t5ai_sleep_block(T5AISleepOwner owner){assert(owner==T5AISleepOwner_DMA);++held;}
+static void t5ai_sleep_unblock(T5AISleepOwner owner){assert(owner==T5AISleepOwner_DMA && held);--held;}
+static void t5ai_sleep_fault(void){++faults;}
+""".replace("static void t5ai_sleep_", "void t5ai_sleep_")
+        main = MAIN.replace(
+            "assert(CH(c,8)==0x60024000);",
+            "assert(held==1);assert(CH(c,8)==0x60024000);",
+        )
+        main = main.replace(
+            "assert(callbacks==previous+1 && !last_status && CH(c,0));",
+            "assert(held==1);assert(callbacks==previous+1 && !last_status && CH(c,0));",
+        )
+        main = main.replace(
+            "assert(!depth && registers",
+            "assert(!held && faults==8);assert(!depth && registers",
+        )
+        run(
+            "drivers/dma/t5ai.c",
+            PREFIX + header + spies,
+            main,
+            defines=("CONFIG_T5AI_RETAINED_SLEEP",),
+            transform=model,
+        )
+
     def test_consumers_use_native_dma(self):
         for path in (
             "drivers/spi/t5ai.c",

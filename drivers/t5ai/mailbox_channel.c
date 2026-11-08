@@ -4,6 +4,7 @@
 #include "system/reboot_reason.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -18,49 +19,60 @@
 #include <pbl/soc/t5ai/reboot_trace.h>
 #include <pbl/soc/t5ai/reset.h>
 #include <pbl/soc/t5ai/rtc.h>
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+#include <pbl/soc/t5ai/sleep.h>
+#endif
 
 #include <cmsis_core.h>
 
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_TEST
+#include <pbl/logging/logging.h>
+#include <pbl/soc/t5ai/fault_trace.h>
+#include <pbl/soc/t5ai/sleep_protocol.h>
+PBL_LOG_MODULE_DEFINE(t5ai_mailbox_sleep_test, LOG_LEVEL_DEBUG);
+#endif
+
 // Physical mailbox header: command[7:0], status[11:8], control[15:12],
 // sequence[23:16], logical channel[31:24]. Values are pinned vendor ABI.
-#define MAILBOX_HEADER_COMMAND_MASK 0xffu
-#define MAILBOX_HEADER_STATUS_MASK 0x00000f00u
-#define MAILBOX_HEADER_LOGICAL_MASK 0x00000fffu
-#define MAILBOX_HEADER_ROUTING_MASK 0xffff00ffu
-#define MAILBOX_BUSY_RETRY_MS 1u
+#define MAILBOX_HEADER_COMMAND_MASK     0xffu
+#define MAILBOX_HEADER_STATUS_MASK      0x00000f00u
+#define MAILBOX_HEADER_LOGICAL_MASK     0x00000fffu
+#define MAILBOX_HEADER_ROUTING_MASK     0xffff00ffu
+#define MAILBOX_BUSY_RETRY_MS           1u
 #define MAILBOX_MILLISECONDS_PER_SECOND 1000u
 
-#define MBOX_BASE 0x41000000u
-#define MBOX_CH1_CTRL (*(volatile uint32_t *)(MBOX_BASE + 0x80u))
-#define MBOX_CH1_TX_DATA0 (*(volatile uint32_t *)(MBOX_BASE + 0x88u))
-#define MBOX_CH1_TX_DATA1 (*(volatile uint32_t *)(MBOX_BASE + 0x8cu))
-#define MBOX_CH1_TX_ID (*(volatile uint32_t *)(MBOX_BASE + 0x90u))
-#define MBOX_CH1_RX_ID (*(volatile uint32_t *)(MBOX_BASE + 0x94u))
-#define MBOX_CH1_RX_DATA0 (*(volatile uint32_t *)(MBOX_BASE + 0x98u))
-#define MBOX_CH1_RX_DATA1 (*(volatile uint32_t *)(MBOX_BASE + 0x9cu))
+#define MBOX_BASE            0x41000000u
+#define MBOX_CH0_CTRL        (*(volatile uint32_t *)(MBOX_BASE + 0x40u))
+#define MBOX_CH1_CTRL        (*(volatile uint32_t *)(MBOX_BASE + 0x80u))
+#define MBOX_CH1_TX_DATA0    (*(volatile uint32_t *)(MBOX_BASE + 0x88u))
+#define MBOX_CH1_TX_DATA1    (*(volatile uint32_t *)(MBOX_BASE + 0x8cu))
+#define MBOX_CH1_TX_ID       (*(volatile uint32_t *)(MBOX_BASE + 0x90u))
+#define MBOX_CH1_RX_ID       (*(volatile uint32_t *)(MBOX_BASE + 0x94u))
+#define MBOX_CH1_RX_DATA0    (*(volatile uint32_t *)(MBOX_BASE + 0x98u))
+#define MBOX_CH1_RX_DATA1    (*(volatile uint32_t *)(MBOX_BASE + 0x9cu))
 #define MBOX_CH0_FIFO_STATUS (*(volatile uint32_t *)(MBOX_BASE + 0x60u))
 
-#define MBOX_FIFO_FULL (1u << 0)
-#define MBOX_FIFO_NOT_EMPTY (1u << 19)
+#define MBOX_FIFO_FULL        (1u << 0)
+#define MBOX_FIFO_NOT_EMPTY   (1u << 19)
 #define MBOX_INTERRUPT_ENABLE (1u << 8)
-#define MBOX_ACK_BOX (1u << 12)
-#define MBOX_SYNC_TX (2u << 12)
-#define MBOX_RESET (4u << 12)
-#define MBOX_CP_CPU_ID 0u
+#define MBOX_ACK_BOX          (1u << 12)
+#define MBOX_SYNC_TX          (2u << 12)
+#define MBOX_RESET            (4u << 12)
+#define MBOX_CP_CPU_ID        0u
 
-#define SYSTEM_CPU1_INT_32_63_ENABLE (*(volatile uint32_t *)0x4401008cu)
+#define SYSTEM_CPU1_INT_32_63_ENABLE    (*(volatile uint32_t *)0x4401008cu)
 #define MAILBOX_SYSTEM_INTERRUPT_ENABLE (1u << 31)
-#define MAILBOX_IRQ ((IRQn_Type)63)
+#define MAILBOX_IRQ                     ((IRQn_Type)63)
 
 /* Tuya's full AP mailbox worker reserves 2048 bytes. uint32_t is 32-bit on
  * T5AI. Keep the same capacity in an aligned, caller-owned SRAM stack. */
 #define MAILBOX_TASK_STACK_SIZE       2048u
-#define MAILBOX_TASK_PRIORITY (CONFIG_KERNEL_NUM_PRIORITIES - 1u)
-#define MAILBOX_BOOT_POLL_MS 100u
+#define MAILBOX_TASK_PRIORITY         (CONFIG_KERNEL_NUM_PRIORITIES - 1u)
+#define MAILBOX_BOOT_POLL_MS          100u
 #define MAILBOX_BOOTSTRAP_DRAIN_LIMIT 8u
-#define MAILBOX_RUNTIME_DRAIN_LIMIT 8u
-#define MAILBOX_ACTIVE_TIMEOUT_MS 5000u
-#define MAILBOX_FAULT_POLL_MS 10u
+#define MAILBOX_RUNTIME_DRAIN_LIMIT   8u
+#define MAILBOX_ACTIVE_TIMEOUT_MS     5000u
+#define MAILBOX_FAULT_POLL_MS         10u
 
 typedef enum {
   TxState_Idle,
@@ -119,14 +131,543 @@ _Static_assert(sizeof(T5AIMailboxMessage) == T5AI_MAILBOX_FRAME_SIZE, "T5AI mail
 static void prv_send_reset(void);
 static uint32_t prv_bootstrap_ticks(uint32_t milliseconds);
 
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_TEST
+#define MAILBOX_TIMEOUT_TRACE_MAGIC 0x4d425402u
+#define MAILBOX_PM_CHANNEL_INDEX    2u // Pinned PWC transmit channel 0x12.
+
+typedef struct {
+  uint32_t magic, channel, state, sequence, header, parameter1, parameter2, parameter3;
+  uint32_t age, control, peer_fifo, routes, enabled, pending, interrupt_mask, priority_mask,
+      checksum;
+} TimeoutTrace;
+
+static TimeoutTrace s_timeout_trace __attribute__((section(".t5ai_retained"), aligned(32)));
+
+static uint32_t prv_timeout_checksum(const TimeoutTrace *trace) {
+  const uint32_t *words = &trace->channel;
+  uint32_t checksum = MAILBOX_TIMEOUT_TRACE_MAGIC;
+  for (size_t i = 0;
+       i < (offsetof(TimeoutTrace, checksum) - offsetof(TimeoutTrace, channel)) / sizeof(*words);
+       ++i)
+    checksum = (checksum << 5 | checksum >> 27) ^ words[i];
+  return checksum;
+}
+
+static void prv_save_timeout(uint8_t channel) {
+  const TxChannel *tx = &s_tx[channel];
+  const TimeoutTrace trace = {
+    .channel = channel,
+    .state = tx->state,
+    .sequence = tx->sequence,
+    .header = tx->message.header,
+    .parameter1 = tx->message.parameter1,
+    .parameter2 = tx->message.parameter2,
+    .parameter3 = tx->message.parameter3,
+    .age = T5AI_AON_RTC_COUNT_LOW - tx->active_start,
+    .control = MBOX_CH1_CTRL,
+    .peer_fifo = MBOX_CH0_FIFO_STATUS,
+    .routes = SYSTEM_CPU1_INT_32_63_ENABLE,
+    .enabled = NVIC->ISER[1],
+    .pending = NVIC->ISPR[1],
+    .interrupt_mask = __get_PRIMASK(),
+    .priority_mask = __get_BASEPRI(),
+  };
+  s_timeout_trace = trace;
+  s_timeout_trace.checksum = prv_timeout_checksum(&s_timeout_trace);
+  t5ai_cache_clean(&s_timeout_trace, sizeof(s_timeout_trace));
+  s_timeout_trace.magic = MAILBOX_TIMEOUT_TRACE_MAGIC;
+  t5ai_cache_clean(&s_timeout_trace, sizeof(s_timeout_trace));
+}
+
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_CP_IRQ_DIAGNOSTIC
+#define SYSTEM_CPU0_MAILBOX_ROUTE  (*(volatile uint32_t *)0x44010084u)
+#define SYSTEM_CPU0_CONTROL        (*(volatile uint32_t *)0x44010010u)
+#define SYSTEM_CPU_RUN_STATUS      (*(volatile uint32_t *)0x4401000cu)
+#define SYSTEM_CPU0_INTERRUPT_MASK (1u << 2)
+#define SYSTEM_CPU0_HALTED         (1u << 0)
+
+static uint8_t prv_cp_irq_reset_reason(void) {
+  uint8_t reason = T5AI_RESET_REASON_PM_FIFO_BASE;
+  if (SYSTEM_CPU0_MAILBOX_ROUTE & MAILBOX_SYSTEM_INTERRUPT_ENABLE)
+    reason |= T5AI_RESET_REASON_PM_CP_ROUTE_ENABLED;
+  if (MBOX_CH0_CTRL & MBOX_INTERRUPT_ENABLE)
+    reason |= T5AI_RESET_REASON_PM_CP_IRQ_ENABLED;
+  if (SYSTEM_CPU0_CONTROL & SYSTEM_CPU0_INTERRUPT_MASK)
+    reason |= T5AI_RESET_REASON_PM_CP_IRQ_MASKED;
+  if (SYSTEM_CPU_RUN_STATUS & SYSTEM_CPU0_HALTED)
+    reason |= T5AI_RESET_REASON_PM_CP_HALTED;
+  return reason;
+}
+#endif
+
+#if defined(CONFIG_T5AI_RETAINED_SLEEP_CP_TRACE_DIAGNOSTIC) || \
+    defined(CONFIG_T5AI_RETAINED_SLEEP_CP_RUNTIME_RELEASE_DIAGNOSTIC)
+typedef struct {
+  uint32_t magic, generation, stage, inverse;
+} CPStageTrace;
+_Static_assert(CONFIG_T5AI_RETAINED_SLEEP_CP_TRACE_ADDRESS >= T5AI_SHARED_SRAM_BEGIN &&
+                   CONFIG_T5AI_RETAINED_SLEEP_CP_TRACE_ADDRESS <=
+                       T5AI_SHARED_SRAM_END - T5AI_SHARED_ALIGNMENT,
+               "CP trace must be inside the shared SRAM alias");
+_Static_assert(CONFIG_T5AI_RETAINED_SLEEP_CP_TRACE_ADDRESS % T5AI_SHARED_ALIGNMENT == 0u,
+               "CP trace must own a cache line");
+
+static CPStageTrace prv_cp_trace_snapshot(void) {
+  volatile CPStageTrace *shared =
+      (volatile CPStageTrace *)(uintptr_t)CONFIG_T5AI_RETAINED_SLEEP_CP_TRACE_ADDRESS;
+  t5ai_cache_invalidate_received((void *)shared, sizeof(*shared));
+  __DSB();
+  CPStageTrace trace = {shared->magic, shared->generation, shared->stage, shared->inverse};
+  __DSB();
+  if (shared->magic != trace.magic || shared->generation != trace.generation ||
+      shared->stage != trace.stage || shared->inverse != trace.inverse)
+    trace.magic = 0u;
+  return trace;
+}
+
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_CP_TRACE_DIAGNOSTIC
+static uint8_t prv_cp_trace_reset_reason(uint32_t generation) {
+  const CPStageTrace trace = prv_cp_trace_snapshot();
+  uint8_t reason = T5AI_RESET_REASON_PM_FIFO_BASE;
+  if (trace.magic != T5AI_SLEEP_TRACE_MAGIC || trace.stage != ~trace.inverse)
+    return reason;
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_CP_BOUNDARY_DIAGNOSTIC
+  if (trace.generation != generation)
+    return reason;
+  switch (trace.stage) {
+    case T5AISleepStage_CP_Restored:
+      return T5AI_RESET_REASON_PM_CP_BOUNDARY_STARTED;
+    case T5AISleepStage_CP_AppVetoRestored:
+      return T5AI_RESET_REASON_PM_CP_BOUNDARY_VETO;
+    case T5AISleepStage_CP_ReadyRevoked:
+      return T5AI_RESET_REASON_PM_CP_BOUNDARY_READY;
+    case T5AISleepStage_CP_ResumeSent:
+      return T5AI_RESET_REASON_PM_CP_BOUNDARY_SENT;
+    case T5AISleepStage_CP_InterruptsReleased:
+      return T5AI_RESET_REASON_PM_CP_BOUNDARY_RELEASED;
+    default:
+      return T5AI_RESET_REASON_PM_CP_BOUNDARY_OTHER;
+  }
+#endif
+  reason |= T5AI_RESET_REASON_PM_CP_TRACE_VALID;
+  if (trace.generation == generation)
+    reason |= T5AI_RESET_REASON_PM_CP_TRACE_GENERATION;
+  if (trace.stage == T5AISleepStage_CP_Restored)
+    reason |= T5AI_RESET_REASON_PM_CP_TRACE_RESTORED;
+  if (trace.stage == T5AISleepStage_CP_AppVetoRestored)
+    reason |= T5AI_RESET_REASON_PM_CP_TRACE_VETO;
+  return reason;
+}
+#endif
+#endif
+
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_CP_STATE_DIAGNOSTIC
+typedef struct {
+  uint32_t cancelled, prepared, resources, critical;
+} CPLiveState;
+_Static_assert(CONFIG_T5AI_RETAINED_SLEEP_CP_CANCELLED_ADDRESS >= T5AI_SHARED_SRAM_BEGIN &&
+                   CONFIG_T5AI_RETAINED_SLEEP_CP_CANCELLED_ADDRESS <=
+                       T5AI_SHARED_SRAM_END - sizeof(uint32_t),
+               "CP cancelled symbol must be in shared SRAM");
+_Static_assert(CONFIG_T5AI_RETAINED_SLEEP_CP_PREPARED_ADDRESS >= T5AI_SHARED_SRAM_BEGIN &&
+                   CONFIG_T5AI_RETAINED_SLEEP_CP_PREPARED_ADDRESS <=
+                       T5AI_SHARED_SRAM_END - sizeof(uint32_t),
+               "CP prepared symbol must be in shared SRAM");
+_Static_assert(CONFIG_T5AI_RETAINED_SLEEP_CP_RESOURCES_ADDRESS >= T5AI_SHARED_SRAM_BEGIN &&
+                   CONFIG_T5AI_RETAINED_SLEEP_CP_RESOURCES_ADDRESS <=
+                       T5AI_SHARED_SRAM_END - sizeof(uint32_t),
+               "CP resources symbol must be in shared SRAM");
+_Static_assert(CONFIG_T5AI_RETAINED_SLEEP_CP_CRITICAL_ADDRESS >= T5AI_SHARED_SRAM_BEGIN &&
+                   CONFIG_T5AI_RETAINED_SLEEP_CP_CRITICAL_ADDRESS <=
+                       T5AI_SHARED_SRAM_END - sizeof(uint32_t),
+               "CP critical symbol must be in shared SRAM");
+_Static_assert(CONFIG_T5AI_RETAINED_SLEEP_CP_CRITICAL_ADDRESS % sizeof(uint32_t) == 0u,
+               "CP critical counter must be word aligned");
+
+static CPLiveState prv_cp_live_state(void) {
+  t5ai_cache_invalidate_received((void *)(uintptr_t)CONFIG_T5AI_RETAINED_SLEEP_CP_CANCELLED_ADDRESS,
+                                 sizeof(uint8_t));
+  t5ai_cache_invalidate_received((void *)(uintptr_t)CONFIG_T5AI_RETAINED_SLEEP_CP_PREPARED_ADDRESS,
+                                 sizeof(uint8_t));
+  t5ai_cache_invalidate_received((void *)(uintptr_t)CONFIG_T5AI_RETAINED_SLEEP_CP_RESOURCES_ADDRESS,
+                                 sizeof(uint8_t));
+  t5ai_cache_invalidate_received((void *)(uintptr_t)CONFIG_T5AI_RETAINED_SLEEP_CP_CRITICAL_ADDRESS,
+                                 sizeof(uint32_t));
+  __DSB();
+  const CPLiveState state = {
+    .cancelled = *(volatile uint8_t *)(uintptr_t)CONFIG_T5AI_RETAINED_SLEEP_CP_CANCELLED_ADDRESS,
+    .prepared = *(volatile uint8_t *)(uintptr_t)CONFIG_T5AI_RETAINED_SLEEP_CP_PREPARED_ADDRESS,
+    .resources = *(volatile uint8_t *)(uintptr_t)CONFIG_T5AI_RETAINED_SLEEP_CP_RESOURCES_ADDRESS,
+    .critical = *(volatile uint32_t *)(uintptr_t)CONFIG_T5AI_RETAINED_SLEEP_CP_CRITICAL_ADDRESS,
+  };
+  return state;
+}
+
+static uint8_t prv_cp_state_reset_reason(void) {
+  const CPLiveState state = prv_cp_live_state();
+  return T5AI_RESET_REASON_PM_FIFO_BASE |
+         (state.cancelled ? T5AI_RESET_REASON_PM_CP_CANCELLED : 0u) |
+         (state.prepared ? T5AI_RESET_REASON_PM_CP_PREPARED : 0u) |
+         (state.resources ? T5AI_RESET_REASON_PM_CP_RESOURCES : 0u) |
+         (state.critical ? T5AI_RESET_REASON_PM_CP_CRITICAL : 0u);
+}
+#endif
+
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_CP_CRITICAL_DIAGNOSTIC
+#define CP_CRITICAL_STABLE_TICKS         T5AI_AON_RTC_HZ
+#define CP_CRITICAL_MAX_SAMPLE_GAP_TICKS (T5AI_AON_RTC_HZ / 10u)
+#define CP_CRITICAL_MIN_SAMPLES          3u
+typedef struct {
+  uint32_t value, transaction_start, stable_start, last_tick, samples;
+  bool valid;
+} CPCriticalHistory;
+static CPCriticalHistory s_cp_critical_history;
+
+static void prv_cp_critical_observe(uint32_t critical, uint32_t now, uint32_t transaction_start) {
+  CPCriticalHistory *history = &s_cp_critical_history;
+  if (!history->valid || history->transaction_start != transaction_start ||
+      history->value != critical || critical == 0u ||
+      (uint32_t)(now - history->last_tick) > CP_CRITICAL_MAX_SAMPLE_GAP_TICKS) {
+    *history = (CPCriticalHistory){
+      .value = critical,
+      .transaction_start = transaction_start,
+      .stable_start = now,
+      .last_tick = now,
+      .samples = 1u,
+      .valid = true
+    };
+    return;
+  }
+  history->last_tick = now;
+  if (history->samples < CP_CRITICAL_MIN_SAMPLES)
+    ++history->samples;
+}
+
+static void prv_sample_cp_critical(void) {
+  const TxChannel *tx = &s_tx[MAILBOX_PM_CHANNEL_INDEX];
+  if (tx->state != TxState_Active ||
+      (tx->message.header & MAILBOX_HEADER_COMMAND_MASK) != T5AI_PM_NATIVE_ALARM_COMMAND ||
+      tx->message.parameter3 != T5AIAlarm_Cancel) {
+    s_cp_critical_history.valid = false;
+    return;
+  }
+  const CPLiveState state = prv_cp_live_state();
+  prv_cp_critical_observe(state.critical, T5AI_AON_RTC_COUNT_LOW, tx->active_start);
+}
+
+static uint8_t prv_cp_critical_reset_reason(void) {
+  prv_sample_cp_critical();
+  const CPCriticalHistory *history = &s_cp_critical_history;
+  if (!history->valid)
+    return T5AI_RESET_REASON_PM_FIFO_BASE;
+  const uint32_t nesting = history->value > T5AI_RESET_REASON_PM_CP_NESTING_MAX
+                               ? T5AI_RESET_REASON_PM_CP_NESTING_MAX
+                               : history->value;
+  const bool stable =
+      history->value != 0u && history->samples >= CP_CRITICAL_MIN_SAMPLES &&
+      (uint32_t)(history->last_tick - history->stable_start) >= CP_CRITICAL_STABLE_TICKS;
+  return T5AI_RESET_REASON_PM_FIFO_BASE | nesting |
+         (stable ? T5AI_RESET_REASON_PM_CP_NESTING_STABLE : 0u);
+}
+#endif
+
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_CP_RUNTIME_DIAGNOSTIC
+#define CP_EXCEPTION_SYNC_OFFSET 32u
+#define CP_EXCEPTION_MAGIC_HEAD  0xabcd9527u
+#define CP_EXCEPTION_MAGIC_TAIL  0x9527abcdu
+typedef struct {
+  uint32_t magic_head, cp_entered, ap_entered, turn, dumper, magic_tail;
+} CPExceptionSync;
+#define CP_RUNTIME_CHECK_WORD(address)                                       \
+  _Static_assert((address) >= T5AI_SHARED_SRAM_BEGIN &&                      \
+                     (address) <= T5AI_SHARED_SRAM_END - sizeof(uint32_t) && \
+                     (address) % sizeof(uint32_t) == 0u,                     \
+                 "CP runtime word must be aligned shared SRAM")
+CP_RUNTIME_CHECK_WORD(CONFIG_T5AI_RETAINED_SLEEP_CP_TASK_POINTER_ADDRESS);
+CP_RUNTIME_CHECK_WORD(CONFIG_T5AI_RETAINED_SLEEP_CP_SCHEDULER_ADDRESS);
+CP_RUNTIME_CHECK_WORD(CONFIG_T5AI_RETAINED_SLEEP_CP_PENDING_TICKS_ADDRESS);
+CP_RUNTIME_CHECK_WORD(CONFIG_T5AI_RETAINED_SLEEP_CP_EXCEPTION_BASE_ADDRESS);
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_CP_CLEANUP_IRQ_DIAGNOSTIC
+CP_RUNTIME_CHECK_WORD(CONFIG_T5AI_RETAINED_SLEEP_CP_CLEANUP_IRQ_ADDRESS);
+#define CP_CLEANUP_IRQ_RESET_MASK 0x0fu
+#endif
+_Static_assert(CONFIG_T5AI_RETAINED_SLEEP_CP_EXCEPTION_BASE_ADDRESS <=
+                   T5AI_SHARED_SRAM_END - CP_EXCEPTION_SYNC_OFFSET - sizeof(CPExceptionSync),
+               "CP exception record must fit shared SRAM");
+
+// CP DTCM is private: compare the ELF symbol value, never dereference it on AP.
+_Static_assert(CONFIG_T5AI_RETAINED_SLEEP_CP_IDLE_TCB_ADDRESS != 0u,
+               "Bind the CP idle TCB symbol before enabling runtime diagnostics");
+static bool prv_cp_idle_task(uintptr_t task) {
+  return task == CONFIG_T5AI_RETAINED_SLEEP_CP_IDLE_TCB_ADDRESS;
+}
+
+static uint8_t prv_cp_runtime_reset_reason(uint32_t generation) {
+  volatile uint32_t *task =
+      (volatile uint32_t *)(uintptr_t)CONFIG_T5AI_RETAINED_SLEEP_CP_TASK_POINTER_ADDRESS;
+  volatile uint32_t *scheduler =
+      (volatile uint32_t *)(uintptr_t)CONFIG_T5AI_RETAINED_SLEEP_CP_SCHEDULER_ADDRESS;
+  volatile uint32_t *pending =
+      (volatile uint32_t *)(uintptr_t)CONFIG_T5AI_RETAINED_SLEEP_CP_PENDING_TICKS_ADDRESS;
+  volatile CPExceptionSync *exception =
+      (volatile CPExceptionSync *)(uintptr_t)(CONFIG_T5AI_RETAINED_SLEEP_CP_EXCEPTION_BASE_ADDRESS +
+                                              CP_EXCEPTION_SYNC_OFFSET);
+  t5ai_cache_invalidate_received((void *)task, sizeof(*task));
+  t5ai_cache_invalidate_received((void *)scheduler, sizeof(*scheduler));
+  t5ai_cache_invalidate_received((void *)pending, sizeof(*pending));
+  t5ai_cache_invalidate_received((void *)exception, sizeof(*exception));
+  __DSB();
+  const uint32_t task_before = *task;
+  const bool idle_name = prv_cp_idle_task(task_before);
+  t5ai_cache_invalidate_received((void *)task, sizeof(*task));
+  __DSB();
+  const bool idle_task = idle_name && task_before == *task;
+  const bool cp_exception = exception->magic_head == CP_EXCEPTION_MAGIC_HEAD &&
+                            exception->magic_tail == CP_EXCEPTION_MAGIC_TAIL &&
+                            exception->cp_entered == 1u && exception->ap_entered <= 1u &&
+                            exception->turn <= 1u &&
+                            (exception->dumper == UINT32_MAX || exception->dumper <= 1u);
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_CP_RUNTIME_RELEASE_DIAGNOSTIC
+  const CPStageTrace trace = prv_cp_trace_snapshot();
+  const bool released = trace.magic == T5AI_SLEEP_TRACE_MAGIC && trace.stage == ~trace.inverse &&
+                        trace.generation == generation &&
+                        trace.stage == T5AISleepStage_CP_InterruptsReleased;
+  const uint8_t progress = released ? T5AI_RESET_REASON_PM_CP_RUNTIME_RELEASED : 0u;
+#else
+  (void)generation;
+  const uint8_t progress =
+      *pending > CONFIG_T5AI_RETAINED_SLEEP_CP_TICK_HZ ? T5AI_RESET_REASON_PM_CP_TICK_BACKLOG : 0u;
+#endif
+  const uint8_t runtime_reason =
+      T5AI_RESET_REASON_PM_FIFO_BASE | (cp_exception ? T5AI_RESET_REASON_PM_CP_EXCEPTION : 0u) |
+      (idle_task ? T5AI_RESET_REASON_PM_CP_IDLE_TASK : 0u) |
+      (*scheduler ? T5AI_RESET_REASON_PM_CP_SCHEDULER_SUSPENDED : 0u) | progress;
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_CP_CLEANUP_IRQ_DIAGNOSTIC
+  (void)runtime_reason;
+  volatile uint32_t *irq_state =
+      (volatile uint32_t *)(uintptr_t)CONFIG_T5AI_RETAINED_SLEEP_CP_CLEANUP_IRQ_ADDRESS;
+  t5ai_cache_invalidate_received((void *)irq_state, sizeof(*irq_state));
+  __DSB();
+  return T5AI_RESET_REASON_PM_FIFO_BASE | (*irq_state & CP_CLEANUP_IRQ_RESET_MASK);
+#else
+  return runtime_reason;
+#endif
+}
+#endif
+
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_CP_RECEIVE_DIAGNOSTIC
+_Static_assert(CONFIG_T5AI_RETAINED_SLEEP_CP_RECEIVE_ADDRESS >= T5AI_SHARED_SRAM_BEGIN &&
+                   CONFIG_T5AI_RETAINED_SLEEP_CP_RECEIVE_ADDRESS <=
+                       T5AI_SHARED_SRAM_END - sizeof(T5AIReceiveTrace) &&
+                   CONFIG_T5AI_RETAINED_SLEEP_CP_RECEIVE_ADDRESS % T5AI_SLEEP_TRACE_ALIGNMENT == 0u,
+               "Bind the complete aligned CP receive record from its verified ELF");
+
+static bool prv_cp_receive_snapshot(T5AIReceiveTrace *snapshot) {
+  const volatile T5AIReceiveTrace *record =
+      (const volatile T5AIReceiveTrace *)(uintptr_t)CONFIG_T5AI_RETAINED_SLEEP_CP_RECEIVE_ADDRESS;
+  t5ai_cache_invalidate_received((void *)record, sizeof(*record));
+  __DSB();
+  const uint32_t before = record->sequence;
+  if (before & T5AI_RECEIVE_TRACE_IN_PROGRESS)
+    return false;
+  *snapshot = (T5AIReceiveTrace){
+    .magic = record->magic,
+    .sequence = record->sequence,
+    .generation = record->generation,
+    .stage = record->stage,
+    .header = record->header,
+    .payload = record->payload,
+    .inverse = record->inverse,
+    .version = record->version,
+  };
+  t5ai_cache_invalidate_received((void *)record, sizeof(*record));
+  __DSB();
+  return before == record->sequence && before == snapshot->sequence &&
+         snapshot->inverse == ~before && snapshot->magic == T5AI_RECEIVE_TRACE_MAGIC &&
+         snapshot->version == T5AI_RECEIVE_TRACE_VERSION && snapshot->generation != 0u &&
+         snapshot->stage > T5AIReceive_None && snapshot->stage <= T5AIReceive_Rejected;
+}
+
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_CP_RECEIVE_OWNER_DIAGNOSTIC
+static uint8_t prv_cp_receive_owner_properties(const T5AIReceiveTrace *snapshot,
+                                               uint32_t owner_header, uint32_t control) {
+  const uint32_t channel_mask = UINT32_MAX << T5AI_MAILBOX_HEADER_CHANNEL_SHIFT;
+  const uint32_t sequence_mask = UINT8_MAX << T5AI_MAILBOX_HEADER_SEQUENCE_SHIFT;
+  return T5AI_RESET_REASON_CP_RECEIVE_BASE |
+         (!((snapshot->header ^ owner_header) & channel_mask) ? T5AI_RESET_REASON_CP_RECEIVE_CHANNEL
+                                                              : 0u) |
+         (!((snapshot->header ^ owner_header) & sequence_mask)
+              ? T5AI_RESET_REASON_CP_RECEIVE_SEQUENCE
+              : 0u) |
+         ((snapshot->header & MBOX_ACK_BOX) ? T5AI_RESET_REASON_CP_RECEIVE_ACK : 0u) |
+         ((control & MBOX_FIFO_NOT_EMPTY) ? T5AI_RESET_REASON_CP_RECEIVE_QUEUED : 0u);
+}
+
+static uint8_t prv_cp_receive_owner_reason(uint8_t channel) {
+  T5AIReceiveTrace snapshot;
+  if (!prv_cp_receive_snapshot(&snapshot))
+    return T5AI_RESET_REASON_CP_RECEIVE_INVALID;
+  return prv_cp_receive_owner_properties(&snapshot, s_tx[channel].message.header, MBOX_CH0_CTRL);
+}
+#endif
+
+static uint8_t prv_cp_receive_reset_reason(void) {
+  T5AIReceiveTrace snapshot;
+  return T5AI_RESET_REASON_CP_RECEIVE_BASE |
+         (prv_cp_receive_snapshot(&snapshot) ? snapshot.stage : T5AIReceive_None);
+}
+#endif
+
+bool t5ai_mailbox_channel_test_timeout_output(void) {
+  // Reserved channel distinguishes the startup route check from a real timeout.
+  TimeoutTrace trace = {.magic = MAILBOX_TIMEOUT_TRACE_MAGIC, .channel = UINT32_MAX};
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_CP_STATE_DIAGNOSTIC
+  const CPLiveState cp_state = prv_cp_live_state();
+  trace.header = prv_cp_state_reset_reason();
+  trace.parameter1 = cp_state.cancelled;
+  trace.parameter2 = cp_state.prepared;
+  trace.parameter3 = cp_state.resources;
+  trace.control = cp_state.critical;
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_CP_RUNTIME_DIAGNOSTIC
+  trace.header = prv_cp_runtime_reset_reason(0u);
+#endif
+#endif
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_CP_TRACE_DIAGNOSTIC
+  const CPStageTrace cp_trace = prv_cp_trace_snapshot();
+  trace.parameter1 = cp_trace.magic;
+  trace.parameter2 = cp_trace.generation;
+  trace.parameter3 = cp_trace.stage;
+  trace.control = cp_trace.inverse;
+#endif
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_CP_IRQ_DIAGNOSTIC
+  trace.header = prv_cp_irq_reset_reason();
+  trace.control = MBOX_CH0_CTRL;
+  trace.routes = SYSTEM_CPU0_MAILBOX_ROUTE;
+  trace.enabled = SYSTEM_CPU0_CONTROL;
+  trace.pending = SYSTEM_CPU_RUN_STATUS;
+#endif
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_CP_RECEIVE_DIAGNOSTIC
+  trace.header = prv_cp_receive_reset_reason();
+#endif
+  trace.checksum = prv_timeout_checksum(&trace);
+  uint32_t words[sizeof(trace) / sizeof(uint32_t)];
+  memcpy(words, &trace, sizeof(words));
+  return t5ai_fault_trace_words(words, sizeof(words) / sizeof(*words));
+}
+
+void t5ai_mailbox_channel_dump_previous_timeout(void) {
+  const TimeoutTrace trace = s_timeout_trace;
+  if (trace.magic != MAILBOX_TIMEOUT_TRACE_MAGIC || trace.checksum != prv_timeout_checksum(&trace))
+    return;
+  s_timeout_trace.magic = 0u;
+  t5ai_cache_clean(&s_timeout_trace, sizeof(s_timeout_trace));
+  PBL_LOG_DBG("T5SLEEP previous mailbox channel=%lu state=%lu sequence=%lu header=%lx",
+              (unsigned long)trace.channel, (unsigned long)trace.state,
+              (unsigned long)trace.sequence, (unsigned long)trace.header);
+  PBL_LOG_DBG("T5SLEEP previous mailbox payload=%lx/%lx/%lx age=%lu",
+              (unsigned long)trace.parameter1, (unsigned long)trace.parameter2,
+              (unsigned long)trace.parameter3, (unsigned long)trace.age);
+  PBL_LOG_DBG("T5SLEEP previous mailbox ctrl=%lx peer_fifo=%lx routes=%lx",
+              (unsigned long)trace.control, (unsigned long)trace.peer_fifo,
+              (unsigned long)trace.routes);
+  PBL_LOG_DBG("T5SLEEP previous mailbox NVIC enabled=%lx pending=%lx", (unsigned long)trace.enabled,
+              (unsigned long)trace.pending);
+}
+#endif
+
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_TEST
+static uint8_t prv_timeout_reset_reason(uint8_t channel) {
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_CP_RECEIVE_OWNER_DIAGNOSTIC
+  return prv_cp_receive_owner_reason(channel);
+#elif defined(CONFIG_T5AI_RETAINED_SLEEP_CP_RECEIVE_DIAGNOSTIC)
+  return prv_cp_receive_reset_reason();
+#endif
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_CP_RUNTIME_DIAGNOSTIC
+  // A stalled non-PM client also needs the exactly bound CP service snapshot.
+  return prv_cp_runtime_reset_reason(s_tx[channel].message.parameter1);
+#endif
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_CP_IRQ_DIAGNOSTIC
+  // Route delivery can stall any logical owner, including the ordinary log client.
+  return prv_cp_irq_reset_reason();
+#endif
+  if (channel != MAILBOX_PM_CHANNEL_INDEX)
+    return T5AI_RESET_REASON_MAILBOX_BASE | channel;
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_CP_CRITICAL_DIAGNOSTIC
+  return prv_cp_critical_reset_reason();
+#endif
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_CP_STATE_DIAGNOSTIC
+  return prv_cp_state_reset_reason();
+#endif
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_CP_TRACE_DIAGNOSTIC
+  return prv_cp_trace_reset_reason(s_tx[channel].message.parameter1);
+#endif
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_PM_FIFO_DIAGNOSTIC
+  uint8_t reason = T5AI_RESET_REASON_PM_FIFO_BASE;
+  if (MBOX_CH0_CTRL & MBOX_FIFO_NOT_EMPTY)
+    reason |= T5AI_RESET_REASON_PM_CP_RX_PENDING;
+  if (MBOX_CH1_CTRL & MBOX_FIFO_NOT_EMPTY)
+    reason |= T5AI_RESET_REASON_PM_AP_RX_PENDING;
+  if ((SYSTEM_CPU1_INT_32_63_ENABLE & NVIC->ISER[1] & MAILBOX_SYSTEM_INTERRUPT_ENABLE) &&
+      (MBOX_CH1_CTRL & MBOX_INTERRUPT_ENABLE))
+    reason |= T5AI_RESET_REASON_PM_AP_ROUTE_ENABLED;
+  if (__get_PRIMASK() || __get_BASEPRI())
+    reason |= T5AI_RESET_REASON_PM_AP_IRQ_MASKED;
+  return reason;
+#endif
+  const TxChannel *tx = &s_tx[channel];
+  if (tx->state == TxState_Pending)
+    return T5AI_RESET_REASON_SLEEP_PM_PENDING;
+  if ((tx->message.header & MAILBOX_HEADER_COMMAND_MASK) != T5AI_PM_NATIVE_ALARM_COMMAND)
+    return T5AI_RESET_REASON_SLEEP_PM_COMMAND;
+  switch (tx->message.parameter3) {
+    case T5AIAlarm_Cancel:
+      return T5AI_RESET_REASON_SLEEP_PM_CANCEL;
+    case T5AIAlarm_ArmSleepMaskBarrier:
+      return T5AI_RESET_REASON_SLEEP_PM_PREPARE;
+    case T5AIAlarm_State:
+      return T5AI_RESET_REASON_SLEEP_PM_STATE;
+    case T5AIAlarm_LowVoltageCount:
+      return T5AI_RESET_REASON_SLEEP_PM_COUNT;
+    default:
+      return T5AI_RESET_REASON_SLEEP_PM_OTHER;
+  }
+}
+#endif
+
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_TEST
+static uint8_t prv_timeout_owner(uint8_t channel) {
+  if (s_tx[channel].state == TxState_Pending) {
+    for (uint8_t index = 0u; index < T5AI_MAILBOX_CHANNEL_COUNT; ++index) {
+      if (s_tx[index].state == TxState_Active)
+        return index;
+    }
+  }
+  return channel;
+}
+#endif
+
 [[noreturn]] static void prv_reset_after_timeout(uint8_t channel) {
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_TEST
+  // A queued caller can expire before the physical owner's own watchdog.
+  const uint8_t owner = prv_timeout_owner(channel);
+  const uint8_t reset_reason = prv_timeout_reset_reason(owner);
+  prv_save_timeout(owner);
+  // SRAM can be lost on the reset; send the record through the independent emergency CP path.
+  uint32_t words[sizeof(s_timeout_trace) / sizeof(uint32_t)];
+  memcpy(words, &s_timeout_trace, sizeof(words));
+  (void)t5ai_fault_trace_words(words, sizeof(words) / sizeof(*words));
+#endif
   t5ai_reboot_trace_event(T5RebootTrace_MailboxTimeout, channel);
   RebootReason reason = {
-      .code = RebootReasonCode_MailboxTimeout,
-      .extra.value = channel,
+    .code = RebootReasonCode_MailboxTimeout,
+    .extra.value = channel,
   };
   reboot_reason_set(&reason);
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_TEST
+  t5ai_force_whole_chip_reset(reset_reason);
+#else
   t5ai_force_whole_chip_reset(T5AI_RESET_REASON_MAILBOX_BASE | channel);
+#endif
 }
 
 static bool prv_any_active(void) {
@@ -270,6 +811,9 @@ static void prv_process_command(T5AIMailboxMessage *message) {
 }
 
 static bool prv_drain_rx(void) {
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+  t5ai_sleep_block(T5AISleepOwner_Mailbox);
+#endif
   for (uint8_t drained = 0u;
        drained < MAILBOX_RUNTIME_DRAIN_LIMIT && (MBOX_CH1_CTRL & MBOX_FIFO_NOT_EMPTY) != 0u;
        ++drained) {
@@ -283,7 +827,11 @@ static bool prv_drain_rx(void) {
       prv_process_command(&message);
     }
   }
-  return (MBOX_CH1_CTRL & MBOX_FIFO_NOT_EMPTY) != 0u;
+  const bool pending = (MBOX_CH1_CTRL & MBOX_FIFO_NOT_EMPTY) != 0u;
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+  t5ai_sleep_unblock(T5AISleepOwner_Mailbox);
+#endif
+  return pending;
 }
 
 static bool prv_publish_pending_acks(void) {
@@ -347,6 +895,9 @@ static void prv_mailbox_task(void *context) {
     }
     (void)pbl_sem_take(&s_wake, PBL_TICKS(wait));
     const bool rx_pending = prv_drain_rx();
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_CP_CRITICAL_DIAGNOSTIC
+    prv_sample_cp_critical();
+#endif
     const int expired_channel = rx_pending ? -1 : prv_expired_channel();
     if (expired_channel >= 0) {
       s_faulted = true;
@@ -654,3 +1205,17 @@ status_t t5ai_mailbox_channel_bootstrap_send(uint8_t channel, const T5AIMailboxM
 }
 
 PBL_IRQ_CONNECT(MAILBOX, 5, MAILBOX_IRQHandler, , 0);
+
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+bool t5ai_mailbox_channel_sleep_ready(void) {
+  // Called with IRQs masked; preserve quarantined slots and pending receive ACKs.
+  if (!s_started || s_faulted || s_pending_ack_mask != 0u ||
+      (MBOX_CH1_CTRL & MBOX_FIFO_NOT_EMPTY) != 0u)
+    return false;
+  for (unsigned i = 0; i < T5AI_MAILBOX_CHANNEL_COUNT; ++i) {
+    if (s_tx[i].state != TxState_Idle)
+      return false;
+  }
+  return true;
+}
+#endif
