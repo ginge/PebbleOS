@@ -1,0 +1,679 @@
+[
+  {
+    "path": "t5_os/cp/include/driver/low_pwr_core.h",
+    "vendor_sha256": "290d65356cda9ae8f204ec53186427639c6ca3ebe5d07d84b076e78d652b797e",
+    "replacements": [
+      {
+        "old": "\tLOW_PWR_CORE_STATE_MAX",
+        "new": "\tLOW_PWR_CORE_UNHYGIENIX_ALARM_REQUEST,\n\tLOW_PWR_CORE_UNHYGIENIX_ALARM_FIRED,\n\tLOW_PWR_CORE_UNHYGIENIX_SLEEP_RESUMED,\n\tLOW_PWR_CORE_STATE_MAX",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "path": "t5_os/cp/middleware/driver/pwr_clk/pwr_clk.c",
+    "vendor_sha256": "07915432bb3dcbafaf41bd620cee217c0f58a6c2da0a78dbca1f2c4deb894ac1",
+    "replacements": [
+      {
+        "old": "#include \"driver/low_pwr_core.h\"",
+        "new": "#include \"driver/low_pwr_core.h\"\n#include <driver/unhygienix_sleep_protocol.h>",
+        "count": 1
+      },
+      {
+        "old": "\t\tcase PM_WAKEUP_CONFIG_CMD:",
+        "new": "\t\tcase T5AI_PM_NATIVE_ALARM_COMMAND:\n\t\t\tret = pm_cp0_send_msg(LOW_PWR_CORE_UNHYGIENIX_ALARM_REQUEST, cmd_buf->param1, cmd_buf->param2, cmd_buf->param3);\n\t\t\tbreak;\n\t\tcase PM_WAKEUP_CONFIG_CMD:",
+        "count": 1
+      },
+      {
+        "old": "uint32_t bk_pm_get_psram_ctrl_state()",
+        "new": "bool unhygienix_native_psram_app_owned(void)\n{\n#if CONFIG_PSRAM\n    return (s_pm_psram_ctrl_state & (1u << PM_POWER_PSRAM_MODULE_NAME_APP)) != 0u;\n#else\n    return false;\n#endif\n}\n\nuint32_t bk_pm_get_psram_ctrl_state()",
+        "count": 1
+      },
+      {
+        "old": "bk_err_t bk_pm_cp0_response_cp1(uint32_t cmd, uint32_t param1,uint32_t param2,uint32_t param3)",
+        "new": "bk_err_t unhygienix_native_sleep_notify_ap(uint32_t generation, uint32_t tick)\n{\n    mb_chnl_cmd_t command = {0};\n    command.hdr.cmd = T5AI_PM_NATIVE_SLEEP_RESUMED;\n    command.param1 = generation;\n    command.param2 = tick;\n    command.param3 = T5AI_PM_NATIVE_ALARM_ABI;\n    // One attempt only: no queue, retries or RTOS delay while CP IRQs are masked.\n    return mb_chnl_write(MB_CHNL_PWC, &command);\n}\n\nbk_err_t bk_pm_cp0_response_cp1(uint32_t cmd, uint32_t param1,uint32_t param2,uint32_t param3)",
+        "count": 1
+      },
+      {
+        "old": "\treturn bk_low_pwr_core_send_msg(&msg);",
+        "new": "\textern void unhygienix_native_sleep_mailbox_progress(uint32_t progress);\n\tunhygienix_native_sleep_mailbox_progress(T5AIMailboxProgress_PMQueue);\n\tbk_err_t result = bk_low_pwr_core_send_msg(&msg);\n\tunhygienix_native_sleep_mailbox_progress(T5AIMailboxProgress_PMQueued);\n\treturn result;",
+        "count": 1
+      },
+      {
+        "old": "static void pm_cp0_mailbox_tx_cmpl_isr(int *pm_mb, mb_chnl_ack_t *cmd_buf)\n{\n}",
+        "new": "extern void unhygienix_native_sleep_reply_ack(uint32_t command, uint32_t generation,\n                                              uint32_t abi, uint32_t communication_state);\nstatic void pm_cp0_mailbox_tx_cmpl_isr(int *pm_mb, mb_chnl_ack_t *cmd_buf)\n{\n    (void)pm_mb;\n    unhygienix_native_sleep_reply_ack(cmd_buf->hdr.cmd, cmd_buf->ack_data2,\n                                       cmd_buf->ack_data3, cmd_buf->hdr.state);\n}",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "path": "t5_os/cp/middleware/driver/pwr_clk/low_pwr_core.c",
+    "vendor_sha256": "fea0cb128ae2ae5ae5f2c49cc66677af4dbb992602fd15f62e99d2e1c35fecae",
+    "replacements": [
+      {
+        "old": "static bk_err_t low_pwr_core_message_handle(void)",
+        "new": "#include \"unhygienix_native_alarm.c\"\n\nstatic bk_err_t low_pwr_core_message_handle(void)",
+        "count": 1
+      },
+      {
+        "old": "                case LOW_PWR_CORE_STATE_ENTER_DEEPSLEEP:",
+        "new": "\t\t\t\tcase LOW_PWR_CORE_UNHYGIENIX_ALARM_REQUEST:\n\t\t\t\t\tunhygienix_alarm_request(&msg);\n\t\t\t\t\tbreak;\n\t\t\t\tcase LOW_PWR_CORE_UNHYGIENIX_ALARM_FIRED:\n\t\t\t\t\tunhygienix_alarm_fired(&msg);\n\t\t\t\t\tbreak;\n\t\t\t\tcase LOW_PWR_CORE_UNHYGIENIX_SLEEP_RESUMED:\n\t\t\t\t\tunhygienix_sleep_resumed_event(&msg);\n\t\t\t\t\tbreak;\n                case LOW_PWR_CORE_STATE_ENTER_DEEPSLEEP:",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "path": "t5_os/cp/middleware/soc/bk7258/hal/sys_pm_hal.c",
+    "vendor_sha256": "75eb6d76b54603362bf6e23c1077d95502bdd2eefeafb0b4c1020f4d5bd4cccb",
+    "replacements": [
+      {
+        "old": "#include \"sys_pm_hal_ctrl.h\"",
+        "new": "#include \"sys_pm_hal_ctrl.h\"\nextern volatile bool unhygienix_native_sleep_prepared;\nextern volatile uint32_t unhygienix_native_lowvol_count;\nextern bool unhygienix_native_sleep_subcores_ready(void);\n#include <driver/unhygienix_sleep_protocol.h>\nextern void unhygienix_native_sleep_stage(uint32_t stage);\nextern uint32_t unhygienix_native_sleep_halt_config(uint32_t value);\nextern bool unhygienix_native_sleep_hal_ready(uint64_t, uint32_t, uint32_t, uint32_t);\nextern bk_err_t unhygienix_native_gpio_wake(void);\nextern void unhygienix_native_sleep_wait(void);\nextern bool unhygienix_native_sleep_keep_hf(void);\nextern bool unhygienix_native_sleep_core_only(void);\nextern void unhygienix_native_sleep_mask_enter(void);\nextern void unhygienix_native_sleep_mask_exit(void);\nextern bool unhygienix_native_sleep_flash_restore(void);\nextern bk_err_t bk_flash_power_saving_exit(void);\nextern uint32_t unhygienix_native_sleep_power_domains(uint32_t value);\nextern bool unhygienix_native_sleep_bsp_restore(void);\nextern void pm_low_voltage_bsp_restore(void);\nextern uint32_t unhygienix_native_sleep_condition(uint32_t value);\nextern bool unhygienix_native_sleep_domain_bypass(void);\nextern bool unhygienix_native_sleep_retain_modules(void);\nextern bool unhygienix_native_sleep_mask_required(void);\nextern bool unhygienix_native_sleep_cp_gpio_owned(void);\nextern bool unhygienix_native_normal_sleep_allowed(void);\nextern bool unhygienix_native_sleep_mask_only(void);",
+        "count": 1
+      },
+      {
+        "old": "bool sys_hal_set_cp_sleep_vote_and_check_subcores_enter_wfi()\n{",
+        "new": "bool sys_hal_set_cp_sleep_vote_and_check_subcores_enter_wfi()\n{\n\tif(unhygienix_native_sleep_prepared) return unhygienix_native_sleep_subcores_ready();",
+        "count": 1
+      },
+      {
+        "old": "\taon_pmu_ll_set_r3_cp0_sleep_vote_state(0);\n\n\t/*AP CORE1 */",
+        "new": "\tif(!unhygienix_native_sleep_prepared) aon_pmu_ll_set_r3_cp0_sleep_vote_state(0);\n\n\t/*AP CORE1 */",
+        "count": 1
+      },
+      {
+        "old": "/*----enter low voltage sleep-------*/\n\tarch_deep_sleep();",
+        "new": "/*----enter low voltage sleep-------*/\n    unhygienix_native_sleep_stage(T5AISleepStage_CP_TransitionReady);\n    unhygienix_native_sleep_wait();\n    unhygienix_native_sleep_stage(T5AISleepStage_CP_TransitionReturned);",
+        "count": 1
+      },
+      {
+        "old": "if(check_IRQ_pending()||(sys_ll_get_cpu0_int_0_31_status_value()||(sys_ll_get_cpu0_int_32_63_status_value()))||(portNVIC_INT_CTRL_REG&portNVIC_SYSTICKSET_BIT))",
+        "new": "if(!unhygienix_native_sleep_hal_ready(check_IRQ_pending(), sys_ll_get_cpu0_int_0_31_status_value(), sys_ll_get_cpu0_int_32_63_status_value(), portNVIC_INT_CTRL_REG & portNVIC_SYSTICKSET_BIT))",
+        "count": 1
+      },
+      {
+        "old": "\tbk_pm_module_lv_sleep_state_set();",
+        "new": "\tunhygienix_native_sleep_stage(T5AISleepStage_CP_HAL);\n\tif (!unhygienix_native_sleep_retain_modules()) bk_pm_module_lv_sleep_state_set();",
+        "count": 1
+      },
+      {
+        "old": "\tuint32_t hf_reg_v = sys_hal_disable_hf_clock();",
+        "new": "\tunhygienix_native_sleep_stage(T5AISleepStage_CP_ClocksLow);\n\tuint32_t hf_reg_v = sys_hal_disable_hf_clock();",
+        "count": 1
+      },
+      {
+        "old": "\tv |= (0xFD << 24);",
+        "new": "\tv |= (0xFD << 24);\n\tv = unhygienix_native_sleep_halt_config(v);",
+        "count": 1
+      },
+      {
+        "old": "gpio_enable_interrupt_mult_for_wake();",
+        "new": "unhygienix_native_gpio_wake();",
+        "count": 2
+      },
+      {
+        "old": "\tval &= ~EN_ALL;",
+        "new": "\tif (unhygienix_native_sleep_keep_hf()) return ret_val;\n\tval &= ~EN_ALL;",
+        "count": 1
+      },
+      {
+        "old": "\tsys_ll_set_ana_reg5_en_cb(0);",
+        "new": "\tif (!unhygienix_native_sleep_keep_hf()) sys_ll_set_ana_reg5_en_cb(0);",
+        "count": 2
+      },
+      {
+        "old": "\tsys_hal_mask_cpu0_int();\n#if CONFIG_GPIO_WAKEUP_SUPPORT",
+        "new": "\tif (unhygienix_native_sleep_mask_only()) {\n        unhygienix_native_sleep_wait();\n        sys_hal_restore_int(int_state1, int_state2);\n        unhygienix_native_sleep_mask_exit();\n        portNVIC_SYSTICK_CTRL_REG = systick_ctrl_value;\n        return;\n    }\n\tif (unhygienix_native_sleep_core_only()) {\n        sys_hal_backup_set_core_26m(&cksel_core, &clkdiv_core, &clkdiv_bus);\n        sys_hal_backup_set_flash_26m(&cksel_flash, &clkdiv_flash);\n        if (unhygienix_native_sleep_bsp_restore()) {\n#if CONFIG_INT_WDT\n            bk_wdt_stop();\n#if CONFIG_TASK_WDT\n            bk_task_wdt_stop();\n#endif\n#endif\n        }\n        unhygienix_native_sleep_wait();\n        if (unhygienix_native_sleep_flash_restore()) bk_flash_power_saving_exit();\n        if (unhygienix_native_sleep_bsp_restore()) pm_low_voltage_bsp_restore();\n        sys_hal_restore_core_freq(cksel_core, clkdiv_core, clkdiv_bus);\n        sys_hal_restore_flash_freq(cksel_flash, clkdiv_flash);\n        sys_hal_restore_int(int_state1, int_state2);\n        portNVIC_SYSTICK_CTRL_REG = systick_ctrl_value;\n        return;\n    }\n\tsys_hal_mask_cpu0_int();\n#if CONFIG_GPIO_WAKEUP_SUPPORT",
+        "count": 1
+      },
+      {
+        "old": "\tsys_ll_set_cpu0_int_halt_clk_op_cpu0_int_mask(1);",
+        "new": "\tif (unhygienix_native_sleep_mask_required()) {\n        unhygienix_native_sleep_mask_enter();\n        sys_ll_set_cpu0_int_halt_clk_op_cpu0_int_mask(1);\n    }",
+        "count": 1
+      },
+      {
+        "old": "\tsys_hal_restore_int(int_state1, int_state2);\n\n\tportNVIC_SYSTICK_LOAD_REG",
+        "new": "\tsys_hal_restore_int(int_state1, int_state2);\n\tunhygienix_native_sleep_mask_exit();\n\tunhygienix_native_sleep_stage(T5AISleepStage_CP_MaskRestored);\n\n\tportNVIC_SYSTICK_LOAD_REG",
+        "count": 1
+      },
+      {
+        "old": "\t\tv |= PD_DOWN_DOMAIN;",
+        "new": "\t\tv = unhygienix_native_sleep_power_domains(v | PD_DOWN_DOMAIN);",
+        "count": 1
+      },
+      {
+        "old": "\tsys_hal_set_low_voltage(&v_ana_r8, &core_low_voltage);",
+        "new": "\tunhygienix_native_sleep_stage(T5AISleepStage_CP_DomainsPrepared);\n\tsys_hal_set_low_voltage(&v_ana_r8, &core_low_voltage);\n\tunhygienix_native_sleep_stage(T5AISleepStage_CP_VoltagePrepared);",
+        "count": 1
+      },
+      {
+        "old": "\tsys_hal_set_sleep_condition();",
+        "new": "\tsys_hal_set_sleep_condition();\n\tunhygienix_native_sleep_stage(T5AISleepStage_CP_PowerConfigured);",
+        "count": 1
+      },
+      {
+        "old": "\tsys_hal_power_on_pd(v_sys_r10);",
+        "new": "\tsys_hal_power_on_pd(v_sys_r10);\n\tunhygienix_native_sleep_stage(T5AISleepStage_CP_DomainsRestored);",
+        "count": 1
+      },
+      {
+        "old": "\tsys_hal_restore_hf_clock(hf_reg_v);",
+        "new": "\tsys_hal_restore_hf_clock(hf_reg_v);\n\tunhygienix_native_sleep_stage(T5AISleepStage_CP_HFRestored);",
+        "count": 1
+      },
+      {
+        "old": "\tpm_low_voltage_bsp_restore();",
+        "new": "\tpm_low_voltage_bsp_restore();\n\tunhygienix_native_sleep_stage(T5AISleepStage_CP_BspRestored);",
+        "count": 1
+      },
+      {
+        "old": "\t/*aon voltage*/\n\tvaloldosel = sys_ll_get_ana_reg8_valoldosel();",
+        "new": "\tunhygienix_native_sleep_stage(T5AISleepStage_CP_AnalogPrepared);\n\t/*aon voltage*/\n\tvaloldosel = sys_ll_get_ana_reg8_valoldosel();",
+        "count": 1
+      },
+      {
+        "old": "\tsys_hal_backup_set_flash_26m(&cksel_flash, &clkdiv_flash);\n\n#if CONFIG_INT_WDT",
+        "new": "\tsys_hal_backup_set_flash_26m(&cksel_flash, &clkdiv_flash);\n\tunhygienix_native_sleep_stage(T5AISleepStage_CP_CoreLow);\n\n#if CONFIG_INT_WDT",
+        "count": 1
+      },
+      {
+        "old": "/*-------------restore voltage  end-----------------*/",
+        "new": "\tunhygienix_native_sleep_stage(T5AISleepStage_CP_VoltageRestored);\n/*-------------restore voltage  end-----------------*/",
+        "count": 1
+      },
+      {
+        "old": "\tsys_hal_restore_core_freq(cksel_core, clkdiv_core, clkdiv_bus);\n\n\tsys_hal_restore_flash_freq(cksel_flash, clkdiv_flash);\n\n\tsys_hal_restore_int(int_state1, int_state2);",
+        "new": "\tsys_hal_restore_core_freq(cksel_core, clkdiv_core, clkdiv_bus);\n\tunhygienix_native_sleep_stage(T5AISleepStage_CP_CoreRestored);\n\tsys_hal_restore_flash_freq(cksel_flash, clkdiv_flash);\n\tunhygienix_native_sleep_stage(T5AISleepStage_CP_FlashRestored);\n\tsys_hal_restore_int(int_state1, int_state2);\n\tunhygienix_native_sleep_stage(T5AISleepStage_CP_IrqRestored);",
+        "count": 1
+      },
+      {
+        "old": "\tportNVIC_SYSTICK_CTRL_REG = systick_ctrl_value;\n\n#if CONFIG_PM_LV_SUBCORES_ON",
+        "new": "\tportNVIC_SYSTICK_CTRL_REG = systick_ctrl_value;\n\tunhygienix_native_sleep_stage(T5AISleepStage_CP_TickRestored);\n\n#if CONFIG_PM_LV_SUBCORES_ON",
+        "count": 1
+      },
+      {
+        "old": "static inline void sys_hal_set_sleep_condition(void)\n{\n\tuint32_t v = sys_ll_get_cpu_power_sleep_wakeup_value();\n\n\t//sleep_en_need_cpu2_wfi = 1\n\t//sleep_bus_idle_bypass =  0\n\t//sleep_en_global = 1\n\t//sleep_en_need_cpu0_wfi = 0\n\t//sleep_en_need_cpu1_wfi = 1\n\t//sleep_en_need_flash_idle = 0\n\n\t#if CONFIG_PM_LV_SUBCORES_ON\n\tv |= (0x8 << 16);\n\t#else\n\tv |= (0x2a << 16);\n\t#endif\n\n\tsys_ll_set_cpu_power_sleep_wakeup_value(v);\n}\n",
+        "new": "static inline void sys_hal_set_sleep_condition(void)\n{\n\tuint32_t v = sys_ll_get_cpu_power_sleep_wakeup_value();\n\n\t//sleep_en_need_cpu2_wfi = 1\n\t//sleep_bus_idle_bypass =  0\n\t//sleep_en_global = 1\n\t//sleep_en_need_cpu0_wfi = 0\n\t//sleep_en_need_cpu1_wfi = 1\n\t//sleep_en_need_flash_idle = 0\n\n\t#if CONFIG_PM_LV_SUBCORES_ON\n\tv |= (0x8 << 16);\n\t#else\n\tv |= (0x2a << 16);\n\t#endif\n\n\tsys_ll_set_cpu_power_sleep_wakeup_value(unhygienix_native_sleep_condition(v));\n}\n",
+        "count": 1
+      },
+      {
+        "old": "\t\t*pd_reg_v = v;\n\n\t\t/*config power domain*/",
+        "new": "\t\t*pd_reg_v = v;\n\t\tif (unhygienix_native_sleep_domain_bypass()) return;\n\n\t\t/*config power domain*/",
+        "count": 1
+      },
+      {
+        "old": "\n\tbk_pm_cp_wakeup_ap_from_wfi(0);\n#endif",
+        "new": "\n\t/* Native AP receives its resume event after resource restoration. */\n\tif (!unhygienix_native_sleep_prepared) bk_pm_cp_wakeup_ap_from_wfi(0);\n#endif",
+        "count": 1
+      },
+      {
+        "old": "\tsys_ll_set_cpu0_int_32_63_en_cpu0_wifi_mac_int_gen_en(0x1);\n#if CONFIG_SPE\n\tsys_ll_set_cpu0_int_32_63_en_cpu0_gpio_int_en(0x1);\n#else\n\t//enable gpio ns interrupt\n\tsys_ll_set_cpu0_int_32_63_en_cpu0_wifi_hsu_irq_en(0x1);\n#endif",
+        "new": "\tsys_ll_set_cpu0_int_32_63_en_cpu0_wifi_mac_int_gen_en(0x1);\n\tif (unhygienix_native_sleep_cp_gpio_owned()) {\n#if CONFIG_SPE\n\t\tsys_ll_set_cpu0_int_32_63_en_cpu0_gpio_int_en(0x1);\n#else\n\t\tsys_ll_set_cpu0_int_32_63_en_cpu0_wifi_hsu_irq_en(0x1);\n#endif\n\t}",
+        "count": 1
+      },
+      {
+        "old": "void sys_hal_enter_normal_sleep(uint32_t peri_clk)\n{\n\t// TODO - find out the reason:\n\t// When sys_ll_set_cpu0_int_halt_clk_op_cpu0_int_mask() is called, the normal sleep can't wakedup,\n\t// need to find out!!!\n\t// sys_ll_set_cpu0_int_halt_clk_op_cpu0_halt(1);\n\tarch_sleep();\n}\n",
+        "new": "void sys_hal_enter_normal_sleep(uint32_t peri_clk)\n{\n\t// TODO - find out the reason:\n\t// When sys_ll_set_cpu0_int_halt_clk_op_cpu0_int_mask() is called, the normal sleep can't wakedup,\n\t// need to find out!!!\n\t// sys_ll_set_cpu0_int_halt_clk_op_cpu0_halt(1);\n\tif (unhygienix_native_normal_sleep_allowed())\n        arch_sleep();\n}\n",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "path": "t5_os/cp/components/bk_pm/pm.c",
+    "vendor_sha256": "bf3c59bf71512dcff6b45fa6ebfa6d4e5f4094cddae66096bd0e0e17a29e4425",
+    "replacements": [
+      {
+        "old": "#include <modules/pm.h>",
+        "new": "#include <modules/pm.h>\n#include <driver/unhygienix_sleep_protocol.h>\nextern void unhygienix_native_sleep_stage(uint32_t stage);\nextern bool unhygienix_native_sleep_mask_only(void);\nextern void unhygienix_native_flash_prepare_mask_only(void);",
+        "count": 1
+      },
+      {
+        "old": "\tpm_low_voltage_resource_restore();\n\tif (s_debug_en & 0x2)",
+        "new": "\tpm_low_voltage_resource_restore();\n\tunhygienix_native_sleep_stage(T5AISleepStage_CP_CallbacksRestored);\n\tif (s_debug_en & 0x2)",
+        "count": 1
+      },
+      {
+        "old": "void pm_debug_ctrl(uint32_t debug_en)",
+        "new": "extern void unhygienix_native_sleep_stage(uint32_t stage);\nextern bk_err_t unhygienix_native_gpio_enter(void *);\nextern bk_err_t unhygienix_native_gpio_exit(void *);\n#include <driver/unhygienix_sleep_protocol.h>\n\nuint64_t unhygienix_native_sleep_missing_votes(void)\n{\n    GLOBAL_INT_DECLARATION();\n    GLOBAL_INT_DISABLE();\n    const uint64_t missing = s_pm_enter_low_vol_modules & ~s_pm_sleeped_modules;\n    GLOBAL_INT_RESTORE();\n    return missing;\n}\n\nvoid pm_debug_ctrl(uint32_t debug_en)",
+        "count": 1
+      },
+      {
+        "old": "static bk_err_t pm_psram_malloc_state_and_power_ctrl()",
+        "new": "#include <driver/unhygienix_sleep_protocol.h>\n#include \"sys_ll.h\"\nextern bool unhygienix_native_psram_app_owned(void);\nbool unhygienix_native_peripherals_retained(void)\n{\n    const uint32_t domain_base = PM_POWER_MODULE_NAME_BAKP * PM_MODULE_SUB_POWER_DOMAIN_MAX;\n    const uint32_t required = (1u << (PM_POWER_SUB_MODULE_NAME_BAKP_SDIO % domain_base)) |\n        (1u << (PM_POWER_SUB_MODULE_NAME_BAKP_DMA0 % domain_base));\n    return (s_pm_bakp_pm_state & required) == required &&\n        !sys_ll_get_cpu_power_sleep_wakeup_pwd_bakp();\n}\n\nbool unhygienix_native_memory_retained(void)\n{\n    const uint32_t psram_vote = 1u << (PM_POWER_SUB_MODULE_NAME_AHBP_PSRAM %\n        (PM_POWER_MODULE_NAME_AHBP * PM_MODULE_SUB_POWER_DOMAIN_MAX));\n    return unhygienix_native_psram_app_owned() && (s_pm_ahpb_pm_state & psram_vote) &&\n        sys_ll_get_ana_reg13_enpsram();\n}\n\nstatic bk_err_t pm_psram_malloc_state_and_power_ctrl()",
+        "count": 1
+      },
+      {
+        "old": "if((cp0_psram_malloc_count == 0)&&(cp1_psram_malloc_count == 0))",
+        "new": "if((cp0_psram_malloc_count == 0)&&(cp1_psram_malloc_count == 0) &&\n        !unhygienix_native_psram_app_owned())",
+        "count": 1
+      },
+      {
+        "old": "\tpm_psram_malloc_state_and_power_ctrl();",
+        "new": "\textern void unhygienix_native_sleep_stage(uint32_t stage);\n\textern void unhygienix_native_analog_wake_prepare(void);\n\tunhygienix_native_sleep_stage(T5AISleepStage_CP_Resources);\n\tunhygienix_native_analog_wake_prepare();\n\tpm_psram_malloc_state_and_power_ctrl();",
+        "count": 1
+      },
+      {
+        "old": "gpio_enter_low_power((void *)0);",
+        "new": "unhygienix_native_gpio_enter((void *)0);",
+        "count": 2
+      },
+      {
+        "old": "gpio_exit_low_power((void *)0);",
+        "new": "unhygienix_native_gpio_exit((void *)0);",
+        "count": 1
+      },
+      {
+        "old": "\tpm_enter_low_voltage();\n\n\t/*Debug pd,lpo,psram start*/",
+        "new": "\tpm_enter_low_voltage();\n\tunhygienix_native_sleep_stage(T5AISleepStage_CP_HALReturned);\n\n\t/*Debug pd,lpo,psram start*/",
+        "count": 1
+      },
+      {
+        "old": "static void pm_low_voltage_resource_restore()\n{",
+        "new": "static void pm_low_voltage_resource_restore()\n{\n\tunhygienix_native_sleep_stage(T5AISleepStage_CP_ResourceRestore);",
+        "count": 1
+      },
+      {
+        "old": "\tbk_pm_module_vote_power_ctrl(POWER_SUB_MODULE_NAME_BAKP_PM, PM_POWER_MODULE_STATE_ON);\n#endif\n\n#if CONFIG_GPIO_WAKEUP_SUPPORT",
+        "new": "\tbk_pm_module_vote_power_ctrl(POWER_SUB_MODULE_NAME_BAKP_PM, PM_POWER_MODULE_STATE_ON);\n#endif\n\tunhygienix_native_sleep_stage(T5AISleepStage_CP_BakpRestored);\n\n#if CONFIG_GPIO_WAKEUP_SUPPORT",
+        "count": 1
+      },
+      {
+        "old": "\t\tif (s_pm_lowvol_enter_exit_cb_conf[PM_SLEEP_CB_EXIT_LOWVOL_INDEX][dev_id].cb != NULL)\n\t\t{",
+        "new": "\t\tif (s_pm_lowvol_enter_exit_cb_conf[PM_SLEEP_CB_EXIT_LOWVOL_INDEX][dev_id].cb != NULL)\n\t\t{\n\t\t\tunhygienix_native_sleep_stage(T5AISleepStage_CP_CallbackEnterBase + dev_id);",
+        "count": 1
+      },
+      {
+        "old": ".cb(0, s_pm_lowvol_enter_exit_cb_conf[PM_SLEEP_CB_EXIT_LOWVOL_INDEX][dev_id].args);",
+        "new": ".cb(0, s_pm_lowvol_enter_exit_cb_conf[PM_SLEEP_CB_EXIT_LOWVOL_INDEX][dev_id].args);\n\t\t\tunhygienix_native_sleep_stage(T5AISleepStage_CP_CallbackExitBase + dev_id);",
+        "count": 2
+      },
+      {
+        "old": "\trtos_exit_critical(int_level);\n\n\tif (s_debug_en & 0x2)",
+        "new": "\trtos_exit_critical(int_level);\n\t/* Release AP only after CP interrupt service can accept its next request. */\n\textern void unhygienix_native_sleep_resumed(void);\n\tunhygienix_native_sleep_resumed();\n\n\tif (s_debug_en & 0x2)",
+        "count": 1
+      },
+      {
+        "old": "\tpm_low_voltage_resource_set();\n",
+        "new": "\tif (unhygienix_native_sleep_mask_only()) {\n\t\tunhygienix_native_sleep_stage(T5AISleepStage_CP_Resources);\n\t\tunhygienix_native_flash_prepare_mask_only();\n\t} else {\n\t\tpm_low_voltage_resource_set();\n\t}\n",
+        "count": 1
+      },
+      {
+        "old": "\tpm_low_voltage_resource_restore();\n",
+        "new": "\tif (!unhygienix_native_sleep_mask_only()) pm_low_voltage_resource_restore();\n",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "path": "t5_os/cp/middleware/soc/common/hal/aon_wdt_hal.c",
+    "vendor_sha256": "cb1d334c9ccd42f969a00ee6b9b4708ade91f7432715d1aeb60bcb294766cc7c",
+    "replacements": [
+      {
+        "old": "#include \"aon_wdt_hal.h\"",
+        "new": "#include \"aon_wdt_hal.h\"\n#include <stdbool.h>\nextern volatile bool unhygienix_native_sleep_prepared;",
+        "count": 1
+      },
+      {
+        "old": "\taon_wdt_ll_set_period(timeout);",
+        "new": "\tif(!unhygienix_native_sleep_prepared) aon_wdt_ll_set_period(timeout);",
+        "count": 1
+      },
+      {
+        "old": "\taon_wdt_ll_set_period(0);",
+        "new": "\tif(!unhygienix_native_sleep_prepared) aon_wdt_ll_set_period(0);",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "path": "t5_os/cp/middleware/soc/bk7258/bk7258_bsp.ld",
+    "vendor_sha256": "c50ac0e72f6106f681b1d9e31d635d713c5e0d33e57008d4e2f9cad88ab4a119",
+    "replacements": [
+      {
+        "old": "    bss_size = _bss_end - _bss_start;",
+        "new": "    bss_size = _bss_end - _bss_start;\n    .unhygienix_sleep_trace (NOLOAD) : ALIGN(32) {\n        KEEP(*(.unhygienix_sleep_trace))\n    } > RAM",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "path": "t5_os/cp/middleware/soc/common/hal/wdt_hal.c",
+    "vendor_sha256": "ba4d1cf39862f5d92eaef8bb5347bbc027e09d59a178a0cdd32d9e74f56f6a9b",
+    "replacements": [
+      {
+        "old": "#include \"wdt_hal.h\"",
+        "new": "#include \"wdt_hal.h\"\n#include <stdbool.h>\nextern volatile bool unhygienix_native_sleep_prepared;",
+        "count": 1
+      },
+      {
+        "old": "REG_WRITE(SOC_AON_WDT_REG_BASE, 0x5A0000);",
+        "new": "if(!unhygienix_native_sleep_prepared) REG_WRITE(SOC_AON_WDT_REG_BASE, 0x5A0000);",
+        "count": 2
+      },
+      {
+        "old": "REG_WRITE(SOC_AON_WDT_REG_BASE, 0xA50000);",
+        "new": "if(!unhygienix_native_sleep_prepared) REG_WRITE(SOC_AON_WDT_REG_BASE, 0xA50000);",
+        "count": 2
+      },
+      {
+        "old": "REG_WRITE(SOC_AON_WDT_REG_BASE, 0x5AFFFC);",
+        "new": "if(!unhygienix_native_sleep_prepared) REG_WRITE(SOC_AON_WDT_REG_BASE, 0x5AFFFC);",
+        "count": 1
+      },
+      {
+        "old": "REG_WRITE(SOC_AON_WDT_REG_BASE, 0xA5FFFC);",
+        "new": "if(!unhygienix_native_sleep_prepared) REG_WRITE(SOC_AON_WDT_REG_BASE, 0xA5FFFC);",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "path": "t5_os/cp/middleware/driver/flash/flash_driver.c",
+    "vendor_sha256": "bb56acb291a525b6466609e5c2443f6599ee4cc65060b31a81683ffb7ee90a71",
+    "replacements": [
+      {
+        "old": "static flash_line_mode_t flash_set_line_mode(flash_line_mode_t line_mode)",
+        "new": "static __attribute__((section(\".itcm_sec_code\"))) flash_line_mode_t flash_set_line_mode(flash_line_mode_t line_mode)",
+        "count": 1
+      },
+      {
+        "old": "\tflash_hal_clear_qwfr(&s_flash.hal);   // cmd CRMR (coutinuous_read_mode reset), quit QPI mode.",
+        "new": "    uint32_t quad_mode_bits = 0;\n    if (FLASH_LINE_MODE_FOUR == new_line_mode) {\n        quad_mode_bits = s_flash.flash_cfg->coutinuous_read_mode_bits_val;\n        flash_set_qe();\n    }\n\n\tflash_hal_clear_qwfr(&s_flash.hal);   // cmd CRMR (coutinuous_read_mode reset), quit QPI mode.",
+        "count": 1
+      },
+      {
+        "old": "\t\tflash_hal_set_quad_m_value(&s_flash.hal, s_flash.flash_cfg->coutinuous_read_mode_bits_val);\n\t\tflash_set_qe();",
+        "new": "\t\tflash_hal_set_quad_m_value(&s_flash.hal, quad_mode_bits);",
+        "count": 1
+      },
+      {
+        "old": "bk_err_t bk_flash_power_saving_exit(void)",
+        "new": "__attribute__((section(\".itcm_sec_code\"))) bk_err_t bk_flash_power_saving_exit(void)",
+        "count": 1
+      },
+      {
+        "old": "static bool s_flash_is_init = false;",
+        "new": "static bool s_flash_is_init = false;\n\nextern volatile bool unhygienix_native_sleep_prepared;\nextern bool unhygienix_native_sleep_mask_only(void);\nstatic struct {\n    bool valid;\n    flash_line_mode_t line_mode;\n    uint32_t quad_bits;\n    const volatile uint32_t *probe_address;\n    uint32_t probe_value;\n} s_native_flash_resume;\n\nstatic inline __attribute__((always_inline)) bool unhygienix_native_flash_irqs_locked(void)\n{\n    uint32_t primask;\n    __asm volatile(\"mrs %0, primask\" : \"=r\"(primask));\n    return primask != 0u;\n}\n\nstatic inline __attribute__((always_inline)) void unhygienix_native_flash_barrier(void)\n{\n    __asm volatile(\"dsb sy\\n\\tisb sy\" ::: \"memory\");\n}\n",
+        "count": 1
+      },
+      {
+        "old": "flash_line_mode_t bk_flash_get_line_mode(void)",
+        "new": "static void unhygienix_native_flash_prepare(void)\n{\n    s_native_flash_resume.valid = false;\n    if (!unhygienix_native_sleep_prepared || !s_flash.flash_cfg)\n        return;\n    const uint32_t irq_state = flash_enter_critical();\n    const flash_line_mode_t mode = s_flash.flash_cfg->line_mode;\n    if (mode == FLASH_LINE_MODE_TWO || mode == FLASH_LINE_MODE_FOUR) {\n        s_native_flash_resume.line_mode = mode;\n        s_native_flash_resume.quad_bits = s_flash.flash_cfg->coutinuous_read_mode_bits_val;\n        s_native_flash_resume.probe_address = &s_flash.flash_cfg->flash_id;\n        s_native_flash_resume.probe_value = *s_native_flash_resume.probe_address;\n        if (mode == FLASH_LINE_MODE_FOUR && !unhygienix_native_sleep_mask_only())\n            flash_set_qe();\n        s_native_flash_resume.valid = true;\n    }\n    flash_exit_critical(irq_state);\n}\n\nvoid unhygienix_native_flash_prepare_mask_only(void)\n{\n    if (unhygienix_native_sleep_mask_only())\n        unhygienix_native_flash_prepare();\n}\n\n__attribute__((section(\".itcm_sec_code\"))) bool unhygienix_native_flash_ready(void)\n{\n    return unhygienix_native_sleep_prepared && s_native_flash_resume.valid;\n}\n\n__attribute__((section(\".itcm_sec_code\"))) bool unhygienix_native_flash_resume(void)\n{\n    if (!unhygienix_native_sleep_prepared || !s_native_flash_resume.valid ||\n        !unhygienix_native_flash_irqs_locked())\n        return false;\n    if (unhygienix_native_sleep_mask_only()) {\n        unhygienix_native_flash_barrier();\n        if (*s_native_flash_resume.probe_address != s_native_flash_resume.probe_value)\n            return false;\n        s_native_flash_resume.valid = false;\n        return true;\n    }\n    // AP is suspended; the CP lease owns flash and keeps IRQs masked throughout.\n    flash_hal_clear_qwfr(&s_flash.hal);\n#if CONFIG_SOC_BK7236XX\n    sys_drv_set_sys2flsh_2wire(0);\n#endif\n    if (s_native_flash_resume.line_mode == FLASH_LINE_MODE_FOUR) {\n        flash_hal_set_quad_m_value(&s_flash.hal, s_native_flash_resume.quad_bits);\n        flash_hal_set_mode(&s_flash.hal, FLASH_MODE_QUAD);\n    } else {\n        flash_hal_set_mode(&s_flash.hal, FLASH_MODE_DUAL);\n    }\n    s_flash.flash_line_mode = s_native_flash_resume.line_mode;\n#if CONFIG_SOC_BK7236XX\n    sys_drv_set_sys2flsh_2wire(1);\n#endif\n    unhygienix_native_flash_barrier();\n    if (*s_native_flash_resume.probe_address != s_native_flash_resume.probe_value)\n        return false;\n    s_native_flash_resume.valid = false;\n    return true;\n}\n\nflash_line_mode_t bk_flash_get_line_mode(void)",
+        "count": 1
+      },
+      {
+        "old": "bk_err_t bk_flash_power_saving_enter(void)\n{",
+        "new": "bk_err_t bk_flash_power_saving_enter(void)\n{\n    unhygienix_native_flash_prepare();",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "path": "t5_os/cp/middleware/driver/sys_ctrl/sys_driver.c",
+    "vendor_sha256": "9b42ebb10ab83b0805fcc05368e7014697c20d158d0ddd80f307b0614f73e492",
+    "replacements": [
+      {
+        "old": "__IRAM_SEC void sys_drv_set_sys2flsh_2wire(uint32_t value)",
+        "new": "__attribute__((section(\".itcm_sec_code\"))) void sys_drv_set_sys2flsh_2wire(uint32_t value)",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "path": "t5_os/cp/middleware/soc/bk7258/hal/sys_hal.c",
+    "vendor_sha256": "bd267448802fd1cb3fb6ea2c66f0124f30b580bf78c1b2a4668587d8d8ab30aa",
+    "replacements": [
+      {
+        "old": "void sys_hal_set_sys2flsh_2wire(uint32_t value)",
+        "new": "__attribute__((section(\".itcm_sec_code\"))) void sys_hal_set_sys2flsh_2wire(uint32_t value)",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "path": "t5_os/cp/components/bk_cli/shell_uart.c",
+    "vendor_sha256": "5bf33a1325c660bba41f07248900c7f30297224186d61bdf52240ba7e1dc34bf",
+    "replacements": [
+      {
+        "old": "#include \"shell_drv.h\"",
+        "new": "#include \"shell_drv.h\"\nextern bool unhygienix_native_sleep_uart_trace_claim(uint32_t uart_id);",
+        "count": 1
+      },
+      {
+        "old": "\t\t\tbk_uart_set_enable_tx(uart_ext->uart_id, 0);",
+        "new": "\t\t\tif (!unhygienix_native_sleep_uart_trace_claim(uart_ext->uart_id))\n\t\t\t\tbk_uart_set_enable_tx(uart_ext->uart_id, 0);",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "path": "t5_os/cp/middleware/driver/mailbox/mailbox_channel.c",
+    "vendor_sha256": "246dee7b7b2cb4ca2eca087ad23517334ac7fa25d5666f8154c4013341eb99e0",
+    "replacements": [
+      {
+        "old": "static inline bk_err_t bk_mailbox_send_safe(mailbox_data_t *data, mailbox_endpoint_t src, mailbox_endpoint_t dst, void *arg)",
+        "new": "#include <driver/unhygienix_sleep_protocol.h>\n#define NATIVE_MAILBOX_LOGICAL_STATE_SHIFT 8u\n#define NATIVE_MAILBOX_CHANNEL_SHIFT 16u\nbool unhygienix_native_mailbox_sleep_ready(void)\n{\n    const unsigned peer = GET_DST_CPU_ID(MB_CHNL_PWC);\n    if (!mb_chnnl_init_ok || phy_chnl_x_cb[peer].tx_state != CHNL_STATE_IDLE)\n        return false;\n    const mb_log_chnl_cb_t *channels = phy_chnl_log_chnl_list[peer];\n    for (unsigned logical = 0; logical < phy_chnl_log_chnl_num[peer]; ++logical) {\n        if (channels[logical].tx_state != CHNL_STATE_IDLE)\n            return false;\n    }\n    return true;\n}\n\nuint32_t unhygienix_native_mailbox_snapshot(T5AISleepSnapshot key)\n{\n    const unsigned peer = GET_DST_CPU_ID(MB_CHNL_PWC);\n    const unsigned logical = GET_LOG_CHNL_ID(MB_CHNL_PWC);\n    const mb_log_chnl_cb_t *channels = phy_chnl_log_chnl_list[peer];\n    if (key == T5AISleepSnapshot_MailboxTXCount) return s_mailbox_tx_cnt;\n    if (key == T5AISleepSnapshot_MailboxACKCount) return s_mailbox_tx_ack_cnt;\n    return phy_chnl_x_cb[peer].tx_state |\n        ((uint32_t)channels[logical].tx_state << NATIVE_MAILBOX_LOGICAL_STATE_SHIFT) |\n        ((uint32_t)phy_chnl_x_cb[peer].tx_log_chnl << NATIVE_MAILBOX_CHANNEL_SHIFT);\n}\n\nstatic inline bk_err_t bk_mailbox_send_safe(mailbox_data_t *data, mailbox_endpoint_t src, mailbox_endpoint_t dst, void *arg)",
+        "count": 1
+      },
+      {
+        "old": "static void mb_phy_chnl_rx_cmd_isr(mb_phy_chnl_cmd_t *cmd_ptr)\n{",
+        "new": "static void mb_phy_chnl_rx_cmd_isr(mb_phy_chnl_cmd_t *cmd_ptr)\n{\n\textern void unhygienix_native_sleep_mailbox_progress(uint32_t progress);\n\tunhygienix_native_sleep_mailbox_progress(T5AIMailboxProgress_RxCommand);",
+        "count": 1
+      },
+      {
+        "old": "\t\tlog_chnl_cb_x[log_chnl_idx].rx_isr(log_chnl_cb_x[log_chnl_idx].isr_param, (mb_chnl_cmd_t *)cmd_ptr);",
+        "new": "\t\tunhygienix_native_sleep_mailbox_progress(T5AIMailboxProgress_LogicalCallback);\n\t\tlog_chnl_cb_x[log_chnl_idx].rx_isr(log_chnl_cb_x[log_chnl_idx].isr_param, (mb_chnl_cmd_t *)cmd_ptr);\n\t\tunhygienix_native_sleep_mailbox_progress(T5AIMailboxProgress_LogicalCallbackReturned);",
+        "count": 1
+      },
+      {
+        "old": "\tret_code = bk_mailbox_send_safe((mailbox_data_t *)cmd_ptr, SELF_CPU, dst_cpu, (void *)&chnl_type);\t/* mb_phy_chnl_tx_ack. */",
+        "new": "\tunhygienix_native_sleep_mailbox_progress(T5AIMailboxProgress_ACKSend);\n\tret_code = bk_mailbox_send_safe((mailbox_data_t *)cmd_ptr, SELF_CPU, dst_cpu, (void *)&chnl_type);\t/* mb_phy_chnl_tx_ack. */\n\tunhygienix_native_sleep_mailbox_progress(ret_code == BK_OK ? T5AIMailboxProgress_ACKSent : T5AIMailboxProgress_ACKFailed);",
+        "count": 1
+      },
+      {
+        "old": "#include <driver/unhygienix_sleep_protocol.h>",
+        "new": "#include <driver/unhygienix_sleep_protocol.h>\nextern void unhygienix_native_mailbox_receive_observe(uint32_t, uint32_t, uint32_t);",
+        "count": 1
+      },
+      {
+        "old": "static void mb_phy_chnl_rx_ack_isr(mb_phy_chnl_ack_t *ack_ptr)\n{",
+        "new": "static void mb_phy_chnl_rx_ack_isr(mb_phy_chnl_ack_t *ack_ptr)\n{\n\tconst uint32_t receive_header = ack_ptr->hdr.data;\n\tunhygienix_native_mailbox_receive_observe(T5AIReceive_ACKEnter, receive_header, 0u);",
+        "count": 1
+      },
+      {
+        "old": "\t\tlog_chnl_cb_x[log_chnl_idx].tx_cmpl_isr(log_chnl_cb_x[log_chnl_idx].isr_param, (mb_chnl_ack_t *)ack_ptr);",
+        "new": "\t\tunhygienix_native_mailbox_receive_observe(T5AIReceive_CompletionEnter, receive_header, 0u);\n\t\tlog_chnl_cb_x[log_chnl_idx].tx_cmpl_isr(log_chnl_cb_x[log_chnl_idx].isr_param, (mb_chnl_ack_t *)ack_ptr);\n\t\tunhygienix_native_mailbox_receive_observe(T5AIReceive_CompletionReturned, receive_header, 0u);",
+        "count": 1
+      },
+      {
+        "old": "\tlog_chnl = CPX_LOG_CHNL_START(SELF_CPU, phy_chnl_idx) + log_chnl_idx;\n\n\tret_code = mb_phy_chnl_tx_cmd(log_chnl);",
+        "new": "\tlog_chnl = CPX_LOG_CHNL_START(SELF_CPU, phy_chnl_idx) + log_chnl_idx;\n\n\tunhygienix_native_mailbox_receive_observe(T5AIReceive_NextSendEnter, receive_header, 0u);\n\tret_code = mb_phy_chnl_tx_cmd(log_chnl);\n\tunhygienix_native_mailbox_receive_observe(T5AIReceive_NextSendReturned, receive_header, 0u);",
+        "count": 1
+      },
+      {
+        "old": "\t\tmb_phy_chnl_rx_ack_isr(&rx_data.phy_ch_ack);",
+        "new": "\t\tmb_phy_chnl_rx_ack_isr(&rx_data.phy_ch_ack);\n\t\tunhygienix_native_mailbox_receive_observe(T5AIReceive_ACKReturned, 0u, 0u);",
+        "count": 1
+      },
+      {
+        "old": "\t\tmb_phy_chnl_rx_cmd_isr(&rx_data.phy_ch_cmd);",
+        "new": "\t\tunhygienix_native_mailbox_receive_observe(T5AIReceive_CommandEnter, rx_data.phy_ch_hdr.data, 0u);\n\t\tmb_phy_chnl_rx_cmd_isr(&rx_data.phy_ch_cmd);\n\t\tunhygienix_native_mailbox_receive_observe(T5AIReceive_CommandReturned, 0u, 0u);",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "path": "t5_os/cp/middleware/driver/reset_reason/reset_reason.c",
+    "vendor_sha256": "de2d86b209eb49451b19154a2d45af7f29846e074e997257265b83c4b676a9bc",
+    "replacements": [
+      {
+        "old": "uint32_t reset_reason_init(void)",
+        "new": "extern void unhygienix_native_sleep_boot_capture(void);\n\nuint32_t reset_reason_init(void)",
+        "count": 1
+      },
+      {
+        "old": "\tmisc_value = aon_pmu_ll_get_r7a();",
+        "new": "\tunhygienix_native_sleep_boot_capture();\n\tmisc_value = aon_pmu_ll_get_r7a();",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "path": "t5_os/cp/components/os_source/freertos_v10/portable/GCC/ARM_CM33_NTZ/non_secure/port_tick_impl.h",
+    "vendor_sha256": "12a5949bf171e45c31b6018d0f155175815f77ba1d0ea346a14bddccb322d8e6",
+    "replacements": [
+      {
+        "old": "        taskEXIT_CRITICAL();\n\t}\n}\n#endif",
+        "new": "        taskEXIT_CRITICAL();\n        unhygienix_native_sleep_port_progress(T5AIPort_CriticalExited);\n\t}\n\t/* Tick accounting and the outer interrupt lock are restored before AP release. */\n\textern void unhygienix_native_sleep_interrupts_restored(void);\n\tunhygienix_native_sleep_port_progress(T5AIPort_APReleaseEnter);\n\tunhygienix_native_sleep_interrupts_restored();\n\tunhygienix_native_sleep_port_progress(T5AIPort_Returned);\n}\n#endif",
+        "count": 1
+      },
+      {
+        "old": "void vPortSuppressTicksAndSleep( TickType_t xExpectedIdleTime )\n{",
+        "new": "void vPortSuppressTicksAndSleep( TickType_t xExpectedIdleTime )\n{\n    extern void unhygienix_native_sleep_port_progress(uint32_t progress);\n    unhygienix_native_sleep_port_progress(T5AIPort_Enter);\n    extern bool unhygienix_native_sleep_tickless_allowed(void);\n    if (!unhygienix_native_sleep_tickless_allowed()) {\n        unhygienix_native_sleep_port_progress(T5AIPort_GuardRefused);\n        return; // SysTick/IRQs are untouched; the caller resumes its scheduler.\n    }\n",
+        "count": 1
+      },
+      {
+        "old": "#if CONFIG_AON_RTC\n#include <driver/aon_rtc.h>",
+        "new": "#include <stdbool.h>\n#include <driver/unhygienix_sleep_protocol.h>\n#if CONFIG_AON_RTC\n#include <driver/aon_rtc.h>",
+        "count": 1
+      },
+      {
+        "old": "\tportNVIC_SYSTICK_CTRL_REG &= ~portNVIC_SYSTICK_ENABLE_BIT;",
+        "new": "\tportNVIC_SYSTICK_CTRL_REG &= ~portNVIC_SYSTICK_ENABLE_BIT;\n\tunhygienix_native_sleep_port_progress(T5AIPort_TickStopped);",
+        "count": 1
+      },
+      {
+        "old": "    taskENTER_CRITICAL();",
+        "new": "    taskENTER_CRITICAL();\n    unhygienix_native_sleep_port_progress(T5AIPort_CriticalEntered);",
+        "count": 1
+      },
+      {
+        "old": "        taskEXIT_CRITICAL();\n        \n\t} else {",
+        "new": "        taskEXIT_CRITICAL();\n        unhygienix_native_sleep_port_progress(T5AIPort_AbortRestored);\n\t} else {",
+        "count": 1
+      },
+      {
+        "old": "#if CONFIG_PM\n\t\t\tpm_suspend(xModifiableIdleTime);",
+        "new": "\t\t\tunhygienix_native_sleep_port_progress(T5AIPort_PMEnter);\n#if CONFIG_PM\n\t\t\tpm_suspend(xModifiableIdleTime);",
+        "count": 1
+      },
+      {
+        "old": "#endif\n\t\t}\n\n\t\tconfigPOST_SLEEP_PROCESSING",
+        "new": "#endif\n\t\t\tunhygienix_native_sleep_port_progress(T5AIPort_PMReturned);\n\t\t}\n\n\t\tconfigPOST_SLEEP_PROCESSING",
+        "count": 1
+      },
+      {
+        "old": "\t\tsystick_gated_update(xExpectedIdleTime, ulReloadValue);//it improve the systick update when adding here,otherwize the systick update fail and enter the vPortSuppressTicksAndSleep() fail\n",
+        "new": "\t\tunhygienix_native_sleep_port_progress(T5AIPort_FirstTickEnter);\n\t\tsystick_gated_update(xExpectedIdleTime, ulReloadValue);//it improve the systick update when adding here,otherwize the systick update fail and enter the vPortSuppressTicksAndSleep() fail\n\t\tunhygienix_native_sleep_port_progress(T5AIPort_FirstTickReturned);\n",
+        "count": 1
+      },
+      {
+        "old": "\t\tsystick_gated_update(xExpectedIdleTime, ulReloadValue);//it improve the systick update when adding here,otherwize the systick update fail and enter the vPortSuppressTicksAndSleep() fai\n",
+        "new": "\t\tunhygienix_native_sleep_port_progress(T5AIPort_SecondTickEnter);\n\t\tsystick_gated_update(xExpectedIdleTime, ulReloadValue);//it improve the systick update when adding here,otherwize the systick update fail and enter the vPortSuppressTicksAndSleep() fai\n\t\tunhygienix_native_sleep_port_progress(T5AIPort_SecondTickReturned);\n",
+        "count": 1
+      },
+      {
+        "old": "\t\t__asm volatile ( \"isb\" );\n#if CONFIG_UPDATE_TICK_THEN_ENABLE_INT",
+        "new": "\t\t__asm volatile ( \"isb\" );\n\t\tunhygienix_native_sleep_port_progress(T5AIPort_InterruptWindowReturned);\n#if CONFIG_UPDATE_TICK_THEN_ENABLE_INT",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "path": "t5_os/cp/middleware/driver/mailbox/mbox0_adapter.c",
+    "vendor_sha256": "e86b5c9f14a81307028b353fc4475d1add41eb1b4a5719cc2aca9e9860e4f299",
+    "replacements": [
+      {
+        "old": "static mailbox_data_t\tmailbox_buff[MBOX_CHNL_NUM][TX_BOX_NUM];",
+        "new": "// Three queued pointer payloads plus the AP's popped-but-not-copied frame.\n#define NATIVE_MAILBOX_MAX_RX_FIFO_DEPTH 3u\n#define NATIVE_MAILBOX_SNAPSHOT_SLOTS 1u\n#define NATIVE_MAILBOX_TX_SLOT_COUNT \\\n    (NATIVE_MAILBOX_MAX_RX_FIFO_DEPTH + NATIVE_MAILBOX_SNAPSHOT_SLOTS)\nstatic mailbox_data_t mailbox_buff[MBOX_CHNL_NUM][NATIVE_MAILBOX_TX_SLOT_COUNT];",
+        "count": 1
+      },
+      {
+        "old": "(mailbox_tx_box[dst] + 1) % TX_BOX_NUM",
+        "new": "(mailbox_tx_box[dst] + 1) % NATIVE_MAILBOX_TX_SLOT_COUNT",
+        "count": 1
+      },
+      {
+        "old": "#include \"mbox0_adapter.h\"",
+        "new": "#include \"mbox0_adapter.h\"\n#include <driver/unhygienix_sleep_protocol.h>\nextern void unhygienix_native_mailbox_receive_observe(uint32_t, uint32_t, uint32_t);",
+        "count": 1
+      },
+      {
+        "old": "\tu32 chnl = msg->src_cpu;",
+        "new": "\tu32 chnl = msg->src_cpu;\n\tunhygienix_native_mailbox_receive_observe(T5AIReceive_AdapterEnter, 0u, msg->data[0]);",
+        "count": 1
+      },
+      {
+        "old": "\t\tmemcpy(&data, (u8 *)msg->data[0], sizeof(data));",
+        "new": "\t\tunhygienix_native_mailbox_receive_observe(T5AIReceive_CopyEnter, 0u, 0u);\n\t\tmemcpy(&data, (u8 *)msg->data[0], sizeof(data));\n\t\tunhygienix_native_mailbox_receive_observe(T5AIReceive_CopyReturned, data.param0, 0u);",
+        "count": 1
+      },
+      {
+        "old": "\tif(mailbox_callback[chnl] != NULL)\n\t\tmailbox_callback[chnl](&data);",
+        "new": "\tif(mailbox_callback[chnl] != NULL) {\n\t\tunhygienix_native_mailbox_receive_observe(T5AIReceive_CallbackEnter, data.param0, 0u);\n\t\tmailbox_callback[chnl](&data);\n\t\tunhygienix_native_mailbox_receive_observe(T5AIReceive_CallbackReturned, 0u, 0u);\n\t}",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "path": "t5_os/cp/middleware/driver/mailbox/mbox0_drv.c",
+    "vendor_sha256": "4aa2c1c176ddf19abcbf0fe5024cfe48479abc6b9d02e18611b6f80b7f884d85",
+    "replacements": [
+      {
+        "old": "\tint_status = mbox0_dev.chn_drv[SELF_CHNL]->chn_get_int_status(&mbox0_dev.hal);",
+        "new": "\tint_status = mbox0_dev.chn_drv[SELF_CHNL]->chn_get_int_status(&mbox0_dev.hal);\n\textern void unhygienix_native_sleep_mailbox_irq_observed(uint32_t status);\n\tunhygienix_native_sleep_mailbox_irq_observed(int_status);",
+        "count": 1
+      },
+      {
+        "old": "#include \"sdkconfig.h\"",
+        "new": "#include \"sdkconfig.h\"\n#include <driver/unhygienix_sleep_protocol.h>",
+        "count": 1
+      },
+      {
+        "old": "\tunhygienix_native_sleep_mailbox_irq_observed(int_status);",
+        "new": "\textern void unhygienix_native_sleep_mailbox_progress(uint32_t progress);\n\tunhygienix_native_sleep_mailbox_progress(T5AIMailboxProgress_ISREnter);\n\tunhygienix_native_sleep_mailbox_irq_observed(int_status);",
+        "count": 1
+      },
+      {
+        "old": "\tif(int_status == 0)\n\t\treturn;",
+        "new": "\tif(int_status == 0) { unhygienix_native_sleep_mailbox_progress(T5AIMailboxProgress_ISRReturn); return; }",
+        "count": 1
+      },
+      {
+        "old": "\t\tfifo_status = mbox0_dev.chn_drv[SELF_CHNL]->chn_get_rx_fifo_stat(&mbox0_dev.hal);",
+        "new": "\t\tunhygienix_native_sleep_mailbox_progress(T5AIMailboxProgress_FIFOStatus);\n\t\tfifo_status = mbox0_dev.chn_drv[SELF_CHNL]->chn_get_rx_fifo_stat(&mbox0_dev.hal);",
+        "count": 1
+      },
+      {
+        "old": "\t\t\tmbox0_drv_recieve_message(&message);\n\n\t\t\tif(message.data[1] != 0)",
+        "new": "\t\t\tunhygienix_native_sleep_mailbox_progress(T5AIMailboxProgress_Receive);\n\t\t\tmbox0_drv_recieve_message(&message);\n\n\t\t\tif(message.data[1] != 0)",
+        "count": 1
+      },
+      {
+        "old": "\t} while(1);\n\t\n}\n\nint mbox0_drv_get_send_stat",
+        "new": "\t} while(1);\n\tunhygienix_native_sleep_mailbox_progress(T5AIMailboxProgress_ISRReturn);\n\t\n}\n\nint mbox0_drv_get_send_stat",
+        "count": 1
+      },
+      {
+        "old": "\t\t\t\tif(mbox0_dev.rx_callback != NULL)\n\t\t\t\t\tmbox0_dev.rx_callback(&message);",
+        "new": "\t\t\t\tif(mbox0_dev.rx_callback != NULL) {\n\t\t\t\t\tunhygienix_native_sleep_mailbox_progress(T5AIMailboxProgress_Callback);\n\t\t\t\t\tmbox0_dev.rx_callback(&message);\n\t\t\t\t\tunhygienix_native_sleep_mailbox_progress(T5AIMailboxProgress_CallbackReturned);\n\t\t\t\t}",
+        "count": 1
+      },
+      {
+        "old": "#include <driver/unhygienix_sleep_protocol.h>",
+        "new": "#include <driver/unhygienix_sleep_protocol.h>\nextern void unhygienix_native_mailbox_receive_observe(uint32_t, uint32_t, uint32_t);",
+        "count": 1
+      },
+      {
+        "old": "\t\t\t\t\tmbox0_dev.rx_callback(&message);",
+        "new": "\t\t\t\t\tmbox0_dev.rx_callback(&message);\n\t\t\t\t\tunhygienix_native_mailbox_receive_observe(T5AIReceive_DriverReturned, 0u, 0u);",
+        "count": 1
+      },
+      {
+        "old": "\tif(int_status == 0) { unhygienix_native_sleep_mailbox_progress(T5AIMailboxProgress_ISRReturn); return; }",
+        "new": "\t/* A software re-pend can have queued RX data without hardware IRQ status. */\n\tif (int_status == 0 &&\n\t    !(mbox0_dev.chn_drv[SELF_CHNL]->chn_get_rx_fifo_stat(&mbox0_dev.hal) &\n\t      RX_FIFO_STAT_NOT_EMPTY)) {\n\t\tunhygienix_native_sleep_mailbox_progress(T5AIMailboxProgress_ISRReturn);\n\t\treturn;\n\t}",
+        "count": 1
+      }
+    ]
+  }
+]

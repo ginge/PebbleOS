@@ -6,19 +6,25 @@ import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
 import re
-import shutil
 import shlex
+import shutil
 import subprocess
 import sys
 import tarfile
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BOARD = ROOT / "boards/unhygienix/tuya/cp/variants"
 SDK = ROOT / "third_party/hal_tuya/TuyaOpen-T5AI"
 OPEN = ROOT / "third_party/hal_tuya/TuyaOpen"
 LOCK = ROOT / "boards/unhygienix/tuya/sdk.lock.json"
+NATIVE_ALARM_ABI = 0x50424167
+NATIVE_ALARM_COMMAND = 0x70
+NATIVE_ALARM_WAKE = 0x71
+NATIVE_ALARM_MIN_TICKS = 64
+NATIVE_ALARM_MAX_TICKS = 16000
+
 CONTRACT = [
     0x55435031,
     16,
@@ -96,14 +102,17 @@ def dependencies():
 
 def profile(wifi):
     text = (BOARD / f"{wifi}.config").read_text()
-    values = dict(re.findall(r"^CONFIG_([A-Z0-9_]+)=([yn])$", text, re.M))
+    values = dict(re.findall(r"^CONFIG_([A-Z0-9_]+)=([yn])$", text, re.MULTILINE))
     if not values or values.get("WIFI_ENABLE") != ("y" if wifi == "on" else "n"):
         raise ValueError("Invalid CP feature profile")
     return values
 
 
-def overlay(stage):
-    for entry in json.loads((BOARD / "overlay.json").read_text()):
+def overlay(stage, sleep_contract=False):
+    entries = json.loads((BOARD / "overlay.json").read_text())
+    if sleep_contract:
+        entries += json.loads((BOARD / "sleep-overlay.json").read_text())
+    for entry in entries:
         relative = Path(entry["path"])
         if relative.is_absolute() or ".." in relative.parts:
             raise ValueError("Invalid overlay path")
@@ -129,13 +138,173 @@ def overlay(stage):
     ]:
         shutil.copy2(source, target / name)
 
+    if sleep_contract:
+        shutil.copy2(
+            BOARD.parent / "native_alarm.c",
+            stage / "t5_os/cp/middleware/driver/pwr_clk/unhygienix_native_alarm.c",
+        )
+        shutil.copy2(
+            ROOT / "include/pbl/soc/t5ai/sleep_protocol.h",
+            stage / "t5_os/cp/include/driver/unhygienix_sleep_protocol.h",
+        )
+        with (target / "unhygienix.cmake").open("a") as handle:
+            handle.write(
+                '\ntarget_link_libraries(${CMAKE_PROJECT_NAME}.elf "-Wl,--undefined=unhygienix_native_alarm_contract")\n'
+            )
+
 
 def feature_config(path):
-    return dict(re.findall(r"^(CONFIG_[A-Z0-9_]+)=(.*)$", Path(path).read_text(), re.M))
+    return dict(
+        re.findall(r"^(CONFIG_[A-Z0-9_]+)=(.*)$", Path(path).read_text(), re.MULTILINE)
+    )
 
 
-def inspect(elf_path, config_path, wifi):
+CP_FLASH_XIP_BASE = 0x02000000
+CP_FLASH_XIP_LIMIT = 0x03000000
+NATIVE_WAKE_ITCM_ROOTS = (
+    "unhygienix_native_sleep_wait",
+    "unhygienix_native_flash_ready",
+    "unhygienix_native_flash_resume",
+)
+
+
+def audit_itcm_calls(
+    symbols, low, high, disassemble, roots=NATIVE_WAKE_ITCM_ROOTS, ranges=None
+):
+    """Reject XIP calls, veneers and unresolved indirect calls before flash is ready."""
+    pending = list(roots)
+    checked = set()
+    while pending:
+        name = pending.pop()
+        if name in checked:
+            continue
+        if name not in symbols or not low <= symbols[name] < high:
+            raise ValueError(f"Native wake function is outside ITCM: {name}")
+        assembly = disassemble(name)
+        if not re.search(r"^\s*[0-9a-fA-F]+:\s+\S", assembly, re.MULTILINE):
+            raise ValueError(f"Empty native wake disassembly: {name}")
+        if re.search(r"\b(?:tbb|tbh)\b", assembly):
+            raise ValueError(f"Indirect native wake branch: {name}")
+        if re.search(r"\b(?:blx|bx)\s+(?:r[0-9]+|ip)\b", assembly):
+            raise ValueError(f"Indirect native wake branch: {name}")
+        for literal in re.findall(r"\.word\s+0x([0-9a-fA-F]+)", assembly):
+            if CP_FLASH_XIP_BASE <= int(literal, 16) < CP_FLASH_XIP_LIMIT:
+                raise ValueError(f"XIP literal in native wake closure: {name}")
+        checked.add(name)
+        for address, callee in re.findall(
+            r"\b(?:b[a-z]{0,3}(?:\.w|\.n)?|cbn?z)\s+(?:r[0-9]+,\s*)?([0-9a-fA-F]+)\s+<([^>+]+)",
+            assembly,
+        ):
+            if not low <= int(address, 16) < high:
+                raise ValueError(f"Native wake branch leaves ITCM: {name} -> {callee}")
+            if ranges is not None:
+                target = int(address, 16)
+                start, end = ranges[name]
+                if start <= target < end:
+                    continue
+                callee = next(
+                    (
+                        owner
+                        for owner, (start, end) in ranges.items()
+                        if start <= target < end
+                    ),
+                    None,
+                )
+                if callee is None:
+                    raise ValueError(f"Native wake target has no function: {target:#x}")
+            if callee != name:
+                pending.append(callee)
+    return sorted(checked)
+
+
+def audit_masked_wfi_leaf(assembly):
+    instructions = re.findall(
+        r"^\s*[0-9a-fA-F]+:\s+(?:[0-9a-fA-F]{4}\s+){1,2}([a-z][a-z0-9.]*)[ \t]*([^\n]*)",
+        assembly,
+        re.MULTILINE,
+    )
+    instructions = [
+        (op, re.sub(r"\s+", "", operands).split(";")[0])
+        for op, operands in instructions
+    ]
+    expected = [
+        ("str", "r1,[r0,#0]"),
+        ("dsb", "sy"),
+        ("wfi", ""),
+        ("isb", "sy"),
+        ("bx", "lr"),
+    ]
+    if instructions != expected:
+        raise ValueError("Masked WFI leaf must store the mask, DSB, WFI, ISB, return")
+    return [op for op, _ in instructions]
+
+
+def inspect_native_wake_itcm(elf_path, objdump):
+    from elftools.elf.elffile import ELFFile
+
+    with Path(elf_path).open("rb") as handle:
+        elf = ELFFile(handle)
+        section = elf.get_section_by_name(".itcm")
+        if section is None:
+            raise ValueError("Missing native wake ITCM section")
+        low, high = section["sh_addr"], section["sh_addr"] + section["sh_size"]
+        functions = [
+            s
+            for s in elf.get_section_by_name(".symtab").iter_symbols()
+            if s["st_info"]["type"] == "STT_FUNC"
+            and s["st_shndx"] != "SHN_UNDEF"
+            and low <= s["st_value"] & ~1 < high
+        ]
+        symbols = {s.name: s["st_value"] & ~1 for s in functions}
+        ranges = {}
+        for function in functions:
+            start = symbols[function.name]
+            # Hand-written assembly may omit .size; bound it by the next function.
+            end = (
+                start + function["st_size"]
+                if function["st_size"]
+                else min(
+                    [address for address in symbols.values() if address > start]
+                    + [high]
+                )
+            )
+            if end > high:
+                raise ValueError(
+                    f"Native wake function extends outside ITCM: {function.name}"
+                )
+            ranges[function.name] = (start, end)
+
+    def disassemble(name):
+        start, end = ranges[name]
+        return subprocess.check_output(
+            [
+                str(objdump),
+                "-d",
+                "-j",
+                ".itcm",
+                f"--start-address={start}",
+                f"--stop-address={end}",
+                str(elf_path),
+            ],
+            text=True,
+        )
+
+    checked = audit_itcm_calls(symbols, low, high, disassemble, ranges=ranges)
+    leaf = "unhygienix_cp_masked_wfi"
+    if leaf not in ranges:
+        raise ValueError("Missing stack-free masked WFI leaf")
+    audit_masked_wfi_leaf(disassemble(leaf))
+    return {
+        "elf_sha256": digest(Path(elf_path).read_bytes()),
+        "itcm_start": low,
+        "itcm_end": high,
+        "functions": checked,
+    }
+
+
+def inspect(elf_path, config_path, wifi, sleep_contract=False):
     import struct
+
     from elftools.elf.elffile import ELFFile
 
     cfg = feature_config(config_path)
@@ -156,6 +325,34 @@ def inspect(elf_path, config_path, wifi):
         defined = {
             s.name for s in symtab.iter_symbols() if s["st_shndx"] != "SHN_UNDEF"
         }
+        if sleep_contract:
+            for name in [
+                "AON_RTC",
+                "AON_RTC_64BIT",
+                "AON_RTC_MANY_USERS",
+                "AON_WDT",
+                "NMI_WDT_EN",
+            ]:
+                if cfg.get("CONFIG_" + name) != "y":
+                    raise ValueError(
+                        "Native alarm requires pinned RTC and watchdog services"
+                    )
+            matches = (
+                symtab.get_symbol_by_name("unhygienix_native_alarm_contract") or []
+            )
+            if len(matches) != 1 or matches[0]["st_size"] != 20:
+                raise ValueError("Missing native alarm ABI contract")
+            item = matches[0]
+            section = elf.get_section(item["st_shndx"])
+            offset = item["st_value"] - section["sh_addr"]
+            if list(struct.unpack("<5I", section.data()[offset : offset + 20])) != [
+                NATIVE_ALARM_ABI,
+                NATIVE_ALARM_COMMAND,
+                NATIVE_ALARM_WAKE,
+                NATIVE_ALARM_MIN_TICKS,
+                NATIVE_ALARM_MAX_TICKS,
+            ]:
+                raise ValueError("Native alarm ABI contract changed")
         missing = REQUIRED - defined
         if missing:
             raise ValueError(f"Missing CP service symbols: {sorted(missing)}")
@@ -273,7 +470,7 @@ def canonical_link(work, compiler):
     (work / "canonical-link.json").write_text(json.dumps(command, indent=2) + "\n")
 
 
-def build(work, wifi, compiler_root, python, cmake):
+def build(work, wifi, compiler_root, python, cmake, sleep_contract=False):
     revisions = dependencies()
     work, compiler_root, python, cmake = [
         Path(x).resolve() for x in [work, compiler_root, python, cmake]
@@ -298,7 +495,7 @@ def build(work, wifi, compiler_root, python, cmake):
     archive.stdout.close()
     if archive.wait():
         raise ValueError("Pinned SDK archive failed")
-    overlay(stage)
+    overlay(stage, sleep_contract)
     config = stage / "t5_os/projects/tuya_app/cp/config/bk7258/config"
     values = profile(wifi)
     lines = [
@@ -380,10 +577,17 @@ def build(work, wifi, compiler_root, python, cmake):
     inputs[str((BOARD.parent / "ble_rf_init.c").relative_to(ROOT))] = digest(
         (BOARD.parent / "ble_rf_init.c").read_bytes()
     )
+    if sleep_contract:
+        for path in [
+            BOARD.parent / "native_alarm.c",
+            ROOT / "include/pbl/soc/t5ai/sleep_protocol.h",
+        ]:
+            inputs[str(path.relative_to(ROOT))] = digest(path.read_bytes())
     provenance = {
         "schema": 1,
         "board": "unhygienix",
         "wifi": wifi,
+        "sleep_contract": sleep_contract,
         "vendor_revisions": revisions,
         "board_inputs": inputs,
         "recipe_sha256": digest(Path(__file__).read_bytes()),
@@ -401,7 +605,11 @@ def build(work, wifi, compiler_root, python, cmake):
         )
     canonical_link(work, compiler)
     output = work / "build/bk7258/tuya_app/bk7258"
-    report = inspect(output / "app.elf", output / "sdkconfig", wifi)
+    report = inspect(output / "app.elf", output / "sdkconfig", wifi, sleep_contract)
+    if sleep_contract:
+        report["native_wake_itcm"] = inspect_native_wake_itcm(
+            output / "app.elf", compiler.with_name("arm-none-eabi-objdump")
+        )
     report["selected_phy"] = inspect_libraries(output, wifi)
     report["artifacts"] = {
         name: digest((output / name).read_bytes())
@@ -414,6 +622,11 @@ def build(work, wifi, compiler_root, python, cmake):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--sleep-contract",
+        action="store_true",
+        help="Add the isolated native wake-alarm protocol; never enables sleep",
+    )
     parser.add_argument("--work", type=Path, required=True)
     parser.add_argument("--wifi", choices=["off", "on"], default="off")
     parser.add_argument("--toolchain", type=Path, required=True)
@@ -421,7 +634,14 @@ def main():
     parser.add_argument("--cmake", type=Path, required=True)
     args = parser.parse_args()
     try:
-        build(args.work, args.wifi, args.toolchain, args.python, args.cmake)
+        build(
+            args.work,
+            args.wifi,
+            args.toolchain,
+            args.python,
+            args.cmake,
+            args.sleep_contract,
+        )
     except (ValueError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"CP build rejected: {error}\n")
 

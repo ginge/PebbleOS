@@ -3,22 +3,22 @@
 """Verify and package experimental Unhygienix CP links; never flashes hardware."""
 
 import argparse
-from io import BytesIO
 import json
-from pathlib import Path
 import struct
 import subprocess
 import sys
 import tempfile
+from io import BytesIO
+from pathlib import Path
 
 from elftools.elf.elffile import ELFFile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from tools import unhygienix_cp_build as recipe  # noqa: E402
-from tools.patch_unhygienix_cp_rf import CP_XIP, STOCK_SHA256, thumb_bl  # noqa: E402
-from tools.t5ai_image import encode_protected_blocks  # noqa: E402
-from tools.unhygienix_image import PRIMARY_CP_APP_LOGICAL_SIZE  # noqa: E402
+from tools import unhygienix_cp_build as recipe
+from tools.patch_unhygienix_cp_rf import CP_XIP, STOCK_SHA256, thumb_bl
+from tools.t5ai_image import encode_protected_blocks
+from tools.unhygienix_image import PRIMARY_CP_APP_LOGICAL_SIZE
 
 CONTROLLER = recipe.SDK / (
     "t5_os/cp/components/bk_libs/bk7258/libs/"
@@ -263,6 +263,36 @@ def verify_link_hashes(image, config, wifi):
     return recipe.digest(path.read_bytes())
 
 
+def verify_sleep_link_hashes(image, config, wifi):
+    path = ROOT / "boards/unhygienix/tuya/cp/sleep-variant-links.json"
+    pins = json.loads(path.read_text())
+    sources = {
+        "native_alarm_sha256": ROOT / "boards/unhygienix/tuya/cp/native_alarm.c",
+        "sleep_protocol_sha256": ROOT / "include/pbl/soc/t5ai/sleep_protocol.h",
+        "sleep_overlay_sha256": ROOT
+        / "boards/unhygienix/tuya/cp/variants/sleep-overlay.json",
+    }
+    if (
+        pins.get("schema") != 1
+        or pins.get("board") != "unhygienix"
+        or pins.get("alarm_abi") != recipe.NATIVE_ALARM_ABI
+        or pins.get("stock_sha256") != STOCK_SHA256
+        or pins.get("controller_sha256") != CONTROLLER_SHA256
+        or pins.get("latency_source_sha256") != recipe.digest(SOURCE.read_bytes())
+        or any(
+            pins.get(name) != recipe.digest(source.read_bytes())
+            for name, source in sources.items()
+        )
+    ):
+        raise ValueError("Invalid reviewed native alarm link contract")
+    expected = pins.get("profiles", {}).get(wifi, {})
+    if recipe.digest(image) != expected.get("app.bin") or recipe.digest(
+        config
+    ) != expected.get("sdkconfig"):
+        raise ValueError("Native alarm link/config does not match reviewed SHA256")
+    return recipe.digest(path.read_bytes())
+
+
 def package(work, stock, output, compiler):
     if output.exists():
         raise ValueError("Use a new output directory; preserve earlier evidence")
@@ -278,10 +308,12 @@ def package(work, stock, output, compiler):
     wifi = inputs["wifi"]
     built = work / "build/bk7258/tuya_app/bk7258"
     elf_path, raw_path = built / "app.elf", built / "app.bin"
-    inspection = recipe.inspect(elf_path, built / "sdkconfig", wifi)
+    sleep_contract = inputs.get("sleep_contract", False)
+    inspection = recipe.inspect(elf_path, built / "sdkconfig", wifi, sleep_contract)
     inspection["selected_phy"] = recipe.inspect_libraries(built, wifi)
     image = raw_path.read_bytes()
-    pins_hash = verify_link_hashes(image, (built / "sdkconfig").read_bytes(), wifi)
+    verify = verify_sleep_link_hashes if sleep_contract else verify_link_hashes
+    pins_hash = verify(image, (built / "sdkconfig").read_bytes(), wifi)
     with elf_path.open("rb") as handle:
         elf = ELFFile(handle)
         calls, proof = verify_controller(elf, image)
@@ -308,6 +340,7 @@ def package(work, stock, output, compiler):
         "schema": 2,
         "board": "unhygienix",
         "experimental": True,
+        "sleep_contract": sleep_contract,
         "flash_qualified": False,
         "wifi": wifi,
         "stock_sha256": STOCK_SHA256,
