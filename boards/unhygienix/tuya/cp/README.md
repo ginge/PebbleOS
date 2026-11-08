@@ -95,3 +95,18 @@ runner**. The legacy packagers/manifest guard are unchanged. A dedicated CP-only
 experiment must regenerate/compare the full package with `validate_package`,
 verify the exact installed rollback, then use the existing bounded CP flasher.
 No qualified production default or saving follows from successful host packaging.
+
+## Experimental native sleep contract
+
+`tools/unhygienix_cp_build.py --sleep-contract` adds the board-owned alarm/sleep
+worker and hash-guarded staged SDK overlays. It does not modify pinned vendor
+source. Exact native links are reviewed separately in `sleep-variant-links.json`;
+normal off/on profile link pins remain unchanged. ABI v5 is built and structurally
+checked, **unflashed and not hardware qualified**. It fences ready through resource
+restore, validates memory leases, holds AON ownership and records stages. Earlier
+v4 retained and independent guard probes failed qualification; reset-surviving
+stop/evidence and watchdog timing remain open. Prior alarm-only trials also had
+uncommanded Bluetooth failures. See the
+[coordinated-sleep record](../../../../docs/boards/unhygienix/coordinated-sleep.md)
+before using this option. Neither AP sleep nor the APP-veto release is enabled
+by default, and the active frequency vote remains 240 MHz.

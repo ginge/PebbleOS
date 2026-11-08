@@ -1,5 +1,9 @@
 # Unhygienix dependency, build and flash tooling
 
+> Use [current status](current-status.md) for installed identities and active
+> power policy. Dated profiling and installed-state checkpoints below are
+> historical procedure/evidence records, not claims about the current device.
+
 > Current project status (22 October 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
 
 Unhygienix means "The village fishmonger." The independent hardware target is
@@ -205,6 +209,34 @@ Multiple partition writes are not atomic. Factory bootloader, configuration,
 RF calibration and shared pairing storage are excluded from these operations.
 Erase, recovery and OTA remain disabled. Existing dedicated guard scripts remain
 usable for validation and rollback.
+
+### Firmware/resource layout transition (31 October)
+
+The native firmware subdivision is 1,664 KiB, followed by a 1 MiB system-resource
+bank at XIP `0x022c0000`. It remains inside the original factory AP partition.
+NOR PFS, SD PFS, CP, Shared PRF and crash/debug reservations do not move.
+
+For the **first transition from the legacy 1,600 KiB layout**, use a fresh build
+and `pbl flash --resources` with the explicit tyutool/port arguments above. The
+matched protected write occupies physical `0x132000..0x3fc000` (end exclusive).
+Do not use provisioning: `--t5ai-provision` formats NOR PFS and is unnecessary.
+AP-only writes are valid only after the matching resource bank is installed.
+
+The embedded `PBLT5LY2` record pins firmware base/capacity and resource offset/
+capacity. Host tools reject absent, duplicate or mismatched records before writes;
+this validates inputs, not the device's currently installed resource placement.
+The map guard checks initialized-section load ends while excluding synthetic
+load sizes for BSS/stack entries, which consume no flash bytes.
+
+Rollback to the old firmware requires the **old firmware/resource pair**, ending
+at physical `0x3eb000`; an AP-only rollback would reference the wrong resource
+bank. Exact entry AP/resources and legacy tooling are frozen under
+`artifacts/retained-layout-20261031` in the reference workspace. Its
+`qualify_layout_pair.py normal|rollback` validates locked hashes, CRCs, vectors,
+padding, resource bytes and bounded ranges. It writes only with `--flash` and an
+actually receiving `--capture-root`; neither profile selects CP or PFS. Retained
+candidate packaging is separate and its radio/wake qualification remains open.
+The transition and rollback are built/host-validated, not device-qualified yet.
 
 ## Optional vendor reference build
 
