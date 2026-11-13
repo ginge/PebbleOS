@@ -312,6 +312,17 @@ config T5AI_PIXEL_FAST_PATH
       Uncommon formats and clip geometry retain the stock implementation.
       Opt-in pending broader watchface and connected-soak coverage.
 
+config T5AI_QMI8658_WOM
+    bool "Use QMI8658 wake-on-motion during quiet shake-only operation"
+    depends on BOARD_UNHYGIENIX && ACCEL_QMI8658_T5AI && !T5AI_ACCEL_DISABLED
+    default y
+    help
+      After five seconds of quiet without sample clients, use low-power WOM
+      on INT2. Motion restores continuous sampling and software shake detection.
+      Requested sample streams bypass WOM. Failed WOM setup falls back to
+      continuous sampling until reboot. WOM itself produces no samples or
+      shake event; first-gesture latency needs hardware qualification.
+
 config T5AI_QMI8658_PROFILE
     bool "Measure QMI8658 acquisition and delivery"
     depends on BOARD_UNHYGIENIX && ACCEL_QMI8658_T5AI
@@ -385,6 +396,17 @@ config T5AI_BATTERY_QUIET_SUCCESS
       Qualification option; retain ADC failure logs and service timing.
       Power profiling still reports successful samples. Do not infer a power
       saving without matched measurements or change the CP logging clock vote.
+
+config T5AI_BATTERY_PROFILE
+    bool "Log battery voltage samples for fitted-cell qualification"
+    depends on BOARD_UNHYGIENIX && BATTERY_T5AI && LOG
+    default n
+    help
+      Report raw ADC peak, converted millivolts, acquisition duration and
+      CHRG state on existing service-driven samples, even with quiet success
+      enabled. Adds no sampling timer, task or unrestricted shell. CHRG does
+      not prove USB presence or charge completion. This does not control or
+      limit the hardware charger; confirm cell compatibility separately.
 
 config T5AI_POWER_PROFILE
     bool "Sparse T5AI power qualification counters"

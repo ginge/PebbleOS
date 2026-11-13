@@ -28,11 +28,17 @@ Historical findings remain in [the investigation history](power-investigation-hi
 - [x] Central AP GDMA channel ownership while preserving CP channels.
 - [x] Remove failed fixed 120 MHz selection; retain normal active clock election.
 - [x] Keep raw-zero brightness and explicit panel sleep disabled in the selected dim profile.
+- [x] Use the existing 32 ms limit for the initial shake-only request; process shake-only samples on the QMI worker. Explicit client rates and data offload remain intact. See the 12 November sensor review for bounded evidence and open qualification.
+
+- [x] Keep direct QMI INT2 pulses armed and coalesce busy-slot followups; preserve FIFO policy. Bounded 13 November host/hardware evidence still has conversion gaps and establishes no electrical saving.
+
+- [x] Default to quiet-period QMI WOM after the operator request, with client bypass, fresh peek and continuous fallback. Bounded hardware wake checks pass; long-term sensitivity/latency and electrical qualification remain open.
 
 ## Correctness and measurement gates
 
 - [ ] Diagnose Bluetooth discovery/reconnect and connection-parameter failures using aligned AP/CP/phone evidence.
-- [ ] Confirm actual AP sleep entries and blockers with dim Nadir; the current revision's activity milestone was not received.
+- [x] Receive the bounded 32-return AP-only milestone with dim Nadir (12/13 November).
+- [ ] Qualify long-term AP sleep/blocker behavior, including warm-programming reset admission failures.
 - [ ] Measure each local gate and combined policy against matched controls with fixed display/supply.
 - [ ] Compare energy per completed reconnect/transfer/UI workload, elapsed time and idle power.
 - [ ] Exercise durable SD/PFS writes, physical bus/DMA faults and recovery without unsafe partial-write retry.
@@ -43,10 +49,13 @@ Historical findings remain in [the investigation history](power-investigation-hi
 
 ## Remaining peripheral implementations
 
-1. **Sensors:** profile QMI IRQ/watchdog/I2C cost; implement and qualify fitted-silicon
-   wake-on-motion or bounded batching without losing requested samples, timestamps,
-   software-shake sensitivity or gesture latency. Preserve low-power ODR and inactive
-   shutdown. Fitted register identity 05/7c is recorded; WOM/INT2 is not qualified.
+1. **Sensors:** the 12 November startup-rate/dispatch increment reduces IRQs; the
+   13 November pulse-coalescing increment retains busy-slot edges. Conversion gaps
+   persist in continuous mode and no reliable electrical savings are established.
+   Default quiet-period WOM now has bounded fitted 05/7c entry/exit, INT2 and
+   operator first-wake evidence. Extend gesture latency/sensitivity, client and
+   concurrent-load, electrical and long-term qualification; preserve requested
+   samples, timestamps, low-power ODR and inactive shutdown.
 2. **Touch:** define active/idle policy. Reset-held disable already exists; integrate
    it when buttons suffice or qualify a controller gesture-wake mode. Exercise stuck
    INT, contact release, retry and shared-bus recovery.

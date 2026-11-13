@@ -38,6 +38,8 @@ struct pbl_qmi8658_state {
   AccelDriverSample last_sample;
   bool last_sample_valid;
   bool poll_pending;
+  bool direct_edge_pending;
+  bool wom_active;
   uint32_t generation;
   uint32_t sample_generation;
   struct pbl_thread poll_thread;
@@ -49,11 +51,15 @@ struct pbl_qmi8658_state {
   bool irq_armed;
   bool catchup_available;
   bool watermark_seen;
+  bool wom_configured;
+  bool wom_failed;
+  bool quiet_valid;
   uint32_t irq_started;
   uint32_t last_acquire_ms;
   unsigned watchdog_passes;
   uint8_t raw[6 * 6];
   uint8_t pending_count;
+  uint16_t quiet_since_ms;
   uint64_t pending_first_us;
   uint32_t pending_interval_us;
   bool pending_rotated;

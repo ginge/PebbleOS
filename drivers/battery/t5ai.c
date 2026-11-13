@@ -106,7 +106,8 @@ static void prv_service_update(void *context) {
     s_charge_known = charge;
   }
   const bool update = s_notify || (s_service_requested && s_retry && now >= s_retry_at);
-#if !defined(CONFIG_T5AI_BATTERY_QUIET_SUCCESS) || defined(CONFIG_T5AI_POWER_PROFILE)
+#if !defined(CONFIG_T5AI_BATTERY_QUIET_SUCCESS) || defined(CONFIG_T5AI_POWER_PROFILE) || \
+    defined(CONFIG_T5AI_BATTERY_PROFILE)
   const bool sampled = s_notify && PASSED(s_sample.status);
   const int millivolts = s_sample.millivolts;
 #endif
@@ -116,10 +117,11 @@ static void prv_service_update(void *context) {
   const uint16_t peak = s_last_peak;
   s_notify = false;
   pbl_irq_unlock();
-#if !defined(CONFIG_T5AI_BATTERY_QUIET_SUCCESS) || defined(CONFIG_T5AI_POWER_PROFILE)
+#if !defined(CONFIG_T5AI_BATTERY_QUIET_SUCCESS) || defined(CONFIG_T5AI_POWER_PROFILE) || \
+    defined(CONFIG_T5AI_BATTERY_PROFILE)
   if (sampled) {
-    PBL_LOG_DBG("Battery ADC sample: raw=%u mv=%d elapsed=%lu ms", peak, millivolts,
-                (unsigned long)diagnostics.elapsed_ms);
+    PBL_LOG_DBG("Battery ADC sample: raw=%u mv=%d elapsed=%lu ms charging=%u", peak, millivolts,
+                (unsigned long)diagnostics.elapsed_ms, (unsigned)charge);
   }
 #endif
   if (failed) {

@@ -355,3 +355,48 @@ Actual sampled acquisition durations are not a separate measurement of the
 READ_RAW_DONE phase or peak resource usage. Watchdog PC/LR samples are resolved
 against the exact final ELF in the evidence directory; they do not establish
 root cause.
+
+## Fitted 100 mAh cell — 8 November 2026
+
+The operator reports a connected 401230 100 mAh cell, code BOGJSJWB6S,
+with characteristics matching the [YDL401230 reference](https://ydlbattery.com/en-gb/products/3-7v-100mah-401230-lithium-polymer-ion-battery).
+That reference specifies 3.7 V nominal, standard charge/discharge 0.2C
+(20 mA), maximum 0.5C (50 mA). This is an operator-selected working
+specification, not an independently identified manufacturer datasheet for
+BOGJSJWB6S.
+
+The [Waveshare schematic](https://files.waveshare.com/wiki/T5-E1-Touch-AMOLED-1.75/T5-E1-Touch-AMOLED-1.75_schematic.pdf)
+shows U1 ETA6098 with R8 = 82 kohm on ISET. The
+[ETA6098 V1.1 datasheet](https://www.eta-semi.com/wp-content/uploads/2022/03/ETA6098_V1.1.pdf)
+specifies 2 A at 82 kohm, 200 mA preconditioning and 130 mA termination.
+These settings do not qualify a 50 mA maximum cell. Actual board component
+population and battery-side current have not been verified. Do not charge
+this cell through the stock circuit pending a compatible hardware charging
+solution. The AP has only the CHRG status input; its charge-enable and
+fast-charge setters cannot limit or disable the physical charger. Changing
+ISET resistance alone does not establish suitable preconditioning or termination.
+
+Battery driver and voltage-service integration already run in the production
+configuration. `CONFIG_T5AI_BATTERY_PROFILE=y` now enables existing sample
+logs despite the power profile's quiet-success selection, without enabling
+the shell, changing service cadence, adding a task, or changing charger
+hardware. Each successful log contains raw peak, converted millivolts,
+acquisition duration and CHRG state. CHRG is not independent USB detection.
+This option defaults off. Calibration logs do not measure battery current,
+temperature, capacity or state-of-charge accuracy.
+
+Host UART enumeration found both CH342 interfaces. An initial 90-second
+capture received zero bytes; a subsequent capture received CRC-valid watch
+logs on if02 at 460800 baud. No fitted-cell ADC sample or meter reference
+has yet been obtained. The existing voltage conversion, inherited Silk
+percentage curves, warning thresholds and runtime estimate remain unchanged;
+no calibration was invented from nominal capacity. The diagnostic candidate
+has not been flashed pending clarification of charging isolation.
+
+Evidence and build/test results are preserved in
+`/home/baz/Documents/ChatGPT/pebble/artifacts/battery-connected-20261108/`.
+Live qualification requires a UART connection that does not energize the
+incompatible charger, or a verified compatible hardware charging arrangement.
+Then capture samples with and without external power, compare against a meter
+at several voltages, and characterize normal-load discharge and low-battery
+behaviour before declaring production battery qualification complete.

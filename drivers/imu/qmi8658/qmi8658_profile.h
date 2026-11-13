@@ -9,6 +9,7 @@
 #endif
 static struct {
   uint32_t irq, watchdog, passes, acquired, delivered, drops, gaps, recoveries;
+  uint32_t direct_busy, empty, duplicates, gap_events, gap_max;
   uint32_t phase_max[6], phase_sum[6], fifo_count_max, catchups, irq_latency_max;
   uint32_t transfers, bytes, errors, io_ticks, fifo_max_ticks, latency_us, started, cpu_started,
       cpu, previous_cpu;
@@ -60,6 +61,18 @@ static inline void qmi_profile_watchdog(void) {
 }
 static inline void qmi_profile_gap(uint32_t n) {
   s_profile.gaps += n;
+  s_profile.gap_events += n != 0u;
+  if (n > s_profile.gap_max)
+    s_profile.gap_max = n;
+}
+static inline void qmi_profile_direct_busy(void) {
+  ++s_profile.direct_busy;
+}
+static inline void qmi_profile_empty(void) {
+  ++s_profile.empty;
+}
+static inline void qmi_profile_duplicate(void) {
+  ++s_profile.duplicates;
 }
 static inline void qmi_profile_drop(uint32_t n) {
   s_profile.drops += n;
@@ -94,6 +107,10 @@ static inline void qmi_profile_acquire_end(uint32_t n) {
       (unsigned long)s_profile.io_ticks, (unsigned long)s_profile.errors,
       (unsigned long)s_profile.drops, (unsigned long)s_profile.gaps,
       (unsigned long)s_profile.recoveries);
+  PBL_LOG_DBG("QMIEDGE busy=%lu empty=%lu duplicates=%lu gap_events=%lu gap_max=%lu",
+              (unsigned long)s_profile.direct_busy, (unsigned long)s_profile.empty,
+              (unsigned long)s_profile.duplicates, (unsigned long)s_profile.gap_events,
+              (unsigned long)s_profile.gap_max);
   const uint32_t cpu = prv_profile_cpu();
   PBL_LOG_DBG(
       "QMISTATE interval_us=%lu batch=%lu shake=%lu age_us=%lu worker_cpu_ms=%lu fifo_max_us=%lu irq_req_max_us=%lu",
@@ -102,6 +119,8 @@ static inline void qmi_profile_acquire_end(uint32_t n) {
       (unsigned long)(cpu - s_profile.previous_cpu),
       (unsigned long)((uint64_t)s_profile.fifo_max_ticks * 1000000u / T5AI_AON_RTC_HZ),
       (unsigned long)((uint64_t)s_profile.irq_latency_max * 1000000u / T5AI_AON_RTC_HZ));
+  PBL_LOG_DBG("QMIWOM state active=%u configured=%u failed=%u", s_dev->state->wom_active,
+              s_dev->state->wom_configured, s_dev->state->wom_failed);
   PBL_LOG_DBG("QMIFIFO max_ticks prep=%lu req=%lu ack=%lu count=%lu data=%lu resume=%lu frames=%lu",
               (unsigned long)s_profile.phase_max[0], (unsigned long)s_profile.phase_max[1],
               (unsigned long)s_profile.phase_max[2], (unsigned long)s_profile.phase_max[3],
@@ -128,6 +147,9 @@ static inline void qmi_profile_acquire_end(uint32_t n) {
 #define qmi_profile_catchup()               ((void)0)
 #define qmi_profile_irq()                   ((void)0)
 #define qmi_profile_watchdog()              ((void)0)
+#define qmi_profile_direct_busy()           ((void)0)
+#define qmi_profile_empty()                 ((void)0)
+#define qmi_profile_duplicate()             ((void)0)
 #define qmi_profile_gap(n)                  ((void)0)
 #define qmi_profile_drop(n)                 ((void)0)
 #define qmi_profile_recovery()              ((void)0)

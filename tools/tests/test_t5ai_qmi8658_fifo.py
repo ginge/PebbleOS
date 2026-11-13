@@ -132,9 +132,15 @@ static bool fifo_read, read_output, inject_irq, command_pending;
 static unsigned ack_reads;
 static bool request_pending;
 static bool pad_high;
-static uint8_t configured_odr;
+static uint8_t configured_odr, configured_ctrl2, configured_ctrl7, cal_l, cal_h, wom_status;
+static unsigned wom_entries, wom_exits, sensor_resets;
+static bool hardware_wom, fail_wom_once, stuck_high;
 static unsigned append_on_ack;
 static unsigned shakes;
+static int16_t sample_xraw = 0x2000;
+static unsigned reconfigure_before_delivery;
+static int set_count(unsigned n);
+static int set_shake(bool on);
 static bool fail_disable;
 static uint64_t delivered_last;
 static void (*queued)(void *);
@@ -146,7 +152,12 @@ static const struct pbl_qmi8658 sensor={.state=&sensor_state,.int2_gpio={.pin=9}
 static unsigned class_locked;
 void pbl_mutex_init(struct pbl_mutex *m){m->held=0;}
 void pbl_sem_init(struct pbl_sem *s,unsigned count,unsigned limit){(void)limit;s->count=count;}
-void pbl_accel_lock(const struct pbl_accel *a){(void)a;++class_locked;}
+void pbl_accel_lock(const struct pbl_accel *a){
+ (void)a;++class_locked;
+ unsigned change=reconfigure_before_delivery; reconfigure_before_delivery=0;
+ if(change==1) assert(set_count(1)==0);
+ if(change==2) { assert(set_count(0)==0); assert(set_shake(false)==0); }
+}
 void pbl_accel_unlock(const struct pbl_accel *a){(void)a;assert(class_locked);--class_locked;}
 void new_timer_delete(TimerID id){(void)id;}
 static int set_count(unsigned n){pbl_accel_lock(&sensor.accel);int ret=pbl_qmi8658_ops.set_num_samples(&sensor.accel,n);pbl_accel_unlock(&sensor.accel);return ret;}
@@ -165,7 +176,7 @@ void pbl_sem_give(struct pbl_sem *s) { assert(!irq_depth); assert(!s->count); ++
 int pbl_thread_create(struct pbl_thread *t, const struct pbl_thread_attr *a) {
  (void)t; assert(a->prio==3 && a->entry==prv_poll_entry); ++created; return 0;
 }
-int pbl_gpio_get_raw(const struct pbl_gpio *c) { assert(c->pin==9); return pad_high; }
+int pbl_gpio_get_raw(const struct pbl_gpio *c) { assert(c->pin==9); return pad_high || stuck_high; }
 int pbl_intc_disable(const struct pbl_irq_spec *c) { assert(c->hwirq==9); irq_enabled=false; return 0; }
 int pbl_intc_enable(const struct pbl_irq_spec *c) { assert(c->hwirq==9); irq_enabled=true; return 0; }
 int pbl_gpio_configure(const struct pbl_gpio *c,uint32_t f){assert(c->pin==9);return 0;}
@@ -173,21 +184,32 @@ int pbl_intc_request(const struct pbl_irq_spec *c,void (*cb)(void *),void *arg){
 int pbl_intc_free(const struct pbl_irq_spec *c){return 0;}
 int pbl_i2c_write(const struct pbl_i2c_dev *b, const uint8_t *p, size_t n) {
  (void)b; assert(sensor_state.io_lock.held && !irq_depth && n==2); ++io;
- if(p[0]==QMI8658_CTRL2) configured_odr=p[1]&15;
+ if(p[0]==QMI8658_CTRL2) { configured_odr=p[1]&15; configured_ctrl2=p[1]; }
+ if(p[0]==QMI8658_CTRL7) configured_ctrl7=p[1];
+ if(p[0]==QMI8658_CAL1_L) cal_l=p[1];
+ if(p[0]==QMI8658_CAL1_H) cal_h=p[1];
+ if(p[0]==QMI8658_RESET) { ++sensor_resets; hardware_wom=false; command_pending=false; ack_reads=0; }
  if(fail_disable && p[0]==QMI8658_CTRL7 && !p[1]) return -EIO;
  if(p[0]==QMI8658_CTRL9) {
   if(!p[1] && command_pending) ack_reads=3;
   if(p[1]) command_pending=true;
  }
  if (p[0]==QMI8658_CTRL9 && p[1]) {
-   assert(p[1]==4 || p[1]==5); ++commands;
+   assert(p[1]==4 || p[1]==5 || p[1]==8); ++commands;
+   if(p[1]==8) {
+     assert(!configured_ctrl7 && (cal_h>>6)==1);
+     hardware_wom=cal_l!=0;
+     if(hardware_wom) { assert(cal_l==32 && configured_odr==QMI8658_ODR_LOW_POWER_21HZ && cal_h==0x41); ++wom_entries; }
+     else ++wom_exits;
+     if(fail_wom_once) { fail_wom_once=false; return -EIO; }
+   }
    if(p[1]==5) request_pending=true;
    if(p[1]==4) { assert(configured_odr==QMI8658_ODR_125HZ); fifo_bytes=0; fifo_status=0; }
  }
  if(p[0]==QMI8658_FIFO_CTRL) fifo_read=false;
  return 0;
 }
-static void raw(uint8_t *p) { p[0]=0; p[1]=0x20; p[2]=0; p[3]=0x10; p[4]=0; p[5]=0xe0; }
+static void raw(uint8_t *p) { p[0]=(uint16_t)sample_xraw; p[1]=(uint16_t)sample_xraw>>8; p[2]=0; p[3]=0x10; p[4]=0; p[5]=0xe0; }
 static void stamp(uint8_t *p) { p[0]=counter; p[1]=counter>>8; p[2]=counter>>16; }
 int pbl_i2c_burst_read(const struct pbl_i2c_dev *b, uint8_t reg, uint8_t *p, unsigned n) {
  (void)b; ++io; memset(p,0,n);
@@ -210,6 +232,9 @@ int pbl_i2c_burst_read(const struct pbl_i2c_dev *b, uint8_t reg, uint8_t *p, uns
  case QMI8658_STATUS0:
    *p=ready;
    if(n==13) { stamp(p+2); raw(p+7); } break;
+ case QMI8658_STATUS1: assert(n==1 && hardware_wom); p[0]=wom_status; wom_status=0; pad_high=false; break;
+ case QMI8658_CTRL2: assert(n==1); p[0]=configured_ctrl2; break;
+ case QMI8658_CTRL7: assert(n==1); p[0]=configured_ctrl7; break;
  case QMI8658_AX_L: read_output=true; raw(p); break;
  case QMI8658_FIFO_COUNT:
    assert(n==2); p[0]=fifo_bytes/2; p[1]=((fifo_bytes/2)>>8)|fifo_status; break;
@@ -243,7 +268,7 @@ void pbl_accel_report_samples(const struct pbl_accel *a,const AccelRawBatch *b) 
   assert(!delivered || ts>delivered_last); delivered_last=ts; ++delivered;
  }
 }
-void pbl_accel_report_event(const struct pbl_accel *a,const struct pbl_accel_event *e) { (void)a; (void)e; assert(class_locked); ++shakes; }
+void pbl_accel_report_event(const struct pbl_accel *a,const struct pbl_accel_event *e) { (void)a; (void)e; assert(class_locked && !sensor_state.io_lock.held); ++shakes; }
 static void acquire(bool interrupt) {
  unsigned old=io;
  if(interrupt) prv_int2_handler(nullptr); else { now_ms+=timer_ms; prv_timer_callback(NULL); }
@@ -283,12 +308,94 @@ int main(void) {
  assert(pm.id==5 && pm.revision==0x7c);
 #endif
  assert(sensor_state.initialized && created==1 && !sensor_state.active);
+#ifdef QMI8658_WOM_TEST
+ // Quiet shake-only operation enters WOM; streams never do.
+ set_interval(32000); set_shake(true); sensor_state.shake_sensitivity_high=true;
+ now_ms=65500; // Quiet timing must cross the 16-bit millisecond wrap.
+ for(unsigned i=0;i<200;++i) { samples(1); acquire(true); }
+ assert(sensor_state.wom_active && hardware_wom && irq_enabled && timer_ms==5000);
+ assert(wom_entries==1 && !queued && !delivered && sensor_state.shake_baseline_valid);
+ const int32_t old_baseline=sensor_state.shake_baseline[0];
+ // Quiet health passes neither fabricate samples/shakes nor recover a healthy sensor.
+ unsigned before_shakes=shakes, before_io=io;
+ acquire(false);
+ assert(io==before_io+3 && sensor_state.wom_active && !sensor_state.recovery_required);
+ assert(shakes==before_shakes && !sensor_state.poll_pending && irq_enabled);
+ // A stuck-high pad allows one catchup, never a read loop.
+ stuck_high=true; acquire(false);
+ assert(sensor_state.poll_signal.count==1);
+ pbl_sem_take(&sensor_state.poll_signal,PBL_FOREVER); prv_acquire_sample();
+ assert(!sensor_state.poll_signal.count && !sensor_state.poll_pending && irq_enabled);
+ stuck_high=false;
+ // Lost edge with latched STATUS1 is recovered on the health pass.
+ wom_status=4; pad_high=true; acquire(false);
+ assert(!hardware_wom && !sensor_state.wom_active && wom_exits==1 && timer_ms==100);
+ assert(sensor_state.shake_baseline_valid && sensor_state.shake_baseline[0]==old_baseline);
+ assert(shakes==before_shakes && !queued); // WOM alone is not a shake.
+ sample_xraw=0x4000; now_ms+=110; samples(1); acquire(true);
+ assert(shakes==before_shakes+1); // First settled motion can use the pre-WOM baseline.
+ // Return to WOM, then a data subscriber must exit before enabling the FIFO.
+ for(unsigned i=0;i<200;++i) { samples(1); acquire(true); }
+ assert(sensor_state.wom_active);
+ set_count(3); assert(!sensor_state.wom_active && !hardware_wom && sensor_state.watermark==1);
+ set_shake(false); assert(sensor_state.watermark==3);
+ for(unsigned i=0;i<4;++i) { now_ms+=1500; samples(3); acquire(true); deliver(); }
+ assert(!sensor_state.wom_active);
+ // Fresh peek cannot return the last pre-WOM sample as current data.
+ set_count(0); set_shake(true);
+ for(unsigned i=0;i<200;++i) { samples(1); acquire(true); }
+ assert(sensor_state.wom_active); before_io=io;
+ AccelDriverSample peek_wom; assert(read_sample(&peek_wom)==0);
+ assert(io>before_io && read_output && !hardware_wom && !sensor_state.wom_active);
+ // Disabling from WOM must fully exit and stop all sensor work.
+ for(unsigned i=0;i<200;++i) { samples(1); acquire(true); }
+ assert(sensor_state.wom_active); set_shake(false);
+ assert(!hardware_wom && !sensor_state.wom_active && !irq_enabled && !timer_ms);
+ set_shake(true);
+ // Partial entry is undone and failure suppresses re-entry until reboot.
+ fail_wom_once=true;
+ for(unsigned i=0;i<200 && !sensor_state.recovery_required;++i) { samples(1); acquire(true); }
+ assert(sensor_state.wom_failed && sensor_state.wom_configured && sensor_state.recovery_required && !irq_enabled);
+ acquire(false); assert(!hardware_wom && !sensor_state.wom_configured && !sensor_state.recovery_required);
+ for(unsigned i=0;i<200;++i) { samples(1); acquire(true); }
+ assert(!sensor_state.wom_active && irq_enabled);
+ // A failed exit resets only the sensor, then restores the requested stream.
+ sensor_state.wom_failed=false;
+ for(unsigned i=0;i<200;++i) { samples(1); acquire(true); }
+ assert(sensor_state.wom_active);
+ fail_wom_once=true; unsigned before_resets=sensor_resets;
+ set_count(3); assert(sensor_resets==before_resets+1 && !hardware_wom && !sensor_state.wom_active);
+ assert(sensor_state.wom_failed && sensor_state.watermark==1 && irq_enabled);
+ // A reset/corrupted control register is detected by the WOM health check.
+ set_count(0); sensor_state.wom_failed=false;
+ for(unsigned i=0;i<200;++i) { samples(1); acquire(true); }
+ assert(sensor_state.wom_active); configured_ctrl7=0;
+ acquire(false); assert(sensor_state.recovery_required && sensor_state.wom_failed && !irq_enabled && timer_ms==100);
+ acquire(false); assert(!hardware_wom && !sensor_state.wom_active && !sensor_state.recovery_required);
+ set_shake(false); assert(!sensor_state.active && !irq_enabled && !timer_ms);
+ return 0;
+#endif
+
+ // A first shake subscriber has no implicit 125 Hz data-client request.
+ assert(set_shake(true)==0 && sensor_state.interval_us==32000);
+ assert(sensor_state.shake_enabled && !sensor_state.num_samples && sensor_state.watermark==1);
+ assert(set_shake(false)==0 && !sensor_state.active && !irq_enabled && !timer_ms);
+ // Explicit high-rate requests still override the initial shake-only rate.
+ assert(set_interval(8000)==8000);
+ assert(set_shake(true)==0 && sensor_state.interval_us==8000);
+ assert(set_shake(false)==0 && !sensor_state.active);
  set_count(1); assert(sensor_state.active && sensor_state.watermark==1 && irq_enabled && timer_ms==100);
  now_ms+=100; samples(1); inject_irq=true; acquire(true); inject_irq=false;
- assert(queued && !irq_enabled); deliver(); assert(delivered==1 && irq_enabled);
+ // An edge during I/O must survive until delivery releases the raw slot.
+ assert(queued && irq_enabled);
+ void (*direct_cb)(void *)=queued; queued=NULL; direct_cb(queued_data);
+ assert(delivered==1 && sensor_state.poll_pending && sensor_state.poll_signal.count==1);
+ pbl_sem_take(&sensor_state.poll_signal,PBL_FOREVER); prv_acquire_sample();
+ // Same counter is suppressed; a high pad alone cannot keep work running.
+ assert(!queued && !sensor_state.poll_pending && !sensor_state.poll_signal.count && irq_enabled);
 #ifdef CONFIG_T5AI_POWER_PROFILE
  snapshot_io=io;t5ai_qmi8658_power_stats(&pm);
- assert(io==snapshot_io && pm.irqs>=2 && pm.passes==1 && pm.acquired==1);
+ assert(io==snapshot_io && pm.irqs>=2 && pm.passes==2 && pm.acquired==1);
  assert(pm.active && pm.watermark==1 && pm.irq_armed && pm.batch==1);
 #endif
  assert(sensor_state.last_sample.x==500 && sensor_state.last_sample.y==-1000 && sensor_state.last_sample.z==-1000);
@@ -385,6 +492,40 @@ int main(void) {
  a.x=300; a.timestamp_us+=32000; pbl_accel_lock(&sensor.accel); prv_detect_shake(&a); pbl_accel_unlock(&sensor.accel); assert(shakes==1);
  a.x=-300; a.timestamp_us+=32000; pbl_accel_lock(&sensor.accel); prv_detect_shake(&a); pbl_accel_unlock(&sensor.accel); assert(shakes==1);
  a.timestamp_us+=500000; pbl_accel_lock(&sensor.accel); prv_detect_shake(&a); pbl_accel_unlock(&sensor.accel); // Long gaps reset the baseline.
+ // Shake-only acquisition bypasses the offload queue, including when full.
+ set_count(0); set_interval(32000); set_shake(true);
+ now_ms+=100; samples(1); old=shakes; full=true; acquire(true);
+ assert(!queued && !sensor_state.poll_pending && irq_enabled && sensor_state.last_sample_valid);
+ sample_xraw=0x4000; samples(1); acquire(true);
+ assert(shakes==old+1 && !queued && !sensor_state.poll_pending && irq_enabled);
+ samples(1); acquire(true); assert(shakes==old+1); full=false;
+ // A data client joining between the I/O unlock and device lock invalidates
+ // the old raw slot, then receives subsequent samples through NewTimers.
+ samples(1); old=delivered; reconfigure_before_delivery=1; acquire(true);
+ assert(!reconfigure_before_delivery && sensor_state.num_samples==1 && queued);
+ deliver(); assert(delivered==old);
+ now_ms+=100; samples(1); acquire(true); assert(queued); deliver(); assert(delivered==old+1);
+ // Several pulses during deferred delivery coalesce into one follow-up.
+ samples(1); acquire(true); old=delivered; samples(1);
+ for(unsigned i=0;i<3;++i) { assert(irq_enabled); prv_int2_handler(nullptr); }
+ assert(!sensor_state.poll_signal.count);
+ direct_cb=queued; queued=NULL; direct_cb(queued_data);
+ assert(delivered==old+1 && sensor_state.poll_signal.count==1);
+ pbl_sem_take(&sensor_state.poll_signal,PBL_FOREVER); prv_acquire_sample();
+ pad_high=true; deliver(); pad_high=false;
+ assert(delivered==old+2 && !sensor_state.poll_signal.count);
+ // A transfer failure masks direct pulses until the bounded recovery pass.
+ samples(1); fail_read=true; inject_irq=true; acquire(true);
+ fail_read=false; inject_irq=false;
+ assert(sensor_state.recovery_required && !irq_enabled && !queued && !sensor_state.poll_signal.count);
+ acquire(false); assert(!sensor_state.recovery_required && irq_enabled && !sensor_state.direct_edge_pending);
+ // Disable discards a busy pulse and cannot schedule stale raw-slot work.
+ samples(1); acquire(true); prv_int2_handler(nullptr); set_count(0); set_shake(false);
+ deliver(); assert(!sensor_state.poll_signal.count && !irq_enabled);
+ set_shake(true);
+ // Disabling in the same window cannot re-arm the interrupt or a timer.
+ set_count(0); now_ms+=100; samples(1); reconfigure_before_delivery=2; acquire(true);
+ assert(!queued && !sensor_state.active && !sensor_state.poll_pending && !irq_enabled && !timer_ms);
  return 0;
 }
 """
@@ -396,6 +537,12 @@ class QMI8658FifoTest(unittest.TestCase):
 
     def test_sparse_power_state(self):
         self.run_driver(["-DCONFIG_T5AI_POWER_PROFILE=1"])
+
+    def test_wom_entry_exit_clients_and_fallback(self):
+        self.run_driver(["-DCONFIG_T5AI_QMI8658_WOM=1", "-DQMI8658_WOM_TEST=1"])
+
+    def test_wom_with_existing_transitions(self):
+        self.run_driver(["-DCONFIG_T5AI_QMI8658_WOM=1"])
 
     def test_disabled(self):
         self.run_driver(["-DCONFIG_T5AI_ACCEL_DISABLED=1"])

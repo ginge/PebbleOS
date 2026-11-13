@@ -95,7 +95,7 @@ static __attribute__((unused)) void begin(void){context=1;battery_init();unavail
 
 
 class T5AIBatteryTest(unittest.TestCase):
-    def run_driver(self, checks, profile=False, quiet=False):
+    def run_driver(self, checks, profile=False, quiet=False, battery_profile=False):
         headers = {
             n: ""
             for n in re.findall(r'#include [<"]([^>"\n]+)[>"]', DRIVER.read_text())
@@ -106,6 +106,7 @@ class T5AIBatteryTest(unittest.TestCase):
         ).read_text()
         run_c(
             ("#define CONFIG_T5AI_POWER_PROFILE 1\n" if profile else "")
+            + ("#define CONFIG_T5AI_BATTERY_PROFILE 1\n" if battery_profile else "")
             + ("#define CONFIG_T5AI_BATTERY_QUIET_SUCCESS 1\n" if quiet else "")
             + HARNESS.replace("DRIVER_SOURCE", '"' + str(DRIVER) + '"')
             + "\nint main(void){\n"
@@ -127,6 +128,15 @@ class T5AIBatteryTest(unittest.TestCase):
                     profile=profile,
                     quiet=quiet,
                 )
+
+    def test_battery_profile_preserves_quiet_configuration_and_sampling(self):
+        self.run_driver(r"""
+ begin();done(0,2200);tick();drain();
+ assert(sampled_logs==1 && requests==1 && updates==2);
+ tick();assert(!work && requests==1);
+ now+=60000;unavailable();done(E_ERROR,0);tick();drain();
+ assert(failed_logs==1 && sampled_logs==1);
+""", quiet=True, battery_profile=True)
 
     def test_startup_demand_coalescing_and_freshness(self):
         self.run_driver(r"""
