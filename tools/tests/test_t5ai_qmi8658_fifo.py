@@ -128,7 +128,7 @@ static unsigned irq_depth, io, delivered, batches, wakes, created, timer_ms, com
 static uint32_t now_ms = 1000, counter = 100;
 static unsigned fifo_bytes, fifo_status;
 static bool irq_enabled, command_done = true, ready = true, fail_read, full;
-static bool fifo_read, read_output, inject_irq, command_pending;
+static bool fifo_read, read_output, inject_irq, command_pending, vary_fifo;
 static unsigned ack_reads;
 static bool request_pending;
 static bool pad_high;
@@ -142,6 +142,8 @@ static unsigned reconfigure_before_delivery;
 static int set_count(unsigned n);
 static int set_shake(bool on);
 static bool fail_disable;
+static unsigned config_stops;
+static uint8_t fail_odr_once;
 static uint64_t delivered_last;
 static void (*queued)(void *);
 static void *queued_data;
@@ -184,6 +186,8 @@ int pbl_intc_request(const struct pbl_irq_spec *c,void (*cb)(void *),void *arg){
 int pbl_intc_free(const struct pbl_irq_spec *c){return 0;}
 int pbl_i2c_write(const struct pbl_i2c_dev *b, const uint8_t *p, size_t n) {
  (void)b; assert(sensor_state.io_lock.held && !irq_depth && n==2); ++io;
+ if(p[0]==QMI8658_CTRL7 && !p[1]) ++config_stops;
+ if(p[0]==QMI8658_CTRL2 && fail_odr_once && (p[1]&15)==fail_odr_once) { fail_odr_once=0; return -EIO; }
  if(p[0]==QMI8658_CTRL2) { configured_odr=p[1]&15; configured_ctrl2=p[1]; }
  if(p[0]==QMI8658_CTRL7) configured_ctrl7=p[1];
  if(p[0]==QMI8658_CAL1_L) cal_l=p[1];
@@ -241,7 +245,7 @@ int pbl_i2c_burst_read(const struct pbl_i2c_dev *b, uint8_t reg, uint8_t *p, uns
  case QMI8658_TIMESTAMP: assert(false); break;
  case QMI8658_FIFO_DATA:
    assert(!command_pending && !ack_reads && fifo_read && n==fifo_bytes && n<=sizeof(sensor_state.raw));
-   for(unsigned i=0;i<n;i+=6) raw(p+i);
+   for(unsigned i=0;i<n;i+=6) { raw(p+i); if(vary_fifo) p[i+3]+=i/6; }
    fifo_bytes=0; fifo_status=0; break;
  default: assert(false);
  }
@@ -308,6 +312,46 @@ int main(void) {
  assert(pm.id==5 && pm.revision==0x7c);
 #endif
  assert(sensor_state.initialized && created==1 && !sensor_state.active);
+#ifdef QMI8658_CONFIG_TEST
+ // Shake and its clamped/restored ODR are applied in one hardware transaction.
+ set_interval(333000);
+ unsigned stops=config_stops;
+ assert(set_shake(true)==0 && config_stops==stops+1);
+ assert(sensor_state.interval_us==32000 && sensor_state.requested_interval_us==333000);
+ stops=config_stops;
+ assert(set_shake(false)==0 && config_stops==stops+1 && sensor_state.interval_us==333000);
+ set_count(3); stops=config_stops;
+ assert(set_shake(true)==0 && config_stops==stops+1 && sensor_state.watermark==1);
+ // Failure at the final ODR restores the whole previous configuration once.
+ stops=config_stops; fail_odr_once=QMI8658_ODR_LOW_POWER_3HZ;
+ assert(set_shake(false)==-EIO && !fail_odr_once && config_stops==stops+2);
+ assert(sensor_state.shake_enabled && sensor_state.num_samples==3);
+ assert(sensor_state.interval_us==32000 && sensor_state.requested_interval_us==333000);
+ assert(sensor_state.watermark==1 && irq_enabled && !sensor_state.recovery_required);
+ // An interval failure must not publish the rejected client request.
+ uint32_t actual=0; fail_odr_once=QMI8658_ODR_62_5HZ;
+ pbl_accel_lock(&sensor.accel);
+ assert(pbl_qmi8658_ops.set_sampling_interval(&sensor.accel,16000,&actual)==-EIO);
+ pbl_accel_unlock(&sensor.accel);
+ assert(actual==32000 && sensor_state.requested_interval_us==333000);
+ assert(sensor_state.shake_enabled && !sensor_state.recovery_required);
+ // Rotation drains a queued batch once, keeps the requested FIFO mode, and does no bus I/O.
+ set_shake(false); set_interval(8000); now_ms+=100; samples(3); acquire(true);
+ unsigned before=delivered, before_io=io, before_commands=commands;
+ assert(set_rotated(true)==0 && delivered==before+3 && io==before_io && commands==before_commands);
+ assert(!sensor_state.last_sample_valid && sensor_state.watermark==3 && timer_ms==100);
+ deliver(); assert(delivered==before+3 && irq_enabled);
+ vary_fifo=true;
+ now_ms+=100; samples(3); acquire(true); deliver();
+ assert(sensor_state.last_sample.x==-562 && sensor_state.last_sample.y==1000);
+ AccelDriverSample latest; before_io=io;
+ assert(read_sample(&latest)==0 && io==before_io && latest.x==-562);
+ // Settling discards only the first part of a batch; raw delivery and newest cache agree.
+ samples(3); sensor_state.startup_us=(uint64_t)now_ms*1000u-108000u;
+ before=delivered; acquire(true); deliver();
+ assert(delivered==before+2 && sensor_state.last_sample.x==-562);
+ return 0;
+#endif
 #ifdef QMI8658_WOM_TEST
  // Quiet shake-only operation enters WOM; streams never do.
  set_interval(32000); set_shake(true); sensor_state.shake_sensitivity_high=true;
@@ -341,6 +385,13 @@ int main(void) {
  set_shake(false); assert(sensor_state.watermark==3);
  for(unsigned i=0;i<4;++i) { now_ms+=1500; samples(3); acquire(true); deliver(); }
  assert(!sensor_state.wom_active);
+ // Rotation while in WOM retains its qualified exit/restart behavior.
+ set_count(0); set_shake(true);
+ for(unsigned i=0;i<200;++i) { samples(1); acquire(true); }
+ assert(sensor_state.wom_active);
+ assert(set_rotated(true)==0 && !sensor_state.wom_active && !hardware_wom);
+ assert(!sensor_state.shake_baseline_valid && !sensor_state.last_sample_valid);
+ before_io=io; assert(set_rotated(false)==0 && io==before_io);
  // Fresh peek cannot return the last pre-WOM sample as current data.
  set_count(0); set_shake(true);
  for(unsigned i=0;i<200;++i) { samples(1); acquire(true); }
@@ -439,8 +490,11 @@ int main(void) {
  fail_disable=true; assert(read_sample(&peek)==-EIO && sensor_state.recovery_required && timer_ms);
  fail_disable=false; acquire(false);
  assert(!sensor_state.active && !sensor_state.recovery_required && !timer_ms && !irq_enabled);
+ // Rotation is software-only, including in standby; it cannot cause a bus fault.
+ old=io; fail_disable=true; assert(set_rotated(true)==0 && io==old);
+ assert(!sensor_state.recovery_required && !timer_ms); set_rotated(false);
  // Configuration failure while inactive must also start recovery.
- fail_disable=true; set_rotated(true);
+ assert(set_count(1)==-EIO && sensor_state.num_samples==0);
  assert(sensor_state.recovery_required && timer_ms);
  fail_disable=false; acquire(false); assert(!timer_ms); set_rotated(false);
  set_count(3); now_ms+=100; samples(3);
@@ -469,10 +523,10 @@ int main(void) {
  set_shake(false); assert(sensor_state.interval_us==333000 && sensor_state.watermark==3);
  const uint32_t request[]={8000,16000,32000,48000,91000,333000};
  for(unsigned i=0;i<6;++i) assert(set_interval(request[i])==request[i]);
- // Counter wrap does not duplicate timestamps; rotation invalidates old samples.
+ // Counter wrap does not duplicate timestamps; rotation invalidates old samples without I/O.
  set_interval(8000); now_ms+=100; counter=0xfffffe; samples(3);
  acquire(true); deliver(); samples(3); acquire(true); deliver();
- set_rotated(true); assert(!sensor_state.last_sample_valid);
+ old=io; set_rotated(true); assert(!sensor_state.last_sample_valid && io==old);
  now_ms+=100; samples(3); acquire(true); deliver();
  assert(sensor_state.last_sample.x==-500 && sensor_state.last_sample.y==1000 && sensor_state.last_sample.z==-1000);
  // Startup transient suppression also applies after recovery/reconfiguration.
@@ -543,6 +597,9 @@ class QMI8658FifoTest(unittest.TestCase):
 
     def test_wom_with_existing_transitions(self):
         self.run_driver(["-DCONFIG_T5AI_QMI8658_WOM=1"])
+
+    def test_configuration_transactions_and_software_rotation(self):
+        self.run_driver(["-DCONFIG_T5AI_QMI8658_WOM=1", "-DQMI8658_CONFIG_TEST=1"])
 
     def test_disabled(self):
         self.run_driver(["-DCONFIG_T5AI_ACCEL_DISABLED=1"])

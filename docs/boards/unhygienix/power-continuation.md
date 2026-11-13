@@ -1,3 +1,9 @@
+> 13 November update: default QMI WOM and the cleanup build are installed;
+> final wake/control checks, 32 AP sleep returns and encrypted phone recovery pass.
+> Current policy, identities and remaining qualification are in
+> [current status](current-status.md), [sensor review](sensor-power-review.md) and
+> [power TODO](power-todo.md). Dated plans below retain their original limits.
+
 > Historical continuation audit. Installed-state and CP-sleep plans below are
 > superseded by [current status](current-status.md) and the
 > [CP-awake AP-only policy](ap-only-sleep.md). Findings remain preserved.

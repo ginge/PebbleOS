@@ -1,8 +1,49 @@
 # QMI8658 acquisition on Unhygienix
 
-> Current project status (22 October 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
+> Current project status (13 November 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
 
-Status: **complete for now**, closed at the operator’s request on 2026-10-14.
+## Current driver and installation — 13 November 2026
+
+Normal AP build `4545e34ad182f3f80411b93f46c2dbdf364a9e5f` is installed.
+The operator confirms first-gesture wake from dim, touch and buttons normal.
+UART verifies reset sources AP=0/CP=0, sleep contract 0x78f, 32 retained-sleep
+returns with zero CP transition/fault deltas, SD and encrypted phone recovery.
+Exact hashes and proof limits are in [current status](current-status.md);
+frozen images, exact source and stopped captures are under reference-workspace
+`artifacts/qmi-cleanup-20261113`. No electrical saving is established.
+
+`CONFIG_T5AI_QMI8658_WOM=y` is the board default. With shake enabled and no sample
+clients, five quiet seconds within 32 mg of the software gravity baseline enters
+21 Hz / 4 g WOM on INT2. Motion exits through the bounded CTRL9 handshake and
+restores ordinary sampling and the existing software detector. WOM creates no
+synthetic shake/sample. The pre-WOM baseline/holdoff and 100 ms startup settling
+are retained. Sample clients bypass WOM; fresh peek exits and takes a settled
+sample. Failed WOM setup/health latches continuous fallback for that boot;
+failed exit may reset the sensor only.
+
+Quiet WOM checks health every five seconds, with immediate motion IRQ service.
+A lost interrupt or sensor fault can wait one health interval for detection.
+The continuous sampling watchdog remains max(100 ms, two watermark periods);
+no additional streaming-watchdog backoff was implemented. The five-second WOM
+callback rate is 50 times lower than the 100 ms streaming minimum, not a measured
+whole-device power reduction. Broader gesture latency/sensitivity, client and
+concurrent-load, electrical and long-term qualification remains open.
+
+The cleanup keeps configuration and rollback in one transaction, derives the
+final shake/rate before hardware writes, and separates direct, FIFO and WOM bus
+paths. Rotation outside WOM resets sample/baseline bookkeeping without register
+I/O; WOM rotation retains its exit/restart behavior. With shake off, only the
+newest settled FIFO sample is decoded for the cache; every eligible raw sample
+is still reported with its original timestamp. Quiet and shake baseline-update
+order is unchanged. Diagnostic code is isolated in `qmi8658_profile.h` and the
+optional `qmi8658_self_test.h`; experiment state is allocated only for self-test.
+Normal text is 48 bytes smaller than the preceding WOM-default image; data/BSS
+and configuration are unchanged. CP frequency/closed settings and shared code
+are untouched.
+
+## Historical October implementation checkpoint
+
+The October implementation was **complete for now**, closed at the operator’s request on 2026-10-14.
 The implementation iteration is closed. The
 [remaining-work TODO](../../../boards/unhygienix/tuya/REMAINING_TASKS.md) now tracks
 an exploratory follow-up to measure idle versus active CPU cost and investigate
@@ -59,8 +100,9 @@ revisions. Watch FIFO count 0x0c with status 0x50 confirms four accel frames.
 CTRL1 bit 2 routes the watermark to INT2. CTRL9 commands 0x04/0x05 reset/request
 the FIFO; ACK is 0. Clearing FIFO_CTRL bit 7 resumes writes and deasserts the
 watermark after draining. Read mode discards new conversions, so its duration
-must stay below an ODR period. The T5AI HAL uses byte interrupts and blocks the
-caller on a completion semaphore; it does not provide an I2C DMA path.
+must stay below an ODR period. The T5AI HAL blocks the caller on a completion semaphore and has no supported
+I2C DMA path. The installed controller uses bounded receive-FIFO interrupts
+with a twelve-byte maximum; historical byte-mode comparisons appear below.
 
 The output timestamp is a 24-bit conversion counter, not a clock. Watch revision
 7c leaves this counter frozen in FIFO mode. FIFO batches therefore use host RTC
@@ -69,8 +111,9 @@ and wrap handling. A frozen FIFO counter must never reject successive batches.
 
 ## Acquisition and recovery
 
-The ISR masks the pin, coalesces a single pending acquisition and gives a
-semaphore. A raw slot remains owned until service processing finishes. No bus
+The ISR coalesces a pending acquisition and gives a semaphore. Direct-mode
+INT2 pulses remain armed while the raw slot is busy and coalesce into one
+followup. FIFO/WOM paths mask the pad and use bounded catchup/rearming. A raw slot remains owned until service processing finishes. No bus
 work occurs in the ISR or NewTimer callback. Combined register reads reduce
 transfer completion wakeups. The FIFO uses a 16-frame hardware buffer, a maximum
 four-frame watermark and a bounded six-frame host buffer to limit drain time at
@@ -85,7 +128,7 @@ restores standby and the requested ODR. All six original rounded rate choices
 remain: 8, 16, 32, 48, 91 and 333 ms.
 
 Malformed counts, overflow and I2C/command failures trigger bounded recovery.
-The watchdog runs at max(100 ms, two watermark periods), skips acquisitions
+The continuous-mode watchdog runs at max(100 ms, two watermark periods), skips acquisitions
 when interrupts are progressing, and resets a persistently stuck stream after
 three missed-edge passes. A delayed watermark may receive one catch-up pass per real edge/watchdog
 pass after at least one conversion period since the last drain. A pin still high
@@ -103,13 +146,14 @@ a low-power ODR, because low-power settings slow command processing too.
 and service-processing counters; it defaults to `n`. The explicit diagnostic
 CMake override `-DT5AI_QMI8658_SELF_TEST=ON` requires profiling. The current
 diagnostic compares a status precheck against an IRQ-proven watermark, exercises FIFO batch/rate combinations, then restores the original
-configuration. It skips the standby phase used in the earlier failed experiment. Keep it OFF
+configuration. Its code/state live in `qmi8658_self_test.h`; profiling alone
+does not allocate experiment state. It skips the standby phase used in the earlier failed experiment. Keep it OFF
 for normal firmware.
 
 Focused verification:
 
 ```
-python3 -m unittest tools.tests.test_t5ai_qmi8658_fifo tools.tests.test_t5ai_i2c
+ASAN_OPTIONS=detect_leaks=0 python3 -m unittest tools.tests.test_t5ai_qmi8658_fifo tools.tests.test_t5ai_sensor_startup tools.tests.test_t5ai_i2c -v
 ```
 
 The tests compile actual driver C with modeled I2C and scheduler operations,
@@ -117,6 +161,12 @@ strict warnings and address/undefined-behavior sanitizers. Coverage includes
 all rate selections, axis mapping/units, timestamp wrap and frozen FIFO counters,
 shake filtering, queue pressure, stale callbacks, reconfiguration, peek,
 overflow/malformed counts, command timeouts and bounded watchdog recovery.
+The 13 November suite passes eleven tests, including single-transaction settings,
+failed-ODR rollback, zero-I/O rotation/stale delivery, distinct FIFO cache samples,
+partial startup trimming, WOM entry/exit/health/client/peek/fallback and timer wrap.
+Profiling and optional self-test also compile against real ARM headers. These
+host checks supplement the bounded hardware checks above; they do not establish
+lossless FIFO acquisition, electrical savings or release qualification.
 
 Hardware evidence and image/source hashes are retained under
 `build/traces/qmi-fifo-20261012/`. Failed experiments remain there too; the first
@@ -428,6 +478,8 @@ Normal restoration flashed successfully: build `bcad5e1e28b14f07aba9e994cd74eba1
 
 The source default now enables `CONFIG_T5AI_I2C_RX_FIFO`, with
 `CONFIG_T5AI_I2C_RX_FIFO_LIMIT4` disabled (twelve-byte maximum). This default-only
-change has not been flashed; the last verified watch image remains the one above.
+change was unflashed at that October checkpoint. The November normal cleanup
+image above has twelve-byte receive FIFO enabled; historical measurements are
+not evidence of CPU or power improvement.
 Existing build configurations with an explicit disabled setting must enable the
 option to adopt the new default.

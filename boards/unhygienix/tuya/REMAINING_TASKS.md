@@ -13,6 +13,22 @@ The authoritative active lists are:
 - [Build and flash procedures](../../../docs/boards/unhygienix/tooling.md)
 - [Preserved investigation history](../../../docs/boards/unhygienix/power-investigation-history.md)
 
+## Sensor increment completed — 13 November 2026
+
+Normal AP-only cleanup build `4545e34ad182f3f80411b93f46c2dbdf364a9e5f` is
+installed with quiet-period WOM enabled by default. Configuration/rollback,
+direct/FIFO/WOM acquisition and diagnostics are separated; redundant configuration,
+rotation register I/O outside WOM and unnecessary FIFO decoding are removed.
+Eleven targeted sanitizer tests and ARM variants pass; linked text -48 B,
+data/BSS unchanged. Clean boot, 32 retained AP sleep returns, encrypted phone
+recovery and final operator first-wake/touch/button checks pass. CP frequency,
+closed settings, resources/PFS/bonds and shared code are unchanged.
+
+Broader gesture latency/sensitivity, client/concurrent-load, electrical and
+long-term qualification remain open. Streaming-watchdog backoff is a separate
+future experiment. See the [sensor review](../../../docs/boards/unhygienix/sensor-power-review.md)
+and [driver guide](../../../docs/boards/unhygienix/qmi8658_acquisition.md).
+
 ## CP/AP deployment gates
 
 - [x] Commit the layout, pinned alarm-server ABI/build recipe and default-on AP consumer in dependency order.

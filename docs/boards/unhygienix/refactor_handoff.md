@@ -1,6 +1,12 @@
 # Unhygienix stock-code refactor handoff — 2026-10-09
 
-> Current project status (22 October 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
+> Current project status (13 November 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
+
+13 November driver update: the installed QMI cleanup consolidates configuration/
+rollback, separates direct/FIFO/WOM acquisition and isolates diagnostics. Default
+WOM, retained AP sleep and normal controls pass bounded checks; see the
+[driver guide](qmi8658_acquisition.md) and [current status](current-status.md).
+The historical priority/polling/offload statements below describe their dates.
 
 Current-status update — 2026-10-17: this is a historical investigation and
 refactor record. Use the [operator handoff](current-status.md)

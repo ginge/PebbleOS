@@ -3,7 +3,15 @@
 The initial 31 October review was source-only; no sensor register, sampling,
 shake, display or installed firmware change was made during that Wi-Fi
 qualification. Later hardware increments and their limits are recorded below.
-No reliable sensor energy saving or fitted-silicon WOM qualification is claimed.
+Current normal AP `4545e34ad182f3f80411b93f46c2dbdf364a9e5f` includes default
+quiet-period WOM and the installed readability/avoidable-work cleanup. Bounded
+fitted 05/7c WOM entry/exit/INT2 and operator first-gesture checks pass, including
+final wake/touch/buttons on the normal cleanup image. UART verifies 32 AP sleep
+returns and encrypted phone recovery. Electrical savings, long-term sensitivity/
+latency and client/concurrent-load qualification remain open. See the November
+sections below and [current status](current-status.md) for exact identities.
+The source-only conclusions and required-work list immediately below describe
+the original 31 October review; they are superseded where the later evidence applies.
 
 ## Reference WOM helper is incomplete for the documented C procedure
 
@@ -26,7 +34,7 @@ new revision/interrupt evidence. Its current software shake needs every sample:
 watermark one and at most 32 ms sampling, with existing sensitivity/holdoff.
 Do not silently replace that gesture contract with a low-power WOM threshold.
 
-## Required next work
+## Original required work — 31 October (see November disposition below)
 
 1. Record fitted WHO_AM_I/revision and verify the corresponding command/status
    behavior in a separate qualification image or read-only diagnostic window.
@@ -318,3 +326,67 @@ Final installation, boot/return/protocol and operator checks are recorded in
 `result.json`. Every selected write is AP-only; resources/PFS/bonds are preserved.
 Broader first-motion sensitivity/latency, sample-client/concurrent-load, fault
 injection, electrical workload measurement and long-term soak remain open.
+
+
+## 13 November: QMI readability and avoidable-work cleanup
+
+The driver now separates direct acquisition, FIFO acquisition, quiet WOM service
+and partial-WOM teardown. Acquisition order, command/ACK/resume cleanup, bounded
+catchup, timestamp anchoring and recovery sequencing are retained. State remains
+compact: WOM-active, partial command configuration and fallback flags retain
+distinct meanings, including a partially applied WOM command. No new persistent production state is added.
+
+Rate selection is shared, and public rate/count/shake changes use one apply and
+rollback path. Shake changes derive their final clamped/restored ODR before
+configuration instead of configuring once and then configuring again for the
+ODR. Failed transactions restore rate, count and shake together; failed rollback
+still leaves recovery required. Requested intervals publish only after success.
+
+Rotation drains pending data once, advances the sample generation and resets
+cached samples, baseline, quiet tracking and startup settling in software.
+Outside WOM it performs no register I/O or timer restart. If a WOM command is
+configured, rotation keeps the prior exit/restart path to rebuild the baseline.
+Fresh standby/WOM peek reads share the same settled-read helper. With shake off,
+FIFO processing decodes only the newest settled sample for the peek cache; raw
+batch delivery, original timestamps and partial startup trimming are unchanged.
+Quiet classification and software-shake baseline updates retain their existing
+order; the separate quiet-path decode is intentionally retained.
+
+The optional automatic FIFO experiment is isolated in `qmi8658_self_test.h`;
+its state is private and allocated only when that experiment is compiled, rather
+than being present in every profiled device state. Profile instrumentation stays
+in its existing helper header. No automatic experiment is enabled in the normal
+candidate. The worker stack size and normal static state are unchanged.
+
+Eleven targeted ASan/UBSan tests pass. Added assertions cover one configuration
+pass for combined shake/rate changes, full rollback after a failed final ODR,
+rejected request publication, zero-I/O standby/stream rotation, pending batch
+flush exactly once, distinct FIFO frames/newest cache, partial startup trimming,
+and rotation from WOM. Existing missed-edge, busy-slot, FIFO recovery, first
+settled shake, WOM health/fallback, client and peek tests remain. Profiling and
+self-test variants compile with real ARM headers. Formatting, lint, image map,
+protected CRC, resource hash and linked SRAM wake-gate checks pass.
+
+Normal candidate `4545e34ad182f3f80411b93f46c2dbdf364a9e5f` has exactly the
+installed WOM-default configuration. Against frozen normal build `329155c5`,
+GNU size reports text 1,637,987 -> 1,637,939 bytes (-48), data 5,064 bytes and
+BSS 241,776 bytes (both unchanged). This is a linked image-size comparison;
+register-work reductions are host-model evidence. No electrical or watch runtime
+comparison was performed during development. Artifacts and exact
+source snapshots are in `artifacts/qmi-cleanup-20261113` in the reference
+workspace. Watchdog backoff remains a separate future experiment; current WOM
+and streaming timing, CP frequency/closed settings and shared code are unchanged.
+
+
+### Cleanup installation and boot smoke check
+
+After the first CH342 protocol-error attempt (before erase/write), the operator
+reconnected the adapter and AP-only programming of cleanup normal `4545e34a`
+succeeded in 32.6 s. Live UART received its full build ID, AP/CP reset sources
+0/0, 240 MHz active AP clock, contract 0x78f, SD startup, 32 retained-sleep
+returns with zero CP transition/clock/mask/resource/fault deltas and encrypted
+phone-session recovery. No further warm reset was needed. Capture is stopped
+at 6,970 bytes. The operator reports final first-gesture wake, touch and buttons
+all normal. This is a
+boot/sleep/protocol smoke check, not a matched workload or electrical comparison.
+`flash-result.json` retains exact checks; failed-attempt evidence is preserved.

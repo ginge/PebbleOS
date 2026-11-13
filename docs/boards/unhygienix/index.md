@@ -1,6 +1,6 @@
 # Unhygienix: The village fishmonger
 
-> Current project status (30 October 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
+> Current project status (13 November 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
 
 `unhygienix` is the PebbleOS target for the Waveshare
 [T5-E1-Touch-AMOLED-1.75](https://www.waveshare.com/wiki/T5-E1-Touch-AMOLED-1.75),
@@ -25,7 +25,27 @@ BOM, battery choices, provisional clearances and unresolved fit requirements.
 Use the [case-design handoff prompt](../../../boards/unhygienix/hardware/docs/case-design-handoff.md) to continue enclosure
 work. These documents describe a preliminary design, not verified hardware.
 
-## Latest implementation status — 2026-10-30
+## Latest implementation status — 2026-11-13
+
+The installed AP-only QMI cleanup build is
+`4545e34ad182f3f80411b93f46c2dbdf364a9e5f`. It retains default quiet-period WOM,
+CP-awake AP retained sleep and the dim display policy. UART verifies clean AP/CP
+reset sources, contract 0x78f, 32 sleep returns with zero CP transition/fault
+deltas, SD startup and encrypted phone recovery. The operator confirms normal
+first-gesture wake, touch and buttons. All captures are stopped.
+
+QMI configuration/rollback and direct/FIFO/WOM acquisition are separated;
+shake/rate changes configure once, rotation outside WOM avoids register writes,
+and FIFO cache processing avoids decoding every sample when shake is off.
+Eleven targeted sanitized tests, firmware and diagnostic compilation, image/CRC
+and SRAM checks pass. Linked text is 48 bytes smaller; data/BSS are unchanged.
+CP frequency, closed settings, resources/PFS/bonds and shared Pebble code were
+preserved. Electrical savings and long-term/client/concurrent-load qualification
+remain open. See [current status](current-status.md),
+[sensor review](sensor-power-review.md), [driver guide](qmi8658_acquisition.md)
+and [power TODO](power-todo.md) for policy, exact evidence and remaining work.
+
+## Historical implementation status — 2026-10-30
 
 A1 is operator accepted; A2, A3 and A4 are committed. HEAD is `bf10c6435`.
 A5 eFuse timeout/completion, common idle control and shared GDMA ownership are
@@ -237,7 +257,7 @@ runs Pebble's NimBLE host against the CP-owned Bluetooth controller.
 | I2C0 and PCF85063 RTC | Proven |
 | CO5300 AMOLED and native QSPI transport | Proven with colour bands and display off/on tests |
 | CST9217 touch | Queue-pressure and release-ordering fix validated by repeated Settings scrolling |
-| QMI8658 accelerometer | Sample delivery proven; software shake/display wake validated on 2026-10-04, sensitivity tuning installed |
+| QMI8658 accelerometer | Quiet-period WOM enabled by default; 13 November cleanup installed, first-gesture wake and controls normal; broader qualification open |
 | SARADC and charger-status input | Transactions proven; battery behavior blocked because no cell is fitted |
 | Bluetooth HCI command/event and ACL transport | Proven |
 | Connectable advertising and BlueZ connection | Proven |
@@ -685,7 +705,11 @@ confirms this false-positive path. This does not independently verify the
 watch's physical marker; no firmware or storage repair was applied. See
 `/home/baz/Documents/ChatGPT/pebble/artifacts/pfs-marker-investigation-20261018/report.md`.
 
-## Accelerometer and motion wake progress (2026-10-04)
+## Historical accelerometer and motion wake progress (2026-10-04)
+
+The polling and installed-image statements in this section describe October 4.
+The current interrupt/FIFO/WOM implementation and November checks are documented
+in the [driver guide](qmi8658_acquisition.md) and [sensor review](sensor-power-review.md).
 
 The QMI8658 driver previously delivered samples but left shake detection and
 sensitivity functions as no-ops. The driver now detects motion in software and

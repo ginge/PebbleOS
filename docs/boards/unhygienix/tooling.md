@@ -4,7 +4,7 @@
 > power policy. Dated profiling and installed-state checkpoints below are
 > historical procedure/evidence records, not claims about the current device.
 
-> Current project status (22 October 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
+> Current project status (13 November 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
 
 Unhygienix means "The village fishmonger." The independent hardware target is
 `unhygienix` (`CONFIG_BOARD_UNHYGIENIX`), with `PLATFORM_GABBRO` apps and the
@@ -73,7 +73,7 @@ delays or lost/rejected packets; displayed resolution is not measurement accurac
 Use this capability for the baseline and measurement steps in the
 [power TODO](power-todo.md), keeping display power optimization in its final phase.
 
-## Current validation baseline — 2026-10-17
+## Historical validation baseline — 2026-10-17
 
 The [operator handoff](current-status.md)
 records source `ab3616d5e`, the latest AP-only GATT flash and its stopped capture.
@@ -327,9 +327,12 @@ report even if throttling later recovers; reboot starts a fresh recording.
 The interrupt/FIFO driver is the sole T5AI QMI8658 implementation. GPIO9 wakes
 its static priority-3 worker with a 1536-byte stack; the timer is a bounded
 missed-edge/recovery watchdog rather than a periodic acquisition alternative.
-I2C work runs on that worker, while the standard timer work queue delivers
-samples and runs the existing shake filter under the accel-manager mutex.
-Configuration and uncached inactive peek remain synchronous. The driver serializes
+I2C work runs on that worker. Shake-only processing also runs there under the
+accel-manager mutex; sample clients retain standard timer-work-queue delivery.
+Direct pulses stay armed through raw-slot ownership; FIFO/WOM use bounded
+mask/rearm and catchup. Default WOM enters after five quiet shake-only seconds;
+its five-second health timer does not alter the normal streaming watchdog.
+Configuration and fresh standby/WOM peek remain synchronous. The driver serializes
 sensor transactions and rejects stale delivery after reconfiguration.
 
 The periodic comparison driver, legacy selector and legacy-only test suite were
@@ -337,7 +340,11 @@ retired on 2026-10-18. Use Git history or saved images for historical rollback.
 `python3 -m unittest tools.tests.test_t5ai_qmi8658_fifo -v` compiles the production
 interrupt/FIFO driver with modeled I2C and scheduler operations. It covers
 interrupt coalescing, queue pressure, FIFO transitions, timestamp handling,
-recovery, reconfiguration, peek, shake and disabled acquisition. See
+recovery, reconfiguration, peek, shake, disabled acquisition and WOM. The cleanup
+shares configuration/rollback and fresh-read helpers, isolates the automatic FIFO
+experiment in `qmi8658_self_test.h`, and avoids hardware writes for rotation
+outside WOM. The full eleven-test sensor/startup/I2C command and latest installed
+checks are in the [driver guide](qmi8658_acquisition.md). See
 [acquisition results and limitations](qmi8658_acquisition.md) for hardware
 measurements; host tests do not qualify on-device sensor or low-power behavior.
 

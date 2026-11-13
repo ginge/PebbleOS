@@ -1,8 +1,34 @@
 # Unhygienix current status — 13 November 2026
 
-## Latest installation: default quiet-period WOM — 13 November
+## Latest installation: QMI cleanup — 13 November
 
-Normal AP build **`329155c5a2073e1289f4b4efa767723502a49114`** is installed,
+Installed AP-only build `4545e34ad182f3f80411b93f46c2dbdf364a9e5f` consolidates configuration
+and rollback, separates direct/FIFO/WOM acquisition, and isolates the optional
+on-watch FIFO experiment and its state. Shake/rate changes apply once; rotation
+outside WOM does no register I/O. FIFO delivery decodes only its newest settled
+sample for the cache when software shake is off; all raw samples are delivered.
+WOM policy, interrupt handling, watchdog timing, CP/closed settings and shared
+code are unchanged. Normal configuration matches the preceding WOM-default image.
+Eleven targeted ASan/UBSan tests pass, as do ARM diagnostic-variant compilation,
+image/map/CRC/SRAM checks and style checks. Linked text is 48 bytes smaller;
+data/BSS are unchanged. Electrical savings remain unmeasured. Frozen
+images, source snapshots and results: reference-workspace
+`artifacts/qmi-cleanup-20261113`. See [sensor review](sensor-power-review.md).
+The first flash attempt failed before erase/write with CH342 USB protocol error.
+After the operator reconnected the adapter, AP-only programming succeeded in
+32.6 s. Received build ID, AP/CP reset sources 0/0, 240 MHz active AP clock,
+contract 0x78f, SD startup, 32 retained-sleep returns with all CP transition,
+clock/mask/resource/fault deltas zero, and encrypted phone-session recovery.
+No extra warm reset was needed. The operator reports final first-gesture wake,
+touch and buttons all normal.
+The capture received 6,970 bytes and is stopped; exact results are in
+`artifacts/qmi-cleanup-20261113/flash-result.json`.
+Raw SHA256: `954a9820690b617f2c0da9b8234054dde111af1afa395fdcba0329d12b79aa97`;
+protected SHA256: `c99c9b10e503b676303409a4a7fbe32ee7ffacc2327ef7363b599e948c992171`.
+
+## Earlier installation: default quiet-period WOM — 13 November (superseded)
+
+Normal AP build **`329155c5a2073e1289f4b4efa767723502a49114`** was installed at this checkpoint,
 AP-only, with profiling disabled. Raw SHA256:
 `69d9621b1f2951b62f8680a7f3b68f987c6318c97757bb509f56b7931c8fb89a`;
 protected SHA256:
@@ -55,7 +81,7 @@ load, electrical measurements and release soak remain open.
 
 ## Earlier 13 November pulse-fix installation (superseded)
 
-Normal AP build **`d47e7b01977acc786d357f31617417fd3252f26d`** is installed
+Normal AP build **`d47e7b01977acc786d357f31617417fd3252f26d`** was installed at this checkpoint
 with profiling disabled. Raw SHA256:
 `cee9312585de88178d4b3bd00a7207be55a1bedce1f14b620dd7de88edc53e2c`;
 protected SHA256:
@@ -92,7 +118,8 @@ runs preserve immediate post-flash AP=0x4f failures and successful same-image
 resets. A recurring CH342 protocol error required one adapter reconnect; the
 watch remained responsive while UART reception was stalled.
 
-WOM remains disabled. Its next qualification needs documented CTRL9 entry/exit,
+At this pulse-fix checkpoint WOM remained disabled. The later default-WOM
+installation above supersedes this deferral. Its next qualification needed documented CTRL9 entry/exit,
 INT2 assertion/STATUS1 acknowledgement and stationary/motion tests, followed by
 first-gesture sensitivity/latency tests before replacing continuous software
 shake. See [sensor review](sensor-power-review.md) and `comparison.json` in the
@@ -151,7 +178,7 @@ See [sensor review](sensor-power-review.md) and [remaining power work](power-tod
 
 The sections below preserve the earlier cleanup record. Installed-image and
 unflashed-build statements in this checkpoint describe **8 November**; the latest
-installation and 12 November evidence above supersede those statements.
+13 November installation and sensor evidence above supersede those statements.
 
 
 The active direction is **CP-awake AP sleep plus local peripheral clock
@@ -160,7 +187,7 @@ The board enables the existing savings by default; hardware qualification remain
 Historical checkpoints are preserved in [the power history](power-investigation-history.md)
 and [the CP sleep history](coordinated-sleep-history.md).
 
-## Installed firmware
+## Historical installed firmware — 8 November
 
 | Item | Verified state |
 | --- | --- |
@@ -213,7 +240,7 @@ qualification. Enabled configuration is not proof of clock gating or runtime
 residency. Do not turn the earlier 12/32-return observations into qualification
 of the current dim image, a CP deep-sleep claim or a measured battery saving.
 
-## Cleanup validation
+## Historical power-profile cleanup validation — 8 November
 
 The board-default release build is `c162b6d4…`, configured without a power-profile
 command-line override. Its configuration exactly matches the previously tested
@@ -254,13 +281,14 @@ investigation history; the exact originals are also in the cleanup backup.
 5. Complete the explicitly deferred overnight connected soak with UI interaction.
    Externally triggered AP resets remain release blockers under board instructions.
 
-Sensor WOM/touch idle policy, CP console clock lifetime, shared GDMA/domain votes
-and memory retention remain separate implementation work. Display changes remain
+Default sensor WOM and its cleanup are now installed with bounded checks above.
+Broader sensor qualification, touch idle policy, CP console clock lifetime,
+shared GDMA/domain votes and memory retention remain separate work. Display changes remain
 last and the user's dim policy is preserved. See [the ordered TODO](power-todo.md).
 
-## Reproduction and evidence
+## Historical reproduction and evidence — 8 November
 
-The exact installed image/config/source and received data are retained in the
+That checkpoint's installed image/config/source and received data are retained in the
 reference workspace under `artifacts/ap-savings-dim-display-20261108/` and
 `artifacts/coordinated-sleep-radio-20261031/ap-savings-dim-display-20261108-built/`.
 The preceding combined image and Bluetooth first failures are under

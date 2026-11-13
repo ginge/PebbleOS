@@ -1,3 +1,9 @@
+> 13 November update: default QMI WOM and the cleanup build are installed;
+> final wake/control checks, 32 AP sleep returns and encrypted phone recovery pass.
+> Current policy, identities and remaining qualification are in
+> [current status](current-status.md), [sensor review](sensor-power-review.md) and
+> [power TODO](power-todo.md). Dated plans below retain their original limits.
+
 # Non-display power continuation — 31 October 2026
 
 A later increment starts from committed I2C HEAD `198385cb0`; its opt-in ordinary-

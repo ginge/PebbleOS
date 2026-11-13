@@ -17,6 +17,11 @@ Start from a clean configuration rather than an accumulated diagnostic cache.
 Set `CONFIG_T5AI_POWER_SAVINGS=n` for a control without these policies.
 Default enablement does not complete the qualification gates below.
 
+QMI quiet-period WOM is a separate board-default option,
+`CONFIG_T5AI_QMI8658_WOM=y`; disabling the umbrella power profile does not disable
+WOM. Use `CONFIG_T5AI_QMI8658_WOM=n` explicitly for a matched continuous-sensor
+control. Preserve requested sample clients and the normal software shake policy.
+
 The board requires the exact calibrated alarm-capable CP97 package recorded in
 [current status](current-status.md). Stock Wi-Fi-off CP is a rollback image,
 not an alarm server. Preserve calibration, controller identity, resources,
@@ -44,7 +49,7 @@ WFI. Diagnostic controls cannot override the AP-only operation selection.
 
 ## Evidence and release gates
 
-The current-source bounded AP-only trial completed 12 returns with no CP
+The 8 November bounded AP-only trial completed 12 returns with no CP
 transition, abort, deadline or contract fault. ADC and encrypted protocol
 recovery followed. The subsequent combined image reported 32 returns with
 zero CP transition deltas; the operator confirmed display wake/update and
@@ -52,8 +57,15 @@ Bluetooth recovery. That image also recorded Bluetooth discovery/timeout
 failures, preserved under `artifacts/ap-all-savings-20261108/first-failure` in
 the reference workspace.
 
-The installed dim revision is `f1f862e8…`. Its boot contract was received, but
-its 32-return milestone was not captured. Cleanup builds have not been flashed.
+The installed normal QMI cleanup is `4545e34ad182f3f80411b93f46c2dbdf364a9e5f`,
+AP-only flashed on 13 November. Its live capture received AP/CP reset sources
+0/0, contract 0x78f, 32 retained-sleep returns with zero CP transition/clock/mask/
+resource/fault deltas, SD startup and encrypted phone recovery. The operator
+confirms normal first-gesture wake, touch and buttons. Capture is stopped.
+Default QMI WOM reduces sensor activity after five quiet shake-only seconds;
+its IRQ still wakes service immediately and its health timer is five seconds.
+It changes neither the AP sleep contract nor CP frequency/closed settings.
+This bounded check does not establish electrical savings or release soak.
 See [current status](current-status.md) for exact identities and proof limits.
 
 Before release:

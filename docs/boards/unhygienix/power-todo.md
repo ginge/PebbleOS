@@ -3,7 +3,8 @@
 Work on CP-awake AP sleep and local peripheral lifetimes first. Keep CP deep
 sleep deferred, the normal 240 MHz active vote, dim display policy, Bluetooth
 identity/calibration, heartbeat, timer accounting, flash/PFS integrity and shared
-ownership intact. Production code and hardware release qualification are separate.
+ownership intact. Keep CP frequency and closed-source settings unchanged.
+Production code and hardware release qualification are separate.
 Use [current status](current-status.md) for installed identities and evidence.
 Historical findings remain in [the investigation history](power-investigation-history.md).
 
@@ -34,6 +35,8 @@ Historical findings remain in [the investigation history](power-investigation-hi
 
 - [x] Default to quiet-period QMI WOM after the operator request, with client bypass, fresh peek and continuous fallback. Bounded hardware wake checks pass; long-term sensitivity/latency and electrical qualification remain open.
 
+- [x] Install the QMI cleanup: one configuration/rollback path, separate direct/FIFO/WOM acquisition, software-only rotation outside WOM, newest-sample FIFO cache decode and isolated diagnostics. Eleven targeted sanitized tests and ARM variants pass; normal text -48 B, data/BSS unchanged. Final wake/touch/buttons, 32 AP sleep returns and encrypted phone recovery pass on build `4545e34a`.
+
 ## Correctness and measurement gates
 
 - [ ] Diagnose Bluetooth discovery/reconnect and connection-parameter failures using aligned AP/CP/phone evidence.
@@ -53,7 +56,9 @@ Historical findings remain in [the investigation history](power-investigation-hi
    13 November pulse-coalescing increment retains busy-slot edges. Conversion gaps
    persist in continuous mode and no reliable electrical savings are established.
    Default quiet-period WOM now has bounded fitted 05/7c entry/exit, INT2 and
-   operator first-wake evidence. Extend gesture latency/sensitivity, client and
+   operator first-wake evidence, including final cleanup-image control checks.
+   Streaming watchdog backoff beyond the current policy remains an unimplemented,
+   separately qualified experiment. Extend gesture latency/sensitivity, client and
    concurrent-load, electrical and long-term qualification; preserve requested
    samples, timestamps, low-power ODR and inactive shutdown.
 2. **Touch:** define active/idle policy. Reset-held disable already exists; integrate

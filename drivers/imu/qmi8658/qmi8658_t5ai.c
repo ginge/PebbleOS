@@ -90,6 +90,17 @@ static const QMI8658Rate s_rates[] = {
   {333000u, QMI8658_ODR_LOW_POWER_3HZ},
 };
 
+static const QMI8658Rate *prv_select_rate(uint32_t requested_us, bool shake) {
+  if (shake && requested_us > QMI8658_SHAKE_INTERVAL_US)
+    requested_us = QMI8658_SHAKE_INTERVAL_US;
+  const QMI8658Rate *rate = &s_rates[0];
+  for (size_t i = 1; i < sizeof(s_rates) / sizeof(s_rates[0]); ++i) {
+    if (s_rates[i].interval_us <= requested_us)
+      rate = &s_rates[i];
+  }
+  return rate;
+}
+
 #define QMI8658_CTRL8            0x09u
 #define QMI8658_CTRL9            0x0au
 #define QMI8658_FIFO_WTM         0x13u
@@ -108,10 +119,6 @@ static const QMI8658Rate s_rates[] = {
 #define QMI8658_BATCH_MAX     6u
 #define QMI8658_WATERMARK_MAX 4u
 #define QMI8658_CMD_ATTEMPTS  5u
-
-#ifdef QMI8658_FIFO_SELF_TEST
-#endif
-// Serialize whole FIFO command/read/resume transactions against configuration.
 
 static const struct pbl_qmi8658 *s_dev;
 #ifdef CONFIG_T5AI_POWER_PROFILE
@@ -140,6 +147,7 @@ void t5ai_qmi8658_power_stats(T5AIQMIPowerStats *stats) {
 #endif
 static bool prv_queue_work(void (*work)(void));
 #include "qmi8658_profile.h"
+#include "qmi8658_self_test.h"
 
 // These helpers require s_dev->state->io_lock. The bus mutex still serializes other devices.
 static bool prv_read(uint8_t reg, uint8_t *data, size_t length) {
@@ -221,11 +229,6 @@ static void prv_detect_shake(const AccelDriverSample *sample) {
                                           });
   }
 }
-
-#ifdef QMI8658_FIFO_SELF_TEST
-static void prv_self_test_start(void);
-
-#endif
 
 static void prv_deliver_sample(void);
 static void prv_timer_callback(void *context);
@@ -396,20 +399,17 @@ static uint8_t prv_watermark(uint32_t count) {
   return count > QMI8658_WATERMARK_MAX ? QMI8658_WATERMARK_MAX : count;
 }
 
-static bool prv_configure_locked(void) {
-  prv_mask_irq();
-  s_dev->state->direct_edge_pending = false;
-  s_dev->state->watermark_seen = false;
-  s_dev->state->irq_started = 0u;
+static void prv_reset_samples_locked(void) {
   ++s_dev->state->generation;
   s_dev->state->counter_valid = false;
   s_dev->state->startup_us = prv_time_us();
   s_dev->state->last_sample_valid = false;
   s_dev->state->shake_baseline_valid = false;
   s_dev->state->quiet_valid = false;
-  const bool active = s_dev->state->num_samples != 0u || s_dev->state->shake_enabled;
-  const uint8_t watermark = prv_watermark(s_dev->state->num_samples);
-  bool ok = prv_write(QMI8658_CTRL7, 0u) && prv_write(QMI8658_FIFO_CTRL, 0u);
+}
+
+// io_lock held. A failed/partial WOM command must be undone before normal configuration.
+static bool prv_exit_wom_locked(bool ok) {
   if (s_dev->state->wom_configured) {
     // Undo even a partial WOM entry. Reset only the sensor if exit fails.
     ok = ok && prv_write(QMI8658_CTRL2, QMI8658_ACCEL_RANGE_4G | QMI8658_ODR_125HZ) &&
@@ -430,6 +430,19 @@ static bool prv_configure_locked(void) {
       s_dev->state->wom_active = false;
     }
   }
+  return ok;
+}
+
+static bool prv_configure_locked(void) {
+  prv_mask_irq();
+  s_dev->state->direct_edge_pending = false;
+  s_dev->state->watermark_seen = false;
+  s_dev->state->irq_started = 0u;
+  prv_reset_samples_locked();
+  const bool active = s_dev->state->num_samples != 0u || s_dev->state->shake_enabled;
+  const uint8_t watermark = prv_watermark(s_dev->state->num_samples);
+  bool ok = prv_write(QMI8658_CTRL7, 0u) && prv_write(QMI8658_FIFO_CTRL, 0u);
+  ok = prv_exit_wom_locked(ok);
   if (ok && watermark > 1u) {
     // Low-power ODRs slow command processing too. Reset at the normal clock,
     // then select the requested ODR; never silently retain a faster rate.
@@ -556,6 +569,8 @@ static void prv_process_pending(void) {
       first = i + 1u;
       continue;
     }
+    if (!s_dev->state->shake_enabled && i + 1u < s_dev->state->pending_count)
+      continue;
     prv_decode(s_dev->state->raw + i * QMI8658_ACCEL_SAMPLE_BYTES, s_dev->state->pending_rotated,
                &sample);
     s_dev->state->last_sample = sample;
@@ -615,6 +630,115 @@ static void prv_timestamp(uint32_t counter, unsigned count, uint64_t now) {
   s_dev->state->counter_valid = true;
 }
 
+typedef struct {
+  unsigned count;
+  uint32_t counter;
+  uint64_t timestamp_us;
+} QMI8658Batch;
+
+// io_lock held. Each mode owns its complete bus transaction and cleanup.
+static bool prv_service_wom_locked(void) {
+  bool ok;
+  uint8_t status = 0u, config[2] = {0};
+  s_dev->state->direct_edge_pending = false;
+  s_dev->state->irq_started = 0u;
+  // STATUS1 acknowledges WOM; quiet is not a stalled sample stream.
+  ok = prv_read(QMI8658_STATUS1, &status, 1u);
+  if (ok && (status & QMI8658_WOM_EVENT)) {
+    ok = prv_resume_wom_locked();
+  } else if (ok) {
+    ok = prv_read(QMI8658_CTRL2, config, 1u) && prv_read(QMI8658_CTRL7, config + 1u, 1u) &&
+         config[0] == (QMI8658_ACCEL_RANGE_4G | QMI8658_ODR_LOW_POWER_21HZ) &&
+         config[1] == QMI8658_ACCEL_ENABLE;
+  }
+  if (!ok)
+    s_dev->state->wom_failed = true;
+  return ok;
+}
+
+static bool prv_acquire_direct_locked(QMI8658Batch *batch) {
+  bool ok;
+  // STATUS0, STATUS1, 24-bit sample count, temperature, XYZ in one transfer.
+  uint8_t data[13];
+  // Consume only edges preceding this read. Pulses during I/O or delivery
+  // request one follow-up after the raw slot is released.
+  pbl_irq_lock();
+  const uint32_t started = s_dev->state->irq_started;
+  s_dev->state->irq_started = 0u;
+  s_dev->state->direct_edge_pending = false;
+  pbl_irq_unlock();
+  if (started)
+    qmi_profile_irq_latency(started);
+  ok = prv_read(QMI8658_STATUS0, data, sizeof(data));
+  batch->timestamp_us = prv_time_us();
+  if (ok && (data[0] & QMI8658_ACCEL_DATA_READY)) {
+    for (unsigned i = 0; i < QMI8658_ACCEL_SAMPLE_BYTES; ++i) {
+      s_dev->state->raw[i] = data[7u + i];
+    }
+    batch->counter = prv_counter(data + 2u);
+    batch->count = 1u;
+  } else if (ok) {
+    qmi_profile_empty();
+  }
+  return ok;
+}
+
+static bool prv_acquire_fifo_locked(QMI8658Batch *batch) {
+  bool ok = true;
+  uint8_t status[2] = {0};
+  bool watermark = s_dev->state->watermark_seen;
+  s_dev->state->watermark_seen = false;
+#ifdef QMI8658_FIFO_SELF_TEST
+  if (s_test.precheck)
+    watermark = false;
+#endif
+  // INT2 already establishes watermark. Only watchdog passes need a status
+  // precheck; another transfer here consumes the next-conversion budget.
+  if (!watermark)
+    ok = prv_read(QMI8658_FIFO_COUNT, status, sizeof(status));
+  if (ok && (watermark || (status[1] & 0x40u))) {
+    batch->timestamp_us = prv_time_us();
+    const uint32_t frozen = qmi_profile_io_start();
+    if (s_dev->state->irq_started)
+      qmi_profile_irq_latency(s_dev->state->irq_started);
+    s_dev->state->irq_started = 0u;
+    ok = prv_command_begin(QMI8658_CMD_REQUEST_FIFO);
+    qmi_profile_fifo_phase(1u, frozen);
+    uint32_t stage = qmi_profile_io_start();
+    const bool idle = prv_command_finish();
+    qmi_profile_fifo_phase(2u, stage);
+    ok = ok && idle;
+    stage = qmi_profile_io_start();
+    // The count is stable in read mode. Re-read it to include any samples
+    // arriving during the command handshake; never read output registers.
+    ok = ok && prv_read(QMI8658_FIFO_COUNT, status, sizeof(status));
+    qmi_profile_fifo_phase(3u, stage);
+    if (ok) {
+      // QST Rev A section 8.4: count is in 16-bit words, not bytes.
+      const unsigned bytes = 2u * (status[0] | ((status[1] & 3u) << 8));
+      batch->count = bytes / QMI8658_ACCEL_SAMPLE_BYTES;
+      qmi_profile_fifo_count(batch->count);
+      if ((status[1] & QMI8658_FIFO_OVERFLOW) || bytes % QMI8658_ACCEL_SAMPLE_BYTES ||
+          batch->count > QMI8658_BATCH_MAX) {
+        qmi_profile_drop(batch->count);
+        ok = false;
+      } else if (batch->count) {
+        stage = qmi_profile_io_start();
+        ok = prv_read(QMI8658_FIFO_DATA, s_dev->state->raw, bytes);
+        qmi_profile_fifo_phase(4u, stage);
+      }
+    }
+    // Always exit read mode, even on NACK, malformed count or overflow.
+    stage = qmi_profile_io_start();
+    const bool resumed = prv_write(QMI8658_FIFO_CTRL, QMI8658_FIFO_STREAM);
+    qmi_profile_fifo_phase(5u, stage);
+    qmi_profile_fifo_end(frozen);
+    // CTRL9R must complete before consuming data or clearing read mode.
+    ok = ok && resumed;
+  }
+  return ok;
+}
+
 // One bounded pass, with no callbacks while the hardware lock is held.
 static void prv_acquire_sample(void) {
   qmi_profile_acquire_start();
@@ -622,9 +746,7 @@ static void prv_acquire_sample(void) {
   bool ok = s_dev->state->initialized && (s_dev->state->active || s_dev->state->recovery_required);
   const bool was_wom = s_dev->state->wom_active;
   const bool was_recovery = s_dev->state->recovery_required;
-  unsigned count = 0u;
-  uint32_t counter = 0u;
-  uint64_t now = 0u;
+  QMI8658Batch batch = {0};
   if (ok && s_dev->state->recovery_required) {
     ok = prv_configure_locked();
     s_dev->state->startup_us = prv_time_us();
@@ -636,127 +758,44 @@ static void prv_acquire_sample(void) {
     prv_finish_poll();
     return;
   }
-  if (ok && s_dev->state->wom_active) {
-    uint8_t status = 0u, config[2] = {0};
-    s_dev->state->direct_edge_pending = false;
-    s_dev->state->irq_started = 0u;
-    // STATUS1 acknowledges WOM; quiet is not a stalled sample stream.
-    ok = prv_read(QMI8658_STATUS1, &status, 1u);
-    if (ok && (status & QMI8658_WOM_EVENT)) {
-      ok = prv_resume_wom_locked();
-    } else if (ok) {
-      ok = prv_read(QMI8658_CTRL2, config, 1u) && prv_read(QMI8658_CTRL7, config + 1u, 1u) &&
-           config[0] == (QMI8658_ACCEL_RANGE_4G | QMI8658_ODR_LOW_POWER_21HZ) &&
-           config[1] == QMI8658_ACCEL_ENABLE;
-    }
-    if (!ok)
-      s_dev->state->wom_failed = true;
-  } else if (ok && s_dev->state->watermark == 1u) {
-    // STATUS0, STATUS1, 24-bit sample count, temperature, XYZ in one transfer.
-    uint8_t data[13];
-    // Consume only edges preceding this read. Pulses during I/O or delivery
-    // request one follow-up after the raw slot is released.
-    pbl_irq_lock();
-    const uint32_t started = s_dev->state->irq_started;
-    s_dev->state->irq_started = 0u;
-    s_dev->state->direct_edge_pending = false;
-    pbl_irq_unlock();
-    if (started)
-      qmi_profile_irq_latency(started);
-    ok = prv_read(QMI8658_STATUS0, data, sizeof(data));
-    now = prv_time_us();
-    if (ok && (data[0] & QMI8658_ACCEL_DATA_READY)) {
-      for (unsigned i = 0; i < QMI8658_ACCEL_SAMPLE_BYTES; ++i) {
-        s_dev->state->raw[i] = data[7u + i];
-      }
-      counter = prv_counter(data + 2u);
-      count = 1u;
-    } else if (ok) {
-      qmi_profile_empty();
-    }
-  } else if (ok) {
-    uint8_t status[2] = {0};
-    bool watermark = s_dev->state->watermark_seen;
-    s_dev->state->watermark_seen = false;
-#ifdef QMI8658_FIFO_SELF_TEST
-    if (s_dev->state->test_precheck)
-      watermark = false;
-#endif
-    // INT2 already establishes watermark. Only watchdog passes need a status
-    // precheck; another transfer here consumes the next-conversion budget.
-    if (!watermark)
-      ok = prv_read(QMI8658_FIFO_COUNT, status, sizeof(status));
-    if (ok && (watermark || (status[1] & 0x40u))) {
-      now = prv_time_us();
-      const uint32_t frozen = qmi_profile_io_start();
-      if (s_dev->state->irq_started)
-        qmi_profile_irq_latency(s_dev->state->irq_started);
-      s_dev->state->irq_started = 0u;
-      ok = prv_command_begin(QMI8658_CMD_REQUEST_FIFO);
-      qmi_profile_fifo_phase(1u, frozen);
-      uint32_t stage = qmi_profile_io_start();
-      const bool idle = prv_command_finish();
-      qmi_profile_fifo_phase(2u, stage);
-      ok = ok && idle;
-      stage = qmi_profile_io_start();
-      // The count is stable in read mode. Re-read it to include any samples
-      // arriving during the command handshake; never read output registers.
-      ok = ok && prv_read(QMI8658_FIFO_COUNT, status, sizeof(status));
-      qmi_profile_fifo_phase(3u, stage);
-      if (ok) {
-        // QST Rev A section 8.4: count is in 16-bit words, not bytes.
-        const unsigned bytes = 2u * (status[0] | ((status[1] & 3u) << 8));
-        count = bytes / QMI8658_ACCEL_SAMPLE_BYTES;
-        qmi_profile_fifo_count(count);
-        if ((status[1] & QMI8658_FIFO_OVERFLOW) || bytes % QMI8658_ACCEL_SAMPLE_BYTES ||
-            count > QMI8658_BATCH_MAX) {
-          qmi_profile_drop(count);
-          ok = false;
-        } else if (count) {
-          stage = qmi_profile_io_start();
-          ok = prv_read(QMI8658_FIFO_DATA, s_dev->state->raw, bytes);
-          qmi_profile_fifo_phase(4u, stage);
-        }
-      }
-      // Always exit read mode, even on NACK, malformed count or overflow.
-      stage = qmi_profile_io_start();
-      const bool resumed = prv_write(QMI8658_FIFO_CTRL, QMI8658_FIFO_STREAM);
-      qmi_profile_fifo_phase(5u, stage);
-      qmi_profile_fifo_end(frozen);
-      // CTRL9R must complete before consuming data or clearing read mode.
-      ok = ok && resumed;
-    }
+  if (ok) {
+    if (s_dev->state->wom_active)
+      ok = prv_service_wom_locked();
+    else if (s_dev->state->watermark == 1u)
+      ok = prv_acquire_direct_locked(&batch);
+    else
+      ok = prv_acquire_fifo_locked(&batch);
   }
   if (!ok && s_dev->state->active) {
     s_dev->state->recovery_required = true;
-    count = 0u;
+    batch.count = 0u;
     s_dev->state->counter_valid = false;
   }
-  if (ok && count && s_dev->state->watermark == 1u && s_dev->state->counter_valid &&
-      counter == s_dev->state->last_counter) {
+  if (ok && batch.count && s_dev->state->watermark == 1u && s_dev->state->counter_valid &&
+      batch.counter == s_dev->state->last_counter) {
     qmi_profile_duplicate();
-    count = 0u;
+    batch.count = 0u;
   }
-  if (ok && count) {
+  if (ok && batch.count) {
     s_dev->state->last_acquire_ms = rtc_get_ticks();
     if (s_dev->state->watermark == 1u) {
-      prv_timestamp(counter, count, now);
+      prv_timestamp(batch.counter, batch.count, batch.timestamp_us);
     } else {
       // Revision 7c leaves TIMESTAMP frozen while FIFO is enabled. Like the
       // other FIFO drivers, anchor the newest sample to the host read time.
-      const uint64_t span = (uint64_t)(count - 1u) * s_dev->state->interval_us;
-      s_dev->state->pending_first_us = now >= span ? now - span : 0u;
+      const uint64_t span = (uint64_t)(batch.count - 1u) * s_dev->state->interval_us;
+      s_dev->state->pending_first_us = batch.timestamp_us >= span ? batch.timestamp_us - span : 0u;
       s_dev->state->counter_valid = false;
     }
-    s_dev->state->pending_count = count;
+    s_dev->state->pending_count = batch.count;
     s_dev->state->pending_interval_us = s_dev->state->interval_us;
     s_dev->state->pending_rotated = s_dev->state->rotated;
     s_dev->state->sample_generation = s_dev->state->generation;
   }
-  if (ok && count && s_dev->state->watermark == 1u && !prv_track_quiet_locked()) {
+  if (ok && batch.count && s_dev->state->watermark == 1u && !prv_track_quiet_locked()) {
     s_dev->state->recovery_required = true;
     s_dev->state->pending_count = 0u;
-    count = 0u;
+    batch.count = 0u;
   }
   const bool update_timer =
       was_wom != s_dev->state->wom_active || was_recovery != s_dev->state->recovery_required;
@@ -764,9 +803,9 @@ static void prv_acquire_sample(void) {
   if (update_timer)
     prv_update_timer();
   QMI_POWER_ADD(passes, 1u);
-  QMI_POWER_ADD(acquired, count);
-  qmi_profile_acquire_end(count);
-  if (count) {
+  QMI_POWER_ADD(acquired, batch.count);
+  qmi_profile_acquire_end(batch.count);
+  if (batch.count) {
     // Shake-only samples need no data callback on NewTimers. Release io_lock
     // before taking the device lock, matching the configuration lock order.
     pbl_accel_lock(&s_dev->accel);
@@ -779,9 +818,9 @@ static void prv_acquire_sample(void) {
       return;
     }
   }
-  if (!count || !prv_queue_work(prv_deliver_sample)) {
-    if (count) {
-      qmi_profile_drop(count);
+  if (!batch.count || !prv_queue_work(prv_deliver_sample)) {
+    if (batch.count) {
+      qmi_profile_drop(batch.count);
     }
     s_dev->state->pending_count = 0u;
     prv_finish_poll();
@@ -875,23 +914,48 @@ static int prv_init(const struct pbl_accel *accel) {
   return 0;
 }
 
-static int prv_set_rotated(const struct pbl_accel *accel, bool rotated) {
-  if (s_dev->state->rotated == rotated) {
-    return 0;
+// Device lock and io_lock held. Publish the final rate and client settings together.
+static int prv_apply_settings_locked(const QMI8658Rate *rate, uint32_t count, bool shake) {
+  const QMI8658Rate previous = {s_dev->state->interval_us, s_dev->state->odr};
+  const uint32_t previous_count = s_dev->state->num_samples;
+  const bool previous_shake = s_dev->state->shake_enabled;
+  prv_process_pending();
+  s_dev->state->interval_us = rate->interval_us;
+  s_dev->state->odr = rate->odr;
+  s_dev->state->num_samples = count;
+  s_dev->state->shake_enabled = shake;
+  const bool ok = prv_configure_locked();
+  if (!ok) {
+    s_dev->state->interval_us = previous.interval_us;
+    s_dev->state->odr = previous.odr;
+    s_dev->state->num_samples = previous_count;
+    s_dev->state->shake_enabled = previous_shake;
+    (void)prv_configure_locked();
   }
+  prv_update_timer();
+  return ok ? 0 : -EIO;
+}
+
+static int prv_set_rotated(const struct pbl_accel *accel, bool rotated) {
+  if (s_dev->state->rotated == rotated)
+    return 0;
   (void)pbl_mutex_lock(&s_dev->state->io_lock, PBL_FOREVER);
   prv_process_pending();
   const bool previous = s_dev->state->rotated;
-  int ret = 0;
   s_dev->state->rotated = rotated;
+  int ret = 0;
   if (s_dev->state->initialized) {
-    if (!prv_configure_locked()) {
-      s_dev->state->rotated = previous;
-      (void)prv_configure_locked();
-      ret = -EIO;
+    // Rotation is a software transform. WOM still exits to rebuild its baseline.
+    if (s_dev->state->wom_configured) {
+      if (!prv_configure_locked()) {
+        s_dev->state->rotated = previous;
+        (void)prv_configure_locked();
+        ret = -EIO;
+      }
+      prv_update_timer();
+    } else {
+      prv_reset_samples_locked();
     }
-    s_dev->state->startup_us = prv_time_us();
-    prv_update_timer();
   }
   pbl_mutex_unlock(&s_dev->state->io_lock);
   return ret;
@@ -899,37 +963,15 @@ static int prv_set_rotated(const struct pbl_accel *accel, bool rotated) {
 
 static int prv_set_sampling_interval(const struct pbl_accel *accel, uint32_t interval_us,
                                      uint32_t *actual_us) {
-  int ret = 0;
-  const uint32_t requested = interval_us;
-  if (s_dev->state->shake_enabled && interval_us > QMI8658_SHAKE_INTERVAL_US) {
-    interval_us = QMI8658_SHAKE_INTERVAL_US;
-  }
-  const QMI8658Rate *rate = &s_rates[0];
-  for (size_t i = 1; i < sizeof(s_rates) / sizeof(s_rates[0]); ++i) {
-    if (s_rates[i].interval_us <= interval_us) {
-      rate = &s_rates[i];
-    }
-  }
+  const QMI8658Rate *rate = prv_select_rate(interval_us, s_dev->state->shake_enabled);
   (void)pbl_mutex_lock(&s_dev->state->io_lock, PBL_FOREVER);
-  if (s_dev->state->initialized && s_dev->state->odr != rate->odr) {
-    prv_process_pending();
-    const uint32_t old_interval = s_dev->state->interval_us;
-    const uint8_t old_odr = s_dev->state->odr;
-    s_dev->state->interval_us = rate->interval_us;
-    s_dev->state->odr = rate->odr;
-    if (!prv_configure_locked()) {
-      ret = -EIO;
-      s_dev->state->interval_us = old_interval;
-      s_dev->state->odr = old_odr;
-      (void)prv_configure_locked();
-    }
-    s_dev->state->startup_us = prv_time_us();
-    prv_update_timer();
-  }
+  int ret = 0;
+  if (s_dev->state->initialized && s_dev->state->odr != rate->odr)
+    ret = prv_apply_settings_locked(rate, s_dev->state->num_samples, s_dev->state->shake_enabled);
   if (ret == 0)
-    s_dev->state->requested_interval_us = requested;
-  pbl_mutex_unlock(&s_dev->state->io_lock);
+    s_dev->state->requested_interval_us = interval_us;
   *actual_us = s_dev->state->interval_us;
+  pbl_mutex_unlock(&s_dev->state->io_lock);
   return ret;
 }
 
@@ -945,26 +987,27 @@ static int prv_set_num_samples(const struct pbl_accel *accel, uint32_t count) {
     return s_dev->state->initialized ? 0 : -ENODEV;
   }
   (void)pbl_mutex_lock(&s_dev->state->io_lock, PBL_FOREVER);
-  prv_process_pending();
-  const bool was_active = s_dev->state->active;
-  int ret = 0;
-  const uint32_t previous = s_dev->state->num_samples;
-  s_dev->state->num_samples = count;
-  if (!prv_configure_locked()) {
-    ret = -EIO;
-    s_dev->state->num_samples = previous;
-    (void)prv_configure_locked();
-  }
-  if (!was_active && s_dev->state->active) {
-    s_dev->state->startup_us = prv_time_us();
-  }
-  prv_update_timer();
+  const QMI8658Rate rate = {s_dev->state->interval_us, s_dev->state->odr};
+  const int ret = prv_apply_settings_locked(&rate, count, s_dev->state->shake_enabled);
   pbl_mutex_unlock(&s_dev->state->io_lock);
   return ret;
 }
 
 static uint32_t prv_get_max_num_samples(const struct pbl_accel *accel) {
   return QMI8658_BATCH_MAX;
+}
+
+static bool prv_read_fresh_locked(AccelDriverSample *sample) {
+  pbl_sleep_ms(QMI8658_STARTUP_SETTLE_MS);
+  uint8_t status, raw[QMI8658_ACCEL_SAMPLE_BYTES];
+  if (!prv_read(QMI8658_STATUS0, &status, 1u) || !(status & QMI8658_ACCEL_DATA_READY) ||
+      !prv_read(QMI8658_AX_L, raw, sizeof(raw)))
+    return false;
+  prv_decode(raw, s_dev->state->rotated, sample);
+  sample->timestamp_us = prv_time_us();
+  s_dev->state->last_sample = *sample;
+  s_dev->state->last_sample_valid = true;
+  return true;
 }
 
 static int prv_peek(const struct pbl_accel *accel, AccelDriverSample *data) {
@@ -976,18 +1019,8 @@ static int prv_peek(const struct pbl_accel *accel, AccelDriverSample *data) {
   prv_process_pending();
   if (s_dev->state->wom_active) {
     bool ok = prv_resume_wom_locked();
-    if (ok) {
-      uint8_t status, raw[QMI8658_ACCEL_SAMPLE_BYTES];
-      pbl_sleep_ms(QMI8658_STARTUP_SETTLE_MS);
-      ok = prv_read(QMI8658_STATUS0, &status, 1u) && (status & QMI8658_ACCEL_DATA_READY) &&
-           prv_read(QMI8658_AX_L, raw, sizeof(raw));
-      if (ok) {
-        prv_decode(raw, s_dev->state->rotated, data);
-        data->timestamp_us = prv_time_us();
-        s_dev->state->last_sample = *data;
-        s_dev->state->last_sample_valid = true;
-      }
-    }
+    if (ok)
+      ok = prv_read_fresh_locked(data);
     if (!ok)
       s_dev->state->recovery_required = true;
     prv_update_timer();
@@ -1007,18 +1040,8 @@ static int prv_peek(const struct pbl_accel *accel, AccelDriverSample *data) {
   bool ok = prv_write(QMI8658_FIFO_CTRL, 0u) &&
             prv_write(QMI8658_CTRL2, QMI8658_ACCEL_RANGE_4G | QMI8658_ODR_125HZ) &&
             prv_write(QMI8658_CTRL7, QMI8658_ACCEL_ENABLE);
-  if (ok) {
-    pbl_sleep_ms(QMI8658_STARTUP_SETTLE_MS);
-    uint8_t status, raw[QMI8658_ACCEL_SAMPLE_BYTES];
-    ok = prv_read(QMI8658_STATUS0, &status, 1) && (status & QMI8658_ACCEL_DATA_READY) &&
-         prv_read(QMI8658_AX_L, raw, sizeof(raw));
-    if (ok) {
-      prv_decode(raw, s_dev->state->rotated, data);
-      data->timestamp_us = prv_time_us();
-      s_dev->state->last_sample = *data;
-      s_dev->state->last_sample_valid = true;
-    }
-  }
+  if (ok)
+    ok = prv_read_fresh_locked(data);
   const bool disabled = prv_write(QMI8658_CTRL7, 0u) &&
                         prv_write(QMI8658_CTRL2, QMI8658_ACCEL_RANGE_4G | s_dev->state->odr);
   if (!disabled) {
@@ -1033,33 +1056,11 @@ static int prv_set_shake_detection(const struct pbl_accel *accel, bool on) {
   if (!s_dev->state->initialized || on == s_dev->state->shake_enabled) {
     return s_dev->state->initialized ? 0 : -ENODEV;
   }
-  int ret = 0;
-  const uint32_t requested = s_dev->state->requested_interval_us;
   (void)pbl_mutex_lock(&s_dev->state->io_lock, PBL_FOREVER);
-  prv_process_pending();
-  const bool was_active = s_dev->state->active;
-  s_dev->state->shake_enabled = on;
-  if (!prv_configure_locked()) {
-    ret = -EIO;
-    s_dev->state->shake_enabled = !on;
-    (void)prv_configure_locked();
-  }
-  if (!was_active && s_dev->state->active) {
-    s_dev->state->startup_us = prv_time_us();
-  }
-  prv_update_timer();
+  const QMI8658Rate *rate = prv_select_rate(s_dev->state->requested_interval_us, on);
+  const int ret = prv_apply_settings_locked(rate, s_dev->state->num_samples, on);
   pbl_mutex_unlock(&s_dev->state->io_lock);
-  uint32_t actual;
-  const int interval_ret = prv_set_sampling_interval(accel, requested, &actual);
-  if (ret == 0 && interval_ret != 0) {
-    // The class publishes the detection state only after the entire operation succeeds.
-    (void)pbl_mutex_lock(&s_dev->state->io_lock, PBL_FOREVER);
-    s_dev->state->shake_enabled = !on;
-    (void)prv_configure_locked();
-    prv_update_timer();
-    pbl_mutex_unlock(&s_dev->state->io_lock);
-  }
-  return ret != 0 ? ret : interval_ret;
+  return ret;
 }
 
 static int prv_set_shake_sensitivity_high(const struct pbl_accel *accel, bool sensitivity_high) {
@@ -1071,76 +1072,6 @@ static int prv_set_shake_sensitivity_percent(const struct pbl_accel *accel, uint
   s_dev->state->shake_sensitivity_percent = percent > 100u ? 100u : percent;
   return 0;
 }
-#ifdef QMI8658_FIFO_SELF_TEST
-static void prv_self_test_schedule(void *context);
-static void prv_self_test_step(void) {
-  PBL_LOG_DBG("QMITEST phase=%u", s_dev->state->test_phase);
-  PBL_LOG_DBG("QMITEST previous valid=%u x=%d y=%d z=%d", s_dev->state->last_sample_valid,
-              s_dev->state->last_sample.x, s_dev->state->last_sample.y,
-              s_dev->state->last_sample.z);
-  switch (s_dev->state->test_phase++) {
-    case 0:
-      s_dev->state->test_interval = s_dev->state->requested_interval_us;
-      s_dev->state->test_count = s_dev->state->num_samples;
-      s_dev->state->test_shake = s_dev->state->shake_enabled;
-      s_dev->state->test_rotated = s_dev->state->rotated;
-      pbl_accel_set_shake_detection(&s_dev->accel, false);
-      (void)pbl_accel_set_sampling_interval(&s_dev->accel, 8000u, nullptr);
-      pbl_accel_set_num_samples(&s_dev->accel, 2u);
-      s_dev->state->test_precheck = true;
-      break;
-    case 1:
-      s_dev->state->test_precheck = false;
-      break;
-    case 2:
-      pbl_accel_set_num_samples(&s_dev->accel, 4u);
-      break;
-    case 3:
-      (void)pbl_accel_set_sampling_interval(&s_dev->accel, 16000u, nullptr);
-      break;
-    case 4:
-      (void)pbl_accel_set_sampling_interval(&s_dev->accel, 32000u, nullptr);
-      break;
-    case 5:
-      (void)pbl_accel_set_sampling_interval(&s_dev->accel, 91000u, nullptr);
-      pbl_accel_set_num_samples(&s_dev->accel, 2u);
-      break;
-    case 6:
-      (void)pbl_accel_set_sampling_interval(&s_dev->accel, 333000u, nullptr);
-      break;
-    default:
-      pbl_accel_set_rotated(&s_dev->accel, s_dev->state->test_rotated);
-      pbl_accel_set_shake_detection(&s_dev->accel, s_dev->state->test_shake);
-      (void)pbl_accel_set_sampling_interval(&s_dev->accel, s_dev->state->test_interval, nullptr);
-      pbl_accel_set_num_samples(&s_dev->accel, s_dev->state->test_count);
-      (void)new_timer_stop(s_dev->state->test_timer);
-      PBL_LOG_DBG("QMITEST restored");
-      s_dev->state->test_pending = false;
-      return;
-  }
-  PBL_LOG_DBG("QMITEST state interval=%lu batch=%lu shake=%u rotated=%u active=%u",
-              (unsigned long)s_dev->state->interval_us, (unsigned long)s_dev->state->num_samples,
-              s_dev->state->shake_enabled, s_dev->state->rotated, s_dev->state->active);
-  (void)new_timer_start(s_dev->state->test_timer, 15000u, prv_self_test_schedule, NULL,
-                        TIMER_START_FLAG_REPEATING);
-  s_dev->state->test_pending = false;
-}
-static void prv_self_test_schedule(void *context) {
-  (void)context;
-  if (!s_dev->state->test_pending) {
-    s_dev->state->test_pending = true;
-    if (!prv_queue_work(prv_self_test_step)) {
-      s_dev->state->test_pending = false;
-    }
-  }
-}
-static void prv_self_test_start(void) {
-  s_dev->state->test_timer = new_timer_create();
-  if (s_dev->state->test_timer != TIMER_INVALID_ID) {
-    (void)new_timer_start(s_dev->state->test_timer, 45000u, prv_self_test_schedule, NULL, 0);
-  }
-}
-#endif
 
 static void prv_work_callback(void *data) {
   void (*work)(void) = data;

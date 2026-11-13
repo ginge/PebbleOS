@@ -68,16 +68,6 @@ struct pbl_qmi8658_state {
   bool counter_valid;
   bool command_idle;
   bool recovery_required;
-#ifdef CONFIG_T5AI_QMI8658_PROFILE
-  bool test_precheck;
-  TimerID test_timer;
-  unsigned test_phase;
-  uint32_t test_interval;
-  uint32_t test_count;
-  bool test_shake;
-  bool test_rotated;
-  bool test_pending;
-#endif
 };
 struct pbl_qmi8658 {
   struct pbl_accel accel;
