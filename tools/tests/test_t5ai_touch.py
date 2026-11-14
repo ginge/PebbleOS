@@ -60,6 +60,7 @@ unsigned sleeps,resets,timer_creates,timer_ms,samples,enqueue_calls,acks;
 unsigned gestures,sequence,palm_sequence,last_sample_sequence;
 bool fail_ack;
 void check_input_lock(void);
+void test_set_enabled(bool enabled);
 bool fail_read,fail_write,irq_enabled,reset_pin,timer_pending,interrupt_during_read;
 int pad=1;
 uint8_t wire[10];
@@ -178,7 +179,7 @@ void check_input_lock(void){
 
 
 class T5AITouchTest(unittest.TestCase):
-    def run_driver(self, checks):
+    def run_driver(self, checks, gesture_hook=""):
         headers = {
             name: ""
             for name in re.findall(r'#include [<"]([^>"\n]+)[>"]', DRIVER.read_text())
@@ -188,6 +189,10 @@ class T5AITouchTest(unittest.TestCase):
             ROOT / "include/pbl/soc/t5ai/draw_profile.h"
         ).read_text()
         source = HARNESS.replace("DRIVER_SOURCE", '"' + str(DRIVER) + '"')
+        source = source.replace(
+            "input_phase=0;++gestures;palm_sequence=++sequence;",
+            "input_phase=0;++gestures;palm_sequence=++sequence;" + gesture_hook,
+        )
         # Assert lock ordering at the synchronous input boundary.
         source = source.replace(
             "void pbl_input_report_key(unsigned code,bool down,bool sync){",
@@ -195,6 +200,87 @@ class T5AITouchTest(unittest.TestCase):
         )
         run_c(
             source + "\nint main(void){setup();\n" + checks + "\nreturn 0;}\n", headers
+        )
+
+    def test_stuck_idle_int_backs_off_but_real_edges_and_contacts_stay_fast(self):
+        self.run_driver(r"""
+pad=0;run_one();assert(timer_ms==20 && !output[0].down);
+const unsigned delays[]={40,80,160,320,640,1000,1000};
+for(unsigned i=0;i<sizeof(delays)/sizeof(delays[0]);++i){
+ unsigned before=reads;fire_watchdog();assert(!qcount && reads==before);
+ fire_timer();run_one();assert(timer_ms==delays[i] && !output[samples-1].down);
+}
+// A genuine falling edge bypasses idle backoff without waiting for the timer.
+report(true,100,200);fire_irq();assert(qcount==1);run_one();
+assert(output[samples-1].down && timer_ms==20 && !s_idle_poll_ms);
+// Held and suppressed contacts never use idle backoff.
+for(unsigned i=0;i<3;++i){fire_timer();run_one();assert(timer_ms==20);}
+wire[4]=0x80;fire_timer();run_one();assert(s_palm_down && timer_ms==20);
+report(false,0,0);fire_timer();run_one();assert(!s_palm_down && timer_ms==20);
+pad=1;fire_timer();run_one();assert(!timer_pending && !s_idle_poll_ms);
+// Long idle does no bus I/O; first touch is dispatched immediately.
+unsigned before=reads;for(unsigned i=0;i<20;++i)fire_watchdog();
+assert(reads==before && !qcount);
+report(true,200,300);fire_irq();run_one();assert(output[samples-1].down && timer_ms==20);
+""")
+
+    def test_idle_ack_echo_backoff_resets_across_failure_and_enable(self):
+        self.run_driver(r"""
+pad=0;wire[0]=0xab;wire[5]=0;run_one();
+fire_timer();run_one();assert(timer_ms==40 && !output[samples-1].down);
+fire_timer();run_one();assert(timer_ms==80);
+fail_ack=true;fire_timer();run_one();assert(timer_ms==80 && !s_idle_poll_ms);
+fail_ack=false;fire_timer();run_one();assert(timer_ms==20 && !s_transfer_retry);
+fire_timer();run_one();assert(timer_ms==40);
+test_set_enabled(false);test_set_enabled(false);
+assert(!timer_pending && !s_idle_poll_ms && !s_transfer_retry && !reset_pin);
+test_set_enabled(true);test_set_enabled(true);run_one();assert(timer_ms==20);
+""")
+
+    def test_failed_transfer_irq_storm_cannot_bypass_retry_or_reset_delay(self):
+        self.run_driver(r"""
+report(true,100,200);run_one();fail_read=true;interrupt_during_read=true;
+fire_timer();run_one();assert(qcount==1 && timer_ms==80 && s_transfer_retry);
+unsigned before=reads,baseline=resets;
+// Work already queued by an IRQ during I2C also respects the retry delay.
+run_one();assert(reads==before && timer_pending && !s_callback_scheduled);
+for(unsigned i=0;i<100;++i)fire_irq();
+fire_watchdog();assert(!qcount && reads==before && resets==baseline);
+fire_timer();run_one();assert(reads==before+1 && timer_ms==80);
+fire_timer();run_one();assert(timer_ms==1000 && resets==baseline+1);
+before=reads;for(unsigned i=0;i<100;++i)fire_irq();
+fire_watchdog();assert(!qcount && reads==before && timer_pending);
+// Retry enqueue rejection remains recoverable through the regular watchdog.
+queue_limit=0;fire_timer();assert(s_retry_pending && !qcount && !s_transfer_retry);
+queue_limit=8;fail_read=false;report(false,0,0);fire_watchdog();run_one();
+assert(!timer_pending && !s_transfer_retry && !output[samples-1].down);
+report(true,20,30);fire_irq();run_one();assert(output[samples-1].down);
+""")
+
+    def test_disable_during_failure_rejects_stale_retry_and_repeated_cycles(self):
+        self.run_driver(r"""
+fail_write=true;run_one();assert(s_transfer_retry && timer_ms==80);
+void (*old_timer)(void *)=timer_cb;void *old_data=timer_data;
+for(unsigned i=0;i<10;++i){
+ test_set_enabled(false);unsigned before=reads;
+ fire_irq();assert(!qcount && reads==before && !timer_pending && !reset_pin);
+ test_set_enabled(true);assert(qcount==1 && !s_transfer_retry);
+ context=TIMER;old_timer(old_data);context=USER;
+ assert(qcount==1 && s_callback_scheduled);
+ fail_write=false;report(false,0,0);run_one();assert(!timer_pending);
+}
+""")
+
+    def test_palm_listener_disable_cancels_following_raw_sample(self):
+        self.run_driver(
+            r"""
+report(true,100,200);run_one();assert(samples==1 && output[0].down);
+wire[4]=0x80;fire_timer();run_one();
+assert(gestures==1 && samples==1 && !s_enabled && !reset_pin && !timer_pending);
+report(false,0,0);test_set_enabled(true);run_one();
+assert(samples==2 && !output[1].down && !s_palm_down && !timer_pending);
+""",
+            gesture_hook="test_set_enabled(false);",
         )
 
     def test_native_reports_coalescing_and_liftoff_without_edge(self):

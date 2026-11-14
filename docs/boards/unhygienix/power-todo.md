@@ -61,9 +61,16 @@ Historical findings remain in [the investigation history](power-investigation-hi
    separately qualified experiment. Extend gesture latency/sensitivity, client and
    concurrent-load, electrical and long-term qualification; preserve requested
    samples, timestamps, low-power ODR and inactive shutdown.
-2. **Touch:** define active/idle policy. Reset-held disable already exists; integrate
-   it when buttons suffice or qualify a controller gesture-wake mode. Exercise stuck
-   INT, contact release, retry and shared-bus recovery.
+2. **Touch:** [active/idle audit and fault-backoff candidate](touch-power-review.md)
+   completed and AP-only installed as `96b2e1aa`. Preserve subscriber-driven raw
+   touch and existing
+   reset-held global-off/no-subscriber lifecycle; no verified gesture-mode command.
+   Host fault/release/retry/lifecycle tests pass. The operator confirms normal
+   first touch, held/released contacts, button/motion wake; UART verifies 32 clean
+   retained returns after a commanded restart. Preserve the first AP=0x4f boot.
+   The up-to-1 s stuck-INT detection/missed-short-tap tradeoff remains; physically
+   qualify forced INT/I2C faults and QMI/RTC shared-bus recovery, then measure
+   electrical effects.
 3. **CP console:** establish balanced clock/owner lifetime and RX/fault-output needs.
    AP UART gating does not release the CP logging clock. Keep heartbeat/supervision.
 4. **Shared DMA/domain:** coordinate last-owner clock release across AP channels and

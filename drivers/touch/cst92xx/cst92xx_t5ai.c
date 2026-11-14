@@ -64,6 +64,7 @@ PBL_LOG_MODULE_DEFINE(driver_touch_cst92xx, CONFIG_DRIVER_TOUCH_LOG_LEVEL);
 #define CST92XX_TOUCH_STATUS            0x06u
 #define CST92XX_NATIVE_SIZE             466u
 #define CST92XX_POLL_MS                 20u
+#define CST92XX_IDLE_POLL_MAX_MS        1000u
 
 #ifdef CONFIG_T5AI_IO_PROFILE
 static uint32_t s_queued_at;
@@ -76,6 +77,8 @@ static bool s_palm_down;
 static bool s_callback_scheduled;
 static bool s_retry_pending;
 static bool s_poll_scheduled;
+static bool s_transfer_retry;
+static uint16_t s_idle_poll_ms;
 static uint32_t s_generation;
 static uint32_t s_read_failures;
 static uint8_t s_consecutive_read_failures;
@@ -108,17 +111,12 @@ static bool prv_read_report(uint8_t report[CST92XX_REPORT_LENGTH]) {
     (uint8_t)CST92XX_DATA_REGISTER,
   };
   T5_IO_BEGIN(read_at);
-  bool result = (pbl_i2c_write(I2C_CST92XX, address, sizeof(address)) == 0);
-  if (result) {
-    result = (pbl_i2c_read(I2C_CST92XX, report, CST92XX_REPORT_LENGTH) == 0);
-  }
-  bool ack_ok = true;
-  if (result) {
-    const uint8_t ack[] = {0xd0, 0x00, CST92XX_REPORT_ACK};
-    ack_ok = pbl_i2c_write(I2C_CST92XX, ack, sizeof(ack)) == 0;
-  }
+  const uint8_t ack[] = {address[0], address[1], CST92XX_REPORT_ACK};
+  const bool result = pbl_i2c_write(I2C_CST92XX, address, sizeof(address)) == 0 &&
+                      pbl_i2c_read(I2C_CST92XX, report, CST92XX_REPORT_LENGTH) == 0 &&
+                      pbl_i2c_write(I2C_CST92XX, ack, sizeof(ack)) == 0;
   T5_IO_END(T5IO_TOUCH_READ, read_at, CST92XX_REPORT_LENGTH);
-  return result && ack_ok;
+  return result;
 }
 
 static int16_t prv_map_coordinate(uint16_t coordinate, int16_t display_size) {
@@ -136,7 +134,7 @@ static void prv_report_palm(int16_t x, int16_t y) {
 
 static void prv_schedule(uint32_t generation) {
   pbl_irq_lock();
-  if (s_enabled && generation == s_generation && !s_callback_scheduled) {
+  if (s_enabled && generation == s_generation && !s_transfer_retry && !s_callback_scheduled) {
     s_callback_scheduled = true;
 #ifdef CONFIG_T5AI_IO_PROFILE
     s_queued_at = T5AI_AON_RTC_COUNT_LOW;
@@ -160,6 +158,7 @@ static void prv_retry_cb(void *context) {
   pbl_irq_lock();
   if (generation == s_generation) {
     s_poll_scheduled = false;
+    s_transfer_retry = false;
   }
   pbl_irq_unlock();
   prv_schedule(generation);
@@ -174,6 +173,92 @@ static void prv_watchdog_cb(void *context) {
   if (retry) {
     prv_schedule(generation);
   }
+}
+
+// Caller holds s_i2c_lock for report state, recovery and polling decisions.
+static uint32_t prv_retry_failed_transfer(void) {
+  uint32_t retry_ms = CST92XX_READ_RETRY_MS;
+  pbl_irq_lock();
+  s_transfer_retry = true;
+  pbl_irq_unlock();
+  s_idle_poll_ms = 0u;
+  s_contact_active = false;
+  ++s_read_failures;
+  ++s_consecutive_read_failures;
+  if (s_read_failures == 1u || (s_read_failures & CST92XX_FAILURE_LOG_MASK) == 0u) {
+    PBL_LOG_ERR("CST92xx report transfer failed (%lu total)", (unsigned long)s_read_failures);
+  }
+  if (s_consecutive_read_failures >= CST92XX_RESET_FAILURE_THRESHOLD) {
+    (void)pbl_intc_disable(&s_interrupt);
+    prv_reset(true);
+    s_consecutive_read_failures = 0u;
+    (void)pbl_intc_enable(&s_interrupt);
+    retry_ms = CST92XX_RESET_RETRY_MS;
+  }
+  return retry_ms;
+}
+
+static bool prv_decode_report(const uint8_t report[CST92XX_REPORT_LENGTH], bool *palm) {
+  const uint8_t points = report[CST92XX_POINTS_OFFSET] & CST92XX_POINTS_MASK;
+  const uint8_t status = report[CST92XX_STATUS_OFFSET] & CST92XX_NIBBLE_MASK;
+  // An ACK echo or empty buffer is not a fresh liftoff report.
+  const bool framed = report[CST92XX_ACK_OFFSET] == CST92XX_REPORT_ACK &&
+                      report[CST92XX_STATUS_OFFSET] != CST92XX_REPORT_ACK;
+  if (!framed) {
+    return s_down;
+  }
+  const bool any_down =
+      points != 0u && (status == CST92XX_TOUCH_STATUS ||
+                       (points > 1u && (report[CST92XX_SECOND_STATUS_OFFSET] &
+                                        CST92XX_NIBBLE_MASK) == CST92XX_TOUCH_STATUS));
+  if (any_down && (report[CST92XX_COVER_OFFSET] & CST92XX_COVER_MASK)) {
+    *palm = !s_palm_down;
+    s_palm_down = true;
+  } else if (!any_down) {
+    s_palm_down = false;
+  }
+  bool down = false;
+  s_contact_active = any_down;
+  if (!s_palm_down && points != 0u && status == CST92XX_TOUCH_STATUS) {
+    const uint16_t native_x = ((uint16_t)report[CST92XX_X_HIGH_OFFSET] << CST92XX_NIBBLE_BITS) |
+                              (report[CST92XX_XY_LOW_OFFSET] >> CST92XX_NIBBLE_BITS);
+    const uint16_t native_y = ((uint16_t)report[CST92XX_Y_HIGH_OFFSET] << CST92XX_NIBBLE_BITS) |
+                              (report[CST92XX_XY_LOW_OFFSET] & CST92XX_NIBBLE_MASK);
+    if (native_x < CST92XX_NATIVE_SIZE && native_y < CST92XX_NATIVE_SIZE) {
+      // The panel is mounted with both touch axes mirrored.
+      s_last_x = PBL_DISPLAY_WIDTH - 1 - prv_map_coordinate(native_x, PBL_DISPLAY_WIDTH);
+      s_last_y = PBL_DISPLAY_HEIGHT - 1 - prv_map_coordinate(native_y, PBL_DISPLAY_HEIGHT);
+      down = true;
+    } else {
+      s_contact_active = false;
+      PBL_LOG_WRN("CST92xx coordinate out of range: %u,%u", (unsigned)native_x, (unsigned)native_y);
+    }
+  }
+  return down;
+}
+
+static uint32_t prv_poll_delay(void) {
+  uint32_t retry_ms = 0u;
+  // Keep recovery polling during suppressed contact, including partial multi-finger release.
+  if (s_contact_active || s_palm_down) {
+    s_idle_poll_ms = 0u;
+    retry_ms = CST92XX_POLL_MS;
+  } else if (pbl_gpio_get_raw(&s_interrupt_input) == 0) {
+    // Empty reports on a stuck INT must not keep the AP and bus busy at 50 Hz.
+    uint32_t next_ms = s_idle_poll_ms ? s_idle_poll_ms * 2u : CST92XX_POLL_MS;
+    s_idle_poll_ms = next_ms < CST92XX_IDLE_POLL_MAX_MS ? next_ms : CST92XX_IDLE_POLL_MAX_MS;
+    retry_ms = s_idle_poll_ms;
+  } else {
+    s_idle_poll_ms = 0u;
+  }
+  return retry_ms;
+}
+
+static bool prv_generation_current(uint32_t generation) {
+  pbl_irq_lock();
+  const bool current = s_enabled && generation == s_generation;
+  pbl_irq_unlock();
+  return current;
 }
 
 static void prv_process_pending_messages(void *context) {
@@ -193,71 +278,27 @@ static void prv_process_pending_messages(void *context) {
   }
   T5_IO_ADD(T5IO_TOUCH_QUEUE, callback_at - queued_at, 0u);
   s_callback_scheduled = false;
+  // An IRQ queued during a failed transfer must not bypass its retry delay.
+  if (s_transfer_retry) {
+    pbl_irq_unlock();
+    pbl_mutex_unlock(&s_i2c_lock);
+    return;
+  }
   s_poll_scheduled = false;
   pbl_irq_unlock();
   (void)new_timer_stop(s_retry_timer);
 
   uint8_t report[CST92XX_REPORT_LENGTH] = {0};
-  bool down = s_down;
+  bool down;
   bool palm = false;
-  uint32_t retry_ms = 0;
-  if (!prv_read_report(report)) {
-    down = false;
-    s_contact_active = false;
-    ++s_read_failures;
-    ++s_consecutive_read_failures;
-    if (s_read_failures == 1u || (s_read_failures & CST92XX_FAILURE_LOG_MASK) == 0u) {
-      PBL_LOG_ERR("CST92xx report transfer failed (%lu total)", (unsigned long)s_read_failures);
-    }
-    retry_ms = CST92XX_READ_RETRY_MS;
-    if (s_consecutive_read_failures >= CST92XX_RESET_FAILURE_THRESHOLD) {
-      (void)pbl_intc_disable(&s_interrupt);
-      prv_reset(true);
-      s_consecutive_read_failures = 0u;
-      (void)pbl_intc_enable(&s_interrupt);
-      retry_ms = CST92XX_RESET_RETRY_MS;
-    }
-  } else {
+  uint32_t retry_ms;
+  if (prv_read_report(report)) {
     s_consecutive_read_failures = 0u;
-    const uint8_t points = report[CST92XX_POINTS_OFFSET] & CST92XX_POINTS_MASK;
-    const uint8_t status = report[CST92XX_STATUS_OFFSET] & CST92XX_NIBBLE_MASK;
-    // An ACK echo or empty buffer is not a fresh liftoff report.
-    const bool framed = report[CST92XX_ACK_OFFSET] == CST92XX_REPORT_ACK &&
-                        report[CST92XX_STATUS_OFFSET] != CST92XX_REPORT_ACK;
-    if (framed) {
-      const bool any_down =
-          points != 0u && (status == CST92XX_TOUCH_STATUS ||
-                           (points > 1u && (report[CST92XX_SECOND_STATUS_OFFSET] &
-                                            CST92XX_NIBBLE_MASK) == CST92XX_TOUCH_STATUS));
-      if (any_down && (report[CST92XX_COVER_OFFSET] & CST92XX_COVER_MASK)) {
-        palm = !s_palm_down;
-        s_palm_down = true;
-      } else if (!any_down) {
-        s_palm_down = false;
-      }
-      down = false;
-      s_contact_active = any_down;
-      if (!s_palm_down && points != 0u && status == CST92XX_TOUCH_STATUS) {
-        const uint16_t native_x = ((uint16_t)report[CST92XX_X_HIGH_OFFSET] << CST92XX_NIBBLE_BITS) |
-                                  (report[CST92XX_XY_LOW_OFFSET] >> CST92XX_NIBBLE_BITS);
-        const uint16_t native_y = ((uint16_t)report[CST92XX_Y_HIGH_OFFSET] << CST92XX_NIBBLE_BITS) |
-                                  (report[CST92XX_XY_LOW_OFFSET] & CST92XX_NIBBLE_MASK);
-        if (native_x < CST92XX_NATIVE_SIZE && native_y < CST92XX_NATIVE_SIZE) {
-          // The panel is mounted with both touch axes mirrored.
-          s_last_x = PBL_DISPLAY_WIDTH - 1 - prv_map_coordinate(native_x, PBL_DISPLAY_WIDTH);
-          s_last_y = PBL_DISPLAY_HEIGHT - 1 - prv_map_coordinate(native_y, PBL_DISPLAY_HEIGHT);
-          down = true;
-        } else {
-          s_contact_active = false;
-          PBL_LOG_WRN("CST92xx coordinate out of range: %u,%u", (unsigned)native_x,
-                      (unsigned)native_y);
-        }
-      }
-    }
-    // Keep recovery polling during suppressed contact, including partial multi-finger release.
-    if (s_contact_active || s_palm_down || pbl_gpio_get_raw(&s_interrupt_input) == 0) {
-      retry_ms = CST92XX_POLL_MS;
-    }
+    down = prv_decode_report(report, &palm);
+    retry_ms = prv_poll_delay();
+  } else {
+    down = false;
+    retry_ms = prv_retry_failed_transfer();
   }
   s_down = down;
 
@@ -271,20 +312,12 @@ static void prv_process_pending_messages(void *context) {
   const int16_t y = s_last_y;
   pbl_mutex_unlock(&s_i2c_lock);
   // Input listeners take service locks; never invoke them under the hardware lock.
-  pbl_irq_lock();
-  const bool current = s_enabled && generation == s_generation;
-  pbl_irq_unlock();
-  if (current) {
-    // Match stock CST816 ordering: palm first, then the balanced raw liftoff.
-    if (palm) {
-      prv_report_palm(x, y);
-    }
-    pbl_irq_lock();
-    const bool still_current = s_enabled && generation == s_generation;
-    pbl_irq_unlock();
-    if (still_current) {
-      prv_report_sample(down, x, y);
-    }
+  // Palm listeners may disable/re-enable touch; recheck before the raw sample.
+  if (palm && prv_generation_current(generation)) {
+    prv_report_palm(x, y);
+  }
+  if (prv_generation_current(generation)) {
+    prv_report_sample(down, x, y);
   }
   T5_IO_END(T5IO_TOUCH_CALLBACK, callback_at, 0u);
 }
@@ -337,6 +370,8 @@ static void prv_set_enabled(bool enabled) {
   s_callback_scheduled = false;
   s_retry_pending = false;
   s_poll_scheduled = false;
+  s_transfer_retry = false;
+  s_idle_poll_ms = 0u;
   pbl_irq_unlock();
   (void)new_timer_stop(s_retry_timer);
   s_consecutive_read_failures = 0u;

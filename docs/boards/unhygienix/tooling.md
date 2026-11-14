@@ -14,6 +14,29 @@ configuration is separate.
 Run commands from the PebbleOS repository root. Keep supplied build inputs and
 generated validation artifacts under `build/`.
 
+## Touch power candidate validation
+
+See [touch review](touch-power-review.md) for fitted identity, pin-map/reference
+conflicts, fault-backoff tradeoffs and the current installed state. From the production
+repository, focused host checks are:
+
+```sh
+ASAN_OPTIONS=detect_leaks=0 python3 -m unittest -v \
+  tools.tests.test_t5ai_touch tools.tests.test_t5ai_sensor_startup \
+  tools.tests.test_t5ai_i2c tools.tests.test_t5ai_qmi8658_fifo
+```
+
+The touch harness compiles the actual driver; the ordinary touch runner does not
+add sanitizers. The preserved `artifacts/touch-power-20261113/test-sanitized.py`
+adds ASan/UBSan and runs the retained-sleep/guard/first-failure checks too. Leak
+checks are disabled only for the sandbox tracing limitation. Keep production
+100 kHz; independent host bus/sensor tests are not physical QMI/RTC concurrency
+qualification. The operator authorized this policy flash on 13 November. Keep exact image and
+write-scope validation for subsequent hardware work.
+Freeze raw/protected images, ELF/map/config, log dictionary, source diff and
+hashes; validate protected CRC/layout, SRAM wake gate, heap limits and unchanged
+resources/configuration before an AP-only test. Preserve the first failure.
+
 ## FNB58 USB power measurement
 
 The host tooling includes live FNB58 power logging for firmware comparisons.

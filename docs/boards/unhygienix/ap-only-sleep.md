@@ -57,16 +57,19 @@ Bluetooth recovery. That image also recorded Bluetooth discovery/timeout
 failures, preserved under `artifacts/ap-all-savings-20261108/first-failure` in
 the reference workspace.
 
-The installed normal QMI cleanup is `4545e34ad182f3f80411b93f46c2dbdf364a9e5f`,
-AP-only flashed on 13 November. Its live capture received AP/CP reset sources
-0/0, contract 0x78f, 32 retained-sleep returns with zero CP transition/clock/mask/
-resource/fault deltas, SD startup and encrypted phone recovery. The operator
-confirms normal first-gesture wake, touch and buttons. Capture is stopped.
-Default QMI WOM reduces sensor activity after five quiet shake-only seconds;
-its IRQ still wakes service immediately and its health timer is five seconds.
-It changes neither the AP sleep contract nor CP frequency/closed settings.
-This bounded check does not establish electrical savings or release soak.
-See [current status](current-status.md) for exact identities and proof limits.
+The installed touch fault-backoff normal AP is
+`96b2e1aabc0e5f1748c6bbdaa765efe168f1a01b`, AP-only flashed on 13 November.
+The first post-programming AP=0x4f boot closed sleep admission and is preserved.
+One commanded same-image restart received reset sources 0/0, contract 0x78f,
+SD startup and 32 retained returns with all CP transition/clock/mask/resource/
+fault deltas zero. The operator confirms the companion connected normally. Encrypted phone-session
+messages were not captured on UART; that recovery is operator-observed.
+The operator confirms normal tap/swipe/release/hold, first touch after ten
+seconds idle, motion wake and both buttons. Touch fault backoff changes neither
+GPIO wake routing nor CP exclusion guards; QMI WOM, dim display and the 240 MHz
+active AP clock are preserved. Physical bus/INT fault injection, concurrent QMI/
+RTC load, electrical and long-term qualification remain open. No overnight soak
+was run. See [current status](current-status.md) and [touch review](touch-power-review.md).
 
 Before release:
 

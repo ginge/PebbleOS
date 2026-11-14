@@ -1,6 +1,58 @@
 # Unhygienix current status — 13 November 2026
 
-## Latest installation: QMI cleanup — 13 November
+## Touch source cleanup — 13 November (unflashed)
+
+Separate cleanup build `9780fbc065bfc133635e8c0bc58ec87f9b871f88` extracts decoding,
+recovery and polling helpers, simplifies read/ACK handling and removes one
+redundant generation-check critical section from ordinary raw delivery. Palm
+listener revalidation and all touch policies are preserved. Forty-seven targeted
+ASan/UBSan tests and 10,000 modeled equivalence steps pass, as do normal/ARM
+IO-profile builds, image/map/CRC/SRAM and style checks. Text/data/BSS, normal
+configuration and resources are unchanged versus the installed image. No measured
+speed/power improvement is claimed. The cleanup is not flashed; installed AP
+remains `96b2e1aabc0e5f1748c6bbdaa765efe168f1a01b`. See the [touch review](touch-power-review.md)
+and reference-workspace `artifacts/touch-cleanup-20261113/` for the separate diff
+and exact evidence.
+
+## Touch fault-backoff installation — 13 November
+
+Normal AP build `96b2e1aabc0e5f1748c6bbdaa765efe168f1a01b` is installed AP-only.
+The [touch review](touch-power-review.md) retains subscriber-driven raw touch and
+reset-held global-off/no-subscriber disable. No speculative controller sleep or
+gesture-mode command was added. Empty stuck-low INT polling now backs off to
+1 s; IRQs/queued work respect existing 80 ms / post-reset 1 s transfer retries.
+Known held/palm contacts retain 20 ms fallback and real falling edges remain
+immediate. During an INT/bus fault a new touch can be delayed or a short tap
+missed; this is not a normal-idle current saving claim.
+
+The operator authorized flashing and granted standing authorization without
+re-prompting. Programming succeeded in 32.6 s on the first attempt. Initial
+post-programming boot received AP/CP reset sources 0x4f/0 and closed sleep
+admission; that first failure is preserved. One commanded same-image hardware
+restart then received the exact build ID, reset sources 0/0, 240 MHz AP clock,
+contract 0x78f, SD startup and 32 AP returns with CP transition/clock/mask/resource/
+fault deltas all zero. The operator confirms the companion connected normally.
+Encrypted phone-session
+messages were not captured on UART; that recovery is operator-observed.
+The operator confirms taps, swipe/release, held touch, first touch after ten
+seconds idle, motion wake and both buttons all normal. Forced physical INT/I2C
+faults, shared-bus concurrency/RTC, measured latency and longer qualification
+remain open. No overnight soak or electrical measurement was run.
+
+All 46 targeted ASan/UBSan tests pass (leak detection disabled for sandbox
+tracing), as do normal image/map/CRC, SRAM-gate, ARM IO-profile and style checks.
+Text grows 112 B; data/BSS, configuration and resources are unchanged. CP firmware,
+frequency/closed settings, identity/calibration, PFS and bonds were outside the
+AP write; CP readback was not repeated this session. Raw SHA256:
+`aee7bd2d0f712a8ebc2848a9b3044c69f4367092462cabcf85fa6b57e0d9736f`;
+protected: `b19bafc8cca1b87ce77862ec8a31d04f619a164669a396f1d20f1aaf3ad111b6`.
+Known-good `4545e34a` rollback, exact candidate/config/dictionary, first-failure
+and restart UART, tests and results: reference-workspace
+`artifacts/touch-power-20261113`. Captures are stopped. Final restart UART
+received 4,442 bytes; exact results are
+in `flash-result.json`.
+
+## Earlier installation: QMI cleanup — 13 November
 
 Installed AP-only build `4545e34ad182f3f80411b93f46c2dbdf364a9e5f` consolidates configuration
 and rollback, separates direct/FIFO/WOM acquisition, and isolates the optional
