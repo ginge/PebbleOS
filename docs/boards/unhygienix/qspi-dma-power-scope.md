@@ -1,5 +1,10 @@
 # QSPI and DMA power savings scope — 14 November 2026
 
+The diagnostic recorder/workloads are now removed from production, with exact
+[archived recovery](diagnostics-archive.md). Default-on DMA inheritance and real
+failure/owner guards remain. Dated measurements and trials below retain their
+original evidence limits; see current status for build/installed state.
+
 ## Latest outcome — 14 November
 
 The default-off [fixed dim-display energy harness](display-energy.md) now provides

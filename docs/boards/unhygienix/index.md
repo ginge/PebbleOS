@@ -3,7 +3,7 @@
 > Current project status (14 November 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
 
 DMA clock-policy inheritance is now the native Unhygienix build default, at the
-operator's request. Profiling and both pre-splash workloads stay default-off;
+operator's request. QSPI/DMA profiling and both pre-splash workloads are removed and archived;
 explicit opt-out restores AP-forced bypass. Installed 4865f074 already enables
 inheritance; this default change does not flash or reset it.
 
@@ -868,9 +868,8 @@ isolation validation. Define recovery and rollback before enabling updates.
 
 tooling
 qspi-dma-power-scope
-qspi-dma-diagnostics
 dma-clock-policy
-display-energy
+diagnostics-archive
 settings_sync_watchdog
 flash_optimisation
 refactor_handoff

@@ -3,6 +3,25 @@
 The latest installation checkpoint below is the current installed state. Dated entries preserve
 the state and evidence at their recorded checkpoint.
 
+## QSPI/DMA diagnostic code retired — 14 November
+
+The recorder, mixed-I/O and fixed-display-energy harnesses are removed from
+production: nine diagnostic-only files, their options/build entries and all
+DMA/SPI/board/sleep hooks. Functional regressions and safety handling remain;
+PSRAM acquisition acknowledgement and both range checks precede framebuffer use
+without a diagnostic conditional. DMA inheritance remains default-on.
+
+An exact 18-file source archive and unapplied recovery patch are preserved under
+reference `artifacts/diagnostics-retirement-20261114/`. The patch passed checks
+against the cleaned tree and restored all archived bytes in a temporary tree.
+See [diagnostic archive/reuse](diagnostics-archive.md). Existing electrical data,
+failed captures and rollback images remain untouched.
+
+This is source cleanup, not a flash. Installed AP remains 4865f074 with its older
+profiling and DMA inheritance enabled, and its last AP=0x4f / retained rejection 4
+capture remains the latest observed boot state. No new hardware, power, shutdown
+or overnight claim is made. Startup/BT diagnosis remains deferred.
+
 ## DMA inheritance enabled by default — 14 November
 
 At the operator's explicit request, Unhygienix native DMA now defaults

@@ -8,6 +8,19 @@ Production code and hardware release qualification are separate.
 Use [current status](current-status.md) for installed identities and evidence.
 Historical findings remain in [the investigation history](power-investigation-history.md).
 
+## Diagnostic retirement — 14 November
+
+- [x] Remove QSPI/DMA instrumentation and both boot workloads from production;
+  retain default-on DMA inheritance and real acquisition/completion/owner guards.
+- [x] Archive exact code/tests and verify byte-identical restoration through an
+  unapplied patch. Keep failure evidence and measurement limitations.
+- [x] Keep functional mailbox/QSPI regressions in ordinary tests and standalone
+  PSRAM-readiness/ownership regressions.
+- [ ] Normal-use power and guarded-startup qualification remain open; cleanup
+  does not resolve the installed AP=0x4f boot or change the installed image.
+
+See [recovery guide](diagnostics-archive.md) and [current status](current-status.md).
+
 ## DMA default promotion — 14 November
 
 - [x] Enable native Unhygienix DMA inheritance by default at operator request,

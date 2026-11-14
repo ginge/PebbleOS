@@ -14,6 +14,16 @@ configuration is separate.
 Run commands from the PebbleOS repository root. Keep supplied build inputs and
 generated validation artifacts under `build/`.
 
+## Production diagnostic cleanup — 14 November
+
+QSPI/DMA profiling and both pre-splash workload options/code are retired from
+production. DMA inheritance stays default-on. Use the
+[archive/recovery guide](diagnostics-archive.md) before following older profiling
+commands below; they describe the historical source, not currently available
+Kconfig options. Clear obsolete cached diagnostic overrides or use a fresh build.
+The cleaned build retains real error/ownership/PSRAM guards and ordinary tests.
+No new flash is part of this cleanup; current status gives the installed identity.
+
 ## DMA inheritance is the normal build default — 14 November
 
 `T5AI_DMA_INHERIT_CLOCK_POLICY` now defaults to `y` on native Unhygienix DMA

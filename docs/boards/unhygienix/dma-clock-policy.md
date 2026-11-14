@@ -1,9 +1,15 @@
 # DMA clock-policy inheritance — 14 November 2026
 
+The production path now contains only the default-on inheritance policy and its
+reset-release guard. QSPI/DMA profiling, snapshots and both boot workloads have
+been removed and [archived for reuse](diagnostics-archive.md). Their historical
+validation sections below are evidence records, not active source APIs/options.
+
+
 DMA clock-policy inheritance is enabled by default on Unhygienix native DMA,
 at the operator's explicit request after the bounded trials. It withdraws AP's
 forced bypass while leaving the global clock policy established by CP untouched.
-Optional QSPI/DMA profiling and both measurement workloads remain default-off.
+The optional QSPI/DMA diagnostics and measurement workloads are now archived.
 Historical trial sections below describe their then-default-off configurations.
 It does **not** implement AP-controlled global gating, reset or domain shutdown.
 The operator explicitly deferred startup and Bluetooth investigation for this

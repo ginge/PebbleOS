@@ -1,5 +1,11 @@
 # QSPI/DMA diagnostics and acquisition safety — 14 November 2026
 
+> Archived method/evidence: this diagnostic code and its Kconfig options were
+> removed from production. See [archive and recovery](diagnostics-archive.md)
+> before reusing the historical build commands below. Measurements and failures
+> remain unchanged; installed identity is in [current status](current-status.md).
+
+
 This is the first package from [the power scope](qspi-dma-power-scope.md), built
 on production commit `21b1cabcd`. It adds an acquisition correction and an
 independent, default-off diagnostic option. No clock-gating policy, panel

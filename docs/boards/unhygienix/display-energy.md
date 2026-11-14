@@ -1,5 +1,11 @@
 # Fixed dim-display energy workload — 14 November 2026
 
+> Archived method/evidence: this diagnostic code and its Kconfig options were
+> removed from production. See [archive and recovery](diagnostics-archive.md)
+> before reusing the historical build commands below. Measurements and failures
+> remain unchanged; installed identity is in [current status](current-status.md).
+
+
 This is an independent default-off measurement harness, not a change to normal
 redraw policy or dim behavior. `CONFIG_T5AI_DISPLAY_ENERGY_TEST` requires native
 QSPI/DMA profiling and retained-sleep support, excludes mixed-I/O qualification,
