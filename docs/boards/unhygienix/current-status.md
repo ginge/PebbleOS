@@ -1,4 +1,131 @@
-# Unhygienix current status — 13 November 2026
+# Unhygienix current status — 14 November 2026
+
+The first checkpoint below is the current installed state. Later entries preserve
+the state and evidence at their recorded checkpoint.
+
+## Latest AP reinstalled after comparison — 14 November
+
+On explicit operator request, AP `b40a6cb1070c5440f74c1c758b2c0eff8a38290a`
+was reinstalled AP-only over `96b2e1aa`; programming succeeded in 32.6 seconds.
+Current runtime source, frozen hashes, image CRC/layout/map and metadata checks
+passed. CP97 readback was verified earlier in this session; no CP write occurred.
+CP/settings/calibration, resources, PFS and bonds remain outside all writes.
+
+First post-programming boot received AP=0x4f/CP=0 and closed sleep admission;
+its raw capture is preserved in `reinstall-latest/first-failure/`. One explicitly
+commanded same-image hardware reset then received exact build, AP/CP sources 0/0,
+SD startup, contract 0x78f and 32 AP returns with all CP transition/clock/mask/
+resource/fault deltas zero. No further reset was issued. Normal dim/WOM policy
+is unchanged. This is not clean post-programming startup qualification, and the
+earlier operator-reported splash/apparent restart remains unresolved.
+
+The bounded UART capture received 8,277 bytes and is stopped. Encrypted phone
+recovery was not captured on this final reinstall; the first install verified it
+on the same image. No new physical comparison result is inferred from the
+operator's request. Raw/protected SHA256 remain
+`d8502e8e8303fe2a3b96cbe5fc94b41f46be6dd81b4c4ec2e10064c115117f73` /
+`197bd6ba6534d313e2068901cba4b35073748bb695bcd1a07a4fdcf239e197e6`.
+Exact logs/results:
+reference `artifacts/standby-display-20261114/reinstall-latest/result.json`.
+This installed-state checkpoint supersedes the rollback checkpoint below.
+
+## Previous AP restored for operator comparison — 14 November
+
+At the operator's explicit request, the previously installed AP
+`96b2e1aabc0e5f1748c6bbdaa765efe168f1a01b` was restored AP-only after hash,
+protected CRC/layout/map and identical configuration/resource checks. Programming
+succeeded in 32.6 seconds. UART received the exact restored identity, AP/CP reset
+sources 0/0, 240 MHz clock, contract 0x78f and SD startup. No additional reset was
+issued. The bounded capture is stopped; subsequent physical comparison is for
+the operator. No new 32-return or phone-recovery milestone was captured during
+this short rollback check.
+
+CP97 was fully read back/CRC-verified earlier in this session and has not been
+written since. CP, settings/calibration, resources, PFS and bonds were outside
+the rollback write. Production source and the `b40a6cb1` candidate remain intact;
+only installed AP changed. The earlier splash/apparent-restart evidence remains
+unresolved and preserved. Exact rollback images, logs and capture result:
+reference `artifacts/standby-display-20261114/restore-96b2e1aa/result.json`.
+
+## Standby/display candidate installed — 14 November
+
+At the operator's request, normal AP
+`b40a6cb1070c5440f74c1c758b2c0eff8a38290a` was AP-only programmed successfully
+in 32.6 seconds (first programmer attempt). Current source matched the frozen
+candidate. Full current CP97 readback matched the frozen package byte-for-byte,
+with protected CRCs verified before the AP write. CP firmware/frequency/closed
+settings, calibration/identity, resources, PFS and bonds were not written.
+Normal dim, QMI WOM and CP-awake AP retained sleep remain enabled unchanged;
+Sleep In/raw-zero remain disabled, and shutdown now rejects before teardown.
+
+UART received the exact candidate build, AP/CP reset sources 0/0, 240 MHz AP
+clock, SD startup with the existing volume, contract 0x78f, and 32 AP retained
+returns with CP transition/clock/mask/resource/fault deltas all zero. Bonded
+encryption and the phone protocol session recovered. One initial BLE 0x23e
+connection failure and a connection-parameter retry are retained. The readback's
+commanded restart of the preceding `96b2e1aa` AP received AP=0x4f/CP=0 and closed
+sleep admission; that precedes candidate flashing and is preserved separately.
+
+The operator reports a long boot-splash delay followed by an apparent automatic
+restart, then confirms display/dim, motion wake, touch/hold/release, both buttons
+and companion operation all normal. UART captured one candidate boot banner and
+no second boot/reset sequence or assertion/panic record. The reported restart is
+not independently corroborated or explained; this is an unresolved startup issue
+and blocks clean startup/release qualification. Do not silently replace that
+report with the later successful recovery checks or label it a proven reset cause.
+No additional reset or rollback was issued by the agent.
+
+The bounded capture received 8,485 bytes and is stopped. Raw first-failure bytes,
+operator reports, full CP readback, programmer logs and decoded/verified results
+are in reference artifacts `standby-display-20261114/install/`; see
+`flash-result.json` and `first-failure/`. Known-good `4545e34a` rollback hashes
+and CRCs were rechecked and preserved. No shutdown/panel-policy experiment,
+electrical measurement or overnight soak was run. Next: investigate the startup
+splash/apparent restart using the preserved trace, without claiming clean startup.
+
+## Standby/display audit — 14 November (pre-install preparation)
+
+The [standby/display review](standby-display-review.md) records the source/circuit
+audit and ranked options. Entry HEAD is `4176671a9`, newer than the handoff;
+the latest recorded installation at audit entry was touch AP `96b2e1aa`,
+not `4545e34a`.
+Today's receive-only CH342 capture received 221 bytes in 30.08 seconds and is
+stopped, but did not receive an exact running identity. Operator confirms USB
+through FNB58 and supply-cycle recovery; battery/debug back-power remain unverified.
+
+Prepared normal AP `b40a6cb1070c5440f74c1c758b2c0eff8a38290a` rejects unsupported
+shutdown before teardown (`-ENOTSUP`) through a board-local implementation.
+The prior path set a Pebble boot bit and reset; no supported vendor standby flag
+contract exists, and VBUS bypasses the P19 battery latch. Battery-off implementation
+and low-battery protection remain unqualified. Stock shared runtime is unchanged;
+only board-conditioned build selection replaces the generic standby object.
+
+Separately, CO5300 caches successfully applied raw brightness and Display On/Off,
+retries failures, invalidates on reset/sleep and propagates reset GPIO errors.
+Normal dim mapping/timeouts, refresh policy, synchronous transfer completion,
+shared clocks, QMI WOM and CP-awake retained sleep are preserved. Sleep In and
+raw-zero controls stay default off. This is less redundant work, not measured power.
+
+Eleven focused checks pass, including actual-source ASan/UBSan fault tests and
+32 modeled partial-redraw sleep/wake cycles with alternating orientation. Another
+54 regression checks pass; three obsolete DMA extractors fail because they target
+a retired function (preserved in the evidence). Normal build, image/map/CRC,
+SRAM wake-gate, style and whitespace checks pass. Text +32 B, data/BSS unchanged;
+kernel heap 28,960 B. Normal configuration and resources are byte-identical to
+the preceding build. Resource SHA256 remains
+`62b695d70c8b401ed20f12193052cb72f5a8c479ca39157b7369153051e78b46`.
+Raw SHA256: `d8502e8e8303fe2a3b96cbe5fc94b41f46be6dd81b4c4ec2e10064c115117f73`;
+protected: `197bd6ba6534d313e2068901cba4b35073748bb695bcd1a07a4fdcf239e197e6`.
+
+At this pre-install checkpoint no firmware had been flashed or power-off requested;
+no new physical wake, storage,
+bonds, DMA coexistence or electrical qualification is claimed. CP/readback,
+frequency/closed settings, resources, PFS and bonds were not written. No overnight
+soak ran. Frozen candidate, preceding image, independent standby/display patches,
+first build/test failures and validation: reference-workspace
+`artifacts/standby-display-20261114/`. Next: bounded normal AP-only qualification
+with exact CP/readback and rollback checks, retaining dim; battery-only shutdown
+and deeper panel sleep require their separate hardware gates.
 
 ## Touch source cleanup — 13 November (unflashed)
 

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 if(CONFIG_BOARD_UNHYGIENIX)
-  set(sources boards/board_unhygienix.c)
+  set(sources boards/board_unhygienix.c boards/unhygienix_standby.c)
 elseif(CONFIG_BOARD_ASTERIX)
   set(sources boards/board_asterix.c)
 elseif(CONFIG_BOARD_OBELIX)

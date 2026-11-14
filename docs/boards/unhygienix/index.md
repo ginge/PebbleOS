@@ -1,6 +1,6 @@
 # Unhygienix: The village fishmonger
 
-> Current project status (13 November 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
+> Current project status (14 November 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
 
 `unhygienix` is the PebbleOS target for the Waveshare
 [T5-E1-Touch-AMOLED-1.75](https://www.waveshare.com/wiki/T5-E1-Touch-AMOLED-1.75),
@@ -25,7 +25,33 @@ BOM, battery choices, provisional clearances and unresolved fit requirements.
 Use the [case-design handoff prompt](../../../boards/unhygienix/hardware/docs/case-design-handoff.md) to continue enclosure
 work. These documents describe a preliminary design, not verified hardware.
 
-## Latest implementation status — 2026-11-13
+## Latest implementation status — 2026-11-14
+
+Installed AP-only build: `b40a6cb1070c5440f74c1c758b2c0eff8a38290a`.
+CO5300 now avoids repeated successfully applied brightness/Display On/Off commands,
+invalidates state on reset/sleep/errors and propagates reset GPIO failures. Board
+shutdown returns `-ENOTSUP` before teardown; true power-off is not implemented.
+Dim appearance/timeouts, redraw policy, shared clock votes, QMI WOM and CP-awake
+AP retained sleep are unchanged. Raw-zero brightness and panel Sleep In stay off.
+
+After an operator-requested rollback comparison, the latest AP was reinstalled.
+First boot reported AP=0x4f and closed retained-sleep admission; one commanded
+same-image reset then verified exact build, reset sources 0/0, SD startup,
+contract 0x78f and 32 clean AP returns. The 8,277-byte capture is stopped.
+Encrypted phone recovery and normal physical operation were observed during the
+first installation; neither is newly asserted for the final reinstall.
+CP97 readback/CRC matched earlier in the session, with no subsequent CP write.
+CP settings/calibration/identity, resources, PFS and bonds were preserved.
+
+Startup remains unqualified: preserve both the first-install operator report of
+long splash/apparent automatic restart (no second boot corroborated by UART) and
+the final reinstall's AP=0x4f trace. No electrical saving or overnight soak is
+claimed. See [current status](current-status.md),
+[standby/display audit](standby-display-review.md),
+[validation and flash tooling](tooling.md#standbydisplay-candidate-checks--14-november)
+and [power TODO](power-todo.md).
+
+## Historical implementation status — 2026-11-13
 
 The installed AP-only QMI cleanup build is
 `4545e34ad182f3f80411b93f46c2dbdf364a9e5f`. It retains default quiet-period WOM,

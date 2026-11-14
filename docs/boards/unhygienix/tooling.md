@@ -4,7 +4,7 @@
 > power policy. Dated profiling and installed-state checkpoints below are
 > historical procedure/evidence records, not claims about the current device.
 
-> Current project status (13 November 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
+> Current project status (14 November 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
 
 Unhygienix means "The village fishmonger." The independent hardware target is
 `unhygienix` (`CONFIG_BOARD_UNHYGIENIX`), with `PLATFORM_GABBRO` apps and the
@@ -13,6 +13,65 @@ configuration is separate.
 
 Run commands from the PebbleOS repository root. Keep supplied build inputs and
 generated validation artifacts under `build/`.
+
+## Standby/display candidate checks — 14 November
+
+See [audit and prepared hardware procedure](standby-display-review.md). Run the
+actual-source native tests from this repository:
+
+```sh
+ASAN_OPTIONS=detect_leaks=0 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v \
+  tools.tests.test_unhygienix_standby tools.tests.test_t5ai_panel_power_cache \
+  tools.tests.test_t5ai_panel_init tools.tests.test_t5ai_display_power \
+  tools.tests.test_t5ai_display_rotation tools.tests.test_t5ai_display_recovery \
+  tools.tests.test_t5ai_spi tools.tests.test_t5ai_gdma
+```
+
+The old `test_t5ai_dma_irq`, `test_t5ai_dma_deadline` and
+`test_t5ai_dma_fault_injection` extract a removed transport function and fail
+before running assertions. Preserve those failures; current QSPI/GDMA checks are
+the native-transport checks, not a reason to claim the entire suite passes.
+
+Normal AP `b40a6cb1` is frozen in reference artifacts
+`standby-display-20261114/candidate` and is currently installed after the final
+reinstallation. `before` preserves the preceding build; the previously installed
+`96b2e1aa` and known-good `4545e34a` rollback artifacts remain preserved.
+`01-standby.patch` and `02-display.patch` are independently applicable source/test
+groups; documentation is separate. `validation-final.log`, `bounded-entry-audit.json`,
+`focused-tests-final.log`, `regressions.log` and both build logs retain results and
+failures. The source remains in PebbleOS. The initial link failure selected both
+standby objects; corrected CMake uses the relative `util/standby.c` exclusion.
+Final Ninja selection and image checks verify the generic object is absent.
+
+The candidate never drops P19; standby tests only verify early rejection. Do not
+use the generic manufacturing standby command to claim true off. Hardware tests
+that enable Sleep In/raw zero or attempt latch-off need the explicit choices and
+recovery procedure recorded in the review. Keep UART first failures and CH342
+USB errors; request adapter reconnection if enumeration/received bytes fail.
+
+### Current installation and comparison evidence
+
+All paths below are relative to reference artifacts
+`artifacts/standby-display-20261114/`. Each result names its exact images,
+programmer scope and UART evidence. Every capture is stopped.
+
+| Stage | Result and evidence |
+| --- | --- |
+| First `b40a6cb1` install | `install/flash-result.json`: CP97 readback/CRC, AP-only programming, 32 clean returns and encrypted phone recovery; 8,485 UART bytes. Operator reported long splash/apparent self-restart, then all normal; UART captured one candidate boot. |
+| Requested previous build | `restore-96b2e1aa/result.json`: AP-only rollback, exact build, reset sources 0/0, contract and SD; 2,231 UART bytes. No new 32-return/phone milestone. |
+| Latest reinstallation (current) | `reinstall-latest/result.json`: AP-only programming, AP=0x4f first-boot admission failure preserved in `first-failure/`, one commanded same-image reset, final exact build/reset 0/0/SD/contract and 32 clean returns; 8,277 UART bytes. No encrypted phone session received in this final capture. |
+
+All writes used the AP-only wrapper, with hash/CRC/layout/map checks. Latest AP
+physical range is `0x132000..0x2dc3ec` (end exclusive). The rollback explicitly
+used `--allow-older-version`. Full CP97 readback matched before the first write;
+CP was never written during either comparison. Resources/PFS/bonds and CP
+frequency/settings/calibration/identity were preserved. No new panel policy,
+power-off, electrical measurement or overnight soak was run.
+
+AP=0x4f is an observed reset-source/admission failure, not an established root
+cause. Keep guards intact and preserve first-failure bytes before any commanded
+reset; do not automatically count a later recovery as clean post-programming
+startup. The operator's earlier apparent automatic restart remains unresolved.
 
 ## Touch power candidate validation
 
@@ -1416,3 +1475,23 @@ touch/watchdog tests pass. Kernel heap is 29,152 bytes. The complete 360-second
 capture contains one boot, no error/init-failure/OOM/reset lines, 49 retained
 apps and an encrypted phone session. FLASH has 392 bytes remaining. Evidence:
 `build/traces/native-api-interfaces-20261030-183158/RESULTS.md`.
+
+### First standby/display AP-only installation — 14 November (historical)
+
+`b40a6cb1` was installed on explicit operator request after source/candidate,
+rollback and actual full CP97 readback/CRC verification. Evidence:
+reference `artifacts/standby-display-20261114/install/` (`preflight.log`,
+`cp97-readback/identity.json`, `flash.log`, `installed-decoded.json`,
+`flash-result.json`). UART if02/460800 received 8,485 bytes and is stopped.
+Programming took 32.6 seconds; only AP range `0x132000..0x2dc3ec` was written.
+CP/resources/PFS/bonds and panel policy remain untouched. The initial local
+readback-script path failure happened before hardware access and is retained.
+
+Final exact build, SD, contract, 32 clean retained returns and encrypted phone
+recovery passed. Operator reports long splash/apparent automatic restart before
+normal operation. One candidate boot banner was captured; no second reset was
+corroborated. Preserve `first-failure/` and operator observations; do not call
+startup qualified or silently discard the report. At this first-install checkpoint,
+no extra reset/rollback, power-off, panel-policy experiment, electrical comparison
+or overnight soak had been performed. Later comparison/reinstallation stages are
+listed in the current evidence table above.

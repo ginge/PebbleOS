@@ -8,6 +8,33 @@ Production code and hardware release qualification are separate.
 Use [current status](current-status.md) for installed identities and evidence.
 Historical findings remain in [the investigation history](power-investigation-history.md).
 
+## 14 November standby/display increment (now installed)
+
+- [x] [Audit](standby-display-review.md) source, boot-bit/reset flow and pinned
+  power circuit; confirm current USB/FNB58 supply and operator power-cycle recovery.
+- [x] Replace unsupported reset-as-standby with board-local early `-ENOTSUP`;
+  no latch operation or storage teardown. This does not implement battery off.
+- [x] Cache applied CO5300 brightness/on/off commands, retry faults and invalidate
+  on prepare/sleep; propagate reset GPIO failures. Preserve dim policy and clocks.
+- [x] Build normal candidate `b40a6cb1`, preserve prior images and independent
+  patches; validate 65 checks plus layout/CRC/SRAM/config/resources/style. Record
+  three pre-existing obsolete DMA test errors separately.
+- [x] AP-only install `b40a6cb1` after actual CP97 readback/CRC and rollback checks;
+  receive exact build, 32 clean AP returns and encrypted bonded protocol recovery.
+  First-install operator checks were normal after an unresolved splash/apparent
+  restart. Final reinstallation needed one commanded reset after AP=0x4f; UART
+  then received 32 clean returns. No new phone/physical confirmation on that pass.
+- [ ] Investigate operator-reported long splash/apparent automatic restart. UART
+  captured one candidate boot, without a second reset sequence. Preserve first
+  evidence; startup/release qualification remains blocked and savings unmeasured.
+- [ ] Explain recurring post-programming AP=0x4f sleep-admission failures without
+  weakening guards; preserve `reinstall-latest/first-failure/` and distinguish
+  commanded same-image recovery from clean initial startup.
+- [ ] Establish exclusive bounded storage/peripheral quiescence, battery/no-back-power
+  and button/supply recovery before implementing and testing P19 latch-off.
+- [ ] Resolve disabled-panel sleep timing/GRAM/wake qualification separately;
+  raw-zero and Sleep In remain default off. No shared-source clock gate is proven.
+
 ## Commit preparation
 
 - [x] Preserve pre-cleanup source, index state, raw captures and failure findings.
@@ -77,7 +104,10 @@ Historical findings remain in [the investigation history](power-investigation-hi
    CP users. Never gate the global controller/domain from one MIC/SD/display client.
 5. **Memory:** identify parts and CP owners, then add supported balanced retention/
    self-refresh votes. No AP-only shared-flash deep-power-down or live-PSRAM removal.
-6. **Standby:** qualify bootloader flag and board power latch separately from sleep.
+6. **Standby:** unsupported requests now fail early in the unflashed candidate.
+   USB bypasses the battery latch; no supported Pebble boot-bit contract is known.
+   Establish storage quiescence and battery-only latch/recovery qualification
+   separately from AP retained sleep and panel sleep; see the 14 November review.
 
 ## Deferred CP deep sleep
 
@@ -94,3 +124,22 @@ blockers. Local QSPI bypass is already clear; shared source release needs owners
 The historical DMA IRQ path was slower at its qualified two-row batch. The current
 batching differs, so require mixed-owner qualification and matched energy/latency
 before changing completion again. No display power saving is currently claimed.
+
+Applied-command deduplication is implemented in the 14 November now-installed
+candidate; see [standby/display review](standby-display-review.md). It does not
+change refresh cadence, dim policy or clock lifetimes, and has no electrical
+saving claim. Existing hardware release gates above remain open.
+
+## Next on-but-dim investigation (not implemented)
+
+- [ ] Profile actual current-watchface redraws, dirty rows, transferred bytes and
+  AP wake activity at fixed dim brightness. The compositor already skips clean
+  framebuffers and passes dirty-row ranges; establish unnecessary work first.
+- [ ] Reduce repeated unchanged-content redraws and over-wide invalidations without
+  changing displayed time/content, wake responsiveness or shared Pebble policy.
+- [ ] Keep seconds/animation suppression, lower dim brightness and panel internal
+  modes as explicit visible-behavior choices, separate from unchanged-work removal.
+- [ ] Prove local QSPI ownership/drain/restoration before any additional gate;
+  retain shared source/GDMA/flash/PSRAM votes until ownership is established.
+- [ ] Measure matched idle power and energy per completed redraw workload. Less
+  CPU/QSPI work does not quantify panel-side or whole-watch savings.

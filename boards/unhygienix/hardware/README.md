@@ -50,3 +50,14 @@ Related firmware documentation remains in its existing location:
 [battery review](../../../docs/boards/unhygienix/battery-review.md), and
 [microphone integration](../../../docs/boards/unhygienix/microphone.md).
 Follow the repository and parent board AGENTS.md. Preserve unrelated firmware work.
+
+## Power control audit — 14 November 2026
+
+The pinned schematic's DC-DC AND BAT circuit places SYS_EN/P19 on the battery
+latch, while VBUS separately feeds the system regulator. P19 low cannot disconnect
+USB power. BAT_CHG is not USB detection; Key2 battery restart is a circuit inference,
+not a new physical qualification. The operator confirms USB/FNB58 supply and
+power-cycle recovery; battery connection and debug back-power remain unconfirmed.
+See the [standby/display review](../../../docs/boards/unhygienix/standby-display-review.md)
+for the traced circuit, source correction, storage-quiescence blockers and separate
+battery-only/USB hardware procedures. No new electrical measurement was made.

@@ -7,4 +7,8 @@ file(GLOB_RECURSE sources CONFIGURE_DEPENDS *.c)
 if(CONFIG_ARCH_POSIX)
   pbl_filter_sources(sources EXCLUDE core_dump.c)
 endif()
+# No qualified standby boot-bit contract exists for this board.
+if(CONFIG_BOARD_UNHYGIENIX)
+  pbl_filter_sources(sources EXCLUDE util/standby.c)
+endif()
 pbl_library_sources(${sources})

@@ -43,6 +43,13 @@
 
 static uint8_t s_brightness;
 static bool s_prepared;
+static bool s_brightness_valid;
+static uint8_t s_applied_brightness;
+static enum {
+  CO5300_DISPLAY_UNKNOWN,
+  CO5300_DISPLAY_OFF,
+  CO5300_DISPLAY_ON
+} s_display;
 PBL_MUTEX_DEFINE(co5300_lock);
 static int prv_command(uint8_t command, const uint8_t *data, size_t length) {
   uint8_t bytes[CO5300_QSPI_HEADER_BYTES + CO5300_REGISTER_VALUE_BYTES] = {
@@ -59,14 +66,19 @@ int pbl_panel_co5300_init(const struct pbl_device *dev) {
 }
 static int prv_prepare(const struct pbl_panel *panel) {
   (void)panel;
-#ifdef CONFIG_T5AI_AMOLED_SLEEP_ON_DISABLE
-  s_prepared = false;
-#endif
-  (void)pbl_gpio_set(&CO5300.reset, true);
+  s_prepared = s_brightness_valid = false;
+  s_display = CO5300_DISPLAY_UNKNOWN;
+  int ret = pbl_gpio_set(&CO5300.reset, true);
+  if (ret != 0)
+    return ret;
   delay_us(CO5300_RESET_PRE_DELAY_US);
-  (void)pbl_gpio_set(&CO5300.reset, false);
+  ret = pbl_gpio_set(&CO5300.reset, false);
+  if (ret != 0)
+    return ret;
   delay_us(CO5300_RESET_PULSE_US);
-  (void)pbl_gpio_set(&CO5300.reset, true);
+  ret = pbl_gpio_set(&CO5300.reset, true);
+  if (ret != 0)
+    return ret;
   delay_us(CO5300_RESET_SETTLE_US);
   const struct {
     uint8_t command;
@@ -88,7 +100,7 @@ static int prv_prepare(const struct pbl_panel *panel) {
     if (ret != 0)
       return ret;
   }
-  int ret = prv_command(CO5300_CMD_SLEEP_OUT, nullptr, 0);
+  ret = prv_command(CO5300_CMD_SLEEP_OUT, nullptr, 0);
   if (ret != 0)
     return ret;
   delay_us(CO5300_SLEEP_OUT_DELAY_US);
@@ -96,18 +108,32 @@ static int prv_prepare(const struct pbl_panel *panel) {
   if (ret == 0)
     ret = prv_command(CO5300_CMD_NORMAL_MODE_ON, nullptr, 0);
   s_prepared = ret == 0;
+  if (s_prepared) {
+    s_applied_brightness = s_brightness;
+    s_brightness_valid = true;
+  }
   return ret;
 }
 static int prv_enable(const struct pbl_panel *panel) {
   (void)panel;
-  return prv_command(CO5300_CMD_DISPLAY_ON, nullptr, 0);
+  if (s_display == CO5300_DISPLAY_ON)
+    return 0;
+  const int ret = prv_command(CO5300_CMD_DISPLAY_ON, nullptr, 0);
+  s_display = ret == 0 ? CO5300_DISPLAY_ON : CO5300_DISPLAY_UNKNOWN;
+  return ret;
 }
 static int prv_disable(const struct pbl_panel *panel) {
   (void)panel;
-  return prv_command(CO5300_CMD_DISPLAY_OFF, nullptr, 0);
+  if (s_display == CO5300_DISPLAY_OFF)
+    return 0;
+  const int ret = prv_command(CO5300_CMD_DISPLAY_OFF, nullptr, 0);
+  s_display = ret == 0 ? CO5300_DISPLAY_OFF : CO5300_DISPLAY_UNKNOWN;
+  return ret;
 }
 static int prv_unprepare(const struct pbl_panel *panel) {
   (void)panel;
+  s_display = CO5300_DISPLAY_UNKNOWN;
+  s_brightness_valid = false;
   int ret = prv_command(CO5300_CMD_SLEEP_IN, nullptr, 0);
 #ifdef CONFIG_T5AI_AMOLED_SLEEP_ON_DISABLE
   if (ret == 0)
@@ -119,9 +145,13 @@ static int prv_unprepare(const struct pbl_panel *panel) {
 int pbl_panel_co5300_set_brightness(uint8_t level) {
   pbl_mutex_lock(&co5300_lock, PBL_FOREVER);
   s_brightness = level;
-  const int ret =
-      s_prepared ? prv_command(CO5300_CMD_WRITE_BRIGHTNESS, &level, CO5300_REGISTER_VALUE_BYTES)
-                 : 0;
+  int ret = 0;
+  if (s_prepared && (!s_brightness_valid || level != s_applied_brightness)) {
+    ret = prv_command(CO5300_CMD_WRITE_BRIGHTNESS, &level, CO5300_REGISTER_VALUE_BYTES);
+    s_brightness_valid = ret == 0;
+    if (ret == 0)
+      s_applied_brightness = level;
+  }
   pbl_mutex_unlock(&co5300_lock);
   return ret;
 }

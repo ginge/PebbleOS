@@ -57,19 +57,26 @@ Bluetooth recovery. That image also recorded Bluetooth discovery/timeout
 failures, preserved under `artifacts/ap-all-savings-20261108/first-failure` in
 the reference workspace.
 
-The installed touch fault-backoff normal AP is
-`96b2e1aabc0e5f1748c6bbdaa765efe168f1a01b`, AP-only flashed on 13 November.
-The first post-programming AP=0x4f boot closed sleep admission and is preserved.
-One commanded same-image restart received reset sources 0/0, contract 0x78f,
-SD startup and 32 retained returns with all CP transition/clock/mask/resource/
-fault deltas zero. The operator confirms the companion connected normally. Encrypted phone-session
-messages were not captured on UART; that recovery is operator-observed.
-The operator confirms normal tap/swipe/release/hold, first touch after ten
-seconds idle, motion wake and both buttons. Touch fault backoff changes neither
-GPIO wake routing nor CP exclusion guards; QMI WOM, dim display and the 240 MHz
-active AP clock are preserved. Physical bus/INT fault injection, concurrent QMI/
-RTC load, electrical and long-term qualification remain open. No overnight soak
-was run. See [current status](current-status.md) and [touch review](touch-power-review.md).
+The current installed normal AP is
+`b40a6cb1070c5440f74c1c758b2c0eff8a38290a`. It preserves the retained-sleep
+configuration and linked SRAM invariants while adding the independent
+[board standby rejection and panel command cache](standby-display-review.md).
+After the final reinstallation's AP=0x4f admission failure, one commanded
+same-image reset received reset sources 0/0, contract 0x78f, SD startup and
+32 AP returns with all CP transition/clock/mask/resource/fault deltas zero.
+The 8,277-byte bounded capture is stopped. CP97 full readback/CRC matched earlier
+in the session and no CP write followed. No guard was weakened.
+
+The first installation of this same AP received encrypted bonded phone recovery;
+the operator confirmed normal display/dim, first motion, touch and buttons after
+a long splash/apparent automatic restart. UART did not corroborate a second boot.
+No new phone or physical confirmation is claimed for the final reinstall. Both
+that unresolved operator report and the final AP=0x4f trace prevent clean startup
+qualification. The temporary `96b2e1aa` rollback and all stage-specific evidence
+remain in [current status](current-status.md); final install evidence is reference
+`artifacts/standby-display-20261114/reinstall-latest/result.json`.
+Physical bus/INT fault injection, mixed DMA/I2C load, durable storage, long-term
+wake sensitivity and electrical qualification remain open. No overnight soak ran.
 
 Before release:
 
