@@ -47,6 +47,25 @@ counters have not advanced. AP-only operation must never suspend CP resources,
 mask CP interrupts, lower shared voltage, shut down shared clocks or enter CP
 WFI. Diagnostic controls cannot override the AP-only operation selection.
 
+## Final recovery checkpoint — 14 November
+
+The first normal `faae34b9` installation below passed without an extra reset.
+The subsequent power-comparison restoration required one commanded reset after
+AP=0x4f, then failed phone reconnection despite 32 clean AP returns. The operator
+USB cycle restored an encrypted bonded session and 32 clean AP returns. Current
+normal image is unchanged. This is recovery, not clean first-startup release
+qualification. See [latest failure and limits](qspi-dma-diagnostics.md).
+
+## Latest bounded validation — 14 November
+
+Normal `faae34b9` is restored after the separate default-off mixed DMA test.
+Its first post-programming boot reports AP/CP reset sources 0/0, contract 0x78f,
+32 AP returns with all CP deltas zero, encrypted bonded phone recovery and
+operator-confirmed normal display/dim, wake and inputs. No extra reset was used.
+The qualification image's AP=0x4f / sleep-reason-4 rejection is preserved
+separately; do not count that run as retained-sleep success. See
+[mixed-I/O method and limitations](qspi-dma-diagnostics.md).
+
 ## Evidence and release gates
 
 The 8 November bounded AP-only trial completed 12 returns with no CP
@@ -57,7 +76,7 @@ Bluetooth recovery. That image also recorded Bluetooth discovery/timeout
 failures, preserved under `artifacts/ap-all-savings-20261108/first-failure` in
 the reference workspace.
 
-The current installed normal AP is
+The preceding installed normal AP was
 `b40a6cb1070c5440f74c1c758b2c0eff8a38290a`. It preserves the retained-sleep
 configuration and linked SRAM invariants while adding the independent
 [board standby rejection and panel command cache](standby-display-review.md).

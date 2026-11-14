@@ -1,5 +1,23 @@
 # Standby and display audit — 14 November 2026
 
+## Latest measurement limitation — 14 November
+
+The later short power comparison stopped after final normal's post-reset phone
+reconnection failure. Operator USB recovery restored the unchanged `faae34b9`
+normal AP's encrypted session. Two USB input windows (140.91 / 138.03 mW) have
+radio-traffic confounding and no final repeat; they establish no panel or device
+saving. The recurring AP=0x4f guard rejection and the reconnect stall remain
+release blockers. See [latest status](current-status.md).
+
+## Subsequent bounded I/O qualification — 14 November
+
+Normal AP `faae34b9` is restored, preserving the standby rejection and default dim
+policy. The separate [mixed DMA test](qspi-dma-diagnostics.md) passed 40 redraws,
+16 SD reads, four off/on/rotation cycles and concurrent microphone delivery;
+operator confirms normal operation. Its AP=0x4f sleep rejection remains preserved.
+This does not qualify Sleep In, latch-off or electrical savings. Measurement
+wiring is now explicitly battery disconnected, USB through FNB58, no UART power.
+
 ## Current installed state
 
 Normal AP `b40a6cb1070c5440f74c1c758b2c0eff8a38290a` is installed AP-only.
@@ -127,8 +145,9 @@ partial dirty regions to even panel windows, handles rotation in conversion,
 and uses QSPI channel 0. Mic owns channel 1 and SD 2/3; CP channels remain owned
 by CP. DMA completion still waits for QSPI wire idle (bounded 1 ms), with a
 20 ms DMA timeout/terminate path and late-callback rejection. Bus completion
-releases command/memory aperture/CS controls. QSPI bypass is already clear;
-shared SYS source enable is not an exclusively owned vote. No clock, DMA, flash,
+releases command/memory aperture/CS controls. Earlier QSPI-bypass-clear evidence
+is historical: native init preserves inherited bit 1 rather than explicitly
+clearing it. Shared SYS source enable is not an exclusively owned vote. No clock, DMA, flash,
 PSRAM or pin lifetime is changed by this work. Physical mixed-owner DMA, timeout
 injection and QMI/touch/button interactions remain hardware qualification gates.
 
@@ -252,3 +271,64 @@ behavioral choice and separate validation. Less host work can permit more AP
 retained idle, but does not establish reduced panel scan/emission power. Keep
 shared QSPI source/GDMA/flash/PSRAM active until ownership and restoration are
 proven. Matched idle and energy-per-completed-redraw measurements remain open.
+
+See the [QSPI/DMA work scope](qspi-dma-power-scope.md) for source-level ownership,
+clock findings, ranked implementation packages and acceptance gates. Scoping
+added no runtime policy, build, flash or electrical measurement.
+
+## Subsequent QSPI/DMA package — 14 November
+
+[The first package](qspi-dma-diagnostics.md) adds native QSPI acquisition failure
+handling and a default-off AP PSRAM diagnostic profile. Both release variants
+and 54 focused host checks pass; no new image was installed and no electrical
+saving or new physical behavior is claimed. Display dim/refresh/sleep policy and
+all clock votes remain unchanged. Installed startup qualification and panel-sleep
+first-failure limitations above still apply. Matching CP97 linked ownership is
+unresolved, which blocks shared DMA gating.
+
+### Diagnostic startup failure and recovery
+
+The subsequent diagnostic flash repeatedly restarted before its build-ID/T5QD
+reports, and the operator reported a non-working display. It was rejected and
+rolled back AP-only to exact `b40a6cb1`. UART verifies restored identity/reset
+0/0 and SD startup. [Current status](current-status.md) records final evidence.
+No power-saving qualification follows from this failed test; preserve
+`artifacts/qspi-dma-diagnostics-20261114/install/first-failure/` for root-cause work.
+
+## QSPI/DMA startup correction installed — 14 November
+
+Corrected diagnostic AP `e3b04f32d4f0c8705eb1d9ee3e457c59dc1e3f57` is now installed.
+AP-only programming took 32.6 seconds. The final bounded UART capture received
+10,380 bytes and is stopped: one bootloader entry, exact build, reset sources
+AP/CP 0/0, 240 MHz AP, existing 32 MiB SD PFS (`new=0`), contract 0x78f,
+32 clean AP retained returns with all CP deltas zero, diagnostic phases 0/1,
+and bonded encrypted phone protocol recovery. No extra commanded reset or
+rollback was needed on this final attempt. Operator: "all good" for display/dim,
+motion wake, touch/buttons and companion reconnection.
+
+Two unsafe diagnostic paths were corrected locally: lazy writes to PSRAM before
+board power/validation, and channel-register reads before DMA reset/access grants
+including unproven CP channels. Bootstrap records now stay in SRAM; the full
+buffer starts explicitly after successful PSRAM power/range checks. Early
+snapshots read only global control words. Full DMA snapshots read AP channels
+0–3 only after reset/security/privilege setup; CP channel registers are not read.
+Both defects have failing-before/passing-after host regressions. No hardware
+fault-register capture identifies which defect triggered each original reset.
+
+The original `52577e7b` and PSRAM-only correction `0cf5a0f0` both failed early
+startup; their exact images and first traces are preserved. The intermediate
+trial was rolled back to `b40a6cb1`; its "looks good" reply referred to that
+rollback, not the rejected image. Final source passes 59 focused tests plus
+normal/diagnostic release image, CRC, map, config, resource and SRAM-entry checks.
+Kernel heaps: 28,960 bytes normal, 28,832 diagnostic (160 above the minimum).
+Evidence: reference `artifacts/qspi-dma-startup-fix-20261114/result.json` and
+`install-access/`; failed intermediate trace is under `install/first-failure/`.
+
+Observed globals: QSPI inherited 0 / ready 1 / latest 1 (bypass bit 1 clear);
+DMA inherited 1 / ready and latest 3 (AP still forces bypass bit 1 on). There is
+no redundant QSPI bypass bit to clear on this startup. These are register
+observations, not clock-residency or electrical measurements. No clock or panel
+policy changed. CP/resources/PFS/bonds were outside every programming write.
+Shared DMA gating remains blocked on CP ownership and safe all-channel semantics;
+physical mixed DMA and repeated display disable/orientation qualification remain
+pending. No electrical saving or soak is claimed.

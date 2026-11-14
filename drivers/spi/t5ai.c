@@ -93,7 +93,9 @@ void pbl_spi_t5ai_irq_handler(void) {
 static int prv_init(const struct pbl_spi_bus *bus) {
   s_bus = bus;
   pbl_timer_init(&s_timeout, prv_expired);
-  (void)t5ai_cp_mailbox_enable_qspi0();
+  const int power_status = t5ai_cp_mailbox_enable_qspi0();
+  if (power_status != 0)
+    return -EIO;
   SYS(0x38) &= ~(1u << 6);
   SYS(0x3c) &= ~(1u << 6);
   SYS(0x30) |= 1u << 20;

@@ -2,6 +2,22 @@
 
 > Current project status (14 November 2026): [implementation, completed work and remaining tasks](current-status.md). Dated results below retain their original evidence limits.
 
+DMA clock-policy inheritance is now the native Unhygienix build default, at the
+operator's request. Profiling and both pre-splash workloads stay default-off;
+explicit opt-out restores AP-forced bypass. Installed 4865f074 already enables
+inheritance; this default change does not flash or reset it.
+
+Native QSPI/DMA acquisition failures and diagnostic startup handling are
+implemented; earlier failed images and first captures remain preserved.
+[DMA policy inheritance](dma-clock-policy.md) permits CP's initialized automatic
+gating policy without writing the shared global word. Normal-use trial `4865f074` is installed with inheritance enabled and both
+pre-splash workloads disabled. Its post-programming AP=0x4f guard blocks retained
+sleep on this boot; see [current status](current-status.md) for exact evidence.
+
+The [fixed dim-display measurement](display-energy.md) observed approximately
+1.0 mW lower idle USB input in a bounded shallow-WFI workload. This is not
+qualified normal connected retained-idle savings or isolated panel power.
+
 `unhygienix` is the PebbleOS target for the Waveshare
 [T5-E1-Touch-AMOLED-1.75](https://www.waveshare.com/wiki/T5-E1-Touch-AMOLED-1.75),
 using the Tuya T5AI/BK7258. Run commands from the PebbleOS repository root.
@@ -15,6 +31,10 @@ with Getafix. Getafix DVT and DVT2 remain independent Round 2 hardware targets.
 Unhygienix is excluded from release matrices. Recovery firmware, OTA, PBZ
 bundles, bulk erase and unsupported raw-flash operations remain disabled.
 
+The [QSPI/DMA work scope](qspi-dma-power-scope.md) keeps explicit shared-domain
+gating separate from clock-policy inheritance. Existing dim appearance, QMI WOM,
+touch/buttons, storage/resources/bonds and CP firmware/frequency are preserved.
+
 ## Hardware add-on and case design
 
 Canonical hardware docs, PDFs, generators, references and future CAD live in
@@ -25,7 +45,7 @@ BOM, battery choices, provisional clearances and unresolved fit requirements.
 Use the [case-design handoff prompt](../../../boards/unhygienix/hardware/docs/case-design-handoff.md) to continue enclosure
 work. These documents describe a preliminary design, not verified hardware.
 
-## Latest implementation status — 2026-11-14
+## Earlier standby/display checkpoint — 2026-11-14
 
 Installed AP-only build: `b40a6cb1070c5440f74c1c758b2c0eff8a38290a`.
 CO5300 now avoids repeated successfully applied brightness/Display On/Off commands,
@@ -847,6 +867,10 @@ isolation validation. Define recovery and rollback before enabling updates.
 :maxdepth: 1
 
 tooling
+qspi-dma-power-scope
+qspi-dma-diagnostics
+dma-clock-policy
+display-energy
 settings_sync_watchdog
 flash_optimisation
 refactor_handoff

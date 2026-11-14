@@ -300,7 +300,7 @@ void board_init(void) {
 #endif
 
   // The boot stages map PSRAM; verify the handoff before any framebuffer use.
-  (void)t5ai_cp_mailbox_enable_psram();
+  PBL_ASSERTN(!FAILED(t5ai_cp_mailbox_enable_psram()));
   PBL_ASSERTN(prv_validate_psram_range(__t5ai_framebuffer_start__, __t5ai_framebuffer_end__));
   PBL_ASSERTN(prv_validate_psram_range(__t5ai_display_dma_start__, __t5ai_display_dma_end__));
   // Device initialization precedes PSRAM validation; render only after it is ready.

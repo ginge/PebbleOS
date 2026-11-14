@@ -169,7 +169,18 @@ config T5AI_TEXT_NODE_CACHE
       font, box, overflow, alignment, spacing and flow attributes. Only text-node
       measurement uses it; long text, other tasks and unprivileged apps stay stock.
 
-
+config T5AI_DMA_INHERIT_CLOCK_POLICY
+    bool "Inherit initialized DMA global clock policy"
+    depends on BOARD_UNHYGIENIX && DMA_T5AI
+    default y
+    help
+      Do not write the shared DMA global control word. Require reset release
+      already set by CP; otherwise fail initialization before AP channel setup.
+      Preserve an inherited clock bypass request. An already-clear bypass bit
+      stays clear, rather than being forced on by AP initialization. Leave
+      power, memory, channel access, IRQs and retained blockers unchanged.
+      Disable only to restore the former AP-forced bypass policy. Does not prove
+      shared-controller shutdown ownership or physical clock residency.
 
 config T5AI_IO_PROFILE
     bool "Buffer T5 touch, shared-bus and resource-read measurements"

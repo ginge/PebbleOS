@@ -5,6 +5,7 @@ import re
 import unittest
 
 from tools.tests.native_t5ai_harness import run
+from tools.tests.test_t5ai_native_objects import body
 
 PREFIX = r"""
 #include <assert.h>
@@ -102,3 +103,112 @@ def model(source):
 class SpiTest(unittest.TestCase):
     def test_command_quad_segmentation_error_timeout_and_late_irq(self):
         run("drivers/spi/t5ai.c", PREFIX, MAIN, transform=model)
+
+    def test_actual_mailbox_power_then_clock_failure_short_circuits(self):
+        prefix = r"""
+#include <assert.h>
+typedef int status_t;
+#define FAILED(x) ((x)<0)
+enum {CP_PM_POWER_COMMAND=1,CP_PM_AHBP_QSPI_POWER=2,CP_PM_POWER_ON=3,
+ CP_PM_CLOCK_COMMAND=4,CP_PM_QSPI0_CLOCK=5,CP_PM_CLOCK_ENABLE=6};
+static unsigned calls;static int power_result,clock_result;
+static int prv_pm_request(unsigned command,unsigned module,unsigned state){
+ ++calls;
+ if(calls==1){assert(command==1 && module==2 && state==3);return power_result;}
+ assert(calls==2 && command==4 && module==5 && state==6);return clock_result;
+}
+"""
+        main = r"""
+int main(void){
+ power_result=-1;assert(t5ai_cp_mailbox_enable_qspi0()==-1 && calls==1);
+ calls=0;power_result=0;clock_result=-2;
+ assert(t5ai_cp_mailbox_enable_qspi0()==-2 && calls==2);
+ calls=0;clock_result=0;assert(t5ai_cp_mailbox_enable_qspi0()==0 && calls==2);
+ return 0;
+}
+"""
+        run(
+            "drivers/t5ai/cp_mailbox.c",
+            prefix,
+            main,
+            transform=lambda source: body(source, "t5ai_cp_mailbox_enable_qspi0"),
+        )
+
+    def test_acquisition_failures_do_not_touch_controller_or_retry_pm(self):
+        prefix = PREFIX.replace(
+            "static int t5ai_cp_mailbox_enable_qspi0(void){return 0;}",
+            "static unsigned pm_calls,pin_calls,dev_calls,cfg_calls,irq_calls;static int stage;\n"
+            "static int t5ai_cp_mailbox_enable_qspi0(void){++pm_calls;return stage<0?stage:0;}",
+        )
+        prefix = prefix.replace(
+            "int state){return 0;}",
+            "int state){++pin_calls;return stage==1?-EINVAL:0;}",
+        )
+        prefix = prefix.replace(
+            "const struct pbl_device *d){return 0;}",
+            "const struct pbl_device *d){++dev_calls;return stage==2?-ENODEV:0;}",
+        )
+        prefix = prefix.replace(
+            "cfg->dst_addr_width==4);return 0;",
+            "cfg->dst_addr_width==4);++cfg_calls;return stage==3?-EIO:0;",
+        )
+        prefix = prefix.replace(
+            "NVIC_EnableIRQ(int irq){assert(irq==20);}",
+            "NVIC_EnableIRQ(int irq){assert(irq==20);++irq_calls;}",
+        )
+        main = r"""
+int main(void){
+ struct pbl_spi_bus_state state={0};const struct pbl_dma_controller ctrl={0};
+ const struct pbl_spi_t5ai dev={.bus={&state},.dma={&ctrl}};
+ const int failures[]={-ETIMEDOUT,-EIO,-EBUSY};
+ for(unsigned i=0;i<3;++i){
+  memset(regs,0xa5,sizeof regs);memset(sys,0x5a,sizeof sys);
+  uint32_t r[256],s[128];memcpy(r,regs,sizeof r);memcpy(s,sys,sizeof s);
+  stage=failures[i];assert(prv_init(&dev.bus)==-EIO);
+  assert(pm_calls==i+1 && !pin_calls && !dev_calls && !cfg_calls && !irq_calls);
+  assert(!memcmp(r,regs,sizeof r) && !memcmp(s,sys,sizeof s));
+ }
+ for(stage=1;stage<=3;++stage){
+  memset(regs,0x55,sizeof regs);uint32_t r[256];memcpy(r,regs,sizeof r);
+  int expected=stage==1?-EINVAL:stage==2?-ENODEV:-EIO;
+  assert(prv_init(&dev.bus)==expected && !irq_calls && !memcmp(r,regs,sizeof r));
+  assert(pin_calls==(unsigned)stage && dev_calls==(unsigned)(stage-1) && cfg_calls==(unsigned)(stage==3));
+ }
+ stage=0;
+ for(unsigned gate=0;gate<2;++gate){REG(8)=0xa0u|(gate<<1);assert(prv_init(&dev.bus)==0);assert(REG(8)==(0xa1u|(gate<<1)));}
+ assert(pm_calls==8 && irq_calls==2 && !depth);return 0;
+}
+"""
+        run("drivers/spi/t5ai.c", prefix, main, transform=model)
+
+    def test_submission_refusal_and_wire_drain_timeout_are_distinct(self):
+        prefix = PREFIX.replace(
+            "static unsigned drain_steps;",
+            "static unsigned drain_steps;static int prep_error;",
+        )
+        prefix = prefix.replace(
+            "dma_arg=arg;return 0;", "dma_arg=arg;return prep_error;"
+        )
+        main = r"""
+int main(void){
+ struct pbl_spi_bus_state state={0};const struct pbl_dma_controller ctrl={0};
+ const struct pbl_spi_t5ai dev={.bus={&state},.dma={&ctrl}};
+ assert(prv_init(&dev.bus)==0);
+ static uint32_t pixels[8];const struct pbl_spi_xfer xfer={.tx_buf=pixels,.len=sizeof pixels,.tx_nbits=4};
+ state=(struct pbl_spi_bus_state){&xfer,0,1};
+ prv_enable(&dev.bus);s_stream=true;prep_error=-EBUSY;
+ assert(prv_start(&dev.bus,&xfer)==-EBUSY && !s_dma_active && !s_timeout.active);
+ assert(!completions);prv_disable(&dev.bus);
+ prep_error=0;prv_enable(&dev.bus);s_stream=true;
+ assert(prv_start(&dev.bus,&xfer)==0 && s_timeout.active);
+ REG(0x70)=1u<<14;dma_cb(dma_arg,0);
+ assert(completions==1 && result==-ETIMEDOUT && !s_timeout.active);
+ dma_cb(dma_arg,0);assert(completions==1 && !depth);return 0;
+}
+"""
+        run(
+            "drivers/spi/t5ai.c",
+            prefix,
+            main,
+            transform=model,
+        )

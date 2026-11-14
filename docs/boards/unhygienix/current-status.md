@@ -1,7 +1,361 @@
 # Unhygienix current status — 14 November 2026
 
-The first checkpoint below is the current installed state. Later entries preserve
+The latest installation checkpoint below is the current installed state. Dated entries preserve
 the state and evidence at their recorded checkpoint.
+
+## DMA inheritance enabled by default — 14 November
+
+At the operator's explicit request, Unhygienix native DMA now defaults
+`T5AI_DMA_INHERIT_CLOCK_POLICY=y`. The dependency on QSPI/DMA profiling is removed;
+profiling, mixed-I/O qualification and the display energy workload stay default-off.
+Explicit `=n` restores the old AP-forced bypass path. The reset-release guard,
+no shared-global writes, inherited CP bypass requests, channel lifetimes and
+retained blockers are unchanged. No CP or shared Pebble code was changed.
+
+This is a source/build default change. Installed AP remains 4865f074 with DMA
+inheritance already enabled and profiling enabled; no flash/reset accompanies
+this request. Its preserved AP=0x4f / retained rejection 4 remains the last
+observed boot state. Startup/BT diagnosis remains deferred and normal connected
+power savings remain unqualified. Earlier default-off statements below refer to
+the policy at those historical checkpoints. See [policy](dma-clock-policy.md)
+and reference `artifacts/dma-default-20261114/` for unprofiled tests and build checks.
+
+44 focused actual-source ASan/UBSan tests pass, including unprofiled read-only
+global transfer/error/cancel paths and reset-held rejection before channel/access/
+IRQ setup. New normal release 61661de0fa759d81def71403144f09f219a03d05 passes
+CRC/map/config/resources and actual SRAM-WFI audit. Its effective config enables
+inheritance with no cached inheritance override; profiling/workloads remain off.
+Kernel heap is 28,960 bytes. Linked device-init disassembly retains the reset
+guard and has no shared-global store. This new unprofiled image is built, not
+flashed; installed 4865f074 and its observed guarded boot state remain unchanged.
+
+
+## Cleanup and DMA-enabled normal-use trial — latest checkpoint, 14 November
+
+**Installed AP: `4865f0740c250426618095f1e3fd6cf6e6262bd9`. DMA inheritance is
+ENABLED at the operator's explicit request.** QSPI/DMA profiling is enabled for
+its bounded boot/32-return reports; both pre-splash workloads are disabled.
+Panel Sleep In/raw-zero remain off. Source option defaults remain off; this is
+an explicitly configured normal-use trial, not default release qualification.
+
+The cleanup names private snapshot slots and compile-checks their separation,
+derives early-clock capacity from that layout, names display workload timing/
+row bounds, removes an already-satisfied AP-channel condition and tidies Kconfig
+spacing. Event numbering, snapshot layout/size (844 bytes), bounded reporting,
+channel ownership/completion and existing power/display policy are preserved.
+The index no longer labels earlier diagnostic/standby images as current.
+
+72 actual-source ASan/UBSan tests and style/diff checks pass. Normal and candidate
+release builds pass CRC/map/config/resources/heap checks. Candidate has a
+28,832-byte kernel heap, 127,328 / 131,072 display/cache bytes and 14,976 / 16,384
+display-DMA bytes. The actual SRAM WFI entry audit passes. The default-off normal
+image remains runtime-identical to known-good faae34b9 apart from GNU build ID.
+Known-good faae34b9 rollback images/hashes remain frozen.
+
+AP-only flash took 32.6 seconds, physical range 0x132000..0x2dcc4a end-exclusive.
+Fresh UART bytes received the exact build, 240 MHz AP and inherited/ready DMA
+global 1/1; this confirms AP no longer forces bypass. It does not prove physical
+clock-stop residency or permission to gate a shared controller/domain. QSPI
+ready global remains 1. CP firmware/frequency/settings/identity/calibration,
+resources, PFS and bonds were not programmed or erased.
+
+This boot reported AP=0x4f / CP=0 and the existing retained-sleep rejection
+reason 4 before normal startup. Preserve the first capture; no automatic reset,
+guard weakening or startup/BT investigation followed. **Retained sleep is blocked
+on this boot; no clean 32-return milestone is claimed.** The DMA-enabled image
+is intentionally left installed for the operator's display/input test. Physical
+UI/input acceptance is separate from UART confirmation and remains pending until
+reported. No new power measurement, shutdown or overnight run accompanied this
+cleanup. Earlier approximately 1 mW savings apply only to the bounded measured
+workload, not this guarded normal-use boot.
+
+Evidence: reference `artifacts/power-cleanup-20261114/` includes source/cleanup
+patch, frozen images/config/dictionary, tests, layout/resource/SRAM audits,
+rollback hashes, AP-only flash and first-startup UART capture. See
+[DMA policy](dma-clock-policy.md), [measurement limits](display-energy.md),
+[tooling](tooling.md) and [power TODO](power-todo.md).
+
+## Fixed-workload DMA energy result — previous checkpoint, 14 November
+
+A corrected control/trial/control comparison completed all 48 redraws per run,
+with zero boundary owners, faults or retained entries and the same source word
+0x83188491. Phone Bluetooth was off by operator confirmation; battery absent,
+FNB58-only watch USB and no UART power lead remained unchanged. Measurement was
+before UI/BT startup and retained registration, deliberately matching shallow
+AP WFI rather than normal connected retained idle. See [method](display-energy.md).
+
+| Run | DMA global | Idle USB mW | Redraw USB mW | Gross mJ / redraw |
+| --- | --- | --- | --- | --- |
+| Control A, af972d11 | 3 | 128.096 | 129.223 | 32.333 |
+| Inheritance B, 2800bff0 | 1 | 127.135 | 128.341 | 32.112 |
+| Exact control repeat C | 3 | 128.182 | 129.197 | 32.353 |
+
+Relative to the controls' mean, trial was 1.005 mW lower idle (0.78%),
+0.869 mW lower during the fixed redraw workload (0.67%), and 0.231 mJ lower
+per completed scheduled redraw (0.71%). Control drift was +0.086 mW idle and
+-0.026 mW redraw. This is a small observed whole-watch USB input reduction in
+this bounded workload, not isolated panel/DMA power or qualified everyday savings.
+Gross energy includes scheduled idle time. Idle-subtracted estimates were
+0.289 / 0.308 / 0.287 mJ per redraw and do not show an incremental redraw-energy
+improvement. UART marker spread was 0.57–0.61 ms; +/-100 ms alignment sensitivity
+was evaluated. Absolute transport delay, meter accuracy and burst aliasing at
+nominal 100 Hz remain uncalibrated; one trial boot does not establish a confidence
+bound or release qualification.
+
+The first control c4ae51f1 passed its workload but was rejected electrically
+because lazy serial buffering delayed marker tails by up to six seconds. Its
+capture remains in `control-a/`. The corrected default-off harness flushes
+existing serial output only at phase boundaries. Shared logging code is intact.
+72 actual-source firmware tests and five analysis tests pass. All frozen builds
+pass resource/CRC/layout/heap/SRAM checks; normal runtime is unchanged apart
+from its build ID. Artifact: `artifacts/dma-energy-20261114/`.
+
+Exact normal faae34b9 was restored and its exact banner, reset sources 0/0
+and 32 clean AP returns (all CP deltas zero) received. See `restore/` and the
+final result. Benchmark, qualification and DMA inheritance remain
+off in normal; normal dim/QMI WOM/storage/resources/bonds are preserved. No CP
+partition or settings changes. Startup/BT diagnosis remains explicitly deferred.
+Keep inheritance default-off pending repeated matched trials and normal-use
+qualification. No shutdown or overnight test was performed.
+
+## DMA clock-policy trial — latest checkpoint, 14 November
+
+The separate default-off DMA inheritance trial `2921571f` passed: DMA global
+was inherited as 1 and remained 1 through the recorded phases, whereas control
+`99a8a768` forced it to 3. The experiment never writes that shared word; it
+rejects reset-held hardware before channel/IRQ setup. This permits inherited
+automatic gating but does not prove physical clock residency or authorize shared
+controller/domain shutdown. Normal builds retain their existing bypass policy.
+See [implementation and evidence](dma-clock-policy.md).
+
+Both diagnostic arms completed 40 redraws, 16 SD-RX reads, four off/on/rotation
+cycles, 168 microphone frames / 53,760 samples and 16 concurrent owner starts,
+with no owners left, restore errors or microphone faults. The trial recorded
+32 clean AP retained returns (all CP deltas zero), reset sources 0/0 and encrypted
+bonded phone recovery. The operator confirmed the requested display/dim, motion,
+touch/button checks: "done. fine". These are bounded observations; SD-TX and
+in-flight display cancellation remain host-tested. 69 actual-source tests pass.
+
+The exact prior normal AP `faae34b9e9037bec3cce3bb118f898beceae0bc3` was restored
+and its exact build banner, reset sources 0/0 and 32 clean AP returns
+(all CP deltas zero) received; the capture under
+`artifacts/dma-auto-gating-20261114/restore/` records the final installed state.
+No CP, resource, PFS or bond partition is programmed. Panel sleep and raw-zero
+brightness remain off; normal dim policy is unchanged.
+
+FNB58 whole-watch USB windows were 137.609 mW / 27.546 mA (control, 5,976
+samples) and 137.369 mW / 27.497 mA (trial, 5,980 samples), near 4.996 V.
+Control had retained-sleep admission closed (AP=0x4f, reason 4); trial admitted
+retained sleep. Radio/input activity also differed. The approximately 0.240 mW
+difference is **not demonstrated savings**. No panel-only current or energy per
+completed redraw workload was measured. Battery remains absent, USB supplied
+through FNB58, no UART power lead; signal back-power is not electrically excluded.
+
+Startup and Bluetooth diagnosis are explicitly deferred by the operator for
+this work; prior failures remain preserved and guards unchanged. Next power
+work is a timed fixed-workload comparison with matched AP and radio states,
+including completed-workload energy, before proposing default enablement.
+No overnight or shutdown test was performed.
+
+## Final installed state and incomplete power comparison — 14 November
+
+**Installed: normal AP `faae34b9e9037bec3cce3bb118f898beceae0bc3`; phone connectivity
+recovered by an operator USB supply cycle.** Qualification/QSPI diagnostics,
+raw-zero brightness and panel Sleep In remain disabled. Normal dim remains.
+No CP/resource/PFS/bond partition was programmed, and no pairing was deleted.
+
+The short power sequence recorded normal then the original pre-panel-cache
+normal `96b2e1aa`, with identical effective configuration/resources, battery
+removed, fixed FNB58 watch USB input and no UART power lead. Both accepted
+windows followed 32 clean AP returns and encrypted phone recovery. Each has
+5,980 CRC-enabled samples (nominal 59.8 s): normal 140.91 mW / 28.209 mA,
+control 138.03 mW / 27.632 mA, both approximately 4.995 V. These are whole-watch
+USB input readings, not panel power or demonstrated savings. Phone AppMessage
+traffic changed connection intervals during the windows, and normal's first
+window still contained connection-parameter changes. Do not infer a regression
+or saving from the 2.88 mW difference. The planned final normal repeat was
+**not recorded**, so the A/B/A comparison is incomplete; wake/redraw workload
+energy remains unmeasured.
+
+The control and final normal restoration both initially reported AP=0x4f / CP=0
+and sleep rejection reason 4. Their first traces were frozen before one
+commanded same-image reset each. Both then reached clean reset sources and 32
+AP-only returns. On the final normal reset, however, phone reconnection failed:
+UART ended at advertising disable/slow-parameter setup without a later enable
+or encrypted session; the operator confirmed "It will not reconnect". This
+is a failure observation, not a proven controller/driver root cause. Preserve
+`final-install/first-reconnect-failure/`; it supersedes the earlier successful
+normal-install checkpoint as the latest recovery requirement.
+
+The operator performed the agreed watch-USB recovery and reported "everything
+reconnected fine". A new capture received contract 0x78f, 32 AP returns with all
+CP deltas zero, encrypted bonded recovery and an open phone session. Its capture
+began after the early startup banner/reset-source rows, so those rows were not
+re-verified on the supply cycle. No further flash followed the last verified
+normal AP. Actual complete supply removal/back-power and screen-dark behavior
+were not separately measured; this is not standby/shutdown qualification.
+No further power recording followed the failure. All captures are bounded and
+stopped; no overnight run is active.
+
+Next: investigate the repeatable post-programming sleep-resume marker and the
+post-reset advertising/reconnect stall before further controller clock changes.
+Do not clear the boot guard merely to admit sleep, or change CP firmware,
+identity/calibration or bonds to recover this test. Then repeat a fully matched
+power sequence and a completed wake/redraw workload. Shared DMA gating and
+panel-sleep qualification remain open. Exact images, 63 passing focused tests,
+source increment, failed attempts, readings and recovery evidence: reference
+`artifacts/qspi-dma-qualification-20261114/RESULTS.md`.
+
+
+## Mixed DMA qualification and normal restoration — 14 November
+
+A default-off, board-local `CONFIG_T5AI_IO_QUALIFICATION` now runs once before
+splash/compositor ownership. It borrows the validated framebuffer, discards
+microphone input, reads SD sector zero without writes, and performs 16 full and
+16 visibly changed partial redraws plus four display off/on/rotation cycles
+with full redraw before each disable and a last-row update after enable.
+No Sleep In, raw-zero policy, clock gate, shared-source change or periodic task
+is introduced. Native synchronous completion is asserted before framebuffer
+handoff; its existing bounded SPI/DMA error paths remain in force. Missing
+completion invokes the standard assertion rather than reusing busy pixels.
+Accepted SD callbacks are joined with a one-second deadline, including display
+failure. Static callback storage survives timeout and one-shot reentry is
+blocked. Cleanup stops only the microphone it started, clears its sample buffer,
+restores orientation and enables the display. Fault/cleanup/remaining-owner or
+missing-frame/overlap results cannot be reported as success.
+
+Qualification AP `c682e88d2963ea418a2f506aafae143d4102fc5d` was programmed AP-only
+in 32.7 seconds. Received result 0: 168 audio frames / 53,760 samples, 40 redraws,
+16 successful read-only sectors, four disable/enable cycles and 16 simultaneous
+AP DMA-owner starts involving display (0), microphone (1) and SD RX (3).
+All owners were released, restore results were 0/0 and microphone fault was zero.
+These are driver ownership intervals, not coherent hardware clock-residency or
+energy measurements. SD TX concurrency and cancellation during a display batch
+remain host-tested rather than physically qualified. Operator: "yes, all ok"
+for the requested patterns/rotation, normal UI, motion wake, touch/buttons and
+absence of unexpected restarts/corruption.
+
+That qualification boot reported AP reset source 0x4f / CP 0 and sleep rejection
+reason 4. Preserve `install/first-failure/`; no qualification-image reset or guard
+relaxation followed. Mixed I/O passing does not make that first startup a clean
+retained-sleep qualification. This repeats the known post-programming issue.
+
+Normal AP `faae34b9e9037bec3cce3bb118f898beceae0bc3` was then restored AP-only in
+32.6 seconds, with both qualification and QSPI/DMA profiling excluded. UART
+received its exact build, AP/CP reset sources 0/0, 240 MHz, existing SD PFS
+(`new=0`), contract 0x78f, 32 AP returns with all CP deltas zero and bonded
+encrypted phone-session recovery. No extra commanded reset was needed.
+Operator confirms normal display/dim, motion wake, touch/buttons, phone and the
+usual watchface. This normal raw image equals the previously prepared `513b648c`
+runtime except its GNU build ID. Prior rollback and failure artifacts remain.
+
+Validation: all 63 focused actual-source tests passed, including the board
+PSRAM call-site and final cleanup regressions. Normal/qualification release builds,
+protected CRC, AP/map layout, identical resources, effective policy config,
+SRAM retained-entry audit and style checks passed. Heap is 28,960 / 28,832 bytes;
+qualification display/cache aperture usage is 128,512 of 131,072 bytes. The normal
+image links neither the qualifier state nor the QSPI/DMA profile. Exact source,
+separate qualification increment, images and captures are in reference
+`artifacts/qspi-dma-qualification-20261114/`.
+
+Electrical setup was reconfirmed: **battery disconnected**, watch USB supplied
+only through FNB58, UART no power/5 V lead. Signal/ground wiring remains fixed.
+Fresh meter readiness received 968 samples; it used diagnostics and is not a
+savings comparison. Matched normal/control/normal idle recordings are tracked
+with final installed state and limitations in that artifact's RESULTS.md.
+They measure whole-watch USB input, including conversion losses; no separate
+panel current measurement or completed wake/redraw energy result is established.
+Shared DMA gating remains blocked by CP ownership and restore proof. No overnight
+soak or shutdown test was run.
+
+
+## QSPI/DMA startup correction installed — 14 November
+
+Corrected diagnostic AP `e3b04f32d4f0c8705eb1d9ee3e457c59dc1e3f57` is now installed.
+AP-only programming took 32.6 seconds. The final bounded UART capture received
+10,380 bytes and is stopped: one bootloader entry, exact build, reset sources
+AP/CP 0/0, 240 MHz AP, existing 32 MiB SD PFS (`new=0`), contract 0x78f,
+32 clean AP retained returns with all CP deltas zero, diagnostic phases 0/1,
+and bonded encrypted phone protocol recovery. No extra commanded reset or
+rollback was needed on this final attempt. Operator: "all good" for display/dim,
+motion wake, touch/buttons and companion reconnection.
+
+Two unsafe diagnostic paths were corrected locally: lazy writes to PSRAM before
+board power/validation, and channel-register reads before DMA reset/access grants
+including unproven CP channels. Bootstrap records now stay in SRAM; the full
+buffer starts explicitly after successful PSRAM power/range checks. Early
+snapshots read only global control words. Full DMA snapshots read AP channels
+0–3 only after reset/security/privilege setup; CP channel registers are not read.
+Both defects have failing-before/passing-after host regressions. No hardware
+fault-register capture identifies which defect triggered each original reset.
+
+The original `52577e7b` and PSRAM-only correction `0cf5a0f0` both failed early
+startup; their exact images and first traces are preserved. The intermediate
+trial was rolled back to `b40a6cb1`; its "looks good" reply referred to that
+rollback, not the rejected image. Final source passes 59 focused tests plus
+normal/diagnostic release image, CRC, map, config, resource and SRAM-entry checks.
+Kernel heaps: 28,960 bytes normal, 28,832 diagnostic (160 above the minimum).
+Evidence: reference `artifacts/qspi-dma-startup-fix-20261114/result.json` and
+`install-access/`; failed intermediate trace is under `install/first-failure/`.
+
+Observed globals: QSPI inherited 0 / ready 1 / latest 1 (bypass bit 1 clear);
+DMA inherited 1 / ready and latest 3 (AP still forces bypass bit 1 on). There is
+no redundant QSPI bypass bit to clear on this startup. These are register
+observations, not clock-residency or electrical measurements. No clock or panel
+policy changed. CP/resources/PFS/bonds were outside every programming write.
+Shared DMA gating remains blocked on CP ownership and safe all-channel semantics;
+physical mixed DMA and repeated display disable/orientation qualification remain
+pending. No electrical saving or soak is claimed.
+
+## Diagnostic AP failed startup; previous AP restored — 14 November
+
+The operator authorized flashing diagnostic AP `52577e7bcd27d8b927865011101150206210e142`.
+AP-only programming succeeded in 32.5 seconds, but UART then repeatedly received
+bootloader/CP startup and PebbleOS/version banners without reaching a build-ID
+or T5QD report. The operator reported "the display isn't working now". This is
+a failed hardware qualification, not a successful diagnostic installation.
+The cause is undetermined; passing host/image checks did not prove startup safety.
+
+First-failure raw bytes/chunk timestamps and decoded frames are preserved in
+reference `artifacts/qspi-dma-diagnostics-20261114/install/first-failure/`.
+The exact previously installed `b40a6cb1070c5440f74c1c758b2c0eff8a38290a` AP
+was restored AP-only in 32.6 seconds. UART received its exact build, AP/CP reset
+sources 0/0, 240 MHz active clock and SD startup, contract 0x78f and 32 AP-only returns with all CP transition/clock/
+mask/resource/fault deltas zero. The operator confirms display, touch and buttons
+restored. Capture stopped after 150,242 bytes; no extra commanded reset.
+Encrypted phone recovery was not established by this capture. Exact evidence:
+`install/result.json`. No CP, resource, PFS or bond
+partition was written. The diagnostic image is marked rejected and must not be
+reflashed until its early-boot failure is explained. No electrical saving or
+QSPI bypass-state conclusion was obtained.
+
+## QSPI/DMA first package implemented, not installed — 14 November
+
+[Acquisition safety and bounded diagnostics](qspi-dma-diagnostics.md) now build
+on source HEAD `21b1cabcd`. QSPI initialization returns `-EIO` on CP PM failure
+before source/controller writes, without uncertain vote rollback. Default-off
+`T5AI_QSPI_DMA_PROFILE` retains first transition/failure snapshots and counters
+in AP PSRAM; only boot and existing 32-return reports are added when enabled.
+No gating or display policy changed. 54 distinct focused host tests pass;
+normal `2b89603e5966db8ffdf20e0cc6431e3f2d79edf3` and diagnostic
+`52577e7bcd27d8b927865011101150206210e142` builds pass image/CRC/map/config/
+resource/SRAM checks, retaining 28,960 bytes of kernel heap. Neither was flashed.
+Installed state remains `b40a6cb1` below. No new hardware/electrical result exists.
+The matching installed CP97 ELF was not found, so linked CP ownership remains
+incomplete and shared DMA gating is blocked. Next is one bounded diagnostic AP
+capture and functional check; first-startup qualification remains open.
+Evidence: reference `artifacts/qspi-dma-diagnostics-20261114/`.
+
+## Original QSPI/DMA scoping checkpoint — 14 November
+
+[The scoped work](qspi-dma-power-scope.md) starts with bounded diagnostics,
+CP/AP ownership inventory and safe QSPI PM-acquisition failure handling. Source
+shows DMA init forces global bypass while QSPI init preserves inherited bypass;
+neither observation establishes a measured saving or safe shared-gate policy.
+Conditional local QSPI and GDMA auto-gating experiments, then later deferred
+QSPI source release, each have separate proof/test/measurement gates. No runtime
+source, configuration, installed image or hardware state changed during scoping.
+The installed AP remains the checkpoint below; no new electrical claim is made.
 
 ## Latest AP reinstalled after comparison — 14 November
 
