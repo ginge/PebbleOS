@@ -1158,14 +1158,11 @@ and peeks after disabled initialization.
 
 ## SDK compatibility draw cache and scheduler audit (2026-10-10)
 
-`CONFIG_T5AI_SDK_COMPAT_CACHE` defaults on for this board. Its SoC-local linker
-wrappers publish App/Worker legacy SDK flags into the existing unprivileged
-read-only data region during process setup and invalidate them after cleanup.
-Normal graphics compatibility queries avoid privilege transitions and repeated
-process-context lookup. Unknown/uninitialized process flags retain the stock
-syscall fallback. This changes neither rendering semantics nor task priorities.
-Shared firmware source is unchanged; the board build preserves the process-manager
-call boundary for linker wrapping.
+The former `CONFIG_T5AI_SDK_COMPAT_CACHE` optimization was retired on
+15 November after native MPU enforcement exposed its direct read of kernel
+thread state from an unprivileged watchface. SDK compatibility now uses the
+upstream privileged syscall implementations. The measurements below describe
+the historical implementation; they do not qualify the current native path.
 
 `build/traces/sdk-compat-draw-20261010/` preserves the cache-only hardware sample:
 223 observed FdF event-9 render/upkeep spans, median 185 ms (176–216 ms), compared
@@ -1536,7 +1533,7 @@ Reproduce the reports with:
 ```sh
 python3 tools/unhygienix_display_profile.py CAPTURE/fdf-offline.log --transfer
 python3 tools/unhygienix_app_trace.py CAPTURE/fdf-offline.log --elf CAPTURE/pebbleos.elf
-python3 -m unittest tools.tests.test_t5ai_display_profile tools.tests.test_t5ai_app_trace tools.tests.test_t5ai_bg_trace tools.tests.test_t5ai_pixel_fast tools.tests.test_t5ai_sdk_compat
+python3 -m unittest tools.tests.test_t5ai_display_profile tools.tests.test_t5ai_app_trace tools.tests.test_t5ai_bg_trace tools.tests.test_t5ai_pixel_fast
 ```
 
 Both diagnostic builds passed image/map validation and AP-only flashing; CP

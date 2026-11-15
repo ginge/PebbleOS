@@ -3,6 +3,29 @@
 The latest installation checkpoint below is the current installed state. Dated entries preserve
 the state and evidence at their recorded checkpoint.
 
+## Native watchface SDK fault — 15 November
+
+The operator reported a frozen screen after the short startup check. A retained
+first-state capture received 32 AP-only sleep returns with no reported sleep
+fault, followed by one CST92xx report-transfer error. That trace alone does not
+establish the freeze mechanism.
+
+A later diagnostic captured Nadir faulting twice at
+`__wrap_process_manager_compiled_with_legacy2_sdk`: the unprivileged watchface
+read protected `pbl_cur` at `0x2802009c` (PC `0x02134314`, diagnostic ELF in
+`build-tuya-upstream/screen-freeze-20261115/live3/`). The former SDK draw-cache
+wrapper bypassed the native privileged syscall entry. The cache, option,
+lifecycle wrappers and obsolete host-only fixture are retired. Compatibility
+queries now use the unchanged upstream syscalls. A SoC-local linker retention
+rule preserves the native syscall-exit hook called from ARM assembly under LTO.
+
+Temporary live tracing and the one-time same-watchface relaunch are preserved
+as diagnostic artifacts, not production source changes. All 467 tooling tests
+complete successfully (15 optional tests skip); seven native process, syscall,
+metadata and graphics tests pass. Installation of the SDK fix is pending CH342
+recovery: two attempts failed with USB serial protocol errors before writing.
+The previous diagnostic remains installed at this checkpoint.
+
 ## Native startup repair — 15 November
 
 Hardware startup exposed three missing native contracts: the round-platform

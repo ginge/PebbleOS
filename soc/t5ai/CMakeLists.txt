@@ -7,6 +7,8 @@ pbl_library()
 pbl_library_sources(init.c idle.c tick.c delay.c power.c retained.c reboot_reason.c flash_translation.c)
 pbl_library_sources(resource_storage.c image_layout.c)
 pbl_link_options(-Wl,--undefined=t5ai_image_layout)
+# ARM syscall exit calls this native hook from inline assembly.
+pbl_link_options(-Wl,--undefined=pbl_kernel_syscall_exit)
 pbl_library_sources_ifdef(CONFIG_T5AI_RETAINED_SLEEP sleep.c)
 if(CONFIG_T5AI_RETAINED_SLEEP OR CONFIG_T5AI_SLEEP_GUARD_TEST)
   pbl_library_sources(sleep_blockers.c)
@@ -230,20 +232,6 @@ if(CONFIG_T5AI_APP_TRACE)
       DIRECTORY ${PBL_BASE}/pebble/process_management APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
   endfunction()
   cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_app_trace_call_boundaries)
-endif()
-
-if(CONFIG_T5AI_SDK_COMPAT_CACHE)
-  pbl_library_sources(sdk_compat.c)
-  foreach(symbol process_manager_process_setup process_manager_process_cleanup
-                 process_manager_compiled_with_legacy2_sdk
-                 process_manager_compiled_with_legacy3_sdk)
-    pbl_link_options(-Wl,--wrap=${symbol})
-  endforeach()
-  function(t5ai_sdk_compat_call_boundaries)
-    set_property(SOURCE ${PBL_BASE}/pebble/process_management/process_manager.c
-      DIRECTORY ${PBL_BASE}/pebble/process_management APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
-  endfunction()
-  cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_sdk_compat_call_boundaries)
 endif()
 
 if(CONFIG_T5AI_PIXEL_FAST_PATH)
