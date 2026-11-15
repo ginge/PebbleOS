@@ -27,33 +27,41 @@ typedef struct {
   char buffer[LOG_BUFFER_LENGTH]; // For construction of the final log message
 } LogState;
 
+//! Hooks of the frontend, pbl_log() and its siblings. The defaults serve privileged threads; an
+//! application that also logs from unprivileged code overrides them.
+
+//! Get the buffer to format a message in, or NULL while one is being logged.
+LogState *pbl_log__state_get(void);
+
+//! Release the buffer obtained with pbl_log__state_get().
+void pbl_log__state_release(LogState *state);
+
+//! Pass a formatted message on, to kernel_pbl_log() in the end.
+void pbl_log__submit(LogBinaryMessage *log_message, uint32_t flags);
+
+//! Get the timestamp of a message, in seconds since the epoch.
+uint32_t pbl_log__time(void);
+
+//! Get the free space of the stack in use, in bytes.
+uint32_t pbl_log__stack_free(void);
+
 //! Return a single character representing the current log level. Used in serial logging.
 char pbl_log_get_level_char(const uint8_t log_level);
 
-//! Log a message to whatever specific channels are appropriate based on context and configuration.
-//! Internally calls kernel_pbl_log_serial and kernel_pbl_log_flash.
+//! Pass a message to the backends.
 void kernel_pbl_log(LogBinaryMessage *log_message, uint32_t flags);
+
+//! Pass a message logged by the app with the 16-byte @p app_uuid to the backends.
+void kernel_pbl_log_app(LogBinaryMessage *log_message, const uint8_t *app_uuid);
 
 //! Kill the caller of the syscall in progress unless @p log_message, with its
 //! message and filename terminated, is in its memory.
 void kernel_pbl_log_verify_user(const LogBinaryMessage *log_message);
 
-//! Force a log message out the serial channel.
-void kernel_pbl_log_serial(LogBinaryMessage *log_message, uint32_t flags);
-
-//! Force a log message out the serial channel from a fault handler or
-//! other context where OS services are unavailable or can't be trusted,
-//! and where stack space is at a premium.
+//! Pass a message to the backends from a fault handler or other context where OS services are
+//! unavailable or can't be trusted, and where stack space is at a premium.
 void kernel_pbl_log_from_fault_handler(const char *src_filename, uint16_t src_line_number,
                                        const char *message);
 
-void kernel_pbl_log_from_fault_handler_fmt(const char *src_filename, uint16_t src_line_number,
-                                           char *buffer, unsigned int buffer_len, const char *fmt,
-                                           ...);
-
 #define PBL_LOG_FROM_FAULT_HANDLER(message) \
   kernel_pbl_log_from_fault_handler(__FILE_NAME__, __LINE__, message)
-
-#define PBL_LOG_FROM_FAULT_HANDLER_FMT(buffer, buffer_len, fmt, ...)                      \
-  kernel_pbl_log_from_fault_handler_fmt(__FILE_NAME__, __LINE__, buffer, buffer_len, fmt, \
-                                        __VA_ARGS__)

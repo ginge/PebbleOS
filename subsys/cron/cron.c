@@ -2,11 +2,11 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <pbl/cron/cron.h>
-#include <pbl/drivers/rtc.h>
 #include <pbl/kernel/assert.h>
 #include <pbl/kernel/mutex.h>
+#include <pbl/kernel/time.h>
+#include <pbl/kernel/work.h>
 #include <pbl/logging/logging.h>
-#include <pbl/services/new_timer/new_timer.h>
 #include <pbl/services/time.h>
 #include <pbl/util/math.h>
 #include <pbl/util/units.h>
@@ -19,35 +19,33 @@ static PBL_MUTEX_DEFINE(s_list_mutex);
 // List of jobs sorted from soonest to farthest.
 static ListNode *s_scheduled_jobs;
 
-static void prv_timer_callback(void *data);
+static void prv_wakeup_fn(struct pbl_work *work);
 
 //! One-shot timer armed for the next job's execute time. Re-armed after every
-//! list mutation and every firing; stopped when no jobs are scheduled. It runs on
-//! the system tick, which drifts from the RTC in deep sleep, so it aims early by
-//! more than the drift and re-arms for what is left when it fires early; the
-//! margin lands it after the RTC second turns.
-#define CRON_ARM_EARLY_DIVISOR 256U
-#define CRON_ARM_MARGIN_MS     10U
-static TimerID s_wakeup_timer = TIMER_INVALID_ID;
+//! list mutation and every firing; stopped when no jobs are scheduled. The margin
+//! lands it after the second turns; it re-arms for what is left if it fires early.
+#define CRON_ARM_MARGIN_MS 10U
+//! Farther than this it fires early and re-arms.
+#define CRON_ARM_MAX_MS (UINT32_MAX / 2U)
+static PBL_DELAYED_WORK_DEFINE(s_wakeup_timer, prv_wakeup_fn);
 
 //! Arm (or stop) the wakeup timer for the head job. s_list_mutex must be held.
 static void prv_arm_wakeup(void) {
   if (s_scheduled_jobs == nullptr) {
-    new_timer_stop(s_wakeup_timer);
+    pbl_delayed_work_cancel(&s_wakeup_timer);
     return;
   }
-  time_t now;
-  uint16_t milliseconds;
-  rtc_get_time_ms(&now, &milliseconds);
+  uint64_t now_ms = pbl_realtime_ms();
+  time_t now = (time_t)(now_ms / 1000U);
+  uint16_t milliseconds = (uint16_t)(now_ms % 1000U);
   const time_t execute_time = ((struct pbl_cron_job *)s_scheduled_jobs)->cached_execute_time;
   uint64_t timeout_ms = 0;
   if (execute_time > now) {
     timeout_ms = (uint64_t)(execute_time - now) * 1000U - milliseconds;
-    timeout_ms -= timeout_ms / CRON_ARM_EARLY_DIVISOR;
     timeout_ms += CRON_ARM_MARGIN_MS;
   }
-  new_timer_start(s_wakeup_timer, (uint32_t)MIN(timeout_ms, UINT32_MAX), prv_timer_callback,
-                  nullptr, 0 /*flags*/);
+  pbl_delayed_work_reschedule(&pbl_sys_workq_high, &s_wakeup_timer,
+                              PBL_MSEC((uint32_t)MIN(timeout_ms, CRON_ARM_MAX_MS)));
 }
 
 // -------------------------------------------------------------------------------------------
@@ -63,10 +61,10 @@ static int prv_sort(void *a, void *b) {
 }
 
 // -------------------------------------------------------------------------------------------
-static void prv_timer_callback(void *data) {
+static void prv_run_due_jobs(void) {
   pbl_mutex_lock(&s_list_mutex, PBL_FOREVER);
   while (s_scheduled_jobs != nullptr &&
-         ((struct pbl_cron_job *)s_scheduled_jobs)->cached_execute_time <= rtc_get_time()) {
+         ((struct pbl_cron_job *)s_scheduled_jobs)->cached_execute_time <= pbl_realtime()) {
     struct pbl_cron_job *job = (struct pbl_cron_job *)s_scheduled_jobs;
     // Remove the job from the list, it's done.
     s_scheduled_jobs = list_pop_head(s_scheduled_jobs);
@@ -78,6 +76,10 @@ static void prv_timer_callback(void *data) {
   }
   prv_arm_wakeup();
   pbl_mutex_unlock(&s_list_mutex);
+}
+
+static void prv_wakeup_fn(struct pbl_work *work) {
+  prv_run_due_jobs();
 }
 
 // --------------------------------------------------------------------------------------------
@@ -108,27 +110,23 @@ void pbl_cron_handle_clock_change(int32_t utc_time_delta, int32_t gmt_offset_del
   pbl_mutex_unlock(&s_list_mutex);
 
   // We want to run any tasks we've skipped over.
-  prv_timer_callback(nullptr);
+  prv_run_due_jobs();
 }
 
 void pbl_cron_handle_clock_correction(void) {
-  prv_timer_callback(nullptr);
+  prv_run_due_jobs();
 }
 
 // --------------------------------------------------------------------------------------------
 void pbl_cron_init(void) {
   s_scheduled_jobs = nullptr;
-
-  if (s_wakeup_timer == TIMER_INVALID_ID) {
-    s_wakeup_timer = new_timer_create();
-  }
 }
 
 // -------------------------------------------------------------------------------------------
 time_t pbl_cron_job_schedule(struct pbl_cron_job *job) {
   pbl_mutex_lock(&s_list_mutex, PBL_FOREVER);
 
-  const time_t now = rtc_get_time();
+  const time_t now = pbl_realtime();
   // Always update the execution time.
   job->absolute = false;
   job->cached_execute_time = pbl_cron_job_get_execute_time_from_epoch(job, now);
@@ -233,7 +231,7 @@ void pbl_cron_clear_all_jobs(void) {
 void pbl_cron_deinit(void) {
   pbl_cron_clear_all_jobs();
 
-  new_timer_stop(s_wakeup_timer);
+  pbl_delayed_work_cancel(&s_wakeup_timer);
 }
 
 uint32_t pbl_cron_get_job_count(void) {
@@ -245,7 +243,7 @@ uint32_t pbl_cron_get_job_count(void) {
 }
 
 void pbl_cron_wakeup(void) {
-  prv_timer_callback(nullptr);
+  prv_run_due_jobs();
 }
 
 time_t pbl_cron_get_next_execute_time(void) {
@@ -511,5 +509,5 @@ time_t pbl_cron_job_get_execute_time_from_epoch(const struct pbl_cron_job *job,
 }
 
 time_t pbl_cron_job_get_execute_time(const struct pbl_cron_job *job) {
-  return pbl_cron_job_get_execute_time_from_epoch(job, rtc_get_time());
+  return pbl_cron_job_get_execute_time_from_epoch(job, pbl_realtime());
 }

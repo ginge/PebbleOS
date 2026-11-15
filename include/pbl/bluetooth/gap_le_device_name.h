@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <pbl/kernel/malloc.h>
+
 #include <comm/ble/gap_le_connection.h>
 
 /**
@@ -11,7 +13,7 @@
  * @brief Read the GAP Device Name of connected peers.
  *
  * The name read is stored in the peer's GAPLEConnection. When it changed,
- * pbl_bt_store_device_name_kernelbg_cb() is scheduled on KernelBG to persist it.
+ * pbl_bt_store_device_name_kernelbg_cb() is scheduled on SysWorkq to persist it.
  * @{
  */
 
@@ -29,10 +31,10 @@ void pbl_bt_gap_le_device_name_request(const struct pbl_bt_device_internal *addr
 /**
  * @brief Persist the device name of a peer.
  *
- * Implemented by the firmware, run on KernelBG.
+ * Implemented by the firmware, run on SysWorkq.
  *
  * @param ctx struct pbl_bt_addr of the peer, heap allocated. The callee frees it with
- *            kernel_free().
+ *            pbl_free().
  */
 void pbl_bt_store_device_name_kernelbg_cb(void *ctx);
 

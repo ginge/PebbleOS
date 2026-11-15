@@ -273,7 +273,7 @@ class T5AIResetTest(unittest.TestCase):
                     "-I",
                     str(ROOT / "include"),
                     "-I",
-                    str(ROOT / "fw"),
+                    str(ROOT / "pebble"),
                     *flags,
                     str(harness),
                     "-o",
@@ -296,7 +296,7 @@ class T5AIResetTest(unittest.TestCase):
                         f"-DCONFIG_WATCHDOG_TIMEOUT_MS={period}",
                         f'-DWATCHDOG_SOURCE="{ROOT / "drivers/watchdog/t5ai.c"}"',
                         f'-DREBOOT_SOURCE="{ROOT / "soc/t5ai/reboot_reason.c"}"',
-                        f'-DCOMMON_REBOOT_SOURCE="{ROOT / "fw/system/reboot_reason.c"}"',
+                        f'-DCOMMON_REBOOT_SOURCE="{ROOT / "pebble/system/reboot_reason.c"}"',
                     ),
                 )
 
@@ -351,7 +351,7 @@ int main(void) {
                 "-DCONFIG_WATCHDOG_TIMEOUT_MS=30000",
                 f'-DWATCHDOG_SOURCE="{ROOT / "drivers/watchdog/t5ai.c"}"',
                 f'-DREBOOT_SOURCE="{ROOT / "soc/t5ai/reboot_reason.c"}"',
-                f'-DCOMMON_REBOOT_SOURCE="{ROOT / "fw/system/reboot_reason.c"}"',
+                f'-DCOMMON_REBOOT_SOURCE="{ROOT / "pebble/system/reboot_reason.c"}"',
             ),
         )
 

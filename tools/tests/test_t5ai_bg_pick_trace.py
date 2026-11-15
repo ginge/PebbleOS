@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Exercise actual scheduler probe code with controlled scheduler selections."""
+
 from pathlib import Path
 import subprocess
 import tempfile
@@ -65,9 +66,14 @@ class BgPickTraceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
             for header in (
-                "pbl/kernel/time.h", "pbl/kernel/sched.h", "pbl/kernel/irq.h", "pbl/kernel/thread.h",
-                "pbl/logging/logging.h", "pbl/services/new_timer/new_timer.h",
-                "pbl/services/system_task.h", "pbl/soc/t5ai/rtc.h",
+                "pbl/kernel/time.h",
+                "pbl/kernel/sched.h",
+                "pbl/kernel/irq.h",
+                "pbl/kernel/thread.h",
+                "pbl/logging/logging.h",
+                "pbl/services/new_timer/new_timer.h",
+                "pbl/kernel/work.h",
+                "pbl/soc/t5ai/rtc.h",
             ):
                 path = directory / header
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -75,11 +81,18 @@ class BgPickTraceTest(unittest.TestCase):
             (directory / "stub.h").write_text(STUB)
             (directory / "test.c").write_text(HARNESS)
             executable = directory / "test"
-            subprocess.run([
-                "cc", "-std=c11", "-I" + str(directory),
-                '-DSOURCE="' + str(ROOT / "soc/t5ai/bg_pick_trace.c") + '"',
-                str(directory / "test.c"), "-o", str(executable),
-            ], check=True)
+            subprocess.run(
+                [
+                    "cc",
+                    "-std=c11",
+                    "-I" + str(directory),
+                    '-DSOURCE="' + str(ROOT / "soc/t5ai/bg_pick_trace.c") + '"',
+                    str(directory / "test.c"),
+                    "-o",
+                    str(executable),
+                ],
+                check=True,
+            )
             subprocess.run([str(executable)], check=True)
 
 

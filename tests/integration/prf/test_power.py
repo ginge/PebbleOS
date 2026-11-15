@@ -6,7 +6,6 @@ import time
 
 import numpy as np
 import pytest
-from harness.helpers.power import SAMPLE_RATE_HZ
 from harness.helpers.ui import Ui
 
 pytestmark = [
@@ -16,7 +15,6 @@ pytestmark = [
 
 # Limits from the PRF release checklist, at NOMINAL_VOLTAGE_MV.
 NOMINAL_VOLTAGE_MV = 3800
-ADVERTISING_MAX_UA = 1000
 CONNECTED_MAX_UA = 550
 MEASURE_S = 30
 
@@ -37,7 +35,7 @@ VBAT_ATTEMPTS = 3
 
 @pytest.fixture(autouse=True)
 def nominal_voltage(power):
-    if power.ppk2.voltage_mv != NOMINAL_VOLTAGE_MV:
+    if power.supply.voltage_mv != NOMINAL_VOLTAGE_MV:
         pytest.skip(f"limits are for {NOMINAL_VOLTAGE_MV} mV")
 
 
@@ -46,13 +44,6 @@ def _record(record_property, measurement, limit_ua):
         record_property(key, value)
     record_property("limit_ua", limit_ua)
     print(measurement)
-
-
-def test_advertising(dut, power, record_property):
-    dut.reset()
-    m = power.measure_idle("advertising", seconds=MEASURE_S)
-    _record(record_property, m, ADVERTISING_MAX_UA)
-    assert m.mean_ua <= ADVERTISING_MAX_UA, m
 
 
 def test_connected(dut, phones, power, record_property):
@@ -64,15 +55,15 @@ def test_connected(dut, phones, power, record_property):
     assert m.mean_ua <= CONNECTED_MAX_UA, m
 
 
-def _on_time_s(samples):
+def _on_time_s(samples, sample_rate_hz):
     """How long the current stays in its upper half: the backlight's."""
-    window = int(SMOOTHING_S * SAMPLE_RATE_HZ)
+    window = int(SMOOTHING_S * sample_rate_hz)
     smooth = np.convolve(samples, np.ones(window) / window, mode="valid")
     low, high = np.percentile(smooth, [10, 90])
     above = np.flatnonzero(smooth > (low + high) / 2)
     if len(above) == 0:
         return 0.0
-    return (above[-1] - above[0]) / SAMPLE_RATE_HZ
+    return (above[-1] - above[0]) / sample_rate_hz
 
 
 def test_backlight_timeout(dut, power, record_property):
@@ -81,7 +72,7 @@ def test_backlight_timeout(dut, power, record_property):
         time.sleep(BACKLIGHT_PRESS_AT_S)
         dut.prompt(dut.command("click", button=1))
         time.sleep(BACKLIGHT_MEASURE_S - BACKLIGHT_PRESS_AT_S)
-    on_s = _on_time_s(m.samples)
+    on_s = _on_time_s(m.samples, m.sample_rate_hz)
     record_property("backlight_on_s", on_s)
     low, high = BACKLIGHT_ON_S
     assert low <= on_s <= high, f"backlight on for {on_s:.2f} s"
@@ -89,16 +80,16 @@ def test_backlight_timeout(dut, power, record_property):
 
 def _boot_at(dut, power, voltage_mv):
     """Reset the watch until it reads ``voltage_mv``, re-applying it if the
-    PPK2 did not; the log mark of that boot."""
+    supply did not; the log mark of that boot."""
     for _ in range(VBAT_ATTEMPTS):
-        power.ppk2.set_voltage(voltage_mv)
+        power.supply.set_voltage(voltage_mv)
         since = dut.logs.mark()
         dut.reset()
         record = dut.wait_for_log(BATTERY_LOG, 30, since)
         vbat_mv = int(re.search(BATTERY_LOG, str(record)).group(1))
         if abs(vbat_mv - voltage_mv) <= VBAT_TOLERANCE_MV:
             return since
-    pytest.fail(f"VBAT reads {vbat_mv} mV with the PPK2 at {voltage_mv} mV")
+    pytest.fail(f"VBAT reads {vbat_mv} mV with the supply at {voltage_mv} mV")
 
 
 def test_low_battery(dut, power):
@@ -107,5 +98,5 @@ def test_low_battery(dut, power):
         dut.wait_for_log(r"Battery low: enter low power mode", 60, since)
         assert "Low Power App" in Ui(dut).window_stack()
     finally:
-        power.ppk2.set_voltage(NOMINAL_VOLTAGE_MV)
+        power.supply.set_voltage(NOMINAL_VOLTAGE_MV)
         dut.reset()

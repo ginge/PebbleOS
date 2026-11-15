@@ -143,7 +143,7 @@ def cmd_bundle(args):
     if enabled(config, "CONFIG_SOC_T5AI"):
         raise ValueError("Unhygienix has no supported PBZ update flow; use tyutool")
     version_string, version_ts, version_commit = version_info()
-    fw_type = "recovery" if enabled(config, "CONFIG_RECOVERY_FW") else "normal"
+    fw_type = "recovery" if enabled(config, "CONFIG_FIRMWARE_AREA_RECOVERY") else "normal"
     slot = args.slot if fw_type == "normal" and args.slot != -1 else None
 
     bundle = mkbundle.PebbleBundle()
@@ -184,15 +184,21 @@ def cmd_qemu_image_micro(args):
     img.tobinfile(args.output, start=0x00000000, end=flash_end - 1)
 
 
+def qemu_resources_offset(config_path):
+    sys.path.insert(0, os.path.join(REPO_ROOT, "tools", "libs", "pbl-cli"))
+    from pbl import flash_layout
+    from pbl.build import BuildDir
+
+    build = BuildDir(os.path.dirname(os.path.abspath(config_path)), REPO_ROOT)
+    regions = flash_layout.regions(build)
+    if "SYSTEM_RESOURCES_BANK_0" not in regions:
+        sys.exit("qemu-image-spi: the board has no system-resources-bank-0 partition")
+    return regions["SYSTEM_RESOURCES_BANK_0"][0]
+
+
 def cmd_qemu_image_spi(args):
-    config = read_config(args.config)
-    if enabled(config, "CONFIG_QEMU"):
-        # QEMU generic boards: resources at offset 0x620000 in 32MB flash
-        resources_begin = 0x620000
-        image_size = 0x2000000
-    else:
-        resources_begin = 0x280000
-        image_size = 0x400000
+    resources_begin = qemu_resources_offset(args.config)
+    image_size = 32 * 1024 * 1024
 
     pprint(f"Writing SPI flash image to {args.output}")
     resources = b""

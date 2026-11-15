@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-#include <pbl/mcu/cache.h>
+#include <pbl/kernel/cache.h>
 
 #include <cmsis_core.h>
 
@@ -19,12 +19,12 @@ static void prv_range(volatile uint32_t *op, const void *address, size_t size) {
   __DSB();
   __ISB();
 }
-void dcache_flush(const void *address, size_t size) {
+void pbl_dcache_flush_range(const void *address, size_t size) {
   prv_range(&SCB->DCCMVAC, address, size);
 }
-void dcache_invalidate(void *address, size_t size) {
+void pbl_dcache_invalidate_range(void *address, size_t size) {
   prv_range(&SCB->DCIMVAC, address, size);
 }
-void dcache_flush_invalidate(const void *address, size_t size) {
+void pbl_dcache_flush_invalidate_range(const void *address, size_t size) {
   prv_range(&SCB->DCCIMVAC, address, size);
 }

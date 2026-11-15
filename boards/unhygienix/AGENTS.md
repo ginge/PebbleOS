@@ -18,8 +18,9 @@
   `boards/unhygienix/`; production T5AI code stays in the existing board,
   SoC and driver locations. The optional Tuya application is reference
   material, not the production PebbleOS kernel.
-- Board implementation and declarations use `fw/board/boards/board_unhygienix.c`
-  and `board_unhygienix.h`; generic T5AI types remain in `board/board_t5ai.h`.
+- Board implementation and declarations use `boards/unhygienix/unhygienix.c`
+  and `unhygienix.h`; legacy T5AI types remain in
+  `soc/t5ai/compat/board/board_t5ai.h`.
   Board tooling uses `tools/unhygienix_*`, `flash_unhygienix_*`,
   `patch_unhygienix_cp_rf.py` and `check_unhygienix_image_map.py`.
   Generic protected-block encoding stays in `tools/t5ai_image.py`; board

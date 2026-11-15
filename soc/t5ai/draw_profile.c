@@ -1,13 +1,14 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "applib/graphics/text.h"
 #include "applib/ui/window.h"
-#include "kernel/kernel_heap.h"
 #include "kernel/pebble_tasks.h"
+#include "pbl/kernel/malloc.h"
 
 #include <string.h>
 
 #include <pbl/kernel/assert.h>
 #include <pbl/kernel/irq.h>
+#include <pbl/kernel/malloc.h>
 #include <pbl/kernel/mutex.h>
 #include <pbl/kernel/thread.h>
 #include <pbl/kernel/time.h>
@@ -101,8 +102,7 @@ void __wrap_SysTick_Handler(void) {
 }
 static uint32_t prv_cpu(void) {
   pbl_irq_lock();
-  const uint32_t ticks = (uint32_t)pbl_uptime_ticks();
-  const uint32_t cpu = pbl_cur->backend.run_time + ticks - pbl_cur->backend.switched_in_at;
+  const uint32_t cpu = pbl_cur->backend.run_time;
   pbl_irq_unlock();
   return cpu;
 }
@@ -237,9 +237,9 @@ static void prv_entry(void *arg) {
     t5ai_io_profile_dump();
 #endif
     unsigned used = 0, free_bytes = 0, largest = 0;
-    heap_calc_totals(kernel_heap_get(), &used, &free_bytes, &largest);
+    pbl_heap_stats(pbl_malloc_heap(), &used, &free_bytes, &largest);
     PBL_LOG_DBG("T5HEAP used=%u free=%u largest=%u low=%lu", used, free_bytes, largest,
-                (unsigned long)heap_get_minimum_headroom(kernel_heap_get()));
+                (unsigned long)pbl_heap_min_headroom(pbl_malloc_heap()));
 #ifdef CONFIG_T5AI_COMPOSITOR_FAST_PATH
     extern void t5ai_compositor_fast_dump(void);
     t5ai_compositor_fast_dump();
@@ -250,9 +250,8 @@ static void prv_entry(void *arg) {
 #endif
   }
 }
-void __real_system_task_timer_init(void);
-void __wrap_system_task_timer_init(void) {
-  __real_system_task_timer_init();
+
+void t5ai_diagnostics_start(void) {
   const struct pbl_thread_attr attr = {
     .name = "DrawProfile",
     .entry = prv_entry,

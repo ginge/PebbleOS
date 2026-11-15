@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 class KernelLogStateTests(unittest.TestCase):
     def test_native_thread_log_state(self):
-        p = ROOT / "fw/kernel/kernel_applib_state.c"
+        p = ROOT / "pebble/kernel/kernel_applib_state.c"
         s = p.read_text()
 
         def fun(name):
@@ -51,7 +51,7 @@ class KernelLogStateTests(unittest.TestCase):
         static void pbl_mutex_unlock(int *m) {(void)m;++unlocks;}
         static void dbgserial_putstr(const char *s) {(void)s;}
         """
-        enum_source = (ROOT / "fw/kernel/pebble_tasks.h").read_text()
+        enum_source = (ROOT / "pebble/kernel/pebble_tasks.h").read_text()
         enum_start = enum_source.index("typedef enum PebbleTask")
         enum_end = enum_source.index("} PebbleTask;", enum_start) + len("} PebbleTask;")
         h = h.replace("@TASK_ENUM@", enum_source[enum_start:enum_end])

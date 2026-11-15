@@ -12,3 +12,5 @@ if(CONFIG_UART_POSIX)
   pbl_host_sources(posix/uart_posix_bottom.c)
 endif()
 pbl_library_sources_ifdef(CONFIG_SOC_T5AI t5ai.c)
+
+pbl_library_sources_ifdef(CONFIG_SOC_T5AI t5ai_console.c)

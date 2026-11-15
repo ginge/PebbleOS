@@ -1,0 +1,138 @@
+# SPDX-FileCopyrightText: 2026 Core Devices LLC
+# SPDX-License-Identifier: Apache-2.0
+
+config MIC
+    bool "Microphone"
+    select AUDIO
+    help
+      The board has a microphone, the MIC capture device.
+
+config SPEAKER
+    bool "Speaker"
+    select AUDIO
+    help
+      The board has a speaker, the SPEAKER playback device.
+
+menuconfig AUDIO
+    bool "Audio"
+    help
+      Audio stream class (pbl/drivers/audio.h) and its drivers.
+
+if AUDIO
+
+config AUDIO_AMP_GPIO
+    bool "GPIO amplifier"
+    default DT_HAS_AWINIC_AW8155_ENABLED
+    select GPIO
+    select REGULATOR
+    help
+      Amplifier switched by an enable GPIO, with an optional supply and
+      enable mode pulses.
+
+config AUDIO_SF32LB52_AUDCODEC
+    bool "SiFli SF32LB52 audio codec"
+    default DT_HAS_SIFLI_SF32LB52_AUDCODEC_ENABLED
+    depends on SOC_SF32LB52
+    select CLK
+    select DMA
+    select PINCTRL
+    select RESET
+    help
+      Playback through the DAC of the SF32LB52 audio codec.
+
+config AUDIO_SF32LB52_PDM
+    bool "SiFli SF32LB52 PDM"
+    default DT_HAS_SIFLI_SF32LB52_PDM_ENABLED
+    depends on SOC_SF32LB52
+    select CLK
+    select DMA
+    select PINCTRL
+    select RESET
+    help
+      Capture from digital microphones on the SF32LB52 PDM interface.
+
+config AUDIO_SF32LB52_PDM_IRQ_PRIO
+    int "Interrupt priority"
+    default 5
+    depends on AUDIO_SF32LB52_PDM
+    help
+      Priority of the PDM interrupt.
+
+config AUDIO_QEMU
+    bool "QEMU audio device"
+    default DT_HAS_QEMU_PEBBLE_AUDIO_ENABLED
+    depends on SOC_QEMU_PEBBLE
+    help
+      Playback through the QEMU audio device.
+
+config AUDIO_QEMU_IRQ_PRIO
+    int "Interrupt priority"
+    default 5
+    depends on AUDIO_QEMU
+    help
+      Priority of the device interrupt.
+
+config AUDIO_SIM_MIC
+    bool "Simulated microphone"
+    default y if MIC && (SOC_QEMU_PEBBLE || SOC_POSIX)
+    help
+      Simulated microphone, recording the audio written through its
+      simulator API (pbl/drivers/audio/sim.h), and silence when none is.
+
+config AUDIO_NRF5_PDM
+    bool "Nordic nRF5 PDM"
+    default DT_HAS_NORDIC_NRF52832_PDM_ENABLED
+    depends on SOC_NRF52
+    select CLK
+    help
+      Capture from digital microphones on the nRF5 PDM interface.
+
+config AUDIO_NRF5_I2S
+    bool "Nordic nRF5 I2S"
+    default DT_HAS_NORDIC_NRF52832_I2S_ENABLED
+    depends on SOC_NRF52
+    select CLK
+    help
+      Playback through the nRF5 I2S interface.
+
+config AUDIO_NRF5_PDM_IRQ_PRIO
+    int "PDM interrupt priority"
+    default 7
+    depends on AUDIO_NRF5_PDM
+    help
+      Priority of the PDM interrupt.
+
+config AUDIO_NRF5_I2S_IRQ_PRIO
+    int "I2S interrupt priority"
+    default 5
+    depends on AUDIO_NRF5_I2S
+    help
+      Priority of the I2S interrupt.
+
+config AUDIO_DMIC
+    bool "Digital microphones"
+    default DT_HAS_DMIC_CODEC_ENABLED
+    select REGULATOR
+    help
+      Digital microphones on a PDM interface, powered while recording.
+
+config AUDIO_DA7212
+    bool "Dialog DA7212 codec"
+    default DT_HAS_DLG_DA7212_ENABLED
+    select I2C
+    select REGULATOR
+    help
+      The Dialog DA7212 codec, playing to its line output.
+
+config AUDIO_SHELL
+    bool "Shell commands"
+    default DRIVER_SHELL
+    depends on SHELL
+    help
+      The audio shell command, to list the devices, record and play tones.
+
+module = DRIVER_AUDIO
+module-str = Audio
+source "subsys/logging/Kconfig.template.log_level"
+
+endif # AUDIO

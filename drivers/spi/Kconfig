@@ -10,13 +10,21 @@ if SPI
 
 config SPI_NRF5
     bool "Nordic nRF5 SPI Controller"
-    default y if SOC_NRF52
+    default DT_HAS_NORDIC_NRF52832_SPIM_ENABLED
+    depends on SOC_NRF52
     help
       Support for the Nordic nRF5 SPIM controller.
 
+config SPI_NRF5_IRQ_PRIO
+    int "Interrupt priority"
+    default 7
+    depends on SPI_NRF5
+    help
+      Priority of the controller interrupts.
+
 config SPI_SHELL
     bool "Shell commands"
-    default y
+    default DRIVER_SHELL
     depends on SHELL
     help
       The spi shell command, to list the buses and run transfers.

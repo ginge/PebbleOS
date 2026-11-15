@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Update admission, platform defaults and stock enabled-path equivalence."""
+
 import os
 import re
 import subprocess
@@ -16,10 +17,16 @@ from tools.tests.test_getafix_boards import load_config as getafix_config
 from tools.tests.test_unhygienix_boards import load_config as board_config
 
 ROOT = Path(__file__).resolve().parents[2]
-CAPABILITIES = ("FIRMWARE_UPDATE_SUPPORTED", "RECOVERY_UPDATE_SUPPORTED",
-                "SYSTEM_RESOURCE_UPDATE_SUPPORTED")
-SOURCES = ("fw/services/firmware_update/service.c", "fw/services/prf_update/service.c",
-           "fw/services/put_bytes/put_bytes.c")
+CAPABILITIES = (
+    "FIRMWARE_UPDATE_SUPPORTED",
+    "RECOVERY_UPDATE_SUPPORTED",
+    "SYSTEM_RESOURCE_UPDATE_SUPPORTED",
+)
+SOURCES = (
+    "pebble/services/firmware_update/service.c",
+    "pebble/services/prf_update/service.c",
+    "pebble/services/put_bytes/put_bytes.c",
+)
 # Pin the pre-change implementation; do not silently move comparisons with HEAD.
 BASELINE = "b694ad747c0fc317f61123cc5537daaaab02fc2d"
 
@@ -85,10 +92,15 @@ static inline bool boot_bit_test(int bit) { assert(bit == 1); return pending; }
 static inline void boot_bit_clear(int bit) { assert(bit == 1); pending = false; ++clears; }
 """,
 }
-for name in ("pbl/drivers/flash.h", "pbl/services/battery/battery_monitor.h",
-             "apps/core/progress_ui.h", "kernel/ui/modals/modal_manager.h",
-             "process_management/app_manager.h", "flash_region/flash_region.h",
-             "system/firmware_storage.h"):
+for name in (
+    "pbl/drivers/flash.h",
+    "pbl/services/battery/battery_monitor.h",
+    "apps/core/progress_ui.h",
+    "kernel/ui/modals/modal_manager.h",
+    "process_management/app_manager.h",
+    "flash_region/flash_region.h",
+    "system/firmware_storage.h",
+):
     HEADERS[name] = "#pragma once\n"
 
 
@@ -103,15 +115,32 @@ class UpdateCapabilitiesTest(unittest.TestCase):
             path = directory / "test.c"
             path.write_text(source)
             binary = directory / "test"
-            cmd = ["cc", "-std=gnu11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-parameter",
-                   "-Dnullptr=NULL", "-include", "stdbool.h", "-include", "stddef.h",
-                   "-I", str(directory), "-I", str(ROOT / "include")]
+            cmd = [
+                "cc",
+                "-std=gnu11",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-Wno-unused-parameter",
+                "-Dnullptr=NULL",
+                "-include",
+                "stdbool.h",
+                "-include",
+                "stddef.h",
+                "-I",
+                str(directory),
+                "-I",
+                str(ROOT / "include"),
+            ]
             cmd += [f"-D{define}" for define in defines]
             cmd += [str(path)] + [str(ROOT / name) for name in sources]
-            result = subprocess.run(cmd + ["-o", str(binary)], check=False,
-                                    capture_output=True, text=True)
+            result = subprocess.run(
+                cmd + ["-o", str(binary)], check=False, capture_output=True, text=True
+            )
             self.assertEqual(result.returncode, 0, result.stderr)
-            result = subprocess.run([str(binary)], check=False, capture_output=True, text=True)
+            result = subprocess.run(
+                [str(binary)], check=False, capture_output=True, text=True
+            )
             self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_platform_defaults(self):
@@ -120,16 +149,20 @@ class UpdateCapabilitiesTest(unittest.TestCase):
                 config = board_config(board, variant)
                 with self.subTest(board=board, variant=variant):
                     for cap in CAPABILITIES:
-                        self.assertEqual(config[cap], "n" if board == "unhygienix" else "y")
+                        self.assertEqual(
+                            config[cap], "n" if board == "unhygienix" else "y"
+                        )
             for revision in ("dvt", "dvt2"):
                 config = getafix_config(revision, variant)
                 for cap in CAPABILITIES:
                     self.assertEqual(config[cap], "y")
 
     def test_hidden_capabilities_cannot_be_enabled_by_user_override_on_t5ai(self):
-        with patch.dict(os.environ, {"srctree": str(ROOT), "BOARD": "unhygienix",
-                                     "BOARD_REVISION": "_"}):
-            config = kconfiglib.Kconfig(str(ROOT / "Kconfig"), warn=False)
+        with patch.dict(
+            os.environ,
+            {"srctree": str(ROOT), "BOARD": "unhygienix", "BOARD_REVISION": "_"},
+        ):
+            config = kconfiglib.Kconfig(str(ROOT / "pebble/Kconfig"), warn=False)
             config.load_config(str(ROOT / "boards/unhygienix/defconfig"))
             for cap in CAPABILITIES:
                 config.syms[cap].set_value(2)
@@ -139,17 +172,24 @@ class UpdateCapabilitiesTest(unittest.TestCase):
         gate = function(SOURCES[2], "static bool prv_is_object_allowed(")
         for flags in product((0, 1), repeat=3):
             for recovery in (False, True):
-                defines = [f"CONFIG_{cap}" for cap, enabled in zip(CAPABILITIES, flags) if enabled]
+                defines = [
+                    f"CONFIG_{cap}"
+                    for cap, enabled in zip(CAPABILITIES, flags)
+                    if enabled
+                ]
                 defines += [f"EXPECT_{i}={flag}" for i, flag in enumerate(flags)]
                 if recovery:
                     defines += ["CONFIG_RECOVERY_FW", "EXPECT_PRF=1"]
                 else:
                     defines += ["EXPECT_PRF=0"]
-                source = """
+                source = (
+                    """
 #include <assert.h>
 #include <pbl/services/put_bytes/put_bytes.h>
 #define PBL_LOG_WRN(...)
-""" + gate + """
+"""
+                    + gate
+                    + """
 int main(void) {
   assert(prv_is_object_allowed(ObjectFirmware) == EXPECT_0);
   assert(prv_is_object_allowed(ObjectRecovery) == (EXPECT_1 && !EXPECT_PRF));
@@ -160,11 +200,13 @@ int main(void) {
   assert(prv_is_object_allowed(ObjectFile) == !EXPECT_PRF);
 }
 """
+                )
                 with self.subTest(flags=flags, recovery=recovery):
                     self.compile_run(source, defines)
 
     def test_disabled_firmware_endpoint_cancels_before_side_effects(self):
-        self.compile_run("""
+        self.compile_run(
+            """
 #include <assert.h>
 #include <pbl/services/firmware_update.h>
 unsigned warnings, replies, side_effects;
@@ -184,7 +226,9 @@ int main(void) {
   }
   assert(warnings == 2 && replies == 2 && side_effects == 0);
 }
-""", sources=(SOURCES[0],))
+""",
+            sources=(SOURCES[0],),
+        )
 
     def test_prf_stale_request_consumed_without_flash_copy(self):
         source = """
@@ -199,8 +243,11 @@ int main(void) {
   check_prf_update(); assert(clears == 1);
 }
 """
-        for defines in ((), ("CONFIG_RECOVERY_FW",),
-                        ("CONFIG_RECOVERY_FW", "CONFIG_RECOVERY_UPDATE_SUPPORTED")):
+        for defines in (
+            (),
+            ("CONFIG_RECOVERY_FW",),
+            ("CONFIG_RECOVERY_FW", "CONFIG_RECOVERY_UPDATE_SUPPORTED"),
+        ):
             self.compile_run(source, defines, sources=(SOURCES[1],))
 
     def test_supported_paths_preprocess_identically_to_baseline(self):
@@ -209,12 +256,15 @@ int main(void) {
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             for name in SOURCES:
-                before = subprocess.check_output(["git", "show", f"{BASELINE}:{name}"],
-                                                 cwd=ROOT, text=True)
+                before = subprocess.check_output(
+                    ["git", "show", f"{BASELINE}:{name}"], cwd=ROOT, text=True
+                )
                 # Upstream renamed the unconditional panic without changing admission.
                 before = re.sub(r"\bWTF\b", "pbl_panic()", before)
                 after = (ROOT / name).read_text()
-                includes = re.findall(r'^#include [<"]([^>"]+)', before + after, re.MULTILINE)
+                includes = re.findall(
+                    r'^#include [<"]([^>"]+)', before + after, re.MULTILINE
+                )
                 for include in includes:
                     header = directory / include
                     header.parent.mkdir(parents=True, exist_ok=True)
@@ -228,6 +278,8 @@ int main(void) {
                         cmd += [f"-DCONFIG_{cap}" for cap in CAPABILITIES]
                         if recovery:
                             cmd.append("-DCONFIG_RECOVERY_FW")
-                        outputs.append(subprocess.check_output(cmd + [str(path)], text=True))
+                        outputs.append(
+                            subprocess.check_output(cmd + [str(path)], text=True)
+                        )
                     with self.subTest(source=name, recovery=recovery):
                         self.assertEqual(outputs[0], outputs[1])

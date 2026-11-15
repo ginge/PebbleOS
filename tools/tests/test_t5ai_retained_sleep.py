@@ -27,7 +27,7 @@ _Noreturn void exit(int);
 #define CONFIG_T5AI_RETAINED_SLEEP_TEST_AT_UTC 1000
 typedef int32_t time_t;
 static time_t wall=1000;
-static time_t rtc_get_time(void){return wall;}
+static time_t pbl_realtime(void){return wall;}
 #define PBL_LOG_MODULE_DEFINE(...)
 static bool in_idle;
 static unsigned cleanup_finishes;
@@ -57,8 +57,8 @@ typedef int status_t;
 static unsigned locks, diagnostic_queries;
 static void pbl_irq_lock(void){++locks;}
 static void pbl_irq_unlock(void){assert(locks);--locks;}
-static void dcache_flush(void *p,unsigned n){assert(n==64);}
-static void dcache_invalidate(void *p,unsigned n){assert(n==64);}
+static void pbl_dcache_flush_range(void *p,unsigned n){assert(n==64);}
+static void pbl_dcache_invalidate_range(void *p,unsigned n){assert(n==64);}
 static void (*queued)(void *);
 static bool drop, contract_bad, arm_bad, cancel_bad, tick_bad, wake_pending;
 static uint32_t query_delay;
@@ -79,7 +79,7 @@ static void t5ai_force_whole_chip_reset(uint8_t reason){
  exit(0);
 }
 
-static bool system_task_add_callback_droppable(void (*fn)(void *),void *arg){
+static bool pbl_sys_work_try_call(void (*fn)(void *),void *arg){
  assert(!locks && !arg);if(drop)return false;assert(!queued);queued=fn;return true;
 }
 static status_t t5ai_native_alarm_init(void){return contract_bad?-1:0;}

@@ -12,9 +12,10 @@
 #include <pbl/kernel/sched.h>
 #include <pbl/kernel/thread.h>
 #include <pbl/kernel/time.h>
+#include <pbl/kernel/work.h>
 #include <pbl/logging/logging.h>
-#include <pbl/services/system_task.h>
 #include <pbl/soc/t5ai/cache.h>
+#include <pbl/soc/t5ai/diagnostics.h>
 #include <pbl/soc/t5ai/state_trace.h>
 
 PBL_LOG_MODULE_DEFINE(t5ai_state_trace, LOG_LEVEL_DEBUG);
@@ -69,16 +70,14 @@ static ThreadState prv_thread_state(struct pbl_thread *thread, uint32_t now) {
     return (ThreadState){.scheduling = UINT8_MAX};
   }
   uint32_t cpu_ticks = thread->backend.run_time;
-  if (thread == pbl_thread_current()) {
-    cpu_ticks += now - thread->backend.switched_in_at;
-  }
   // Inspect the backend only with interrupts locked; never follow the wait queue.
   return (ThreadState){
     .id = thread->id,
     .cpu_ticks = cpu_ticks,
     .waitq = (uintptr_t)thread->backend.waitq,
     .scheduling = thread->backend.state | ((uint32_t)thread->backend.base_prio << 8) |
-                  ((uint32_t)thread->prio << 16) | ((uint32_t)thread->backend.mutexes_held << 24),
+                  ((uint32_t)thread->prio << 16) |
+                  ((uint32_t)t5ai_diagnostics_held_mutexes(thread) << 24),
   };
 }
 
@@ -89,7 +88,7 @@ static void prv_sample(void) {
     return;
   }
   const uint32_t now = pbl_uptime_ticks();
-  const uint32_t callback = (uintptr_t)system_task_get_current_callback();
+  const uint32_t callback = (uintptr_t)pbl_sys_workq.current_fn;
   if (callback != s_callback || callback == 0) {
     s_callback = callback;
     s_callback_since = now;
@@ -99,7 +98,7 @@ static void prv_sample(void) {
     .ticks = now,
     .callback = callback,
     .callback_since = s_callback_since,
-    .bg = prv_thread_state(pebble_task_get_thread(PebbleTask_KernelBackground), now),
+    .bg = prv_thread_state(pbl_sys_workq.thread, now),
     .app = prv_thread_state(pebble_task_get_thread(PebbleTask_App), now),
   };
   sample.checksum = prv_checksum(&sample);

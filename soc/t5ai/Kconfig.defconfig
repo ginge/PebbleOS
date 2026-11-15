@@ -3,6 +3,9 @@
 
 if SOC_T5AI
 
+config COREDUMP_BACKEND_FLASH
+    default n
+
 # Keep protocol compatibility without enabling unsupported installation paths.
 config FIRMWARE_UPDATE_SUPPORTED
     default n
@@ -18,6 +21,9 @@ config BOOT_SPLASH_ARGB2222
 
 config KERNEL_TICK_HZ
     default 1000
+
+config KERNEL_MPU_REGIONS
+    default 16
 
 config KERNEL_MAX_THREADS
     default 20

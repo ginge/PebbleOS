@@ -23,7 +23,7 @@ void pbl_thread_abort(struct pbl_thread *);
 enum pbl_thread_state pbl_thread_state(const struct pbl_thread *);
 """,
     "pbl/kernel/delay.h": "void pbl_sleep_ms(unsigned);\n",
-    "kernel/pbl_malloc.h": "void *kernel_malloc(size_t);\nvoid *kernel_zalloc(size_t);\nvoid kernel_free(void *);\n",
+    "pbl/kernel/malloc.h": "void *pbl_malloc(size_t);\nvoid *pbl_zalloc(size_t);\nvoid pbl_free(void *);\n",
     "pbl/drivers/display/t5ai.h": "void display_co5300_set_boot_buffer(uint8_t *);\n",
     "pbl/drivers/display.h": """#pragma once
 struct pbl_device { int unused; };
@@ -71,17 +71,17 @@ static void (*entry)(void *);
 static unsigned inits, frames, allocs, frees, live;
 static bool fail_thread, fail_alloc, stopping;
 static bool created, thread_exited, in_worker;
-void *kernel_zalloc(size_t n) {
+void *pbl_zalloc(size_t n) {
  (void)n; assert(!"splash thread storage must be static"); return NULL;
 }
-void *kernel_malloc(size_t n) {
+void *pbl_malloc(size_t n) {
 #ifdef TEST_T5
  assert(!"T5AI must not use the kernel heap for the splash");
 #endif
  ++allocs; if (fail_alloc) return NULL;
  void *p=malloc(n); assert(p); ++live; return p;
 }
-void kernel_free(void *p) {
+void pbl_free(void *p) {
  assert(p && live); --live; ++frees; free(p);
 }
 static const struct pbl_display test_display = {.width=260, .height=260, .format=1};
@@ -192,15 +192,17 @@ class BootSplashPlatformTest(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(
                     text.replace(
-                        "SPLASH_PATH", str(ROOT / "fw/board/splash/splash_getafix.xbm")
+                        "SPLASH_PATH",
+                        str(ROOT / "pebble/board/splash/splash_getafix.xbm"),
                     )
                 )
             source = directory / "test.c"
             source.write_text(
                 HARNESS.replace(
-                    "STOCK_SOURCE", str(ROOT / "fw/services/boot_splash/service.c")
+                    "STOCK_SOURCE", str(ROOT / "pebble/services/boot_splash/service.c")
                 ).replace(
-                    "T5_SOURCE", str(ROOT / "fw/services/boot_splash/service_t5ai.c")
+                    "T5_SOURCE",
+                    str(ROOT / "pebble/services/boot_splash/service_t5ai.c"),
                 )
             )
             for t5, argb in ((False, False), (False, True), (True, True)):
@@ -260,7 +262,7 @@ class BootSplashPlatformTest(unittest.TestCase):
             source = directory / "noop.c"
             source.write_text(
                 "#include <stdbool.h>\n#include <stddef.h>\n#include <stdint.h>\n"
-                f'#include "{ROOT}/fw/services/boot_splash/service.c"\n'
+                f'#include "{ROOT}/pebble/services/boot_splash/service.c"\n'
                 "int main(void) { boot_splash_start(); boot_splash_stop(); }\n"
             )
             binary = directory / "noop"

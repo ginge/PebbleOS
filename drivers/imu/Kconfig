@@ -5,7 +5,7 @@ menu "IMU"
 
 config IMU_SHELL
     bool "Shell commands"
-    default y
+    default DRIVER_SHELL
     depends on SHELL
     help
       The imu shell command, to read the accelerometer and magnetometer
@@ -21,39 +21,31 @@ if ACCEL
 
 config ACCEL_LIS2DW12
     bool "ST LIS2DW12"
-    depends on I2C
+    default DT_HAS_ST_LIS2DW12_ENABLED
+    select I2C
     help
       Support for the ST LIS2DW12 accelerometer.
 
 config ACCEL_LSM6DSO
     bool "ST LSM6DSO"
-    depends on I2C
+    default DT_HAS_ST_LSM6DSO_ENABLED
+    select I2C
     help
       Support for the ST LSM6DSO accelerometer/gyroscope.
 
 config ACCEL_QMI8658_T5AI
     bool "QST QMI8658 (T5AI)"
-    help
-      Support for the QMI8658 accelerometer on the T5AI board.
+    depends on SOC_T5AI
 
-config ACCEL_QEMU
-    bool "QEMU"
+config ACCEL_SIM
+    bool "Simulator"
     help
-      QEMU accelerometer, fed with samples from the QEMU host.
-
-config ACCEL_POSIX
-    bool "POSIX"
-    help
-      Accelerometer of a native build: a watch lying still, face up.
+      Simulated accelerometer, replaying samples and events fed through
+      its simulator API (pbl/drivers/imu/sim.h).
 
 endif # ACCEL
 
 if ACCEL_LIS2DW12
-
-config ACCEL_LIS2DW12_DISABLE_ADDR_PULLUP
-    bool "Disable ADDR pin pull-up"
-    help
-      Disable the internal pull-up resistor on the ADDR pin.
 
 config ACCEL_LIS2DW12_WK_DUR_DEFAULT
     int "Default wake duration"
@@ -139,9 +131,16 @@ if MAG
 
 config MAG_MMC5603NJ
     bool "MEMSIC MMC5603NJ"
-    depends on I2C
+    default DT_HAS_MEMSIC_MMC5603_ENABLED
+    select I2C
     help
       Support for the MEMSIC MMC5603NJ magnetometer.
+
+config MAG_SIM
+    bool "Simulator"
+    help
+      Simulated magnetometer, measuring a field set through its
+      simulator API (pbl/drivers/imu/sim.h).
 
 endif # MAG
 

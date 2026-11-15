@@ -26,7 +26,7 @@ static void (*timer_cb)(void *),(*queued)(void *);
 static unsigned new_timer_create(void){++created;return 9;}
 static bool new_timer_start(unsigned id,unsigned ms,void (*cb)(void *),void *arg,unsigned flags){assert(id==9 && ms==1000 && !arg && flags==1);timer_cb=cb;return true;}
 static void new_timer_delete(unsigned id){assert(task && id==9);++deleted;timer_cb=NULL;}
-static bool system_task_add_callback_droppable(void (*cb)(void *),void *arg){assert(!task && !arg);if(drop)return false;assert(!queued);queued=cb;return true;}
+static bool pbl_sys_work_try_call(void (*cb)(void *),void *arg){assert(!task && !arg);if(drop)return false;assert(!queued);queued=cb;return true;}
 static int t5ai_native_alarm_init(void){assert(task);return 0;}
 static bool t5ai_native_alarm_fired(unsigned id,uint32_t *tick){assert(task);*tick=17;return fire && id==1;}
 static int t5ai_native_alarm_arm(unsigned ticks,uint32_t *id){assert(task && (ticks==3200 || ticks==16000));++arms;*id=++gen;return reject?-2:0;}

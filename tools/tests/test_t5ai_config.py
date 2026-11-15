@@ -16,11 +16,11 @@ def load_config(board, revision="_", power_savings=None):
         os.environ,
         {"srctree": str(ROOT), "BOARD": board, "BOARD_REVISION": revision},
     ):
-        config = kconfiglib.Kconfig(str(ROOT / "Kconfig"), warn=False)
+        config = kconfiglib.Kconfig(str(ROOT / "pebble/Kconfig"), warn=False)
         paths = [f"boards/{board}/defconfig"]
-        if revision != "_":
+        if revision != "_" and (ROOT / f"boards/{board}/defconfig.{revision}").exists():
             paths.append(f"boards/{board}/defconfig.{revision}")
-        paths += ["fw/prj.conf", "fw/prj_normal.conf"]
+        paths += ["pebble/prj.conf", "pebble/prj_normal.conf"]
         for index, path in enumerate(paths):
             config.load_config(str(ROOT / path), replace=index == 0)
         if power_savings is not None:
@@ -134,7 +134,7 @@ class T5AIConfigTest(unittest.TestCase):
 
     def test_t5ai_options_are_unavailable_on_stock_targets(self):
         for board, revision, soc_name in (
-            ("qemu_gabbro", "_", "SOC_QEMU"),
+            ("qemu_gabbro", "_", "SOC_QEMU_PEBBLE"),
             ("getafix", "dvt2", "SOC_SF32LB52"),
         ):
             with self.subTest(board=board):
@@ -151,7 +151,13 @@ class T5AIConfigTest(unittest.TestCase):
                     option.set_value("y")
                     self.assertEqual(option.str_value, "n")
                 self.assertEqual(config.syms["T5AI_CORE_CLOCK_HZ"].str_value, "")
-                self.assertIs(soc.choice.selection, soc)
+                self.assertEqual(soc.str_value, "y")
+                concrete = config.syms[
+                    "SOC_QEMU_PEBBLE_CORTEX_M33"
+                    if board == "qemu_gabbro"
+                    else "SOC_SF32LB52J"
+                ]
+                self.assertIs(concrete.choice.selection, concrete)
                 self.assertEqual(config.syms["SOC_T5AI"].str_value, "n")
 
 

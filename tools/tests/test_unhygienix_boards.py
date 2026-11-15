@@ -20,11 +20,11 @@ def load_config(board, variant):
         os.environ,
         {"srctree": str(ROOT), "BOARD": board, "BOARD_REVISION": "_"},
     ):
-        config = kconfiglib.Kconfig(str(ROOT / "Kconfig"), warn=False)
+        config = kconfiglib.Kconfig(str(ROOT / "pebble/Kconfig"), warn=False)
         paths = (
             f"boards/{board}/defconfig",
-            "fw/prj.conf",
-            f"fw/prj_{variant}.conf",
+            "pebble/prj.conf",
+            f"pebble/prj_{variant}.conf",
         )
         for index, path in enumerate(paths):
             config.load_config(str(ROOT / path), replace=index == 0)
@@ -37,13 +37,11 @@ def load_config(board, variant):
 
 class UnhygienixBoardsTest(unittest.TestCase):
     def test_unhygienix_pairing_uses_its_two_present_buttons(self):
-        board_source = (ROOT / "fw/board/boards/board_unhygienix.c").read_text()
+        board_source = (ROOT / "boards/unhygienix/unhygienix.c").read_text()
         self.assertIn('[BUTTON_ID_UP] = {.name = "Up"}', board_source)
-        self.assertIn(
-            '[BUTTON_ID_DOWN] = {.name = "Down"}', board_source
-        )
+        self.assertIn('[BUTTON_ID_DOWN] = {.name = "Down"}', board_source)
 
-        pairing_ui = (ROOT / "fw/popups/bluetooth_pairing_ui.c").read_text()
+        pairing_ui = (ROOT / "pebble/popups/bluetooth_pairing_ui.c").read_text()
         unhygienix_controls = pairing_ui[
             pairing_ui.index("#ifdef CONFIG_BOARD_UNHYGIENIX") : pairing_ui.index(
                 "#endif", pairing_ui.index("#ifdef CONFIG_BOARD_UNHYGIENIX")
@@ -72,16 +70,18 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertIn("T5AI recovery firmware is disabled", build_script)
         self.assertIn("Unhygienix has no supported PBZ update flow", build_script)
 
-        firmware_update = (ROOT / "fw/services/firmware_update/service.c").read_text()
+        firmware_update = (
+            ROOT / "pebble/services/firmware_update/service.c"
+        ).read_text()
         self.assertIn("#ifndef CONFIG_FIRMWARE_UPDATE_SUPPORTED", firmware_update)
         self.assertIn("return FirmwareUpdateCancelled;", firmware_update)
 
-        put_bytes = (ROOT / "fw/services/put_bytes/put_bytes.c").read_text()
+        put_bytes = (ROOT / "pebble/services/put_bytes/put_bytes.c").read_text()
         t5ai_gate = put_bytes.index("Update object type %u is unavailable")
         for object_name in ("ObjectFirmware", "ObjectRecovery", "ObjectSysResources"):
             self.assertIn(object_name, put_bytes[t5ai_gate - 400 : t5ai_gate])
 
-        prf_update = (ROOT / "fw/services/prf_update/service.c").read_text()
+        prf_update = (ROOT / "pebble/services/prf_update/service.c").read_text()
         self.assertIn("Ignoring unsupported recovery firmware update", prf_update)
 
     def test_unhygienix_reports_round_2_identity_without_enabling_updates(self):
@@ -94,7 +94,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertIn("FirmwareMetadataPlatformPebbleGetafixDVT2", unhygienix_identity)
         self.assertNotIn("FirmwareMetadataPlatformUnknown", unhygienix_identity)
 
-        versions = (ROOT / "fw/kernel/system_versions.c").read_text()
+        versions = (ROOT / "pebble/kernel/system_versions.c").read_text()
         compatibility_start = versions.index("#if defined(CONFIG_BOARD_UNHYGIENIX)")
         compatibility = versions[
             compatibility_start : versions.index("#else", compatibility_start)
@@ -111,17 +111,19 @@ class UnhygienixBoardsTest(unittest.TestCase):
 
         # The compatibility record is phone-facing only. Real PRF detection and
         # the fail-closed firmware transfer gates must remain in place.
-        version = (ROOT / "fw/system/version.c").read_text()
+        version = (ROOT / "pebble/system/version.c").read_text()
         self.assertIn("bool version_is_prf_installed(void)", version)
-        firmware_update = (ROOT / "fw/services/firmware_update/service.c").read_text()
+        firmware_update = (
+            ROOT / "pebble/services/firmware_update/service.c"
+        ).read_text()
         self.assertIn("Firmware update is unavailable", firmware_update)
-        put_bytes = (ROOT / "fw/services/put_bytes/put_bytes.c").read_text()
+        put_bytes = (ROOT / "pebble/services/put_bytes/put_bytes.c").read_text()
         rejection = put_bytes.index("Update object type %u is unavailable")
         for object_name in ("ObjectFirmware", "ObjectRecovery", "ObjectSysResources"):
             self.assertIn(object_name, put_bytes[rejection - 400 : rejection])
 
     def test_unhygienix_initializes_the_provisioned_filesystem(self):
-        services = (ROOT / "fw/services/services_normal/service.c").read_text()
+        services = (ROOT / "pebble/services/services_normal/service.c").read_text()
         early_init = services[
             services.index("void services_normal_early_init(void)") : services.index(
                 "void services_normal_init(void)"
@@ -130,22 +132,24 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertIn("pfs_init(true);", early_init)
         self.assertNotIn("CONFIG_SOC_T5AI", early_init)
 
-        main = (ROOT / "fw/main.c").read_text()
-        self.assertLess(main.index("init_drivers();"), main.index("services_early_init();"))
+        main = (ROOT / "pebble/main.c").read_text()
+        self.assertLess(
+            main.index("init_drivers();"), main.index("services_early_init();")
+        )
         flash = (ROOT / "drivers/flash/t5ai.c").read_text()
         self.assertIn("return t5ai_flash_ipc_init();", flash)
 
     def test_unhygienix_raw_flash_console_paths_are_not_linked(self):
-        console_build = (ROOT / "fw/console/CMakeLists.txt").read_text()
+        console_build = (ROOT / "pebble/console/CMakeLists.txt").read_text()
         self.assertIn("if(CONFIG_SOC_T5AI)", console_build)
         self.assertIn("pulse_flash_imaging.c", console_build)
         self.assertIn("pulse_bulkio_external_flash.c", console_build)
         self.assertIn("pulse_bulkio_memory.c", console_build)
 
         protocol_registry = (
-            ROOT / "fw/console/pulse_protocol_registry.def"
+            ROOT / "pebble/console/pulse_protocol_registry.def"
         ).read_text()
-        bulkio_registry = (ROOT / "fw/console/pulse_bulkio_handler.def").read_text()
+        bulkio_registry = (ROOT / "pebble/console/pulse_bulkio_handler.def").read_text()
         for registry, handler in (
             (protocol_registry, "pulse_flash_imaging_handler"),
             (bulkio_registry, "pulse_bulkio_domain_external_flash"),
@@ -168,7 +172,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertLess(prompt_registration, prompt_end)
 
     def test_pfs_bulkio_validates_packet_bounds(self):
-        pfs_bulkio = (ROOT / "fw/console/pulse_bulkio_pfs.c").read_text()
+        pfs_bulkio = (ROOT / "pebble/console/pulse_bulkio_pfs.c").read_text()
         self.assertIn(
             "packet_data == NULL || length <= sizeof(PFSOpenOptions)",
             pfs_bulkio,
@@ -187,7 +191,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertEqual(pfs_bulkio.count("if (FAILED(status))"), 2)
 
     def test_bulkio_dispatcher_validates_frames_and_callback_lengths(self):
-        bulkio = (ROOT / "fw/console/pulse_bulkio.c").read_text()
+        bulkio = (ROOT / "pebble/console/pulse_bulkio.c").read_text()
         for command in ("open.data", "write.data", "erase.data"):
             self.assertIn(f"offsetof(Command, {command})", bulkio)
         for command in ("close", "read", "crc", "stat"):
@@ -217,7 +221,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertLess(fd_check, fd_index)
 
     def test_reliable_transport_validates_declared_length_before_dispatch(self):
-        reliable = (ROOT / "fw/console/reliable_transport.c").read_text()
+        reliable = (ROOT / "pebble/console/reliable_transport.c").read_text()
         declaration = reliable.index(
             "const uint16_t declared_length = pbl_be16_get(packet->i.length)"
         )
@@ -238,7 +242,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertLess(sequence_advance, payload_subtract)
 
     def test_best_effort_transport_validates_header_and_declared_length(self):
-        best_effort = (ROOT / "fw/console/best_effort_transport.c").read_text()
+        best_effort = (ROOT / "pebble/console/best_effort_transport.c").read_text()
         handler = best_effort.index("void pulse2_best_effort_transport_on_packet")
         header_check = best_effort.index(
             "raw_packet == NULL || length < sizeof(BestEffortPacket)",
@@ -269,7 +273,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertLess(payload_subtract, dispatch)
 
     def test_pulse_control_replies_handle_link_teardown(self):
-        control = (ROOT / "fw/console/pulse_control_message_protocol.c").read_text()
+        control = (ROOT / "pebble/console/pulse_control_message_protocol.c").read_text()
         handler = control.index("void pulse_control_message_protocol_on_packet")
         port_closed = control.index(
             "void pulse_control_message_protocol_send_port_closed_message",
@@ -294,7 +298,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertLess(message_check, message_write)
 
     def test_ppp_control_frames_are_bounded_and_reject_length_is_set(self):
-        control = (ROOT / "fw/console/control_protocol.c").read_text()
+        control = (ROOT / "pebble/console/control_protocol.c").read_text()
         reject = control.index("static void prv_send_code_reject")
         reject_length = control.index(
             "packet->length = pbl_be16_make(LCP_HEADER_LEN + body_len)", reject
@@ -321,23 +325,23 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertLess(upper_bound, dispatch)
 
     def test_bulkio_responses_use_reliable_payload_limit(self):
-        bulkio = (ROOT / "fw/console/pulse_bulkio.c").read_text()
+        bulkio = (ROOT / "pebble/console/pulse_bulkio.c").read_text()
         self.assertEqual(bulkio.count("pulse_reliable_max_send_size()"), 4)
         self.assertNotIn("PULSE_MAX_SEND_SIZE - sizeof(ReadResponse)", bulkio)
         self.assertNotIn("PULSE_MAX_SEND_SIZE - sizeof(StatResponse)", bulkio)
         self.assertNotIn("PULSE_MAX_SEND_SIZE - response_len", bulkio)
 
     def test_bulkio_packet_handoff_is_bounded(self):
-        bulkio = (ROOT / "fw/console/pulse_bulkio.c").read_text()
+        bulkio = (ROOT / "pebble/console/pulse_bulkio.c").read_text()
         self.assertIn("packet == NULL && length != 0", bulkio)
         self.assertIn("length > PULSE_MAX_RECEIVE_UNIT", bulkio)
         self.assertIn("length > SIZE_MAX - sizeof(BulkIOPacketCallbackData)", bulkio)
-        self.assertIn("kernel_malloc_check(sizeof(*data) + length)", bulkio)
+        self.assertIn("pbl_malloc_check(sizeof(*data) + length)", bulkio)
         self.assertIn("if (length != 0)", bulkio)
         self.assertIn("memcpy(data->packet, packet, length)", bulkio)
 
     def test_bulkio_handles_reliable_link_teardown(self):
-        bulkio = (ROOT / "fw/console/pulse_bulkio.c").read_text()
+        bulkio = (ROOT / "pebble/console/pulse_bulkio.c").read_text()
         self.assertEqual(
             bulkio.count("if (resp == NULL)"),
             bulkio.count("pulse_reliable_send_begin("),
@@ -345,7 +349,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertIn("pulse_fd->read_active = false", bulkio)
         self.assertIn("state->impl->close_proc(state->domain_state)", bulkio)
 
-        reliable = (ROOT / "fw/console/reliable_transport.c").read_text()
+        reliable = (ROOT / "pebble/console/reliable_transport.c").read_text()
         send = reliable.index("void pulse_reliable_send(")
         assert_buffer = reliable.index("prv_assert_reliable_buffer(buf)", send)
         layer_down = reliable.index("if (!s_layer_up)", assert_buffer)
@@ -356,14 +360,14 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertLess(release, send_packet)
 
     def test_pulse_pp_rejects_truncated_packets_and_link_teardown(self):
-        pulse_pp = (ROOT / "fw/console/pulse_pp.c").read_text()
+        pulse_pp = (ROOT / "pebble/console/pulse_pp.c").read_text()
         send_cb = pulse_pp.index("static void prv_pulse_pp_send_cb")
         receive = pulse_pp.index(
             "void pulse_pp_transport_handle_received_data", send_cb
         )
         null_check = pulse_pp.index("if (resp)", send_cb, receive)
         copy = pulse_pp.index("memcpy(resp", send_cb, receive)
-        free = pulse_pp.index("kernel_free(data)", send_cb, receive)
+        free = pulse_pp.index("pbl_free(data)", send_cb, receive)
         self.assertLess(null_check, copy)
         self.assertLess(copy, free)
 
@@ -376,7 +380,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertLess(opcode_read, payload_length)
 
     def test_pulse_pp_revalidates_session_after_unlock(self):
-        pulse_pp = (ROOT / "fw/console/pulse_pp.c").read_text()
+        pulse_pp = (ROOT / "pebble/console/pulse_pp.c").read_text()
         send_next = pulse_pp.index("static void prv_send_next")
         reset = pulse_pp.index("static void prv_reset", send_next)
         unlock = pulse_pp.index("bt_unlock()", send_next, reset)
@@ -404,7 +408,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertGreaterEqual(pulse_pp.count("s_transport.session_generation++"), 2)
 
     def test_framebuffer_bulkio_is_bounded(self):
-        framebuffer = (ROOT / "fw/console/pulse_bulkio_framebuffer.c").read_text()
+        framebuffer = (ROOT / "pebble/console/pulse_bulkio_framebuffer.c").read_text()
         self.assertIn("length > 0 && length <= FRAMEBUFFER_SIZE_BYTES", framebuffer)
         self.assertIn("address <= FRAMEBUFFER_SIZE_BYTES - length", framebuffer)
         self.assertEqual(
@@ -417,7 +421,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
         )
 
     def test_coredump_bulkio_is_bounded(self):
-        coredump = (ROOT / "fw/console/pulse_bulkio_coredump.c").read_text()
+        coredump = (ROOT / "pebble/console/pulse_bulkio_coredump.c").read_text()
         self.assertIn("length != sizeof(*index)", coredump)
         self.assertIn("memcpy(index, packet_data, sizeof(*index))", coredump)
         self.assertIn("*index < CORE_DUMP_MAX_IMAGES", coredump)
@@ -434,19 +438,19 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertNotIn("*(uint32_t*)packet_data", coredump)
 
     def test_unhygienix_persistent_flash_logging_is_not_linked(self):
-        debug_build = (ROOT / "fw/debug/CMakeLists.txt").read_text()
+        debug_build = (ROOT / "pebble/debug/CMakeLists.txt").read_text()
         self.assertIn("if(CONFIG_SOC_T5AI)", debug_build)
         self.assertIn(
             "pbl_filter_sources(sources EXCLUDE flash_logging.c)", debug_build
         )
         self.assertIn("flash_logging_unavailable.c", debug_build)
 
-        unavailable = (ROOT / "fw/debug/flash_logging_unavailable.c").read_text()
+        unavailable = (ROOT / "pebble/debug/flash_logging_unavailable.c").read_text()
         self.assertIn("return FLASH_LOG_INVALID_ADDR;", unavailable)
         self.assertIn("completed_cb(false);", unavailable)
 
     def test_unhygienix_factory_reset_does_not_request_prf(self):
-        factory_reset = (ROOT / "fw/kernel/util/factory_reset.c").read_text()
+        factory_reset = (ROOT / "pebble/kernel/util/factory_reset.c").read_text()
         non_pfs_wipe = factory_reset.index("shared_prf_storage_wipe_all();")
         reset_start = factory_reset.index("void factory_reset(bool should_shutdown)")
         self.assertLess(non_pfs_wipe, reset_start)
@@ -461,11 +465,11 @@ class UnhygienixBoardsTest(unittest.TestCase):
 
     def test_unhygienix_shared_prf_storage_uses_reserved_writable_data_partition(self):
         shared_prf = (
-            ROOT / "fw/services/shared_prf_storage/shared_prf_storage.c"
+            ROOT / "pebble/services/shared_prf_storage/shared_prf_storage.c"
         ).read_text()
-        regions = (ROOT / "fw/flash_region/flash_region_t5ai.h").read_text()
+        regions = (ROOT / "pebble/flash_region/flash_region_t5ai.h").read_text()
         flash = (ROOT / "drivers/flash/t5ai.c").read_text()
-        factory_reset = (ROOT / "fw/kernel/util/factory_reset.c").read_text()
+        factory_reset = (ROOT / "pebble/kernel/util/factory_reset.c").read_text()
 
         self.assertNotIn("CONFIG_SOC_T5AI", shared_prf)
         self.assertIn("flash_region_erase_optimal_range_no_watchdog(", shared_prf)
@@ -475,7 +479,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertIn("shared_prf_storage_wipe_all();", factory_reset)
 
     def test_unhygienix_persistent_coredumps_are_disabled(self):
-        core_dump = (ROOT / "fw/kernel/core_dump.c").read_text()
+        core_dump = (ROOT / "pebble/kernel/core_dump.c").read_text()
 
         reset = core_dump.index("[[noreturn]] void core_dump_reset(bool is_forced)")
         reset_guard = core_dump.index("#ifdef CONFIG_SOC_T5AI", reset)
@@ -598,7 +602,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
         )
         self.assertIn("pbl_thread_sleep(PBL_MSEC(MAILBOX_BUSY_RETRY_MS))", mailbox_task)
         self.assertIn("t5ai_cache_invalidate_received((void *)address", mailbox)
-        self.assertNotIn("dcache_flush((void *)address", mailbox)
+        self.assertNotIn("pbl_dcache_flush_range((void *)address", mailbox)
         self.assertIn("prv_bootstrap_resynchronize(poll_ms)", mailbox)
         reset = mailbox[mailbox.index("static void prv_send_reset") :]
         reset = reset[: reset.index("static bool prv_bootstrap_publish")]
@@ -637,25 +641,27 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertIn("return S_FALSE;", blank_check)
 
     def test_unhygienix_uses_stock_bluetooth_control_and_persistence(self):
-        main = (ROOT / "fw/main.c").read_text()
-        services = (ROOT / "fw/services/services_common/service.c").read_text()
+        main = (ROOT / "pebble/main.c").read_text()
+        services = (ROOT / "pebble/services/services_common/service.c").read_text()
         self.assertIn("bt_persistent_storage_init();", services)
         self.assertIn("bt_ctl_init();", services)
         self.assertIn(".set_enable_fn = bt_ctl_set_enabled", services)
         self.assertNotIn("prv_t5ai_nimble_probe_start", main)
         self.assertNotIn("ble_gap_adv_start(", main)
 
-        comm_build = (ROOT / "fw/comm/CMakeLists.txt").read_text()
+        comm_build = (ROOT / "pebble/comm/CMakeLists.txt").read_text()
         self.assertNotIn("gap_le_connect_params.c", comm_build)
-        self.assertFalse((ROOT / "fw/comm/ble/gap_le_connect_params_t5ai.c").exists())
+        self.assertFalse(
+            (ROOT / "pebble/comm/ble/gap_le_connect_params_t5ai.c").exists()
+        )
         lower_build = (ROOT / "subsys/bluetooth/CMakeLists.txt").read_text()
         self.assertNotIn("responsiveness.c", lower_build)
         self.assertFalse((ROOT / "subsys/bluetooth/responsiveness_t5ai.c").exists())
 
-        app_cache = (ROOT / "fw/services/app_cache/service.c").read_text()
+        app_cache = (ROOT / "pebble/services/app_cache/service.c").read_text()
         self.assertIn("#define APP_SPACE_BUFFER PBL_KIB(300)", app_cache)
 
-        build = (ROOT / "fw/services/bluetooth/CMakeLists.txt").read_text()
+        build = (ROOT / "pebble/services/bluetooth/CMakeLists.txt").read_text()
         self.assertIn("if(NOT CONFIG_RECOVERY_FW)", build)
         self.assertIn(
             "if(NOT CONFIG_RECOVERY_FW)\n"
@@ -666,7 +672,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
         )
 
         shared_prf = (
-            ROOT / "fw/services/shared_prf_storage/shared_prf_storage.c"
+            ROOT / "pebble/services/shared_prf_storage/shared_prf_storage.c"
         ).read_text()
         self.assertIn(
             "flash_write_bytes(field, prv_current_page_flash_addr() + offset, field_size);",
@@ -674,7 +680,7 @@ class UnhygienixBoardsTest(unittest.TestCase):
         )
         self.assertNotIn("keep PRF-backed Bluetooth state volatile", shared_prf)
 
-        board_source = (ROOT / "fw/board/boards/board_unhygienix.c").read_text()
+        board_source = (ROOT / "boards/unhygienix/unhygienix.c").read_text()
         self.assertIn("T5AI_GPIO_BASE + 19u * sizeof(uint32_t)", board_source)
         self.assertIn(
             "*reg = value | T5AI_GPIO_OUTPUT | T5AI_GPIO_DRIVE_STRENGTH_1",
@@ -682,7 +688,10 @@ class UnhygienixBoardsTest(unittest.TestCase):
         )
         self.assertIn("prv_assert_power_latch();", board_source)
         self.assertIn("PBL_GPIO(&T5AI_GPIO, 28, PBL_GPIO_ACTIVE_LOW)", board_source)
-        self.assertIn("pbl_gpio_configure(&s_amplifier_enable, PBL_GPIO_OUTPUT_INACTIVE)", board_source)
+        self.assertIn(
+            "pbl_gpio_configure(&s_amplifier_enable, PBL_GPIO_OUTPUT_INACTIVE)",
+            board_source,
+        )
 
         battery_source = (ROOT / "drivers/battery/t5ai.c").read_text()
         self.assertIn(

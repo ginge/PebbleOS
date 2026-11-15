@@ -340,7 +340,7 @@ static void pbl_irq_unlock(void){assert(lock);--lock;}
 typedef struct {void (*cb)(void *);} RegularTimerInfo;
 static RegularTimerInfo *registered;
 static void (*queued)(void *);
-static bool system_task_add_callback_droppable(void (*cb)(void *),void *context){
+static bool pbl_sys_work_try_call(void (*cb)(void *),void *context){
  assert(!lock && !context);if(accept)queued=cb;return accept;
 }
 static void regular_timer_add_multisecond_callback(RegularTimerInfo *t,unsigned seconds){

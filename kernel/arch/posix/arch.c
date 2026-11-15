@@ -22,6 +22,10 @@
 
 struct pbl_thread *pbl_cur;
 
+void arch_cur_set(struct pbl_thread *t) {
+  pbl_cur = t;
+}
+
 pthread_mutex_t posix_cpu = PTHREAD_MUTEX_INITIALIZER;
 bool posix_switch_pending;
 bool posix_in_isr;
@@ -65,6 +69,9 @@ static void *prv_thread_main(void *arg) {
   return nullptr;
 }
 
+void arch_early_init(void) {
+}
+
 void arch_init(void) {
 }
 
@@ -78,7 +85,7 @@ void arch_thread_init(struct pbl_thread *t, void (*entry)(void *), void *arg) {
   t->backend.arch.pt = pt;
 }
 
-void arch_thread_regions_set(struct pbl_thread *t, const MpuRegion *const *regions) {
+void arch_thread_regions_set(struct pbl_thread *t, const struct pbl_mpu_region *const *regions) {
   (void)t;
   (void)regions;
 }
@@ -97,10 +104,11 @@ void posix_run(struct pbl_thread *t) {
 void posix_switch(void) {
   posix_switch_pending = false;
   struct pbl_thread *prev = pbl_cur;
-  struct pbl_thread *next = sched_switch_in();
+  struct pbl_thread *next = sched_next;
   if (next == prev) {
     return;
   }
+  arch_cur_set(next);
   struct posix_thread *pt = prev->backend.arch.pt;
   posix_run(next);
   if (prev->backend.state == PBL_THREAD_DEAD) {
@@ -143,10 +151,35 @@ uint32_t arch_cycles_per_sec(void) {
   return 1000000000U;
 }
 
-void arch_irq_disable(void) {
+// Threads only yield the CPU when they block, which no heap operation does.
+void arch_heap_lock(void) {
 }
 
-void arch_irq_enable(void) {
+void arch_heap_unlock(void) {
+}
+
+static unsigned int s_irq_locked;
+
+unsigned int arch_irq_lock(void) {
+  unsigned int key = s_irq_locked;
+  s_irq_locked = 1;
+  return key;
+}
+
+void posix_irq_reset(void) {
+  s_irq_locked = 0;
+  irq_reset_for_test();
+}
+
+bool arch_irq_is_locked(void) {
+  return s_irq_locked != 0;
+}
+
+void arch_irq_unlock(unsigned int key) {
+  s_irq_locked = key;
+  if (key != 0) {
+    return;
+  }
   if (!posix_in_isr && posix_switch_pending && pbl_kernel_is_started()) {
     posix_switch();
   }

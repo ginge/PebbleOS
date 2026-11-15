@@ -3,24 +3,33 @@
 
 menuconfig FLASH
     bool "Flash"
+    select CRC
+    select TASK_WDT
     help
       Flash Drivers
 
 if FLASH
 
-config FLASH_GD25LQ255E
-    bool "GigaDevice GD25LQ255E"
+config FLASH_OTP
+    bool
     help
-      Support for the GigaDevice GD25LQ255E NOR flash.
+      Selected by drivers with a user one-time programmable area, see
+      pbl_flash_otp_*().
 
-config FLASH_GD25Q256E
-    bool "GigaDevice GD25Q256E"
+config FLASH_SPI_NOR
+    bool "SPI NOR"
+    default DT_HAS_JEDEC_SPI_NOR_ENABLED
+    select SPI_MEM
+    select FLASH_OTP
     help
-      Support for the GigaDevice GD25Q256E NOR flash.
+      Support for a JEDEC NOR flash on a SPI memory controller, found by
+      its JEDEC ID among the supported parts and described by its SFDP
+      tables and the part description.
 
 config FLASH_QEMU
     bool "QEMU External Flash"
-    default y if SOC_QEMU
+    default DT_HAS_QEMU_PEBBLE_EXTFLASH_ENABLED
+    depends on SOC_QEMU_PEBBLE
     help
       Support for the QEMU external flash peripheral.
 
@@ -35,6 +44,28 @@ config FLASH_POSIX
     default y if SOC_POSIX
     help
       External flash backed by a file on the host.
+
+config FLASH_SHELL
+    bool "Shell commands"
+    default DRIVER_SHELL
+    depends on SHELL
+    help
+      The flash shell command, to inspect, erase and test the flash.
+
+config FLASH_SHELL_TEST
+    bool "Test commands"
+    depends on FLASH_SHELL
+    help
+      The flash read, fill, validate and erased_sectors commands, to dump
+      and verify the flash from a host.
+
+config FLASH_SHELL_STRESS
+    bool "Stress and benchmark commands"
+    default y
+    depends on FLASH_SHELL
+    help
+      The flash stress and benchmark commands. The stress test writes the
+      firmware update area.
 
 module = DRIVER_FLASH
 module-str = Flash

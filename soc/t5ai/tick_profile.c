@@ -1,9 +1,8 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include <pbl/kernel/irq.h>
+#include <pbl/kernel/work.h>
 #include <pbl/logging/logging.h>
-#include <pbl/services/regular_timer.h>
-#include <pbl/services/system_task.h>
 #include <pbl/soc/t5ai/rtc.h>
 #include <pbl/soc/t5ai/tick.h>
 
@@ -64,9 +63,11 @@ static void prv_dump(void *context) {
 #endif
 }
 
-static void prv_schedule(void *context) {
+static struct pbl_delayed_work s_timer;
+static void prv_schedule(struct pbl_work *context) {
   (void)context;
-  (void)system_task_add_callback_droppable(prv_dump, nullptr);
+  (void)pbl_sys_work_try_call(prv_dump, nullptr);
+  pbl_delayed_work_schedule_next(&s_timer, pbl_ms_to_ticks(60000));
 }
 
 void t5ai_tick_profile_start(void) {
@@ -77,7 +78,7 @@ void t5ai_tick_profile_start(void) {
   t5ai_tick_profile = (T5AITickProfile){0};
   s_started = T5AI_AON_RTC_COUNT_LOW;
   pbl_irq_unlock();
-  static RegularTimerInfo timer = {.cb = prv_schedule};
-  regular_timer_add_multisecond_callback(&timer, 60u);
+  pbl_delayed_work_init(&s_timer, prv_schedule);
+  (void)pbl_delayed_work_schedule(&pbl_sys_workq_high, &s_timer, PBL_MSEC(60000));
   s_registered = true;
 }

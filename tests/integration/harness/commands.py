@@ -9,10 +9,10 @@ from harness.errors import Unsupported
 SHELL = {
     "app_launch": "app launch {id}",
     "app_list": "app list",
-    "bt_adv_slow": "bt adv_slow",
     "bt_airplane": "bt airplane {mode}",
     "bt_mac": "bt mac",
     "bt_pairing": "bt pairing",
+    "bt_rediscover": "bt rediscover",
     "bt_status": "bt status",
     "bt_unpair": "bt prefs_wipe",
     "click": "button click {button}",
@@ -21,6 +21,7 @@ SHELL = {
     "reset": "sys reset",
     "rx_disable": "sys rx_disable {seconds}",
     "set_time": "time set {timestamp}",
+    "tz_clear": "time tz_clear",
     "version": "version",
     "windows": "ui windows",
 }

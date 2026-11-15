@@ -21,9 +21,10 @@
 #include <pbl/soc/t5ai/row_memory.h>
 #endif
 #include "flash_region/flash_region.h"
-#include "system/rtc_registers.h"
+#include "pbl/system/rtc_registers.h"
 #include "system/status_codes.h"
 
+#include <errno.h>
 #include <inttypes.h>
 #include <stdint.h>
 #include <string.h>

@@ -31,10 +31,8 @@
 #include <pbl/kernel/delay.h>
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/mutex.h>
+#include <pbl/kernel/work.h>
 #include <pbl/logging/logging.h>
-#include <pbl/services/new_timer/new_timer.h>
-#include <pbl/services/regular_timer.h>
-#include <pbl/services/system_task.h>
 
 PBL_LOG_MODULE_DEFINE(driver_touch_cst92xx, CONFIG_DRIVER_TOUCH_LOG_LEVEL);
 
@@ -85,7 +83,8 @@ static uint8_t s_consecutive_read_failures;
 static int16_t s_last_x;
 static int16_t s_last_y;
 static PBL_MUTEX_DEFINE(s_i2c_lock);
-static TimerID s_retry_timer = TIMER_INVALID_ID;
+static struct pbl_delayed_work s_retry_timer;
+static void *s_retry_context;
 static const struct pbl_irq_spec s_interrupt =
     PBL_IRQ_SPEC(&T5AI_GPIO_INTC, CST92XX_INTERRUPT_PIN, PBL_IRQ_TYPE_EDGE_FALLING);
 static const struct pbl_gpio s_interrupt_input = PBL_GPIO(&T5AI_GPIO, CST92XX_INTERRUPT_PIN, 0);
@@ -93,7 +92,7 @@ static const struct pbl_gpio s_reset = PBL_GPIO(&T5AI_GPIO, CST92XX_RESET_PIN, 0
 
 static void prv_process_pending_messages(void *context);
 static void prv_watchdog_cb(void *context);
-static RegularTimerInfo s_watchdog_timer = {.cb = prv_watchdog_cb};
+static struct pbl_delayed_work s_watchdog_timer;
 
 // Caller holds s_i2c_lock, including across reset delays.
 static void prv_reset(bool run) {
@@ -132,6 +131,13 @@ static void prv_report_palm(int16_t x, int16_t y) {
   pbl_touch_report_gesture(TOUCH, PBL_INPUT_GES_PALM, x, y);
 }
 
+static uint32_t s_work_generation;
+static void prv_touch_work(struct pbl_work *work) {
+  const uint32_t generation = s_work_generation;
+  prv_process_pending_messages((void *)(uintptr_t)generation);
+}
+static PBL_WORK_DEFINE(s_touch_work, prv_touch_work);
+
 static void prv_schedule(uint32_t generation) {
   pbl_irq_lock();
   if (s_enabled && generation == s_generation && !s_transfer_retry && !s_callback_scheduled) {
@@ -139,11 +145,9 @@ static void prv_schedule(uint32_t generation) {
 #ifdef CONFIG_T5AI_IO_PROFILE
     s_queued_at = T5AI_AON_RTC_COUNT_LOW;
 #endif
-    s_retry_pending = !system_task_add_callback_from_isr_droppable_raised(
-        prv_process_pending_messages, (void *)(uintptr_t)generation);
-    if (s_retry_pending) {
-      s_callback_scheduled = false;
-    }
+    s_work_generation = generation;
+    (void)pbl_work_submit_boosted(&pbl_sys_workq, &s_touch_work);
+    s_retry_pending = false;
   }
   pbl_irq_unlock();
 }
@@ -152,7 +156,7 @@ static void prv_interrupt_handler(void *arg) {
   prv_schedule(s_generation);
 }
 
-// NewTimer only queues work; bus transfers and reset delays belong on KernelBG.
+// Delayed work only queues the bus transfers and reset delays on KernelBG.
 static void prv_retry_cb(void *context) {
   const uint32_t generation = (uint32_t)(uintptr_t)context;
   pbl_irq_lock();
@@ -162,6 +166,9 @@ static void prv_retry_cb(void *context) {
   }
   pbl_irq_unlock();
   prv_schedule(generation);
+}
+static void prv_retry_work(struct pbl_work *work) {
+  prv_retry_cb(s_retry_context);
 }
 
 static void prv_watchdog_cb(void *context) {
@@ -173,6 +180,11 @@ static void prv_watchdog_cb(void *context) {
   if (retry) {
     prv_schedule(generation);
   }
+}
+static void prv_watchdog_work(struct pbl_work *work) {
+  prv_watchdog_cb(nullptr);
+  if (s_enabled)
+    pbl_delayed_work_schedule_next(&s_watchdog_timer, pbl_ms_to_ticks(1000));
 }
 
 // Caller holds s_i2c_lock for report state, recovery and polling decisions.
@@ -286,7 +298,7 @@ static void prv_process_pending_messages(void *context) {
   }
   s_poll_scheduled = false;
   pbl_irq_unlock();
-  (void)new_timer_stop(s_retry_timer);
+  (void)pbl_delayed_work_cancel(&s_retry_timer);
 
   uint8_t report[CST92XX_REPORT_LENGTH] = {0};
   bool down;
@@ -306,7 +318,8 @@ static void prv_process_pending_messages(void *context) {
     pbl_irq_lock();
     s_poll_scheduled = true;
     pbl_irq_unlock();
-    PBL_ASSERTN(new_timer_start(s_retry_timer, retry_ms, prv_retry_cb, context, 0));
+    s_retry_context = context;
+    (void)pbl_delayed_work_reschedule(&pbl_sys_workq_high, &s_retry_timer, PBL_MSEC(retry_ms));
   }
   const int16_t x = s_last_x;
   const int16_t y = s_last_y;
@@ -330,10 +343,8 @@ static int prv_touch_init(const struct pbl_touch *touch) {
   if (ret != 0) {
     return ret;
   }
-  s_retry_timer = new_timer_create();
-  if (s_retry_timer == TIMER_INVALID_ID) {
-    return -ENOMEM;
-  }
+  pbl_delayed_work_init(&s_retry_timer, prv_retry_work);
+  pbl_delayed_work_init(&s_watchdog_timer, prv_watchdog_work);
   pbl_mutex_lock(&s_i2c_lock, PBL_FOREVER);
   (void)pbl_gpio_configure(&s_reset, PBL_GPIO_OUTPUT_INACTIVE);
   prv_reset(true);
@@ -373,7 +384,7 @@ static void prv_set_enabled(bool enabled) {
   s_transfer_retry = false;
   s_idle_poll_ms = 0u;
   pbl_irq_unlock();
-  (void)new_timer_stop(s_retry_timer);
+  (void)pbl_delayed_work_cancel(&s_retry_timer);
   s_consecutive_read_failures = 0u;
   s_down = false;
   s_contact_active = false;
@@ -384,15 +395,11 @@ static void prv_set_enabled(bool enabled) {
     s_enabled = true;
     pbl_irq_unlock();
     (void)pbl_intc_enable(&s_interrupt);
-    if (!regular_timer_is_scheduled(&s_watchdog_timer)) {
-      regular_timer_add_seconds_callback(&s_watchdog_timer);
-    }
+    (void)pbl_delayed_work_schedule(&pbl_sys_workq_high, &s_watchdog_timer, PBL_MSEC(1000));
     // Read once on enable even if INT was already asserted before IRQ unmasking.
     prv_schedule(s_generation);
   } else {
-    if (regular_timer_is_scheduled(&s_watchdog_timer)) {
-      regular_timer_remove_callback(&s_watchdog_timer);
-    }
+    (void)pbl_delayed_work_cancel(&s_watchdog_timer);
     prv_reset(false);
   }
   pbl_mutex_unlock(&s_i2c_lock);

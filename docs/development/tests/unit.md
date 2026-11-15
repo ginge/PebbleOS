@@ -21,7 +21,7 @@ its selection and reporting options are all available:
 
 - `-R REGEX`: run the tests whose name matches, e.g. `pbl test -R animation`
 - `-L LABEL`: run by label; every test is labelled with its directory
-  (`tests/fw/ui`) and its platform (`emery`, `gabbro`, `flint`)
+  (`tests/pebble/ui`) and its platform (`emery`, `gabbro`, `flint`)
 - `-N`: list the tests that would run instead of running them
 - `--rerun-failed`: re-run only what failed last time
 - `-j N`: run N tests at once (the default is one per core)
@@ -39,7 +39,7 @@ Each test is a standalone binary under `build-test/`, so a failing one can
 be run directly or under a debugger:
 
 ```shell
-gdb build-test/fw/ui/test_animation/runme
+gdb build-test/pebble/ui/test_animation/runme
 ```
 
 Results are written as JUnit XML to `build-test/junit.xml`, and a
@@ -99,7 +99,7 @@ the repository root:
 pbl_clar_test(test_pfs
   MODULES pfs
   SOURCES
-    fw/system/hexdump.c
+    subsys/logging/hexdump.c
     tests/fakes/fake_rtc.c
   OVERRIDES dummy_board
 )
@@ -113,8 +113,8 @@ Sources that travel together are grouped into modules in
 pbl_test_module(settings
   REQUIRES pfs
   SOURCES
-    fw/services/settings/settings_file.c
-    fw/services/settings/settings_raw_iter.c
+    subsys/settings/settings.c
+    subsys/settings/raw_iter.c
 )
 ```
 
@@ -176,10 +176,10 @@ These mechanisms replace dependencies of the code under test:
   ```c
   #include <fff.h>
 
-  FAKE_VOID_FUNC(settings_file_close, SettingsFile *);
-  FAKE_VALUE_FUNC(status_t, settings_file_open, SettingsFile *, const char *, int);
+  FAKE_VOID_FUNC(pbl_settings_close, struct pbl_settings_file *);
+  FAKE_VALUE_FUNC(int, pbl_settings_open, struct pbl_settings_file *, const char *, int);
 
-  #define FAKES(FAKE) FAKE(settings_file_close) FAKE(settings_file_open)
+  #define FAKES(FAKE) FAKE(pbl_settings_close) FAKE(pbl_settings_open)
 
   void test_foo__initialize(void) {
     FAKES(RESET_FAKE);

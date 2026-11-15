@@ -20,7 +20,7 @@ class BluetoothPersistenceConfigTest(unittest.TestCase):
                 "macro(pbl_library)\nendmacro()\n"
                 "macro(pbl_library_sources)\nendmacro()\n"
                 "macro(pbl_library_sources_ifdef)\nendmacro()\n"
-                f'include("{ROOT}/fw/services/bluetooth/CMakeLists.txt")\n'
+                f'include("{ROOT}/pebble/services/bluetooth/CMakeLists.txt")\n'
                 'message("SELECTED=${sources}")\n'
             )
             for t5ai, recovery, expected in (

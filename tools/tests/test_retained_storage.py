@@ -22,9 +22,15 @@ STUBS = {
     "pbl/kernel/assert.h": "#pragma once\n#define PBL_ASSERTN(x) assert(x)\n",
     "bf0_hal.h": "#pragma once\nuint32_t HAL_Get_backup(uint32_t);\nvoid HAL_Set_backup(uint32_t, uint32_t);\n",
 }
-STUBS["pbl/soc/t5ai/cache.h"] = "#pragma once\n#define t5ai_cache_clean(p, n) ((void)0)\n"
-STUBS["cmsis_core.h"] += "\n#define __get_PRIMASK() 0u\n#define __set_PRIMASK(v) ((void)(v))\n"
-STUBS["pbl/kernel/compiler.h"] += '\n#define PBL_SECTION(s) __attribute__((section(s)))\n'
+STUBS["pbl/soc/t5ai/cache.h"] = (
+    "#pragma once\n#define t5ai_cache_clean(p, n) ((void)0)\n"
+)
+STUBS["cmsis_core.h"] += (
+    "\n#define __get_PRIMASK() 0u\n#define __set_PRIMASK(v) ((void)(v))\n"
+)
+STUBS["pbl/kernel/compiler.h"] += (
+    "\n#define PBL_SECTION(s) __attribute__((section(s)))\n"
+)
 STUBS["pbl/logging/logging.h"] = """
 #pragma once
 #define PBL_LOG_MODULE_DEFINE(...)
@@ -40,10 +46,12 @@ PRELUDE = """
 #include <string.h>
 #include <cmsis_core.h>
 #include <pbl/kernel/compiler.h>
-#include <system/rtc_registers.h>
+#include <pbl/system/rtc_registers.h>
 """
 
-BOOT_HARNESS = PRELUDE + r"""
+BOOT_HARNESS = (
+    PRELUDE
+    + r"""
 #include RETAINED_SOURCE
 #include BOOT_SOURCE
 int main(void) {
@@ -83,26 +91,41 @@ int main(void) {
   return 0;
 }
 """
+)
 
 
 class RetainedStorageTest(unittest.TestCase):
     def test_t5ai_bootbits_and_actual_store_invalidation(self):
-        reset_test.T5AIResetTest().compile_run(BOOT_HARNESS, STUBS, (
-            "-DCONFIG_SOC_T5AI=1",
-            f'-DRETAINED_SOURCE="{ROOT / "soc/t5ai/retained.c"}"',
-            f'-DBOOT_SOURCE="{ROOT / "fw/system/bootbits.c"}"',
-        ))
+        reset_test.T5AIResetTest().compile_run(
+            BOOT_HARNESS,
+            STUBS,
+            (
+                "-DCONFIG_SOC_T5AI=1",
+                f'-DRETAINED_SOURCE="{ROOT / "soc/t5ai/retained.c"}"',
+                f'-DBOOT_SOURCE="{ROOT / "pebble/system/bootbits.c"}"',
+            ),
+        )
 
     def test_reset_with_actual_retained_backend(self):
-        headers = {**reset_test.HEADERS, "pbl/soc/t5ai/cache.h": STUBS["pbl/soc/t5ai/cache.h"], "cmsis_core.h": STUBS["cmsis_core.h"], "pbl/kernel/assert.h": STUBS["pbl/kernel/assert.h"]}
-        reset_test.T5AIResetTest().compile_run(reset_test.RESET_HARNESS, headers, (
-            "-DCONFIG_WATCHDOG=1", "-DCONFIG_SOC_T5AI=1",
-            "-DCONFIG_WATCHDOG_TIMEOUT_MS=30000",
-            f'-DWATCHDOG_SOURCE="{ROOT / "drivers/watchdog/t5ai.c"}"',
-            f'-DREBOOT_SOURCE="{ROOT / "soc/t5ai/reboot_reason.c"}"',
-            f'-DCOMMON_REBOOT_SOURCE="{ROOT / "fw/system/reboot_reason.c"}"',
-            f'-DRETAINED_SOURCE="{ROOT / "soc/t5ai/retained.c"}"',
-        ))
+        headers = {
+            **reset_test.HEADERS,
+            "pbl/soc/t5ai/cache.h": STUBS["pbl/soc/t5ai/cache.h"],
+            "cmsis_core.h": STUBS["cmsis_core.h"],
+            "pbl/kernel/assert.h": STUBS["pbl/kernel/assert.h"],
+        }
+        reset_test.T5AIResetTest().compile_run(
+            reset_test.RESET_HARNESS,
+            headers,
+            (
+                "-DCONFIG_WATCHDOG=1",
+                "-DCONFIG_SOC_T5AI=1",
+                "-DCONFIG_WATCHDOG_TIMEOUT_MS=30000",
+                f'-DWATCHDOG_SOURCE="{ROOT / "drivers/watchdog/t5ai.c"}"',
+                f'-DREBOOT_SOURCE="{ROOT / "soc/t5ai/reboot_reason.c"}"',
+                f'-DCOMMON_REBOOT_SOURCE="{ROOT / "pebble/system/reboot_reason.c"}"',
+                f'-DRETAINED_SOURCE="{ROOT / "soc/t5ai/retained.c"}"',
+            ),
+        )
 
     def test_stock_backend_generated_code_is_unchanged(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -112,26 +135,61 @@ class RetainedStorageTest(unittest.TestCase):
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text(contents)
             (directory / "prelude.h").write_text(PRELUDE)
-            for backend in ("CONFIG_SOC_NRF52", "CONFIG_SOC_SF32LB52", "CONFIG_QEMU", "CONFIG_SOC_POSIX"):
+            for backend in (
+                "CONFIG_SOC_NRF52",
+                "CONFIG_SOC_SF32LB52",
+                "CONFIG_QEMU",
+                "CONFIG_SOC_POSIX",
+            ):
                 for filename in ("bootbits.c", "reboot_reason.c"):
                     with self.subTest(backend=backend, file=filename):
                         before = directory / "before" / filename
                         before.parent.mkdir(exist_ok=True)
-                        before.write_bytes(subprocess.check_output([
-                            "git", "show", f"{STOCK_BASELINE}:fw/system/{filename}"], cwd=ROOT))
+                        before.write_bytes(
+                            subprocess.check_output(
+                                [
+                                    "git",
+                                    "show",
+                                    f"{STOCK_BASELINE}:pebble/system/{filename}",
+                                ],
+                                cwd=ROOT,
+                            )
+                        )
                         assemblies = []
-                        for source in (before, ROOT / "fw/system" / filename):
+                        for source in (before, ROOT / "pebble/system" / filename):
                             output = directory / "output.s"
-                            subprocess.run([
-                                "cc", "-std=gnu2x", "-O2", "-fno-ident",
-                                "-Wno-address-of-packed-member", "-S", str(source),
-                                "-include", str(directory / "prelude.h"),
-                                "-I", str(directory), "-I", str(ROOT / "include"),
-                                "-I", str(ROOT / "fw"), "-I", str(ROOT / "fw/system"),
-                                f"-D{backend}=1", "-o", str(output),
-                            ], check=True)
-                            assembly = re.sub(r'^\s*\.file.*$', '', output.read_text(), flags=re.MULTILINE)
-                            assembly = re.sub(r'\.LF([BE])\d+', r'.LF\1', assembly)
+                            subprocess.run(
+                                [
+                                    "cc",
+                                    "-std=gnu2x",
+                                    "-O2",
+                                    "-fno-ident",
+                                    "-Wno-address-of-packed-member",
+                                    "-S",
+                                    str(source),
+                                    "-include",
+                                    str(directory / "prelude.h"),
+                                    "-I",
+                                    str(directory),
+                                    "-I",
+                                    str(ROOT / "include"),
+                                    "-I",
+                                    str(ROOT / "pebble"),
+                                    "-I",
+                                    str(ROOT / "pebble/system"),
+                                    f"-D{backend}=1",
+                                    "-o",
+                                    str(output),
+                                ],
+                                check=True,
+                            )
+                            assembly = re.sub(
+                                r"^\s*\.file.*$",
+                                "",
+                                output.read_text(),
+                                flags=re.MULTILINE,
+                            )
+                            assembly = re.sub(r"\.LF([BE])\d+", r".LF\1", assembly)
                             assemblies.append(assembly)
                         self.assertEqual(*assemblies)
 

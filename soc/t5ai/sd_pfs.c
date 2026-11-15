@@ -1,16 +1,17 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "kernel/pbl_malloc.h"
-#include <pbl/kernel/assert.h>
+#include "pbl/kernel/malloc.h"
+#include "pfs.h"
 
 #include <string.h>
 
 #include <pbl/drivers/t5ai/sd.h>
+#include <pbl/kernel/assert.h>
 #include <pbl/kernel/kernel.h>
 #include <pbl/logging/logging.h>
-#include <pbl/services/filesystem/pfs.h>
 #include <pbl/soc/t5ai/memory.h>
+#include <pbl/system/status_codes.h>
 
 #define VOLUME_SIZE    (32u * 1024u * 1024u)
 #define HEADER_SECTOR  2048u
@@ -39,7 +40,7 @@ void *t5ai_sd_pfs_malloc_check(size_t bytes) {
     s_page_flags_in_use = true;
     return s_page_flags;
   }
-  return kernel_malloc_check(bytes);
+  return pbl_malloc_check(bytes);
 }
 
 void t5ai_sd_pfs_free(void *ptr) {
@@ -48,7 +49,7 @@ void t5ai_sd_pfs_free(void *ptr) {
     s_page_flags_in_use = false;
     return;
   }
-  kernel_free(ptr);
+  pbl_free(ptr);
 }
 
 typedef struct {

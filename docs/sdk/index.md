@@ -8,12 +8,13 @@ binary interface through which they call it.
 The SDK is generated from the firmware, by the same build:
 
 - `pebble.h` and `pebble_worker.h` declare the API: the functions, types
-  and constants of `fw/applib/` that are exported, per platform.
+  and constants of `pebble/applib/` that are exported, per platform.
 - `libpebble.a` is what apps link against. It holds no implementation,
   only one small trampoline per exported function, which jumps into the
   firmware.
-- The app project templates, the resource tools and the `waf` build
-  system app developers build with complete the distribution.
+- The app project templates, the resource tools and the CMake package app
+  developers build with ({doc}`app_build`) complete the distribution, along
+  with the deprecated `waf` build.
 
 App developers do not use these files directly: the
 [`pebble` tool](https://github.com/coredevices/pebble-tool) downloads a
@@ -47,6 +48,7 @@ an app's calls reach the firmware.
 ```{toctree}
 :hidden:
 
+app_build.md
 how_it_works.md
 exporting.md
 building.md

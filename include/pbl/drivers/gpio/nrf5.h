@@ -23,27 +23,13 @@
 struct pbl_gpio_nrf5 {
   /** GPIO port. */
   struct pbl_gpio_port port;
-  /** Interrupt controller of the pins, child of the port. */
-  struct pbl_intc intc;
   /** Register base address. */
   uintptr_t base;
   /** Port index. */
   uint8_t index;
+  /** Registers of the GPIOTE. */
+  uintptr_t gpiote;
 };
-
-/** @cond INTERNAL_HIDDEN */
-extern const struct pbl_gpio_nrf5 pbl_gpio_nrf5_p0;
-extern const struct pbl_gpio_nrf5 pbl_gpio_nrf5_p1;
-/** @endcond */
-
-/** Port P0. */
-#define NRF5_GPIO_P0 (&pbl_gpio_nrf5_p0.port)
-/** Port P1. */
-#define NRF5_GPIO_P1 (&pbl_gpio_nrf5_p1.port)
-/** Interrupt controller of port P0. */
-#define NRF5_GPIO_P0_INTC (&pbl_gpio_nrf5_p0.intc)
-/** Interrupt controller of port P1. */
-#define NRF5_GPIO_P1_INTC (&pbl_gpio_nrf5_p1.intc)
 
 /**
  * @brief Absolute pin number of a pin, as nrfx takes it.

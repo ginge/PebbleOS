@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: Apache-2.0 */
+
 #include "touch_queue.h"
 
 #include "applib/ui/recognizer/recognizer_manager.h"
@@ -14,6 +15,7 @@
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/msgq.h>
 #include <pbl/kernel/thread.h>
+#include <pbl/soc/t5ai/rtc.h>
 
 #include <cmsis_core.h>
 
@@ -30,7 +32,7 @@
 #endif
 
 static TouchEvent s_last_touch;
-static RtcTicks s_sample_ticks;
+static uint64_t s_sample_ticks;
 static bool s_have_sample, s_delivering;
 static uint32_t s_app_id;
 extern struct pbl_thread *pbl_cur;
@@ -45,7 +47,7 @@ void __wrap_event_put(PebbleEvent *event) {
   if (!(__get_CONTROL() & 1u) && event->type == PEBBLE_TOUCH_EVENT) {
     const PebbleProcessMd *md = app_manager_get_current_app_md();
     if (md && !md->is_unprivileged)
-      t5_touch_stamp(event, rtc_get_ticks());
+      t5_touch_stamp(event, t5ai_rtc_get_ticks());
   }
   __real_event_put(event);
 }
@@ -56,7 +58,7 @@ int __wrap_pbl_msgq_put(struct pbl_msgq *q, const void *message, pbl_timeout_t t
     return __real_pbl_msgq_put(q, message, timeout);
   PebbleEvent event = *(const PebbleEvent *)message;
   if (!t5_touch_has_stamp(&event))
-    t5_touch_stamp(&event, rtc_get_ticks());
+    t5_touch_stamp(&event, t5ai_rtc_get_ticks());
   pbl_irq_lock();
   const bool combined = t5_touch_combine(q, &event);
   if (combined)
@@ -73,7 +75,7 @@ int __wrap_pbl_msgq_get(struct pbl_msgq *q, void *message, pbl_timeout_t timeout
     s_have_sample = e->type == PEBBLE_TOUCH_EVENT && t5_touch_has_stamp(e);
     if (s_have_sample) {
       s_last_touch = e->touch.event;
-      const RtcTicks now = rtc_get_ticks();
+      const uint64_t now = t5ai_rtc_get_ticks();
       s_sample_ticks = t5_touch_time(e, now);
       T5_IO_ADD(T5IO_APP_QUEUE, (uint32_t)(now - s_sample_ticks) * 32u, 0u);
       s_app_id = pbl_cur->id;
@@ -95,7 +97,7 @@ void __wrap_recognizer_manager_handle_touch_event(const TouchEvent *event, void 
   __real_recognizer_manager_handle_touch_event(event, context);
   s_delivering = false;
 }
-RtcTicks t5ai_touch_sample_ticks(void) {
+uint64_t t5ai_touch_sample_ticks(void) {
   // The pan recognizer also runs in unprivileged watchapps.
   if (__get_CONTROL() & 1u)
     return sys_get_ticks();

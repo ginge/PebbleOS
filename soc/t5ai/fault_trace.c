@@ -4,7 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <pbl/mcu/cache.h>
+#include <pbl/kernel/cache.h>
 
 #include <cmsis_core.h>
 
@@ -64,8 +64,8 @@ static bool prv_send(size_t length, uint32_t start) {
   s_message[1] = (uint32_t)(uintptr_t)s_text;
   s_message[2] = 0xffff0000u | (uint32_t)length;
   s_message[3] = 0;
-  dcache_flush(s_text, sizeof(s_text));
-  dcache_flush(s_message, sizeof(s_message));
+  pbl_dcache_flush_range(s_text, sizeof(s_text));
+  pbl_dcache_flush_range(s_message, sizeof(s_message));
   REG32(0x41000088u) = (uint32_t)(uintptr_t)s_message;
   REG32(0x4100008cu) = 16u;
   __DSB();
@@ -73,7 +73,7 @@ static bool prv_send(size_t length, uint32_t start) {
   __DSB();
   polls = POLL_LIMIT;
   do {
-    dcache_invalidate(s_text, sizeof(s_text));
+    pbl_dcache_invalidate_range(s_text, sizeof(s_text));
     if (s_text[0] == 0)
       return true;
   } while (--polls && (uint32_t)(REG32(FAULT_AON_COUNT_ADDRESS) - start) < TIMEOUT_TICKS);
@@ -109,7 +109,7 @@ bool t5ai_fault_trace_words(const uint32_t *words, size_t count) {
   const uint32_t primask = __get_PRIMASK();
   __disable_irq();
   // A failed publication may still belong to CP. Never overwrite that text.
-  dcache_invalidate(s_text, sizeof(s_text));
+  pbl_dcache_invalidate_range(s_text, sizeof(s_text));
   bool sent = false;
   if (s_text[0] == 0u && !s_entered) {
     const uint32_t start = REG32(FAULT_AON_COUNT_ADDRESS);

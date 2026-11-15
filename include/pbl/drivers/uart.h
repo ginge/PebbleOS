@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -24,11 +25,11 @@
  *
  * const struct pbl_uart_config cfg = {.baudrate = 115200};
  *
- * ret = pbl_uart_configure(DBG_UART, &cfg);
- * ret = pbl_uart_rx_enable(DBG_UART, prv_rx, nullptr);
+ * ret = pbl_uart_configure(CONSOLE_UART, &cfg);
+ * ret = pbl_uart_rx_enable(CONSOLE_UART, prv_rx, nullptr);
  *
- * pbl_uart_poll_out(DBG_UART, 'A');
- * pbl_uart_flush(DBG_UART);
+ * pbl_uart_poll_out(CONSOLE_UART, 'A');
+ * pbl_uart_flush(CONSOLE_UART);
  * @endcode
  *
  * A port can also serve as an early console, before the device model is initialized:
@@ -83,12 +84,21 @@ typedef void (*pbl_uart_rx_callback_t)(const struct pbl_uart *uart, uint8_t c, v
 /** @brief Class of the serial ports. */
 extern const struct pbl_device_class pbl_uart_class;
 
+/** @brief The board's console port. */
+extern const struct pbl_uart *const CONSOLE_UART;
+
+/** @brief The board's port to the host of the QEMU serial protocol. */
+extern const struct pbl_uart *const QEMU_UART;
+
+/** @brief The board's Bluetooth HCI port, with @c CONFIG_BT_HCI_UART. */
+extern const struct pbl_uart *const BT_HCI_UART;
+
 /** @cond INTERNAL_HIDDEN */
 struct pbl_uart_state {
   struct pbl_uart_config cfg;
   pbl_uart_rx_callback_t rx_cb;
   void *rx_arg;
-  bool rx_enabled;
+  atomic_bool rx_enabled;
   bool early;
 };
 /** @endcond */

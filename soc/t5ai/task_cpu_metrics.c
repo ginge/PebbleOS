@@ -1,14 +1,15 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
-#include <pbl/kernel/time.h>
+#include <stdint.h>
+#include <string.h>
+
+#include <pbl/kernel/assert.h>
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/sched.h>
 #include <pbl/kernel/thread.h>
+#include <pbl/kernel/time.h>
 #include <pbl/logging/logging.h>
 #include <pbl/soc/t5ai/rtc.h>
-#include <pbl/kernel/assert.h>
-#include <stdint.h>
-#include <string.h>
 
 PBL_LOG_MODULE_DEFINE(t5ai_task_cpu, LOG_LEVEL_DEBUG);
 
@@ -37,8 +38,6 @@ static void prv_snapshot(bool report) {
     }
     TaskCpu *out = &s_current[count++];
     *out = (TaskCpu){.id = t->id, .cpu = t->backend.run_time};
-    if (t == pbl_cur)
-      out->cpu += ticks - t->backend.switched_in_at;
     memcpy(out->name, t->name, sizeof(out->name) - 1);
     out->name[sizeof(out->name) - 1] = 0;
   }
@@ -77,9 +76,7 @@ static void prv_entry(void *arg) {
   }
 }
 
-void __real_system_task_timer_init(void);
-void __wrap_system_task_timer_init(void) {
-  __real_system_task_timer_init();
+void t5ai_diagnostics_start(void) {
   const struct pbl_thread_attr attr = {
     .name = "TaskCPU",
     .entry = prv_entry,

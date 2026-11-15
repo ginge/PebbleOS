@@ -3,7 +3,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "board/board.h"
-#include "pbl/services/new_timer/new_timer.h"
 #include "system/status_codes.h"
 
 #include <errno.h>
@@ -22,7 +21,10 @@
 #include <pbl/kernel/mutex.h>
 #include <pbl/kernel/sem.h>
 #include <pbl/kernel/thread.h>
+#include <pbl/kernel/time.h>
+#include <pbl/kernel/work.h>
 #include <pbl/logging/logging.h>
+#include <pbl/soc/t5ai/rtc.h>
 #include <pbl/util/misc.h>
 
 #ifdef CONFIG_T5AI_QMI8658_PROFILE
@@ -166,10 +168,7 @@ static bool prv_write(uint8_t reg, uint8_t value) {
 }
 
 static uint64_t prv_time_us(void) {
-  time_t seconds;
-  uint16_t milliseconds;
-  rtc_get_time_ms(&seconds, &milliseconds);
-  return ((uint64_t)seconds * 1000u + milliseconds) * 1000u;
+  return pbl_realtime_ms() * 1000u;
 }
 
 static int16_t prv_to_mg(const uint8_t *raw) {
@@ -302,7 +301,7 @@ static void prv_arm_irq(void) {
 static void prv_finish_poll(void) {
   pbl_irq_lock();
   s_dev->state->poll_pending = false;
-  const uint32_t elapsed_ms = (uint32_t)rtc_get_ticks() - s_dev->state->last_acquire_ms;
+  const uint32_t elapsed_ms = (uint32_t)t5ai_rtc_get_ticks() - s_dev->state->last_acquire_ms;
   // Watermark deassertion is asynchronous. A high pin immediately after
   // resume is not evidence of a fresh batch; allow one conversion to settle.
   const bool fifo_catchup =
@@ -380,7 +379,7 @@ static void prv_timer_callback(void *context) {
   // worker pass per watchdog period, including after transfer failures.
   const uint32_t deadline_ms =
       (2u * s_dev->state->watermark * s_dev->state->interval_us + 999u) / 1000u;
-  if ((uint32_t)rtc_get_ticks() - s_dev->state->last_acquire_ms >= deadline_ms ||
+  if ((uint32_t)t5ai_rtc_get_ticks() - s_dev->state->last_acquire_ms >= deadline_ms ||
       s_dev->state->recovery_required) {
     if (++s_dev->state->watchdog_passes >= 3u) {
       s_dev->state->recovery_required = true;
@@ -466,6 +465,13 @@ static bool prv_configure_locked(void) {
   return ok;
 }
 
+static void prv_timer_work(struct pbl_work *work) {
+  prv_timer_callback(nullptr);
+  if (s_dev->state->timer_period != 0) {
+    pbl_delayed_work_schedule_next(&s_dev->state->timer, s_dev->state->timer_period);
+  }
+}
+
 static void prv_update_timer(void) {
   if (s_dev->state->active || s_dev->state->recovery_required) {
     uint32_t period_ms = (2u * s_dev->state->watermark * s_dev->state->interval_us + 999u) / 1000u;
@@ -474,10 +480,12 @@ static void prv_update_timer(void) {
     if (period_ms < 100u) {
       period_ms = 100u;
     }
-    (void)new_timer_start(s_dev->state->timer, period_ms, prv_timer_callback, NULL,
-                          TIMER_START_FLAG_REPEATING);
+    s_dev->state->timer_period = pbl_ms_to_ticks(period_ms);
+    (void)pbl_delayed_work_reschedule(&pbl_sys_workq_high, &s_dev->state->timer,
+                                      PBL_TICKS(s_dev->state->timer_period));
   } else {
-    (void)new_timer_stop(s_dev->state->timer);
+    s_dev->state->timer_period = 0;
+    (void)pbl_delayed_work_cancel(&s_dev->state->timer);
   }
 }
 
@@ -507,7 +515,7 @@ static bool prv_track_quiet_locked(void) {
   AccelDriverSample sample = {};
   prv_decode(s_dev->state->raw, s_dev->state->rotated, &sample);
   const int16_t values[] = {sample.x, sample.y, sample.z};
-  const uint32_t now_ms = rtc_get_ticks();
+  const uint32_t now_ms = t5ai_rtc_get_ticks();
   bool motion = !s_dev->state->quiet_valid || !s_dev->state->shake_baseline_valid;
   for (unsigned i = 0; i < 3u; ++i) {
     const int32_t delta = (int32_t)values[i] - s_dev->state->shake_baseline[i];
@@ -777,7 +785,7 @@ static void prv_acquire_sample(void) {
     batch.count = 0u;
   }
   if (ok && batch.count) {
-    s_dev->state->last_acquire_ms = rtc_get_ticks();
+    s_dev->state->last_acquire_ms = t5ai_rtc_get_ticks();
     if (s_dev->state->watermark == 1u) {
       prv_timestamp(batch.counter, batch.count, batch.timestamp_us);
     } else {
@@ -846,7 +854,7 @@ static int prv_init(const struct pbl_accel *accel) {
   s_dev->state->watermark = 1;
   s_dev->state->odr = QMI8658_ODR_125HZ;
   s_dev->state->initialized = false;
-  s_dev->state->timer = TIMER_INVALID_ID;
+  s_dev->state->timer_period = 0;
   s_dev->state->interval_us = QMI8658_DEFAULT_INTERVAL_US;
   // Until a data client requests a rate, shake alone needs only its rate limit.
   s_dev->state->requested_interval_us = QMI8658_SHAKE_INTERVAL_US;
@@ -883,15 +891,12 @@ static int prv_init(const struct pbl_accel *accel) {
     return -EIO;
   }
   PBL_LOG_DBG("QMI8658 interrupt acquisition id=%02x rev=%02x", id[0], id[1]);
-  s_dev->state->timer = new_timer_create();
-  if (s_dev->state->timer == TIMER_INVALID_ID) {
-    return -ENOMEM;
-  }
+  pbl_delayed_work_init(&s_dev->state->timer, prv_timer_work);
   int ret = pbl_gpio_configure(&s_dev->int2_gpio, PBL_GPIO_INPUT);
   if (ret == 0)
     ret = pbl_intc_request(&s_dev->int2, prv_int2_handler, (void *)s_dev);
   if (ret != 0) {
-    new_timer_delete(s_dev->state->timer);
+    (void)pbl_delayed_work_cancel_sync(&s_dev->state->timer);
     return ret;
   }
   const struct pbl_thread_attr attr = {
@@ -903,7 +908,7 @@ static int prv_init(const struct pbl_accel *accel) {
     .stack_size = sizeof(s_dev->state->poll_stack),
   };
   if (pbl_thread_create(&s_dev->state->poll_thread, &attr) != 0) {
-    new_timer_delete(s_dev->state->timer);
+    (void)pbl_delayed_work_cancel_sync(&s_dev->state->timer);
     (void)pbl_intc_free(&s_dev->int2);
     return -EIO;
   }
@@ -1080,7 +1085,7 @@ static void prv_work_callback(void *data) {
   pbl_accel_unlock(&s_dev->accel);
 }
 static bool prv_queue_work(void (*work)(void)) {
-  return new_timer_add_work_callback(prv_work_callback, work);
+  return pbl_sys_work_call_high(prv_work_callback, work);
 }
 const struct pbl_accel_ops pbl_qmi8658_ops = {
   .init = prv_init,

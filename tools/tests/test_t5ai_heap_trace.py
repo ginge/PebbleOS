@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Exercise the production bounded heap hooks, without allocator policy changes."""
+
 from pathlib import Path
 import subprocess
 import tempfile
@@ -8,7 +9,7 @@ import unittest
 from tools.tests.test_t5ai_reminder_profile import STUB
 
 ROOT = Path(__file__).resolve().parents[2]
-HARNESS = r'''
+HARNESS = r"""
 #include "stub.h"
 #include <assert.h>
 #include <stdarg.h>
@@ -73,18 +74,47 @@ int main(void) {
   assert(croaks == 1 && scans == 2 && logs == 68 && !s_dumping && !depth);
   return 0;
 }
-'''
+"""
+
 
 class HeapTraceTest(unittest.TestCase):
     def test_bounded_history_heap_selection_oom_and_rate_limit(self):
         with tempfile.TemporaryDirectory() as temp:
             d = Path(temp)
-            (d / "stub.h").write_text(STUB + "\ntypedef struct { unsigned current_size; } Heap;\n\nHeap *kernel_heap_get(void);\nvoid heap_calc_totals(Heap *, unsigned *, unsigned *, unsigned *);\nuint64_t t5ai_rtc_get_raw_ticks(void);\n#define T5AI_AON_RTC_HZ 32000u\n")
-            for name in ("pbl/soc/t5ai/heap_trace.h", "pbl/soc/t5ai/rtc.h", "pbl/util/heap.h", "pbl/kernel/irq.h", "pbl/kernel/thread.h", "pbl/logging/logging.h", "kernel/kernel_heap.h", "pbl/kernel/assert.h"):
+            (d / "stub.h").write_text(
+                STUB
+                + "\ntypedef struct { unsigned current_size; } Heap;\n\nHeap *kernel_heap_get(void);\nvoid heap_calc_totals(Heap *, unsigned *, unsigned *, unsigned *);\nuint64_t t5ai_rtc_get_raw_ticks(void);\n#define T5AI_AON_RTC_HZ 32000u\n"
+            )
+            for name in (
+                "pbl/soc/t5ai/heap_trace.h",
+                "pbl/soc/t5ai/rtc.h",
+                "pbl/kernel/heap.h",
+                "pbl/kernel/irq.h",
+                "pbl/kernel/thread.h",
+                "pbl/logging/logging.h",
+                "pbl/kernel/malloc.h",
+                "pbl/kernel/assert.h",
+            ):
                 p = d / name
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text('#include "stub.h"\n')
             (d / "test.c").write_text(HARNESS)
             exe = d / "test"
-            subprocess.run(["cc", "-std=gnu2x", "-Wall", "-Wextra", "-Werror", "-I", str(d), "-I", str(ROOT), str(d / "test.c"), "-o", str(exe)], check=True)
+            subprocess.run(
+                [
+                    "cc",
+                    "-std=gnu2x",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-I",
+                    str(d),
+                    "-I",
+                    str(ROOT),
+                    str(d / "test.c"),
+                    "-o",
+                    str(exe),
+                ],
+                check=True,
+            )
             subprocess.run([str(exe)], check=True)

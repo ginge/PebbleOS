@@ -1,12 +1,16 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
+#include "pbl/kernel/cache.h"
+
 #include <stdint.h>
+
+#include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/delay.h>
 #include <pbl/soc/t5ai/reboot_trace.h>
 #include <pbl/soc/t5ai/reset.h>
+#include <pbl/soc/t5ai/retained.h>
+
 #include <cmsis_core.h>
-#include <pbl/soc/t5ai/cp_mailbox.h>
-#include "pbl/mcu/cache.h"
 
 uint32_t SystemCoreClock = CONFIG_T5AI_CORE_CLOCK_HZ;
 
@@ -43,8 +47,7 @@ void pbl_soc_early_init(void) {
   SystemInit();
   t5ai_reset_reason_capture_boot();
   t5ai_reboot_trace_capture_boot();
-  icache_enable();
-  dcache_enable();
+  t5ai_retained_init();
 
   /* The pinned CP waits for this AP indication and otherwise resets the
    * system after four start retries. This is the vendor control-channel wire

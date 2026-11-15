@@ -43,7 +43,7 @@ int main(void){
  return 0;}
 """
         run(
-            "fw/board/boards/board_unhygienix.c",
+            "boards/unhygienix/unhygienix.c",
             prefix,
             main,
             defines=("CONFIG_T5AI_RETAINED_SLEEP",),

@@ -8,6 +8,7 @@ pbl_clar_test(test_task_wdt
     kernel/sched.c
     kernel/timer.c
     kernel/thread.c
+    kernel/work.c
     kernel/mutex.c
     kernel/sem.c
     kernel/msgq.c
@@ -16,11 +17,17 @@ pbl_clar_test(test_task_wdt
     kernel/debug.c
     kernel/arch/posix/arch.c
     kernel/arch/posix/test.c
+    kernel/timekeeping.c
+    kernel/wallclock.c
+    drivers/base/device.c
+    drivers/timer/timer.c
   INCLUDES
     kernel
     kernel/arch
     kernel/arch/posix/include
   DEFINES
+    PBL_NO_LINKER_SCRIPT
+    CONFIG_DEVICE_LOG_LEVEL=0
     CONFIG_KERNEL_IDLE_STACK_SIZE=1024
     CONFIG_WATCHDOG=1
     CONFIG_WATCHDOG_TIMEOUT_MS=30000

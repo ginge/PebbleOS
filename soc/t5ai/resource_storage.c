@@ -1,6 +1,7 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include "flash_region/flash_region.h"
 #include "pbl/services/process_management/app_storage.h"
 #include "resource/resource_storage_flash.h"
 #include "resource/resource_storage_impl.h"
@@ -90,7 +91,8 @@ static uint32_t prv_get_crc(ResourceStoreEntry *entry, uint32_t num_bytes, uint3
       num_bytes > capacity - metadata - entry_offset) {
     return UINT32_MAX;
   }
-  return flash_crc32_legacy(s_bank.begin + metadata + entry_offset, num_bytes);
+  return pbl_flash_crc32_legacy(
+      FLASH, s_bank.begin - FLASH_REGION_BASE_ADDRESS + metadata + entry_offset, num_bytes);
 }
 
 static uint32_t prv_read(ResourceStoreEntry *entry, uint32_t offset, void *data, size_t num_bytes) {
@@ -98,8 +100,10 @@ static uint32_t prv_read(ResourceStoreEntry *entry, uint32_t offset, void *data,
   if (offset > capacity || num_bytes > capacity - offset) {
     return 0;
   }
-  flash_read_bytes(data, s_bank.begin + offset, num_bytes);
-  return num_bytes;
+  return pbl_flash_read(FLASH, s_bank.begin - FLASH_REGION_BASE_ADDRESS + offset, data,
+                        num_bytes) == 0
+             ? num_bytes
+             : 0;
 }
 
 bool resource_storage_flash_bytes_are_readonly(const void *bytes) {
@@ -111,11 +115,9 @@ bool resource_storage_flash_bytes_are_readonly(const void *bytes) {
 #endif
 }
 
-static const uint8_t *prv_readonly_bytes(ResourceStoreEntry *entry, bool has_privileged_access) {
+static const uint8_t *prv_readonly_bytes(ResourceStoreEntry *entry) {
 #ifdef CONFIG_MMAP_RESOURCES
-  if (has_privileged_access) {
-    return (const uint8_t *)(uintptr_t)(s_bank.begin + entry->offset);
-  }
+  return (const uint8_t *)(uintptr_t)(s_bank.begin + entry->offset);
 #endif
   return NULL;
 }

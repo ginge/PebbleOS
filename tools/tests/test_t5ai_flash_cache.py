@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Fault-injection tests for the production T5 flash caches."""
+
 from pathlib import Path
 import subprocess
 import tempfile
@@ -9,7 +10,7 @@ import unittest
 from tools.tests.test_t5ai_flash_completion import STUB
 
 ROOT = Path(__file__).resolve().parents[2]
-HARNESS = r'''
+HARNESS = r"""
 #include "stub.h"
 #include <assert.h>
 #include <string.h>
@@ -185,7 +186,7 @@ int main(void) {
   sector_partial_failure();
   return 0;
 }
-'''
+"""
 
 
 class FlashCacheTest(unittest.TestCase):
@@ -194,9 +195,12 @@ class FlashCacheTest(unittest.TestCase):
             directory = Path(temp)
             (directory / "stub.h").write_text(STUB)
             for name in [
-                "pbl/drivers/flash/flash_impl.h", "pbl/logging/logging.h",
-                "pbl/soc/t5ai/flash_ipc.h", "flash_region/flash_region.h",
-                "system/rtc_registers.h", "system/status_codes.h",
+                "pbl/drivers/flash/flash_impl.h",
+                "pbl/logging/logging.h",
+                "pbl/soc/t5ai/flash_ipc.h",
+                "flash_region/flash_region.h",
+                "pbl/system/rtc_registers.h",
+                "system/status_codes.h",
             ]:
                 path = directory / name
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -205,10 +209,24 @@ class FlashCacheTest(unittest.TestCase):
             harness.write_text(HARNESS)
             binary = directory / "test"
             defines = ["-DCONFIG_T5AI_PFS_HEADER_CACHE=1"] if header_cache else []
-            subprocess.run([
-                "cc", "-std=c11", "-Wall", "-Wextra", "-Werror", *defines,
-                "-I", str(directory), "-I", str(ROOT), str(harness), "-o", str(binary),
-            ], check=True)
+            subprocess.run(
+                [
+                    "cc",
+                    "-std=c11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    *defines,
+                    "-I",
+                    str(directory),
+                    "-I",
+                    str(ROOT),
+                    str(harness),
+                    "-o",
+                    str(binary),
+                ],
+                check=True,
+            )
             subprocess.run([str(binary)], check=True)
 
     def test_header_cache_enabled(self):

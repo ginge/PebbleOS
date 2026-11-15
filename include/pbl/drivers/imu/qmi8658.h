@@ -6,7 +6,7 @@
 #include <pbl/drivers/i2c.h>
 #include <pbl/kernel/sem.h>
 #include <pbl/kernel/thread.h>
-#include <pbl/services/new_timer/new_timer.h>
+#include <pbl/kernel/work.h>
 
 #ifdef CONFIG_T5AI_POWER_PROFILE
 typedef struct {
@@ -20,7 +20,8 @@ void t5ai_qmi8658_power_stats(T5AIQMIPowerStats *stats);
 
 /* One sensor instance is supported. */
 struct pbl_qmi8658_state {
-  TimerID timer;
+  struct pbl_delayed_work timer;
+  pbl_tick_t timer_period;
   uint32_t interval_us;
   uint32_t requested_interval_us;
   uint32_t num_samples;

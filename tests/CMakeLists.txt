@@ -50,9 +50,10 @@ pbl_test_init()
 add_compile_options(${PBL_TEST_C_FLAGS})
 set(PBL_TEST_DEFINES
   "CLAR_FIXTURE_PATH=\"${PBL_BASE}/tests/fixtures/\""
+  CONFIG_ANALYTICS=1
   CONFIG_LOG=1
   # The flash layout every test sees; it belongs to no platform.
-  CONFIG_FLASH_GD25Q256E=1
+  CONFIG_BOARD_PARTITIONS_DUAL_SLOT=1
   CONFIG_PBLBOOT=1
   CONFIG_FIRMWARE_SLOT=0
   CONFIG_BACKLIGHT_STANDARD_INTENSITY=50
@@ -63,10 +64,27 @@ set(PBL_TEST_DEFINES
   CONFIG_KERNEL_TICK_HZ=1024
   CONFIG_KERNEL_IRQ_PRIO_KERNEL=255
   CONFIG_KERNEL_IRQ_PRIO_MAX_SYSCALL=191
+  CONFIG_KERNEL_STACK_GUARD_SIZE=0
+  CONFIG_KERNEL_USER_STACK_GUARD_SIZE=0
+  CONFIG_APP_THREAD_PRIO=2
+  CONFIG_WORKER_THREAD_PRIO=1
+  CONFIG_KERNEL_SYS_WORKQ_STACK_SIZE=4096
+  CONFIG_KERNEL_SYS_WORKQ_PRIO=1
+  CONFIG_KERNEL_SYS_WORKQ_BOOST_PRIO=3
+  CONFIG_KERNEL_SYS_WORKQ_CALLS=30
+  CONFIG_KERNEL_SYS_WORKQ_CALL_TIMEOUT_MS=3000
+  CONFIG_KERNEL_SYS_WORKQ_HIGH_CALLS=5
+  CONFIG_KERNEL_SYS_WORKQ_HIGH_CALL_TIMEOUT_MS=50
+  CONFIG_KERNEL_SYS_WORKQ_HIGH_STACK_SIZE=1380
+  CONFIG_KERNEL_SYS_WORKQ_HIGH_PRIO=4
+  CONFIG_SERVICE_BOOT_SPLASH_THREAD_STACK_SIZE=2048
+  CONFIG_SERVICE_BOOT_SPLASH_THREAD_PRIO=3
+  CONFIG_TASK_WDT_THREAD_PRIO=4
   CONFIG_SERVICE_EVENTED_TIMER_MAX_PER_PROCESS=128
   CONFIG_SERVICE_VIBE_PATTERN_MAX_STEPS=256
   CONFIG_SERVICE_EVENT_SERVICE_MAX_PLUGIN_SERVICES=64
   CONFIG_SERVICE_COMPOSITOR_PARTIAL_FRAMES=1
+  "CONFIG_BOARD_HEADER=\"board_test.h\""
   "UPNG_CONFIG_FILE=\"upng_config.h\""
   UZLIB_CONF_PARANOID_CHECKS=1
   UZLIB_CONF_LENGTHS_IN_STATE=1
@@ -93,13 +111,14 @@ add_custom_target(pbl_generated_headers)
 pbl_include_directories(${PBL_BASE}/include ${PBL_BASE}/include/pbl)
 
 add_subdirectory(${PBL_BASE}/third_party/nanopb ${CMAKE_BINARY_DIR}/third_party/nanopb)
-add_subdirectory(${PBL_BASE}/fw/services/protobuf_log/proto
-                 ${CMAKE_BINARY_DIR}/fw/services/protobuf_log/proto)
+add_subdirectory(${PBL_BASE}/pebble/services/protobuf_log/proto
+                 ${CMAKE_BINARY_DIR}/pebble/services/protobuf_log/proto)
 add_subdirectory(${PBL_BASE}/lib/util ${CMAKE_BINARY_DIR}/lib/util)
 add_subdirectory(${PBL_BASE}/lib/btutil ${CMAKE_BINARY_DIR}/lib/btutil)
+add_subdirectory(${PBL_BASE}/lib/kraepelin ${CMAKE_BINARY_DIR}/lib/kraepelin)
 add_subdirectory(${PBL_BASE}/subsys/crc ${CMAKE_BINARY_DIR}/libcrc)
 add_subdirectory(${PBL_BASE}/tools/pdc2png ${CMAKE_BINARY_DIR}/tools/pdc2png)
-set(PBL_PROTO_INCLUDE_DIR ${CMAKE_BINARY_DIR}/fw/services/protobuf_log/proto)
+set(PBL_PROTO_INCLUDE_DIR ${CMAKE_BINARY_DIR}/pebble/services/protobuf_log/proto)
 
 add_subdirectory(vendor/duma)
 

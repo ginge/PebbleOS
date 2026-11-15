@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
+#include <pbl/kernel/work.h>
 #include <pbl/logging/logging.h>
-#include <pbl/services/new_timer/new_timer.h>
-#include <pbl/services/system_task.h>
 #include <pbl/soc/t5ai/native_alarm.h>
 
 #define ALARM_TEST_DELAY_TICKS 3200u
@@ -12,7 +11,8 @@ PBL_LOG_MODULE_DEFINE(t5ai_alarm_test, LOG_LEVEL_DEBUG);
 static unsigned s_step;
 static uint32_t s_test_generation;
 static bool s_test_stopped;
-static TimerID s_test_timer;
+static struct pbl_delayed_work s_test_timer;
+static bool s_started;
 
 static void prv_step(void *context) {
   (void)context;
@@ -54,21 +54,24 @@ static void prv_step(void *context) {
     s_test_stopped = true;
   ++s_step;
   if (s_test_stopped) {
-    new_timer_delete(s_test_timer);
-    s_test_timer = TIMER_INVALID_ID;
+    pbl_delayed_work_cancel(&s_test_timer);
+    s_started = false;
   }
 }
 
-static void prv_schedule(void *context) {
+static void prv_schedule(struct pbl_work *context) {
   (void)context;
-  if (!s_test_stopped)
-    (void)system_task_add_callback_droppable(prv_step, NULL);
+  if (!s_test_stopped) {
+    (void)pbl_sys_work_try_call(prv_step, NULL);
+    pbl_delayed_work_schedule_next(&s_test_timer, pbl_ms_to_ticks(ALARM_TEST_INTERVAL_MS));
+  }
 }
 
 void t5ai_native_alarm_test_start(void) {
-  if (s_test_stopped || s_test_timer != TIMER_INVALID_ID)
+  if (s_test_stopped || s_started)
     return;
-  s_test_timer = new_timer_create();
-  (void)new_timer_start(s_test_timer, ALARM_TEST_INTERVAL_MS, prv_schedule, NULL,
-                        TIMER_START_FLAG_REPEATING);
+  s_started = true;
+  pbl_delayed_work_init(&s_test_timer, prv_schedule);
+  (void)pbl_delayed_work_schedule(&pbl_sys_workq_high, &s_test_timer,
+                                  PBL_MSEC(ALARM_TEST_INTERVAL_MS));
 }

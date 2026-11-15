@@ -1,19 +1,22 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/kernel/time.h>
+#include "kernel/pebble_tasks.h"
+
+#include <stdint.h>
+#include <string.h>
+
+#include <pbl/kernel/assert.h>
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/mutex.h>
 #include <pbl/kernel/sched.h>
 #include <pbl/kernel/thread.h>
+#include <pbl/kernel/time.h>
+#include <pbl/kernel/work.h>
 #include <pbl/logging/logging.h>
-#include <pbl/services/system_task.h>
-#include <pbl/soc/t5ai/rtc.h>
 #include <pbl/soc/t5ai/app_trace.h>
-#include "kernel/pebble_tasks.h"
-#include <pbl/kernel/assert.h>
-#include <stdint.h>
-#include <string.h>
+#include <pbl/soc/t5ai/diagnostics.h>
+#include <pbl/soc/t5ai/rtc.h>
 
 PBL_LOG_MODULE_DEFINE(t5ai_bg_trace, LOG_LEVEL_DEBUG);
 
@@ -48,7 +51,7 @@ static void prv_observe_boundary(bool boundary) {
     return;
   uint32_t now = T5AI_AON_RTC_COUNT_LOW;
   uint32_t state = s_bg->backend.state;
-  uint32_t callback = (uintptr_t)system_task_get_current_callback();
+  uint32_t callback = (uintptr_t)pbl_sys_workq.current_fn;
   uint32_t waitq = (uintptr_t)s_bg->backend.waitq;
   if (!boundary && state == s_state && callback == s_callback && waitq == s_waitq)
     return;
@@ -62,15 +65,15 @@ static void prv_observe_boundary(bool boundary) {
       ++s_lost;
     }
     s_ring[s_written % RECORDS] = (Record){
-        .seq = s_written + 1u,
-        .at = now,
-        .span = span,
-        .state = s_state,
-        .callback = s_callback,
-        .waitq = s_waitq,
-        .base = s_bg->backend.base_prio,
-        .effective = s_bg->prio,
-        .op = s_op,
+      .seq = s_written + 1u,
+      .at = now,
+      .span = span,
+      .state = s_state,
+      .callback = s_callback,
+      .waitq = s_waitq,
+      .base = s_bg->backend.base_prio,
+      .effective = s_bg->prio,
+      .op = s_op,
     };
     ++s_written;
   }
@@ -87,8 +90,8 @@ static void prv_observe(void) {
 void __cyg_profile_func_enter(void *function, void *caller) {
   (void)caller;
   if (s_live && s_bg && function == (void *)sched_switch_in) {
-    s_bg_runnable_on_pick = s_bg->backend.state == PBL_THREAD_READY ||
-                            s_bg->backend.state == PBL_THREAD_RUNNING;
+    s_bg_runnable_on_pick =
+        s_bg->backend.state == PBL_THREAD_READY || s_bg->backend.state == PBL_THREAD_RUNNING;
   }
   prv_observe();
 }
@@ -192,14 +195,14 @@ static void prv_snapshot(void) {
   uint32_t ticks = pbl_uptime_ticks();
   for (struct pbl_thread *t = pbl_all_threads; t && count < THREADS; t = t->backend.all_next) {
     Thread *out = &threads[count++];
-    *out = (Thread){.id = t->id,
-                    .cpu = t->backend.run_time,
-                    .state = t->backend.state,
-                    .base = t->backend.base_prio,
-                    .effective = t->prio,
-                    .waitq = (uintptr_t)t->backend.waitq};
-    if (t == pbl_cur)
-      out->cpu += ticks - t->backend.switched_in_at;
+    *out = (Thread){
+      .id = t->id,
+      .cpu = t->backend.run_time,
+      .state = t->backend.state,
+      .base = t->backend.base_prio,
+      .effective = t->prio,
+      .waitq = (uintptr_t)t->backend.waitq
+    };
     memcpy(out->name, t->name, sizeof(out->name));
   }
   pbl_irq_unlock();
@@ -226,8 +229,8 @@ static void prv_snapshot(void) {
         (unsigned long)op.caller, (unsigned long)op.owner, (unsigned long)op.owner_lr,
         (unsigned long)lost);
     PBL_LOG_DBG("T5BG picks_bg=%lu picks_higher=%lu picks_equal=%lu picks_lower=%lu",
-                (unsigned long)s_pick_bg, (unsigned long)s_pick_higher,
-                (unsigned long)s_pick_equal, (unsigned long)s_pick_lower);
+                (unsigned long)s_pick_bg, (unsigned long)s_pick_higher, (unsigned long)s_pick_equal,
+                (unsigned long)s_pick_lower);
     // Print every thread once per diagnostic window; IDs survive name truncation.
     for (uint32_t i = 0; i < count; ++i) {
       Thread *t = &threads[i];
@@ -246,11 +249,11 @@ static void prv_snapshot(void) {
 static void prv_entry(void *arg) {
   (void)arg;
   pbl_irq_lock();
-  s_bg = pebble_task_get_thread(PebbleTask_KernelBackground);
+  s_bg = pbl_sys_workq.thread;
   PBL_ASSERTN(s_bg);
   s_since = T5AI_AON_RTC_COUNT_LOW;
   s_state = s_bg->backend.state;
-  s_callback = (uintptr_t)system_task_get_current_callback();
+  s_callback = (uintptr_t)pbl_sys_workq.current_fn;
   s_waitq = (uintptr_t)s_bg->backend.waitq;
   s_live = true;
   pbl_irq_unlock();
@@ -283,14 +286,15 @@ static void prv_entry(void *arg) {
     pbl_thread_sleep(PBL_MSEC(1000));
   }
 }
-void __real_system_task_timer_init(void);
-void __wrap_system_task_timer_init(void) {
-  __real_system_task_timer_init();
-  const struct pbl_thread_attr attr = {.name = "BGTrace",
-                                       .entry = prv_entry,
-                                       .prio = PBL_PRIO_MAX - 1,
-                                       .privileged = true,
-                                       .stack = s_stack,
-                                       .stack_size = sizeof(s_stack)};
+
+void t5ai_diagnostics_start(void) {
+  const struct pbl_thread_attr attr = {
+    .name = "BGTrace",
+    .entry = prv_entry,
+    .prio = PBL_PRIO_MAX - 1,
+    .privileged = true,
+    .stack = s_stack,
+    .stack_size = sizeof(s_stack)
+  };
   PBL_ASSERTN(pbl_thread_create(&s_worker, &attr) == 0);
 }

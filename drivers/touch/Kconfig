@@ -11,7 +11,7 @@ if TOUCH
 
 config TOUCH_SHELL
     bool "Shell commands"
-    default y
+    default DRIVER_SHELL
     depends on SHELL
     help
       The touch shell command, to inspect the touchscreen and hold it
@@ -19,14 +19,17 @@ config TOUCH_SHELL
 
 config TOUCH_CST816
     bool "Hynitron CST816"
-    depends on I2C
+    default DT_HAS_HYNITRON_CST816S_ENABLED
+    select I2C
     select CST816_FW
+    select PINCTRL
     help
       Support for the Hynitron CST816 touch controller.
 
 config TOUCH_QEMU
     bool "QEMU Touchscreen"
-    default y if SOC_QEMU
+    default DT_HAS_QEMU_PEBBLE_TOUCH_ENABLED
+    depends on SOC_QEMU_PEBBLE
     help
       Support for the QEMU touchscreen peripheral.
 
@@ -36,12 +39,35 @@ config TOUCH_CST92XX_T5AI
     help
       Support for the CST9217/CST92xx controller on the T5AI board.
 
+config TOUCH_QEMU_IRQ_PRIO
+    int "Interrupt priority"
+    default 6
+    depends on TOUCH_QEMU
+    help
+      Priority of the touchscreen interrupt.
+
 config TOUCH_SDL
     bool "SDL mouse"
     default y if SOC_POSIX
     select SDL
     help
       Touchscreen driven by the mouse, through SDL, in a native build.
+
+if TOUCH_SDL
+
+config TOUCH_SDL_SIZE_X
+    int "SDL touchscreen X coordinates"
+    default DISPLAY_SDL_WIDTH if DISPLAY_SDL
+    help
+      Number of X coordinates the SDL touchscreen reports.
+
+config TOUCH_SDL_SIZE_Y
+    int "SDL touchscreen Y coordinates"
+    default DISPLAY_SDL_HEIGHT if DISPLAY_SDL
+    help
+      Number of Y coordinates the SDL touchscreen reports.
+
+endif # TOUCH_SDL
 
 module = DRIVER_TOUCH
 module-str = Touchscreen

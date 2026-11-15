@@ -16,6 +16,24 @@ HEADERS = {
     "pbl/soc/t5ai/cache.h": "#define t5ai_cache_clean test_clean\n",
     "pbl/kernel/assert.h": "#define PBL_ASSERTN(x) assert(x)\n",
 }
+HEADERS.update(
+    {
+        "pbl/util/time.h": "",
+        "pbl/kernel/time.h": "",
+        "pbl/drivers/rtc.h": r"""
+struct pbl_device { int (*init)(const struct pbl_device *); };
+struct pbl_rtc;
+struct pbl_rtc_ops {
+  int (*get_time)(const struct pbl_rtc *, time_t *);
+  int (*set_time)(const struct pbl_rtc *, time_t);
+};
+struct pbl_rtc { struct pbl_device dev; const struct pbl_rtc_ops *ops; };
+#define PBL_DEVICE_STATE_DEFINE(sym)
+#define PBL_DEVICE_REGISTER(sym, dev)
+#define PBL_DEVICE_INIT_CLASS(sym, name, init_fn, parent, deps, cls) {.init = init_fn}
+""",
+    }
+)
 PRELUDE = r"""
 #include <assert.h>
 #include <stdbool.h>
@@ -49,8 +67,8 @@ static void restore_mask(unsigned v);
 #define __DSB() ((void)0)
 typedef uint64_t RtcTicks;
 typedef struct { uint32_t words[5]; } TimezoneInfo;
-void rtc_get_time_ms(time_t *, uint16_t *);
-time_t rtc_get_time(void);
+static void rtc_get_time_ms(time_t *, uint16_t *);
+static time_t rtc_get_time(void);
 static uint8_t control, calendar[7];
 static int calls, fail_at, fail_also, corrupt_at, corrupt_kind, restarts;
 static int operation(void) {
@@ -239,7 +257,7 @@ class RTCRegressionTest(unittest.TestCase):
                     "-I",
                     str(ROOT / "include"),
                     "-I",
-                    str(ROOT / "fw"),
+                    str(ROOT / "pebble"),
                     f'-DRETAINED_SOURCE="{d / "retained.c"}"',
                     f'-DRTC_SOURCE="{ROOT / "drivers/rtc/t5ai.c"}"',
                     str(d / "test.c"),

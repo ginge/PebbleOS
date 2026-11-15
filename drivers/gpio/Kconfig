@@ -10,7 +10,8 @@ if GPIO
 
 config GPIO_NRF5
     bool "Nordic nRF5"
-    default y if SOC_NRF52
+    default DT_HAS_NORDIC_NRF52832_GPIO_ENABLED
+    depends on SOC_NRF52
     select INTC
     help
       Support for the Nordic nRF5 GPIO controller.
@@ -18,8 +19,11 @@ config GPIO_NRF5
 config GPIO_SF32LB
     bool "SiFli SF32LB"
     default y if SOC_SF32LB52
-    depends on CLK_SF32LB && PINCTRL_SF32LB52
+    depends on SOC_SF32LB52
+    select CLK
     select INTC
+    select PINCTRL
+    select PINCTRL_SF32LB52_OUTPUT_LOW
     help
       Support for the SiFli SF32LB GPIO controller.
 
@@ -30,12 +34,27 @@ config GPIO_T5AI
     help
       Support for the BK7258 AON GPIO controller used by T5AI.
 
+config GPIO_SF32LB_IRQ_PRIO
+    int "Interrupt priority"
+    default 6
+    depends on GPIO_SF32LB
+    help
+      Priority of the port interrupt.
+
 config GPIO_QEMU
     bool "QEMU GPIO"
-    default y if SOC_QEMU
+    default DT_HAS_QEMU_PEBBLE_GPIO_ENABLED
+    depends on SOC_QEMU_PEBBLE
     select INTC
     help
       Support for the QEMU GPIO peripheral.
+
+config GPIO_QEMU_IRQ_PRIO
+    int "Interrupt priority"
+    default 6
+    depends on GPIO_QEMU
+    help
+      Priority of the port interrupt.
 
 config GPIO_NPM1300
     bool "Nordic nPM1300 GPIO"
@@ -46,7 +65,7 @@ config GPIO_NPM1300
 
 config GPIO_SHELL
     bool "Shell commands"
-    default y
+    default DRIVER_SHELL
     depends on SHELL
     help
       The gpio shell command, to list the ports and to read, drive,

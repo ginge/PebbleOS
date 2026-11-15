@@ -8,19 +8,19 @@
   outputs =
     { self, nixpkgs }:
     let
-      sdkVersion = "0.1.11";
+      sdkVersion = "0.1.13";
       sdkBundles = {
         aarch64-darwin = {
           osArch = "darwin-aarch64";
-          sha256 = "310fae6cf4469b9142418b919413e47fa2ce349826d95742b7178731431588eb";
+          sha256 = "2ac4a07e2e1d5ad2959adbf3588357b250703e72da9f838e47742628ad840d81";
         };
         aarch64-linux = {
           osArch = "linux-aarch64";
-          sha256 = "68d8d600a2aff1b5119748c7bb9840db5b49d8e834718a2b534abbe8c6716d6a";
+          sha256 = "b1e110f45aa442e007cd7b7370fed382b85eb07e83d8f239226b1412458e8a7c";
         };
         x86_64-linux = {
           osArch = "linux-x86_64";
-          sha256 = "27e605f9a4801866f04a35f7d29a71a3e7ee1ff82e18ac12837b991f69137e45";
+          sha256 = "dad4fb96496c07d6801a9db8198d48478870dba21ef677ca3882c32aa3efb9b7";
         };
       };
       forSupportedSystems = nixpkgs.lib.genAttrs (builtins.attrNames sdkBundles);
@@ -28,8 +28,7 @@
         builtins.concatStringsSep "\n" (map builtins.readFile [
           ./requirements.txt
           ./tools/libs/pbl-cli/pyproject.toml
-          ./tools/libs/pebble-commander/pyproject.toml
-          ./tools/libs/pulse2/pyproject.toml
+          ./tools/libs/pbl-console/pyproject.toml
           ./tools/libs/pebble-loghash/pyproject.toml
         ])
       );
@@ -102,6 +101,7 @@
               ccache
               cmake
               dash
+              dtc
               gettext
               git
               librsvg

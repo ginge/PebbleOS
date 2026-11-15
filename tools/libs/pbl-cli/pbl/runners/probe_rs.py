@@ -5,7 +5,7 @@ import os
 
 import yaml
 
-from .core import Runner, RunnerCaps, RunnerError
+from .core import Runner, RunnerCaps, RunnerError, port_in_use
 
 GDB_PORT = 1337
 
@@ -16,11 +16,12 @@ def _support_file(board_dir):
 
 class ProbeRsRunner(Runner):
     name = "probe-rs"
+    lab_ports = ("serial", "probe")
 
-    def __init__(self, cfg, probe=None, tty=None):
-        super().__init__(cfg)
-        self.probe = probe
-        self.tty = tty
+    @property
+    def tty(self):
+        # Only a debugger reached over a serial port takes one
+        return self.cfg.tty if self._support().get("serial") else None
 
     @classmethod
     def capabilities(cls):
@@ -35,17 +36,15 @@ class ProbeRsRunner(Runner):
         parser.add_argument(
             "--probe",
             metavar="VID:PID[:SERIAL]",
-            help="Debug probe for the probe-rs runner",
+            help="Debug probe for the probe-rs runner (default: the lab's)",
         )
 
-    @classmethod
-    def do_create(cls, cfg, args):
-        # --tty is the sftool runner's, shared with this one.
-        return cls(
-            cfg,
-            probe=getattr(args, "probe", None),
-            tty=getattr(args, "tty", None),
-        )
+    def locks(self, command):
+        # 'pbl debug' attaches to a running 'pbl debugserver', which holds them
+        if command == "debug" and port_in_use(self.gdb_port(GDB_PORT)):
+            return []
+        locks = super().locks(command)
+        return locks[:1] if self.tty else locks[1:]
 
     def _support(self):
         with open(_support_file(self.cfg.board_dir)) as f:
@@ -77,7 +76,9 @@ class ProbeRsRunner(Runner):
     def _server(self, port):
         support = self._support()
         if support.get("serial") and not self.tty:
-            raise RunnerError("the board is debugged over a serial port, use --tty")
+            raise RunnerError(
+                "the board is debugged over a serial port, use --tty or a lab file"
+            )
         argv = [
             "probe-rs", "gdb",
             "--chip", support["chip"],
@@ -85,7 +86,7 @@ class ProbeRsRunner(Runner):
             "--non-interactive",
         ]  # fmt: skip
         env = None
-        probe = self.probe
+        probe = self.cfg.probe
         if self.tty:
             # A debugger reached over a serial port. Without this, probe-rs
             # only takes ports with a matching USB product name.

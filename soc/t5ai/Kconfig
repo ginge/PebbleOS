@@ -15,3 +15,10 @@ config T5AI_CP_HCI_VALIDATED
     bool "Use validated Tuya CP HCI transport"
 
 endif
+
+if SOC_T5AI
+config BOOT_SPLASH_CUSTOM_PLATFORM
+    bool
+config BOOT_SPLASH_ARGB2222
+    bool
+endif

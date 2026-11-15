@@ -1,13 +1,14 @@
 /* SPDX-FileCopyrightText: 2026 Core Devices LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/drivers/rtc.h>
+#include <pbl/kernel/time.h>
 #include <pbl/kernel/types.h>
 
-static_assert(PBL_TICK_HZ == RTC_TICKS_HZ, "CONFIG_KERNEL_TICK_HZ must match the RTC tick rate");
-
 pbl_tick_t pbl_ms_to_ticks(uint32_t ms) {
-  return ((uint64_t)ms * PBL_TICK_HZ) / 1000;
+  const uint64_t ticks = ((uint64_t)ms * PBL_TICK_HZ) / 1000;
+
+  // Not a shorter delay, nor one that reads as no limit.
+  return ticks < PBL_TICK_FOREVER ? (pbl_tick_t)ticks : PBL_TICK_FOREVER - 1U;
 }
 
 uint32_t pbl_ticks_to_ms(pbl_tick_t ticks) {

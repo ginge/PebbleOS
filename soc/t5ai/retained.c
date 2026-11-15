@@ -1,6 +1,6 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "system/rtc_registers.h"
+#include "pbl/system/rtc_registers.h"
 
 #include <pbl/kernel/assert.h>
 #include <pbl/soc/t5ai/cache.h>
@@ -77,4 +77,11 @@ void t5ai_retained_write_clock(uint32_t epoch, uint64_t ticks) {
   t5ai_cache_clean((const void *)&s_retained.magic, sizeof(s_retained.magic));
   __DSB();
   __set_PRIMASK(mask);
+}
+
+uint32_t retained_read(uint8_t id) {
+  return t5ai_retained_read(id);
+}
+void retained_write(uint8_t id, uint32_t value) {
+  t5ai_retained_write(id, value);
 }

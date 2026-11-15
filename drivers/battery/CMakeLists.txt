@@ -1,11 +1,15 @@
 # SPDX-FileCopyrightText: 2026 Core Devices LLC
 # SPDX-License-Identifier: Apache-2.0
 
-set(sources battery_common.c)
-if(CONFIG_BATTERY_QEMU)
-  list(APPEND sources qemu.c)
-elseif(CONFIG_BATTERY_POSIX)
-  list(APPEND sources posix.c)
+set(sources)
+if(CONFIG_BATTERY)
+  list(APPEND sources battery_common.c)
+endif()
+if(CONFIG_BATTERY_SIM)
+  list(APPEND sources sim.c)
+endif()
+if(CONFIG_BATTERY_SIMPLE)
+  list(APPEND sources simple_battery.c)
 endif()
 if(CONFIG_BATTERY_T5AI)
   list(APPEND sources t5ai.c)

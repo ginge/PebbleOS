@@ -3,7 +3,8 @@
 #pragma once
 
 #include <stdbool.h>
-#include <pbl/mcu/cache.h>
+
+#include <pbl/kernel/cache.h>
 
 // Clean arbitrary AP ranges before publishing them to CP. Zero length touches no lines.
 static inline void t5ai_cache_clean(const void *address, size_t size) {
@@ -11,8 +12,7 @@ static inline void t5ai_cache_clean(const void *address, size_t size) {
     return;
   }
   uintptr_t start = (uintptr_t)address;
-  dcache_align(&start, &size);
-  dcache_flush((const void *)start, size);
+  pbl_dcache_flush_range((const void *)start, size);
 }
 
 // Receive only: every intersecting line must be CP-owned, or private padded AP
@@ -23,6 +23,5 @@ static inline void t5ai_cache_invalidate_received(void *address, size_t size) {
     return;
   }
   uintptr_t start = (uintptr_t)address;
-  dcache_align(&start, &size);
-  dcache_invalidate((void *)start, size);
+  pbl_dcache_invalidate_range((void *)start, size);
 }

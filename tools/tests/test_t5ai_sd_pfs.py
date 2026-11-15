@@ -44,9 +44,9 @@ static inline void pbl_irq_unlock(void) {}
 static inline void pbl_thread_yield(void) {}
 static inline void pbl_sem_reset(void *s) {(void)s;}
 static inline void pbl_sem_give(void *s) {(void)s;}
-static inline void dcache_flush(const void *p, size_t n) {(void)p;(void)n;}
-static inline void dcache_flush_invalidate(const void *p, size_t n) {(void)p;(void)n;}
-static inline void dcache_invalidate(void *p, size_t n) {(void)p;(void)n;}
+static inline void pbl_dcache_flush_range(const void *p, size_t n) {(void)p;(void)n;}
+static inline void pbl_dcache_flush_invalidate_range(const void *p, size_t n) {(void)p;(void)n;}
+static inline void pbl_dcache_invalidate_range(void *p, size_t n) {(void)p;(void)n;}
 struct pbl_device {int unused;};
 struct pbl_gpio_port {struct pbl_device dev;};
 struct pbl_gpio {const struct pbl_gpio_port *port;};
@@ -69,8 +69,8 @@ int pbl_dma_slave_config(const struct pbl_dma_chan *,const struct pbl_dma_slave_
 int pbl_dma_prep_slave_single(const struct pbl_dma_chan *,void *,size_t,int,void (*)(void *,int),void *);
 int pbl_dma_terminate(const struct pbl_dma_chan *);
 int pbl_dma_tx_status(const struct pbl_dma_chan *,size_t *);
-void *kernel_malloc_check(size_t);
-void kernel_free(void *);
+void *pbl_malloc_check(size_t);
+void pbl_free(void *);
 void delay_us(unsigned n);
 uint64_t pbl_uptime_ms(void);
 int pbl_sem_take(void *, int);
@@ -91,8 +91,8 @@ ADAPTER = r"""
 static uint8_t card[35u*1024u*1024u];
 static unsigned reads, writes, formats, cleanups, heap_allocs, heap_frees;
 static void *flags;
-void *kernel_malloc_check(size_t bytes) { ++heap_allocs; void *p=malloc(bytes); assert(p); return p; }
-void kernel_free(void *p) { ++heap_frees; free(p); }
+void *pbl_malloc_check(size_t bytes) { ++heap_allocs; void *p=malloc(bytes); assert(p); return p; }
+void pbl_free(void *p) { ++heap_frees; free(p); }
 static uint8_t workspace[ERASE_BYTES];
 static unsigned workspace_depth;
 uint8_t *t5ai_sd_lock_workspace(void) { ++workspace_depth; return workspace; }
@@ -120,11 +120,11 @@ static void prv_invalidate_page_flags_cache_all(void) {
   assert(s_pfs_page_flags_cache);
   memset(s_pfs_page_flags_cache,0xfe,s_pfs_page_count);
 }
-#define kernel_malloc_check t5ai_sd_pfs_malloc_check
-#define kernel_free t5ai_sd_pfs_free
+#define pbl_malloc_check t5ai_sd_pfs_malloc_check
+#define pbl_free t5ai_sd_pfs_free
 CACHE_BUILDER
-#undef kernel_malloc_check
-#undef kernel_free
+#undef pbl_malloc_check
+#undef pbl_free
 void pfs_set_size(uint32_t size, bool erased) {
   assert(!erased); volume_size=size; s_pfs_page_count=size/4096u;
   prv_build_page_flags_cache(); flags=s_pfs_page_flags_cache;
@@ -377,20 +377,21 @@ class SDTests(unittest.TestCase):
                 "pbl/drivers/gpio.h",
                 "pbl/kernel/kernel.h",
                 "pbl/kernel/time.h",
-                "pbl/mcu/cache.h",
+                "pbl/kernel/cache.h",
                 "pbl/soc/t5ai/cp_mailbox.h",
                 "pbl/soc/t5ai/delay.h",
                 "cmsis_core.h",
                 "pbl/logging/logging.h",
-                "pbl/services/filesystem/pfs.h",
+                "pfs.h",
+                "pbl/system/status_codes.h",
                 "pbl/kernel/assert.h",
-                "kernel/pbl_malloc.h",
+                "pbl/kernel/malloc.h",
             ]
             for name in headers:
                 path = tmp / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text('#include "common.h"\n')
-            pfs = (ROOT / "fw/services/filesystem/pfs.c").read_text()
+            pfs = (ROOT / "subsys/fs/pfs/pfs.c").read_text()
             builder = pfs[
                 pfs.index("static void prv_build_page_flags_cache(void)") : pfs.index(
                     "static void update_curr_state"
@@ -404,7 +405,7 @@ class SDTests(unittest.TestCase):
             subprocess.run(
                 [
                     "cc",
-                    "-std=gnu11",
+                    "-std=gnu23",
                     "-no-pie",
                     "-Wall",
                     "-Wextra",

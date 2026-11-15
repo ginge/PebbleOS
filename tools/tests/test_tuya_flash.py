@@ -15,13 +15,19 @@ class TuyaFlashTest(unittest.TestCase):
         if not compiler:
             self.skipTest("Host C compiler unavailable")
         source = (ROOT / "drivers/flash/t5ai_flash_ipc.c").read_text()
-        crc = source[source.index("static const uint32_t s_flash_crc32_table"):
-                     source.index("status_t t5ai_flash_ipc_init")]
-        harness = r"""
+        crc = source[
+            source.index("static const uint32_t s_flash_crc32_table") : source.index(
+                "status_t t5ai_flash_ipc_init"
+            )
+        ]
+        harness = (
+            r"""
 #include <stdint.h>
 #include <stddef.h>
 #include <assert.h>
-""" + crc + r"""
+"""
+            + crc
+            + r"""
 static uint32_t reference(const uint8_t *p, size_t n) {
  uint32_t crc = 0;
  while (n--) {
@@ -40,31 +46,50 @@ int main(void) {
  return 0;
 }
 """
+        )
         with tempfile.TemporaryDirectory() as directory:
             c_file = Path(directory) / "crc.c"
             binary = Path(directory) / "crc"
             c_file.write_text(harness)
-            subprocess.run([compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
-                            str(c_file), "-o", str(binary)], check=True,
-                           capture_output=True, text=True)
+            subprocess.run(
+                [
+                    compiler,
+                    "-std=c11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    str(c_file),
+                    "-o",
+                    str(binary),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
             subprocess.run([str(binary)], check=True, capture_output=True, text=True)
         read = source.split("status_t t5ai_flash_ipc_read(", 1)[1].split(
-            "status_t t5ai_flash_ipc_write(", 1)[0]
-        self.assertLess(read.index("prv_boost_client_priority()"),
-                        read.index("prv_flash_transaction(FLASH_READ)"))
-        self.assertLess(read.index("prv_flash_transaction(FLASH_READ_DONE)"),
-                        read.index("prv_restore_client_priority(previous_priority)"))
+            "status_t t5ai_flash_ipc_write(", 1
+        )[0]
+        self.assertLess(
+            read.index("prv_boost_client_priority()"),
+            read.index("prv_flash_transaction(FLASH_READ)"),
+        )
+        self.assertLess(
+            read.index("prv_flash_transaction(FLASH_READ_DONE)"),
+            read.index("prv_restore_client_priority(previous_priority)"),
+        )
         flash = (ROOT / "drivers/flash/t5ai.c").read_text()
-        verification = flash.split("static status_t prv_verify_pfs_header_write", 1)[1].split(
-            "FlashAddress flash_impl_get_sector_base_address", 1)[0]
+        verification = flash.split("static status_t prv_verify_pfs_header_write", 1)[
+            1
+        ].split("FlashAddress flash_impl_get_sector_base_address", 1)[0]
         self.assertIn("return E_ERROR", verification)
         self.assertNotIn("prv_confirm_pfs_read", verification)
         self.assertNotIn("t5ai_flash_ipc_write", verification)
 
     def test_t5ai_write_path_has_no_retained_probe_instrumentation(self):
         flash = (ROOT / "drivers/flash/t5ai.c").read_text()
-        main = (ROOT / "fw/main.c").read_text()
-        registers = (ROOT / "fw/system/rtc_registers.h").read_text()
+        main = (ROOT / "pebble/main.c").read_text()
+        registers = (ROOT / "pebble/pbl/system/rtc_registers.h").read_text()
 
         self.assertNotIn("T5AI_FLASH_FAILURE_", registers)
         self.assertNotIn("T5AI_FLASH_FAILURE_", flash)
@@ -85,7 +110,7 @@ int main(void) {
 
     @unittest.skipUnless(shutil.which("cc"), "host C compiler required")
     def test_mipc_wire_format(self):
-        source = r'''
+        source = r"""
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -151,7 +176,7 @@ int main(void) {
   assert(!t5ai_mipc_frame_valid(&frame, &data));
   return 0;
 }
-'''
+"""
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             test_source = directory / "test.c"
@@ -159,10 +184,17 @@ int main(void) {
             binary = directory / "test"
             subprocess.run(
                 [
-                    "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                    "-I", str(ROOT / "include"),
+                    "cc",
+                    "-std=c11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-I",
+                    str(ROOT / "include"),
                     str(ROOT / "drivers/t5ai/mipc.c"),
-                    str(test_source), "-o", str(binary),
+                    str(test_source),
+                    "-o",
+                    str(binary),
                 ],
                 check=True,
             )
@@ -177,7 +209,9 @@ int main(void) {
         self.assertIn(
             "MailboxOwnedSlot s_ack_slots[T5AI_MAILBOX_CHANNEL_COUNT]", transport
         )
-        self.assertIn("s_ack_slots[channel & T5AI_MAILBOX_CHANNEL_INDEX_MASK]", transport)
+        self.assertIn(
+            "s_ack_slots[channel & T5AI_MAILBOX_CHANNEL_INDEX_MASK]", transport
+        )
         self.assertIn("t5ai_cache_invalidate_received((void *)address", transport)
         self.assertNotIn("t5ai_cache_clean((void *)address", transport)
         self.assertIn("sequence != tx->sequence", transport)
@@ -201,7 +235,7 @@ int main(void) {
 
     @unittest.skipUnless(shutil.which("cc"), "host C compiler required")
     def test_flash_backend_bounds_chunking_and_protection(self):
-        source = r'''
+        source = r"""
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -342,7 +376,7 @@ int main(void) {
 
   return 0;
 }
-'''
+"""
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             test_source = directory / "test.c"
@@ -353,24 +387,41 @@ int main(void) {
                 if not header_cache:
                     mode_source = mode_source.replace(
                         "assert(reads == reads_before_cache + 1);",
-                        "assert(reads == reads_before_cache + 2);")
+                        "assert(reads == reads_before_cache + 2);",
+                    )
                     mode_source = mode_source.replace(
                         "assert(reads == reads_before_cache && output[0] == 0xff);",
-                        "assert(reads == reads_before_cache + 1 && output[0] == 0xff);")
+                        "assert(reads == reads_before_cache + 1 && output[0] == 0xff);",
+                    )
                 test_source.write_text(mode_source)
                 defines = ["-DCONFIG_T5AI_PFS_HEADER_CACHE=1"] if header_cache else []
                 subprocess.run(
-                    ["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                     "-DCONFIG_SOC_T5AI=1", "-DCONFIG_BOARD_UNHYGIENIX=1",
-                     *defines, "-I", str(ROOT), "-I", str(ROOT / "include"),
-                     "-I", str(ROOT / "fw"), str(test_source), "-o", str(binary)],
+                    [
+                        "cc",
+                        "-std=c11",
+                        "-Wall",
+                        "-Wextra",
+                        "-Werror",
+                        "-DCONFIG_SOC_T5AI=1",
+                        "-DCONFIG_BOARD_UNHYGIENIX=1",
+                        *defines,
+                        "-I",
+                        str(ROOT),
+                        "-I",
+                        str(ROOT / "include"),
+                        "-I",
+                        str(ROOT / "pebble"),
+                        str(test_source),
+                        "-o",
+                        str(binary),
+                    ],
                     check=True,
                 )
                 subprocess.run([str(binary)], check=True)
 
     @unittest.skipUnless(shutil.which("cc"), "host C compiler required")
     def test_protected_address_translation(self):
-        source = r'''
+        source = r"""
 #include <assert.h>
 #include <stdint.h>
 #include <pbl/soc/t5ai/flash_translation.h>
@@ -396,7 +447,7 @@ int main(void) {
   assert(!t5ai_flash_physical_to_logical(0, 0));
   return 0;
 }
-'''
+"""
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             test_source = directory / "test.c"
@@ -404,26 +455,42 @@ int main(void) {
             binary = directory / "test"
             subprocess.run(
                 [
-                    "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                    "-I", str(ROOT / "include"),
+                    "cc",
+                    "-std=c11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-I",
+                    str(ROOT / "include"),
                     str(ROOT / "soc/t5ai/flash_translation.c"),
-                    str(test_source), "-o", str(binary),
+                    str(test_source),
+                    "-o",
+                    str(binary),
                 ],
                 check=True,
             )
             subprocess.run([str(binary)], check=True)
 
     def test_board_regions_do_not_overlap(self):
-        header = (ROOT / "fw/flash_region/flash_region_t5ai.h").read_text()
+        header = (ROOT / "pebble/flash_region/flash_region_t5ai.h").read_text()
         values = {}
         for line in header.splitlines():
             fields = line.split()
-            if len(fields) == 3 and fields[0] == "#define" and fields[2].startswith("0x"):
+            if (
+                len(fields) == 3
+                and fields[0] == "#define"
+                and fields[2].startswith("0x")
+            ):
                 values[fields[1]] = int(fields[2], 16)
 
         regions = [
-            "FIRMWARE_SLOT_0", "SYSTEM_RESOURCES_BANK_0", "CD",
-            "FIRMWARE_SLOT_1", "DEBUG_DB", "SHARED_PRF_STORAGE", "FILESYSTEM",
+            "FIRMWARE_SLOT_0",
+            "SYSTEM_RESOURCES_BANK_0",
+            "CD",
+            "FIRMWARE_SLOT_1",
+            "DEBUG_DB",
+            "SHARED_PRF_STORAGE",
+            "FILESYSTEM",
         ]
         spans = []
         for region in regions:

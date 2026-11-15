@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Exercise T5 clock transitions, elapsed tick accounting and critical-section scope."""
+
 import subprocess
 import tempfile
 import unittest
@@ -17,9 +18,23 @@ def run_c(source, headers):
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(contents)
         (d / "test.c").write_text(source)
-        subprocess.run(["cc", "-std=gnu11", "-Wall", "-Wextra", "-Werror",
-                        "-I", str(d), "-I", str(ROOT / "include"),
-                        str(d / "test.c"), "-o", str(d / "test")], check=True)
+        subprocess.run(
+            [
+                "cc",
+                "-std=gnu11",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-I",
+                str(d),
+                "-I",
+                str(ROOT / "include"),
+                str(d / "test.c"),
+                "-o",
+                str(d / "test"),
+            ],
+            check=True,
+        )
         subprocess.run([str(d / "test")], check=True)
 
 
@@ -117,15 +132,23 @@ int main(void) {
  return 0;
 }
 """
-        source = source.replace("POWER_SOURCE", '"' + str(ROOT / "soc/t5ai/power.c") + '"')
-        source = source.replace("TICK_SOURCE", '"' + str(ROOT / "soc/t5ai/tick.c") + '"')
+        source = source.replace(
+            "POWER_SOURCE", '"' + str(ROOT / "soc/t5ai/power.c") + '"'
+        )
+        source = source.replace(
+            "TICK_SOURCE", '"' + str(ROOT / "soc/t5ai/tick.c") + '"'
+        )
         run_c(source, headers)
 
     def test_mailbox_sync_storage_and_send(self):
         source = (ROOT / "drivers/t5ai/mailbox_channel.c").read_text()
-        tx = source[source.index("typedef struct {\n  T5AIMailboxMessage message"):
-                    source.index("} TxChannel;") + len("} TxChannel;")]
-        harness = r"""
+        tx = source[
+            source.index(
+                "typedef struct {\n  T5AIMailboxMessage message"
+            ) : source.index("} TxChannel;") + len("} TxChannel;")
+        ]
+        harness = (
+            r"""
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -154,7 +177,9 @@ typedef int status_t;
 typedef struct { uint32_t header, parameter1, parameter2, parameter3; } T5AIMailboxMessage;
 typedef void (*T5AIMailboxTransmitHandler)(const T5AIMailboxMessage *, status_t, void *);
 typedef enum { TxState_Idle, TxState_Pending, TxState_Active, TxState_Complete } TxState;
-""" + tx + r"""
+"""
+            + tx
+            + r"""
 static TxChannel s_tx[16];
 static bool s_initialized, s_started, s_faulted;
 static struct pbl_sem s_wake = {.limit=1};
@@ -198,6 +223,7 @@ static bool prv_tx_channel(uint8_t channel, uint8_t *index) { if(channel>=16) re
 static unsigned prv_milliseconds_to_ticks(unsigned n) { return n; }
 static void prv_reset_after_timeout(unsigned i) { (void)i; assert(0); }
 """
+        )
         harness += function(source, "t5ai_mailbox_channel_init")
         harness += function(source, "t5ai_mailbox_channel_send")
         harness += r"""
@@ -225,7 +251,7 @@ int main(void) {
 
     def test_voice_heap_uses_task_mutex(self):
         headers = {
-            "pbl/util/heap.h": """#pragma once
+            "pbl/kernel/heap.h": """#pragma once
 #include <stdbool.h>
 #include <stddef.h>
 typedef struct { int ready; } Heap;

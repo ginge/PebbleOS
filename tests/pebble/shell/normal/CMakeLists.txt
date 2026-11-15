@@ -1,0 +1,59 @@
+# SPDX-FileCopyrightText: 2026 Core Devices LLC
+# SPDX-License-Identifier: Apache-2.0
+
+pbl_clar_test(test_normal_system_app_state_machine
+  SOURCES
+    pebble/shell/normal/system_app_state_machine.c
+)
+
+pbl_clar_test(test_app_idle_timeout
+  SOURCES
+    pebble/shell/normal/app_idle_timeout.c
+)
+
+pbl_clar_test(test_battery_ui_fsm
+  SOURCES
+    pebble/shell/normal/battery_ui_fsm.c
+    pebble/services/battery/voltage/battery_curve.c
+  PLATFORMS emery
+  DEFINES
+    CONFIG_BATTERY_WARNING_FIRST_PERCENT=0
+    CONFIG_BATTERY_WARNING_SECOND_PERCENT=0
+    CONFIG_SERVICE_BATTERY_LOW_POWER_PERCENT=5
+    CONFIG_SERVICE_BATTERY_CAPACITY_HOURS=144
+  OVERRIDES dummy_board
+)
+
+pbl_clar_test(test_battery_ui_fsm_percent
+  SOURCE test_battery_ui_fsm.c
+  SOURCES
+    pebble/shell/normal/battery_ui_fsm.c
+    pebble/services/battery/voltage/battery_curve.c
+  PLATFORMS emery
+  DEFINES
+    CONFIG_BATTERY_WARNING_FIRST_PERCENT=12
+    CONFIG_BATTERY_WARNING_SECOND_PERCENT=8
+    CONFIG_SERVICE_BATTERY_LOW_POWER_PERCENT=5
+    CONFIG_SERVICE_BATTERY_CAPACITY_HOURS=144
+  OVERRIDES dummy_board
+)
+
+# This suite exercises initialization; discard unrelated event-dispatch sections.
+if(APPLE)
+  set(shell_init_dead_strip -Wl,-dead_strip)
+else()
+  set(shell_init_dead_strip -Wl,--gc-sections)
+endif()
+pbl_clar_test(test_shell_event_loop_init
+  SOURCES
+    pebble/shell/normal/shell_event_loop.c
+  DEFINES CONFIG_SOC_T5AI=1
+  OVERRIDES dummy_board
+  LIBS ${shell_init_dead_strip}
+)
+
+pbl_clar_test(test_dark_mode_updater
+  SOURCES
+    pebble/shell/normal/dark_mode_updater.c
+    tests/fakes/fake_rtc.c
+)

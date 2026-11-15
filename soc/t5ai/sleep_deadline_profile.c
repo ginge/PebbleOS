@@ -1,9 +1,11 @@
 /* SPDX-License-Identifier: Apache-2.0 */
+
 #include <string.h>
 
 #include <pbl/drivers/rtc.h>
 #include <pbl/kernel/irq.h>
 #include <pbl/services/new_timer/new_timer.h>
+#include <pbl/soc/t5ai/rtc.h>
 #include <pbl/soc/t5ai/sleep_deadline_profile.h>
 
 // Diagnostic estimates only: repeating callbacks are rearmed inside the stock manager.
@@ -38,7 +40,7 @@ unsigned t5ai_sleep_profile_timers_untracked(void) {
 }
 
 static uint32_t prv_now_ms(void) {
-  return (uint32_t)(rtc_get_ticks() * PROFILE_MILLISECONDS_PER_SECOND / RTC_TICKS_HZ);
+  return (uint32_t)(t5ai_rtc_get_ticks() * PROFILE_MILLISECONDS_PER_SECOND / 1000u);
 }
 
 extern bool __real_new_timer_start(TimerID id, uint32_t ms, NewTimerCallback cb, void *context,

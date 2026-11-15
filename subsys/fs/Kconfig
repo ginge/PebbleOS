@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2026 Core Devices LLC
+# SPDX-License-Identifier: Apache-2.0
+
+menuconfig FS
+    bool "File system"
+    select TASK_WDT
+    help
+      Access to files on mounted file systems, regardless of their
+      format.
+
+if FS
+
+config FS_PFS
+    bool "Pebble File System (PFS)"
+    select CRC
+    default y
+    help
+      PFS, the wear-leveled file system on the external NOR flash.
+
+config FS_PFS_SHELL_LITTER
+    bool "PFS litter shell command"
+    depends on FS_PFS && SHELL
+    help
+      The pfs litter command, to fragment the file system for testing.
+
+module = FS
+module-str = File system
+source "subsys/logging/Kconfig.template.log_level"
+
+endif

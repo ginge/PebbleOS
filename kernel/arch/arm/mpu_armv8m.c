@@ -1,158 +1,151 @@
 /* SPDX-FileCopyrightText: 2024 Google LLC */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/mcu/mpu.h>
+#include "arm_mpu.h"
+
+#include <string.h>
+
 #include <pbl/util/size.h>
 
-#include <cmsis_core.h>
 #include <kernel.h>
 
-// On SF32LB52 the SiFli vendor code (system_bf0_ap.c) programs its own MPU
-// regions in SystemInit() and burns MAIR indices 0..2 (code / ram / device)
-// for those. To avoid clobbering them we shift our own MpuCachePolicy values
-// into MAIR indices MAIR_INDEX_BASE..MAIR_INDEX_BASE+3.
-#ifdef CONFIG_SOC_SF32LB52
-#define MAIR_INDEX_BASE 4U
-#else
-#define MAIR_INDEX_BASE 0U
-#endif
+#define TYPE_IDX(attr) (((attr) & PBL_MPU_TYPE_MSK) >> 3)
 
-static inline uint8_t mair_index(uint32_t cache_policy) {
-  return (uint8_t)(cache_policy + MAIR_INDEX_BASE);
-}
-
-// ARMv8-M has a 2-bit AP field, which cannot express two of the
-// MpuPermissions values precisely:
-//   - NoAccess: there is no "deny everything" encoding; we degrade to
-//     AP=0b10 (RO priv only), the same encoding used for PrivRO. Don't
-//     rely on this for thread-stack-overflow detection -- use PSPLIM.
-//   - PrivRW_UserRO: the AP field cannot split write access by privilege.
-//     We pick AP=0b01 (R/W any privilege level), which gives the user
-//     write access too. See the MpuPermissions doc in pbl/mcu/mpu.h.
-static const uint8_t s_permission_to_ap[MpuPermissionsCount] = {
-  [MpuPermissions_NoAccess] = 0x2,      [MpuPermissions_PrivRW] = 0x0,
-  [MpuPermissions_PrivRW_UserRO] = 0x1, [MpuPermissions_PrivRW_UserRW] = 0x1,
-  [MpuPermissions_PrivRO] = 0x2,        [MpuPermissions_PrivRO_UserRO] = 0x3,
+// The 2-bit AP field cannot express two of the access attributes:
+//   - NO_ACCESS: AP=0b10 (RO priv only). Unprivileged code and privileged
+//     writes still fault, which is what a stack guard needs.
+//   - P_RW_U_RO: the AP field cannot split write access by privilege.
+//     We pick AP=0b11 (RO any privilege level) and privileged writers go
+//     through arch_mpu_user_ro_write().
+static const uint8_t s_access_to_ap[] = {
+  [PBL_MPU_NO_ACCESS] = 0x2, [PBL_MPU_P_RW] = 0x0, [PBL_MPU_P_RW_U_RO] = 0x3,
+  [PBL_MPU_P_RW_U_RW] = 0x1, [PBL_MPU_P_RO] = 0x2, [PBL_MPU_P_RO_U_RO] = 0x3,
 };
 
-static const uint32_t s_cache_settings[] = {
-  [MpuCachePolicy_NotCacheable] =
-      ARM_MPU_ATTR(ARM_MPU_ATTR_NON_CACHEABLE, ARM_MPU_ATTR_NON_CACHEABLE),
-  [MpuCachePolicy_WriteThrough] =
-      ARM_MPU_ATTR(ARM_MPU_ATTR_MEMORY_(1, 0, 1, 0), ARM_MPU_ATTR_MEMORY_(1, 0, 1, 0)),
-  [MpuCachePolicy_WriteBackWriteAllocate] =
-      ARM_MPU_ATTR(ARM_MPU_ATTR_MEMORY_(1, 1, 1, 1), ARM_MPU_ATTR_MEMORY_(1, 1, 1, 1)),
-  [MpuCachePolicy_WriteBackNoWriteAllocate] =
-      ARM_MPU_ATTR(ARM_MPU_ATTR_MEMORY_(1, 1, 0, 1), ARM_MPU_ATTR_MEMORY_(1, 1, 0, 1)),
+static const uint8_t s_type_to_mair[] = {
+  [TYPE_IDX(PBL_MPU_NORMAL_NC)] =
+      ARM_MPU_MAIR_ATTR(ARM_MPU_MAIR_NON_CACHEABLE, ARM_MPU_MAIR_NON_CACHEABLE),
+  [TYPE_IDX(PBL_MPU_NORMAL_WT)] = ARM_MPU_MAIR_ATTR(ARM_MPU_MAIR_WT_RA, ARM_MPU_MAIR_WT_RA),
+  [TYPE_IDX(PBL_MPU_NORMAL_WB)] = ARM_MPU_MAIR_ATTR(ARM_MPU_MAIR_WB_RA_WA, ARM_MPU_MAIR_WB_RA_WA),
+  [TYPE_IDX(PBL_MPU_DEVICE)] = ARM_MPU_MAIR_ATTR(0U, ARM_MPU_MAIR_DEVICE_NGNRNE),
 };
 
-static uint8_t get_permission_value(const MpuRegion *region) {
-  PBL_ASSERTN(region->permissions < MpuPermissionsCount);
-  return s_permission_to_ap[region->permissions];
-}
+static_assert(ARRAY_LENGTH(s_type_to_mair) <= 4, "memory types must fit in MAIR0");
 
-static MpuPermissions decode_permission_value(uint8_t ap) {
-  // ARMv8-M's two-bit AP loses information: AP=0b10 could have been set
-  // for either NoAccess or PrivRO. Decode to PrivRO canonically.
-  switch (ap & 0x3) {
+static uint32_t prv_ap_to_access(uint32_t ap) {
+  // AP=0b10 could have been set for NO_ACCESS or P_RO, and AP=0b11 for
+  // P_RW_U_RO or P_RO_U_RO. Static regions report what they were added with.
+  switch (ap) {
     case 0x0:
-      return MpuPermissions_PrivRW;
+      return PBL_MPU_P_RW;
     case 0x1:
-      return MpuPermissions_PrivRW_UserRW;
+      return PBL_MPU_P_RW_U_RW;
     case 0x2:
-      return MpuPermissions_PrivRO;
-    case 0x3:
-      return MpuPermissions_PrivRO_UserRO;
+      return PBL_MPU_P_RO;
     default:
-      return MpuPermissions_NoAccess;
+      return PBL_MPU_P_RO_U_RO;
   }
 }
 
-void mpu_enable(void) {
-  ARM_MPU_SetMemAttr(mair_index(MpuCachePolicy_NotCacheable),
-                     s_cache_settings[MpuCachePolicy_NotCacheable]);
-  ARM_MPU_SetMemAttr(mair_index(MpuCachePolicy_WriteThrough),
-                     s_cache_settings[MpuCachePolicy_WriteThrough]);
-  ARM_MPU_SetMemAttr(mair_index(MpuCachePolicy_WriteBackWriteAllocate),
-                     s_cache_settings[MpuCachePolicy_WriteBackWriteAllocate]);
-  ARM_MPU_SetMemAttr(mair_index(MpuCachePolicy_WriteBackNoWriteAllocate),
-                     s_cache_settings[MpuCachePolicy_WriteBackNoWriteAllocate]);
+void arch_mpu_init(void) {
+  PBL_ASSERTN(ARM_MPU_TYPE_DREGION(arch_readl(ARM_MPU_TYPE)) >= CONFIG_KERNEL_MPU_REGIONS);
 
-  // ARM_MPU_Enable() writes MPU_CTRL directly, which would clobber bits set
-  // by another module (e.g. SiFli's SystemInit() turns on HFNMIENA). If the
-  // MPU is already enabled, just OR in PRIVDEFENA so we keep whatever flags
-  // are already there.
-  if (MPU->CTRL & MPU_CTRL_ENABLE_Msk) {
-    MPU->CTRL |= MPU_CTRL_PRIVDEFENA_Msk;
-  } else {
-    ARM_MPU_Enable(MPU_CTRL_PRIVDEFENA_Msk);
+  arm_mpu_disable();
+  for (uint32_t i = 0U; i < CONFIG_KERNEL_MPU_REGIONS; i++) {
+    arch_writel(i, ARM_MPU_RNR);
+    arch_writel(0U, ARM_MPU_RLAR);
   }
-}
-
-void mpu_get_register_settings(const MpuRegion *region, uint32_t *base_address_reg,
-                               uint32_t *attributes_reg) {
-  PBL_ASSERTN(region);
-  PBL_ASSERTN((region->base_address & 0x1f) == 0);
-  PBL_ASSERTN((region->region_num & ~0xf) == 0);
-  PBL_ASSERTN((region->cache_policy < ARRAY_LENGTH(s_cache_settings)));
-  PBL_ASSERTN((region->size & 0x1f) == 0);
-
-  uint32_t shareability = ARM_MPU_SH_INNER;
-#ifdef CONFIG_SOC_T5AI
-  // STAR-MC1 only caches Normal memory when it is non-shareable. This matches
-  // BK7258's vendor MPU table: cacheable SRAM/PSRAM is SH_NON, while
-  // non-cacheable and device ranges remain SH_INNER.
-  if (region->cache_policy != MpuCachePolicy_NotCacheable) {
-    shareability = ARM_MPU_SH_NON;
+  uint32_t mair0 = 0U;
+  for (unsigned int i = 0U; i < ARRAY_LENGTH(s_type_to_mair); i++) {
+    mair0 |= (uint32_t)s_type_to_mair[i] << (i * 8U);
   }
-#endif
-
-  *base_address_reg = ((region->base_address & MPU_RBAR_BASE_Msk) |
-                       ((shareability << MPU_RBAR_SH_Pos) & MPU_RBAR_SH_Msk) |
-                       ((get_permission_value(region) << MPU_RBAR_AP_Pos) & MPU_RBAR_AP_Msk) |
-                       ((region->executable ? 0u : 1u) << MPU_RBAR_XN_Pos));
-  *attributes_reg =
-      (((region->base_address + region->size - 1U) & MPU_RLAR_LIMIT_Msk) |
-       ((mair_index(region->cache_policy) << MPU_RLAR_AttrIndx_Pos) & MPU_RLAR_AttrIndx_Msk) |
-       ((region->enabled << MPU_RLAR_EN_Pos) & MPU_RLAR_EN_Msk));
+  arch_writel(mair0, ARM_MPU_MAIR(0));
 }
 
-void mpu_set_region(const MpuRegion *region) {
-  uint32_t base_reg, attr_reg;
-
-  mpu_get_register_settings(region, &base_reg, &attr_reg);
-
-  ARM_MPU_SetRegion(region->region_num, base_reg, attr_reg);
-}
-
-MpuRegion mpu_get_region(int region_num) {
-  MpuRegion region;
-  uint32_t rbar, rlar;
-  uint8_t access_permissions;
-
-  region.region_num = region_num;
-
-  MPU->RNR = region_num;
-  rbar = MPU->RBAR;
-  rlar = MPU->RLAR;
-
-  region.base_address = rbar & MPU_RBAR_BASE_Msk;
-  region.executable = ((rbar >> MPU_RBAR_XN_Pos) & 0x1) == 0;
-
-  access_permissions = (rbar & MPU_RBAR_AP_Msk) >> MPU_RBAR_AP_Pos;
-  region.permissions = decode_permission_value(access_permissions);
-
-  region.size = (rlar & MPU_RLAR_LIMIT_Msk) - region.base_address + 0x20;
-  region.enabled = (rlar & MPU_RLAR_EN_Msk) != 0;
-  // Strip the MAIR_INDEX_BASE offset so the returned cache_policy round-trips
-  // through MpuCachePolicy. Regions programmed by another module that use
-  // raw MAIR indices below MAIR_INDEX_BASE will report as MpuCachePolicy 0.
-  uint8_t attr_idx = (uint8_t)((rlar & MPU_RLAR_AttrIndx_Msk) >> MPU_RLAR_AttrIndx_Pos);
-#if MAIR_INDEX_BASE > 0
-  region.cache_policy = (attr_idx >= MAIR_INDEX_BASE) ? (attr_idx - MAIR_INDEX_BASE) : 0;
+void arch_mpu_enable(void) {
+#ifdef CONFIG_KERNEL_MPU_IN_FAULTS
+  arm_mpu_enable(ARM_MPU_CTRL_PRIVDEFENA | ARM_MPU_CTRL_HFNMIENA);
 #else
-  region.cache_policy = attr_idx;
+  arm_mpu_enable(ARM_MPU_CTRL_PRIVDEFENA);
 #endif
+}
 
-  return region;
+void arm_mpu_region_encode(unsigned int slot, const struct pbl_mpu_region *region, uint32_t *rbar,
+                           uint32_t *attr) {
+  (void)slot;
+  PBL_ASSERTN((region->base & 0x1f) == 0 && (region->size & 0x1f) == 0);
+  PBL_ASSERTN((region->attr & PBL_MPU_ACCESS_MSK) < ARRAY_LENGTH(s_access_to_ap));
+
+  const uint32_t sh =
+      (region->attr & PBL_MPU_SHAREABLE) ? ARM_MPU_RBAR_SH_INNER : ARM_MPU_RBAR_SH_NON;
+  const uint32_t ap = s_access_to_ap[region->attr & PBL_MPU_ACCESS_MSK];
+  const uint32_t xn = (region->attr & PBL_MPU_EXEC) ? 0U : 1U;
+
+  *rbar = (region->base & ARM_MPU_RBAR_BASE_MSK) | (sh << ARM_MPU_RBAR_SH_POS) |
+          (ap << ARM_MPU_RBAR_AP_POS) | (xn ? ARM_MPU_RBAR_XN : 0U);
+  *attr = ((region->base + region->size - 1U) & ARM_MPU_RLAR_LIMIT_MSK) |
+          ((TYPE_IDX(region->attr)) << ARM_MPU_RLAR_ATTRINDX_POS) | ARM_MPU_RLAR_EN;
+}
+
+void arch_mpu_region_set(unsigned int slot, const struct pbl_mpu_region *region) {
+  uint32_t rbar, rlar;
+  arm_mpu_region_encode(slot, region, &rbar, &rlar);
+
+  // A context switch also goes through RNR.
+  const uint32_t primask = arm_primask_get();
+  arm_irq_disable();
+  arch_writel(slot, ARM_MPU_RNR);
+  arch_writel(rbar, ARM_MPU_RBAR);
+  arch_writel(rlar, ARM_MPU_RLAR);
+  arm_dsb();
+  arm_isb();
+  arm_primask_set(primask);
+}
+
+void arch_mpu_user_ro_write(int slot, void *dst, const void *src, size_t n) {
+  if (slot < 0) {
+    memcpy(dst, src, n);
+    return;
+  }
+
+  const uint32_t primask = arm_primask_get();
+  arm_irq_disable();
+
+  const uint32_t rnr = arch_readl(ARM_MPU_RNR);
+  arch_writel((uint32_t)slot, ARM_MPU_RNR);
+  const uint32_t rlar = arch_readl(ARM_MPU_RLAR);
+  arch_writel(rlar & ~ARM_MPU_RLAR_EN, ARM_MPU_RLAR);
+  arm_dsb();
+  arm_isb();
+
+  memcpy(dst, src, n);
+
+  arm_dsb();
+  arch_writel(rlar, ARM_MPU_RLAR);
+  arch_writel(rnr, ARM_MPU_RNR);
+  arm_dsb();
+  arm_isb();
+
+  arm_primask_set(primask);
+}
+
+bool arch_mpu_region_get(unsigned int slot, struct pbl_mpu_region *region) {
+  const uint32_t primask = arm_primask_get();
+  arm_irq_disable();
+  arch_writel(slot, ARM_MPU_RNR);
+  const uint32_t rbar = arch_readl(ARM_MPU_RBAR);
+  const uint32_t rlar = arch_readl(ARM_MPU_RLAR);
+  arm_primask_set(primask);
+
+  if ((rlar & ARM_MPU_RLAR_EN) == 0U) {
+    return false;
+  }
+
+  *region = (struct pbl_mpu_region){
+    .base = rbar & ARM_MPU_RBAR_BASE_MSK,
+    .size = (rlar & ARM_MPU_RLAR_LIMIT_MSK) - (rbar & ARM_MPU_RBAR_BASE_MSK) + 0x20U,
+    .attr = prv_ap_to_access((rbar & ARM_MPU_RBAR_AP_MSK) >> ARM_MPU_RBAR_AP_POS) |
+            ((rbar & ARM_MPU_RBAR_XN) ? 0U : PBL_MPU_EXEC),
+  };
+  return true;
 }

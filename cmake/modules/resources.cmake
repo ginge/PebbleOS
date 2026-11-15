@@ -9,6 +9,7 @@ define_property(GLOBAL PROPERTY PBL_DYNAMIC_RESOURCES
   BRIEF_DOCS "Resources produced by the build itself (stored apps, timezones)")
 
 set(PBL_RESOURCES_PY ${PBL_BASE}/tools/cmake/resources.py)
+set(PBL_RESOURCES_GENERATORS_PY ${PBL_BASE}/tools/resources/generators.py)
 
 # A .reso another build step produces, added to the resource ball after
 # the ones the resource maps declare.
@@ -21,7 +22,7 @@ function(pbl_resource_command)
   add_custom_command(
     OUTPUT ${ARG_OUTPUT}
     COMMAND ${PBL_TOOLCHAIN_ENV} ${PYTHON_EXECUTABLE} ${PBL_RESOURCES_PY} ${ARG_ARGS}
-    DEPENDS ${ARG_DEPENDS} ${PBL_RESOURCES_PY}
+    DEPENDS ${ARG_DEPENDS} ${PBL_RESOURCES_PY} ${PBL_RESOURCES_GENERATORS_PY}
     WORKING_DIRECTORY ${PBL_BASE}
     COMMENT "${ARG_COMMENT}"
     VERBATIM
@@ -29,9 +30,12 @@ function(pbl_resource_command)
 endfunction()
 
 # Called once, after every directory has been added, so the dynamic
-# resources are all registered.
+# resources are all registered. BUILTIN_ONLY builds only the resources linked
+# into the firmware: no system resource pack, timezone database, timeline
+# tables or layouts.
 function(pbl_resources)
-  set(fw_bin ${PROJECT_BINARY_DIR}/fw)
+  cmake_parse_arguments(ARG "BUILTIN_ONLY" "" "" ${ARGN})
+  set(fw_bin ${PROJECT_BINARY_DIR}/pebble)
   set(manifest ${PROJECT_BINARY_DIR}/resources/manifest.pickle)
   set(ball ${PROJECT_BINARY_DIR}/system_resources.resball)
   set(pbpack ${PROJECT_BINARY_DIR}/system_resources.pbpack)
@@ -39,7 +43,7 @@ function(pbl_resources)
   get_property(dynamic GLOBAL PROPERTY PBL_DYNAMIC_RESOURCES)
 
   # The timezone database is built straight into a resource.
-  if(NOT CONFIG_RECOVERY_FW)
+  if(NOT ARG_BUILTIN_ONLY)
     set(tzdata ${PROJECT_BINARY_DIR}/resources/normal/base/tzdata/tzdata.bin.reso)
     set(olson ${PBL_BASE}/resources/normal/base/tzdata/timezones_olson.txt)
     pbl_resource_command(
@@ -76,7 +80,7 @@ function(pbl_resources)
   message(STATUS "Resources: ${summary}")
 
   include(${PROJECT_BINARY_DIR}/resources/resources.cmake)
-  set_property(DIRECTORY ${PBL_BASE} APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+  set_property(DIRECTORY ${CMAKE_SOURCE_DIR} APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     ${PBL_RESOURCE_MAP_FILES} ${PBL_RESOURCES_PY} ${PBL_DOTCONFIG})
 
   pbl_resource_command(
@@ -86,7 +90,7 @@ function(pbl_resources)
     COMMENT "Building resource ball"
   )
 
-  if(NOT CONFIG_RECOVERY_FW)
+  if(NOT ARG_BUILTIN_ONLY)
     add_custom_command(
       OUTPUT ${pbpack}
       COMMAND ${PBL_TOOLCHAIN_ENV} ${PYTHON_EXECUTABLE} ${PBL_RESOURCES_PY} pbpack
@@ -149,7 +153,7 @@ function(pbl_resources)
   )
   set(sources ${fw_bin}/builtin_resources.auto.c)
 
-  if(NOT CONFIG_RECOVERY_FW)
+  if(NOT ARG_BUILTIN_ONLY)
     pbl_resource_command(
       OUTPUT ${fw_bin}/resource/timeline_resource_table.auto.c
       ARGS timeline-table --manifest ${manifest}

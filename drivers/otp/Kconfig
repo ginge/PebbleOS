@@ -10,13 +10,15 @@ if OTP
 
 config OTP_FLASH
     bool "Flash security registers"
+    default y
+    depends on FLASH_OTP
     help
-      OTP backed by SPI NOR flash security registers
-      (e.g. GD25 / GD25LQ family). Driver: otp_flash.c.
+      OTP slots in the cells the board lays out in the flash OTP area
+      (security registers on SPI NOR parts). Driver: otp_flash.c.
 
 config OTP_QEMU
     bool "QEMU"
-    default y if SOC_QEMU
+    default y if SOC_QEMU_PEBBLE
     help
       QEMU OTP. QEMU emulates none, so all slots read as locked and empty.
 

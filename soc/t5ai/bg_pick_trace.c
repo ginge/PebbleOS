@@ -1,22 +1,24 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/kernel/time.h>
+#include "kernel/pebble_tasks.h"
+
+#include <inttypes.h>
+
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/sched.h>
 #include <pbl/kernel/thread.h>
+#include <pbl/kernel/time.h>
+#include <pbl/kernel/work.h>
 #include <pbl/logging/logging.h>
-#include <pbl/services/new_timer/new_timer.h>
-#include <pbl/services/system_task.h>
+#include <pbl/soc/t5ai/diagnostics.h>
 #include <pbl/soc/t5ai/rtc.h>
-#include <inttypes.h>
 
 PBL_LOG_MODULE_DEFINE(t5ai_bg_pick_trace, LOG_LEVEL_DEBUG);
 
 extern struct pbl_thread *g_task_threads[NumPebbleTask];
 extern struct pbl_thread *pbl_cur;
 struct pbl_thread *__real_sched_switch_in(void);
-void __real_system_task_timer_init(void);
 
 typedef struct {
   uint32_t picks, bg, app_higher, other_higher, equal, lower;
@@ -33,9 +35,9 @@ static void prv_max(uint32_t *peak, uint32_t value) {
 
 // PendSV holds the scheduler interrupt mask across this wrapper.
 struct pbl_thread *__wrap_sched_switch_in(void) {
-  struct pbl_thread *bg = g_task_threads[PebbleTask_KernelBackground];
-  bool runnable = bg && (bg->backend.state == PBL_THREAD_READY ||
-                         bg->backend.state == PBL_THREAD_RUNNING);
+  struct pbl_thread *bg = pbl_sys_workq.thread;
+  bool runnable =
+      bg && (bg->backend.state == PBL_THREAD_READY || bg->backend.state == PBL_THREAD_RUNNING);
   struct pbl_thread *next = __real_sched_switch_in();
   if (!s_trace.live)
     return next;
@@ -72,14 +74,13 @@ struct pbl_thread *__wrap_sched_switch_in(void) {
 static uint32_t prv_cpu(struct pbl_thread *thread, uint32_t now) {
   if (!thread)
     return 0;
-  return thread->backend.run_time +
-         (thread == pbl_cur ? now - thread->backend.switched_in_at : 0);
+  return thread->backend.run_time;
 }
 
 static void prv_report(void *data) {
   (void)data;
   pbl_irq_lock();
-  struct pbl_thread *bg = g_task_threads[PebbleTask_KernelBackground];
+  struct pbl_thread *bg = pbl_sys_workq.thread;
   struct pbl_thread *app = g_task_threads[PebbleTask_App];
   uint32_t now = T5AI_AON_RTC_COUNT_LOW;
   if (s_trace.ready)
@@ -93,7 +94,7 @@ static void prv_report(void *data) {
   s_trace.app_id = app ? app->id : 0;
   uint32_t state = bg ? bg->backend.state : PBL_THREAD_DEAD;
   uint32_t bg_prio = bg ? bg->prio : 0, app_prio = app ? app->prio : 0;
-  uint32_t callback = (uintptr_t)system_task_get_current_callback();
+  uint32_t callback = (uintptr_t)pbl_sys_workq.current_fn;
   uint32_t age = s_trace.ready ? now - s_trace.ready_since : 0;
   PickTrace snapshot = s_trace;
   char name[PBL_THREAD_NAME_LEN];
@@ -106,10 +107,10 @@ static void prv_report(void *data) {
   t5ai_wdt_cause_trace_dump();
 #endif
   // Durations are raw 32 kHz RTC ticks; counts and peaks are cumulative.
-  PBL_LOG_DBG("T5PICK rtc=%" PRIu32 " picks=%" PRIu32 " bg=%" PRIu32
-              " app_hi=%" PRIu32 " other_hi=%" PRIu32 " equal=%" PRIu32 " lower=%" PRIu32,
-              now, snapshot.picks, snapshot.bg, snapshot.app_higher,
-              snapshot.other_higher, snapshot.equal, snapshot.lower);
+  PBL_LOG_DBG("T5PICK rtc=%" PRIu32 " picks=%" PRIu32 " bg=%" PRIu32 " app_hi=%" PRIu32
+              " other_hi=%" PRIu32 " equal=%" PRIu32 " lower=%" PRIu32,
+              now, snapshot.picks, snapshot.bg, snapshot.app_higher, snapshot.other_higher,
+              snapshot.equal, snapshot.lower);
   PBL_LOG_DBG("T5PICK ready_age=%" PRIu32 " ready_peak=%" PRIu32 " gap_peak=%" PRIu32
               " bg_state=%" PRIu32 " bg_prio=%" PRIu32 " cb=%08" PRIx32 " bg_ticks=%" PRIu32,
               age, snapshot.ready_peak, snapshot.gap_peak, state, bg_prio, callback, bg_delta);
@@ -117,8 +118,13 @@ static void prv_report(void *data) {
               snapshot.app_id, name, app_prio, app_delta);
 }
 
-void __wrap_system_task_timer_init(void) {
-  __real_system_task_timer_init();
+static struct pbl_delayed_work s_report;
+static void prv_report_work(struct pbl_work *work) {
+  (void)pbl_sys_work_try_call(prv_report, nullptr);
+  pbl_delayed_work_schedule_next(&s_report, pbl_ms_to_ticks(5000));
+}
+void t5ai_diagnostics_start(void) {
   s_trace.live = true;
-  new_timer_start(new_timer_create(), 5000, prv_report, NULL, TIMER_START_FLAG_REPEATING);
+  pbl_delayed_work_init(&s_report, prv_report_work);
+  (void)pbl_delayed_work_schedule(&pbl_sys_workq_high, &s_report, PBL_MSEC(5000));
 }

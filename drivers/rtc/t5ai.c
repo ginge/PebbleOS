@@ -2,13 +2,21 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "board/board.h"
-#include "system/rtc_registers.h"
+#include "pbl/system/rtc_registers.h"
 
+#include <errno.h>
 #include <stddef.h>
 #include <string.h>
 
 #include <pbl/drivers/i2c.h>
 #include <pbl/drivers/rtc.h>
+#include <pbl/kernel/time.h>
+#include <pbl/util/time.h>
+
+typedef uint64_t RtcTicks;
+#define RTC_TICKS_HZ 1000u
+static time_t rtc_get_time(void);
+static void rtc_get_time_ms(time_t *, uint16_t *);
 #include <pbl/soc/t5ai/retained.h>
 #include <pbl/soc/t5ai/rtc.h>
 
@@ -51,7 +59,6 @@ _Static_assert(T5AI_AON_RTC_HZ % RTC_TICKS_HZ == 0u,
 #define PCF85063_CONTROL1_12_24 (1u << 1)
 #define PCF85063_SECONDS_OS     (1u << 7)
 
-static RtcTicks s_alarm_start;
 static bool s_external_rtc_ready;
 static bool s_external_rtc_present;
 // First failing operation from the most recent persistence attempt (zero is healthy).
@@ -209,7 +216,7 @@ static bool prv_external_rtc_write(time_t time) {
   return s_external_rtc_ready;
 }
 
-void rtc_init(void) {
+static void rtc_init(void) {
   t5ai_retained_init();
 
   const RtcTicks ticks = prv_raw_ticks();
@@ -223,11 +230,7 @@ void rtc_init(void) {
   }
 }
 
-void rtc_calibrate_frequency(uint32_t frequency) {
-  (void)frequency;
-}
-
-void rtc_init_timers(void) {
+static void rtc_init_timers(void) {
   s_external_rtc_ready = false;
   s_external_rtc_present = false;
   uint8_t control;
@@ -251,7 +254,7 @@ void rtc_init_timers(void) {
   (void)prv_external_rtc_write(fallback_time);
 }
 
-void rtc_set_time(time_t time) {
+static void rtc_set_time(time_t time) {
   prv_set_retained_time(time);
   // A responding device gets one bounded retry on the next wall-time update.
   if (s_external_rtc_present) {
@@ -259,7 +262,7 @@ void rtc_set_time(time_t time) {
   }
 }
 
-void rtc_get_time_ms(time_t *out_seconds, uint16_t *out_ms) {
+static void rtc_get_time_ms(time_t *out_seconds, uint16_t *out_ms) {
   // Mask all configurable ISRs; a reader must never spin on a preempted writer.
   const uint32_t mask = __get_PRIMASK();
   __disable_irq();
@@ -272,7 +275,7 @@ void rtc_get_time_ms(time_t *out_seconds, uint16_t *out_ms) {
   *out_ms = (uint16_t)(((elapsed % T5AI_AON_RTC_HZ) * 1000u) / T5AI_AON_RTC_HZ);
 }
 
-time_t rtc_get_time(void) {
+static time_t rtc_get_time(void) {
   time_t seconds;
   uint16_t milliseconds;
   rtc_get_time_ms(&seconds, &milliseconds);
@@ -287,90 +290,29 @@ uint64_t t5ai_rtc_get_raw_ticks(void) {
   return prv_raw_ticks();
 }
 
-void rtc_set_time_tm(struct pbl_tm *time_tm) {
-  rtc_set_time(pbl_mktime(time_tm));
+static int prv_init(const struct pbl_device *dev) {
+  (void)dev;
+  rtc_init();
+  rtc_init_timers();
+  return 0;
 }
-
-void rtc_get_time_tm(struct pbl_tm *time_tm) {
-  const time_t time = rtc_get_time();
-  pbl_localtime_r(&time, time_tm);
+static int prv_get_time(const struct pbl_rtc *rtc, time_t *t) {
+  (void)rtc;
+  *t = rtc_get_time();
+  return 0;
 }
-
-bool rtc_sanitize_struct_tm(struct pbl_tm *time_tm) {
-  if (time_tm->tm_year < PCF85063_TM_YEAR_BASE) {
-    time_tm->tm_year = PCF85063_TM_YEAR_BASE;
-    return true;
-  }
-  if (time_tm->tm_year > PCF85063_TM_YEAR_MAX) {
-    time_tm->tm_year = PCF85063_TM_YEAR_MAX;
-    return true;
-  }
-  return false;
+static int prv_set_time(const struct pbl_rtc *rtc, time_t t) {
+  (void)rtc;
+  if (t < (time_t)T5AI_RTC_MIN_VALID_TIME || t > (time_t)T5AI_RTC_MAX_VALID_TIME)
+    return -EINVAL;
+  rtc_set_time(t);
+  return s_external_rtc_present && !s_external_rtc_ready ? -EIO : 0;
 }
-
-bool rtc_sanitize_time_t(time_t *time) {
-  struct pbl_tm time_tm;
-  pbl_gmtime_r(time, &time_tm);
-  const bool changed = rtc_sanitize_struct_tm(&time_tm);
-  *time = pbl_mktime(&time_tm);
-  return changed;
-}
-
-void rtc_alarm_init(void) {
-  s_alarm_start = rtc_get_ticks();
-}
-
-void rtc_alarm_set(RtcTicks num_ticks) {
-  (void)num_ticks;
-  s_alarm_start = rtc_get_ticks();
-}
-
-RtcTicks rtc_alarm_get_elapsed_ticks(void) {
-  return rtc_get_ticks() - s_alarm_start;
-}
-
-bool rtc_alarm_is_initialized(void) {
-  // A counter is available, but hardware wake/alarm routing is not yet safe.
-  return false;
-}
-
-void rtc_set_timezone(TimezoneInfo *timezone) {
-  const uint32_t *words = (const uint32_t *)timezone;
-  _Static_assert(sizeof(TimezoneInfo) <= T5AI_RTC_TIMEZONE_WORDS * sizeof(uint32_t),
-                 "TimezoneInfo exceeds retained RTC allocation");
-  for (unsigned i = 0; i < T5AI_RTC_TIMEZONE_WORDS; ++i) {
-    t5ai_retained_write(RTC_TIMEZONE_ABBR_START + i, words[i]);
-  }
-}
-
-void rtc_get_timezone(TimezoneInfo *timezone) {
-  uint32_t *words = (uint32_t *)timezone;
-  for (unsigned i = 0; i < T5AI_RTC_TIMEZONE_WORDS; ++i) {
-    words[i] = t5ai_retained_read(RTC_TIMEZONE_ABBR_START + i);
-  }
-}
-
-uint16_t rtc_get_timezone_id(void) {
-  return (uint16_t)(t5ai_retained_read(RTC_TIMEZONE_ABBR_END_TZID_DSTID) >> 16);
-}
-
-bool rtc_is_timezone_set(void) {
-  return t5ai_retained_read(RTC_TIMEZONE_ABBR_START) != 0;
-}
-
-void rtc_timezone_clear(void) {
-  for (unsigned i = 0; i < T5AI_RTC_TIMEZONE_WORDS; ++i) {
-    t5ai_retained_write(RTC_TIMEZONE_ABBR_START + i, 0);
-  }
-}
-
-const char *time_t_to_string(char *buffer, time_t time) {
-  struct pbl_tm time_tm;
-  pbl_localtime_r(&time, &time_tm);
-  pbl_strftime_r(buffer, TIME_STRING_BUFFER_SIZE, "%c", &time_tm);
-  return buffer;
-}
-
-const char *rtc_get_time_string(char *buffer) {
-  return time_t_to_string(buffer, rtc_get_time());
-}
+static const struct pbl_rtc_ops s_ops = {.get_time = prv_get_time, .set_time = prv_set_time};
+PBL_DEVICE_STATE_DEFINE(T5AI_RTC);
+const struct pbl_rtc T5AI_RTC = {
+  .dev = PBL_DEVICE_INIT_CLASS(T5AI_RTC, "pcf85063", prv_init, &T5AI_I2C0.bus.dev, nullptr,
+                               &pbl_rtc_class),
+  .ops = &s_ops,
+};
+PBL_DEVICE_REGISTER(T5AI_RTC, &T5AI_RTC.dev);

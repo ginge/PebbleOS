@@ -9,6 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 HEADERS = {
+    "devicetree/instances/gpio_keys.inc": "",
     "pbl/kernel/timer.h": """#pragma once
 #include <stdbool.h>
 struct pbl_timer {void (*cb)(struct pbl_timer *);unsigned ms;bool active;};
@@ -37,7 +38,7 @@ HARNESS = r"""
 #include <pbl/drivers/input/gpio_keys.h>
 #include <pbl/input/input.h>
 #include "drivers/input/gpio_keys.c"
-#include "fw/system/reset_keys.c"
+#include "pebble/system/reset_keys.c"
 static unsigned events,irqs,irq_depth,resets,bootbit,resetcode;
 static bool pressed[64];
 static jmp_buf reset_target;
@@ -62,21 +63,21 @@ void pbl_input_report(enum pbl_input_type type,uint16_t code,int32_t value,bool 
 }
 void boot_bit_set(int bit){bootbit=bit;}
 void reboot_reason_set(RebootReason *reason){resetcode=reason->code;}
-void system_hard_reset(void){++resets;longjmp(reset_target,1);}
-static void settle(unsigned i){struct pbl_timer *t=&s_buttons.state[i].timer;assert(t->active && t->ms==40);t->active=false;t->cb(t);}
+void pbl_reboot_emergency(void){++resets;longjmp(reset_target,1);}
+static void settle(unsigned i){struct pbl_timer *t=&s_buttons_inst.state[i].timer;assert(t->active && t->ms==40);t->active=false;t->cb(t);}
 int main(void){
- assert(s_buttons.num_keys==2 && s_buttons.keys[0].gpio.pin==18 && s_buttons.keys[1].gpio.pin==12);
- assert(s_buttons.keys[0].code==PBL_INPUT_KEY_BACK && s_buttons.keys[1].code==PBL_INPUT_KEY_SELECT);
+ assert(s_buttons_inst.num_keys==2 && s_buttons_inst.keys[0].gpio.pin==18 && s_buttons_inst.keys[1].gpio.pin==12);
+ assert(s_buttons_inst.keys[0].code==PBL_INPUT_KEY_BACK && s_buttons_inst.keys[1].code==PBL_INPUT_KEY_SELECT);
  pressed[18]=true;
- assert(pbl_gpio_keys_init(&s_buttons.dev)==0 && irqs==2);
+ assert(pbl_gpio_keys_init(&s_buttons)==0 && irqs==2);
  settle(0);settle(1);assert(events==1 && !s_timer.active);
  // Bouncing edges restart the 40 ms timer without producing events.
- pressed[12]=true;for(unsigned i=0;i<20;++i)prv_edge(&s_buttons.state[1]);
+ pressed[12]=true;for(unsigned i=0;i<20;++i)prv_edge(&s_buttons_inst.state[1]);
  assert(events==1);settle(1);assert(events==2 && s_timer.active && s_timer.ms==5000);
  // Release cancels the reset hold; unchanged samples cannot duplicate events.
- pressed[18]=false;prv_edge(&s_buttons.state[0]);settle(0);assert(!s_timer.active && events==3);
- prv_edge(&s_buttons.state[0]);settle(0);assert(events==3);
- pressed[18]=true;prv_edge(&s_buttons.state[0]);settle(0);assert(s_timer.active);
+ pressed[18]=false;prv_edge(&s_buttons_inst.state[0]);settle(0);assert(!s_timer.active && events==3);
+ prv_edge(&s_buttons_inst.state[0]);settle(0);assert(events==3);
+ pressed[18]=true;prv_edge(&s_buttons_inst.state[0]);settle(0);assert(s_timer.active);
  if(!setjmp(reset_target))s_timer.cb(&s_timer);
  assert(resets==1 && resetcode==RebootReasonCode_ResetButtonsHeld && !bootbit && irq_depth==1);
  return 0;
@@ -86,7 +87,7 @@ int main(void){
 
 class ButtonsTest(unittest.TestCase):
     def test_debounce_and_reset_hold(self):
-        board = (ROOT / "fw/board/boards/board_unhygienix.c").read_text()
+        board = (ROOT / "boards/unhygienix/unhygienix.c").read_text()
         start = board.index("PBL_GPIO_KEYS_DEFINE(")
         keys = board[start : board.index(";", start) + 1]
         with tempfile.TemporaryDirectory() as temporary:

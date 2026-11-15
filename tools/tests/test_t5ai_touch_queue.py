@@ -93,7 +93,7 @@ WRAPPERS = r"""
 static uint64_t now;
 static unsigned control, irq_depth;
 #define __get_CONTROL() control
-static uint64_t rtc_get_ticks(void) {return now;}
+static uint64_t t5ai_rtc_get_ticks(void) {return now;}
 static void pbl_irq_lock(void) {++irq_depth;}
 static void pbl_irq_unlock(void) {assert(irq_depth);--irq_depth;}
 typedef unsigned pbl_timeout_t;

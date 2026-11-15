@@ -8,12 +8,12 @@ from tools.tests.test_t5ai_state_trace import HEADERS as STATE_HEADERS
 
 ROOT = Path(__file__).resolve().parents[2]
 HEADERS = dict(STATE_HEADERS)
-HEADERS['pbl/soc/t5ai/rtc.h'] = '''
+HEADERS["pbl/soc/t5ai/rtc.h"] = """
 #include <stdint.h>
 #define T5AI_AON_RTC_HZ 32000u
 uint64_t t5ai_rtc_get_raw_ticks(void);
-'''
-HARNESS = r'''
+"""
+HARNESS = r"""
 #include <assert.h>
 #include <sys/mman.h>
 #include <setjmp.h>
@@ -30,7 +30,7 @@ void pbl_irq_lock(void) { ++depth; }
 void pbl_irq_unlock(void) { assert(depth); --depth; }
 uint32_t pbl_uptime_ticks(void) { return ticks; }
 uint64_t t5ai_rtc_get_raw_ticks(void) { return raw_ticks; }
-void dcache_flush(const void *p, size_t n) { assert(p && n); ++flushes; }
+void pbl_dcache_flush_range(const void *p, size_t n) { assert(p && n); ++flushes; }
 void probe_log(const char *fmt, ...) {
   assert(depth == 0);
   char line[256];
@@ -111,7 +111,7 @@ int main(void) {
   prv_dump_previous(); assert(!previous_logs);
   return 0;
 }
-'''
+"""
 
 
 class RebootTraceTest(unittest.TestCase):
@@ -122,19 +122,33 @@ class RebootTraceTest(unittest.TestCase):
                 p = d / name
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text(contents)
-            (d / 'test.c').write_text(HARNESS)
-            exe = d / 'test'
-            subprocess.run(['cc', '-std=gnu11', '-Wall', '-Wextra', '-Werror',
-                            '-DCONFIG_T5AI_REBOOT_TRACE=1', '-I', str(d),
-                            '-I', str(ROOT / 'include'),
-                            f'-DTRACE_SOURCE="{ROOT / "soc/t5ai/reboot_trace.c"}"',
-                            str(d / 'test.c'), '-o', str(exe)], check=True)
+            (d / "test.c").write_text(HARNESS)
+            exe = d / "test"
+            subprocess.run(
+                [
+                    "cc",
+                    "-std=gnu11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-DCONFIG_T5AI_REBOOT_TRACE=1",
+                    "-I",
+                    str(d),
+                    "-I",
+                    str(ROOT / "include"),
+                    f'-DTRACE_SOURCE="{ROOT / "soc/t5ai/reboot_trace.c"}"',
+                    str(d / "test.c"),
+                    "-o",
+                    str(exe),
+                ],
+                check=True,
+            )
             subprocess.run([str(exe)], check=True)
 
     def test_disabled_header_needs_no_runtime(self):
         with tempfile.TemporaryDirectory() as temporary:
             d = Path(temporary)
-            (d / 'test.c').write_text('''
+            (d / "test.c").write_text("""
 #include <pbl/soc/t5ai/reboot_trace.h>
 #include <pbl/soc/t5ai/heap_trace.h>
 int main(void) {
@@ -145,13 +159,24 @@ int main(void) {
  t5ai_reboot_trace_event(T5RebootTrace_ForceReset, 1);
  return 0;
 }
-''')
-            exe = d / 'test'
-            subprocess.run(['cc', '-Wall', '-Wextra', '-Werror', '-I',
-                            str(ROOT / 'include'), str(d / 'test.c'),
-                            '-o', str(exe)], check=True)
+""")
+            exe = d / "test"
+            subprocess.run(
+                [
+                    "cc",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-I",
+                    str(ROOT / "include"),
+                    str(d / "test.c"),
+                    "-o",
+                    str(exe),
+                ],
+                check=True,
+            )
             subprocess.run([str(exe)], check=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

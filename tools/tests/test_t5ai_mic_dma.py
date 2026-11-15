@@ -31,9 +31,9 @@ static int pbl_dma_tx_status(const int *dma,size_t *residue){*residue=remaining;
 static uint64_t t5ai_rtc_get_raw_ticks(void){return ticks;}
 static uint32_t *prv_reg(MicDevice *d,unsigned offset){return &regs[offset];}
 static void prv_dma_stop(void){++stopped;}
-static void dcache_invalidate(void *p,size_t n){assert(n==DMA_BYTES/2);}
+static void pbl_dcache_invalidate_range(void *p,size_t n){assert(n==DMA_BYTES/2);}
 static void prv_dispatch(void *arg){}
-static bool system_task_add_callback_from_isr_droppable(void (*fn)(void *),void *arg){assert(fn==prv_dispatch);++queued;return queue_ok;}
+static bool pbl_sys_work_try_call(void (*fn)(void *),void *arg){assert(fn==prv_dispatch);++queued;return queue_ok;}
 """
 MAIN = r"""
 int main(void){

@@ -19,13 +19,13 @@ static void record(volatile uint32_t *op,uintptr_t address){assert(count<128);if
 """
 MAIN = r"""
 int main(void){
- scb.CCR=0;dcache_flush((void *)0x28010001,65);assert(!count && !barriers);
- scb.CCR=1;dcache_flush((void *)0x28010001,65);
+ scb.CCR=0;pbl_dcache_flush_range((void *)0x28010001,65);assert(!count && !barriers);
+ scb.CCR=1;pbl_dcache_flush_range((void *)0x28010001,65);
  assert(count==3 && barriers==3 && operation==&scb.DCCMVAC);
  assert(addresses[0]==0x28010000 && addresses[1]==0x28010020 && addresses[2]==0x28010040);
- count=barriers=0;dcache_flush((void *)0x28010000,0);assert(!count && !barriers);
- dcache_invalidate((void *)0x28010020,32);assert(count==1 && addresses[0]==0x28010020 && operation==&scb.DCIMVAC);
- count=0;dcache_flush_invalidate((void *)0x60000000,1864);assert(count==59 && operation==&scb.DCCIMVAC);
+ count=barriers=0;pbl_dcache_flush_range((void *)0x28010000,0);assert(!count && !barriers);
+ pbl_dcache_invalidate_range((void *)0x28010020,32);assert(count==1 && addresses[0]==0x28010020 && operation==&scb.DCIMVAC);
+ count=0;pbl_dcache_flush_invalidate_range((void *)0x60000000,1864);assert(count==59 && operation==&scb.DCCIMVAC);
  for(unsigned i=0;i<count;++i)assert(addresses[i]==0x60000000u+i*32u);
  return 0;
 }

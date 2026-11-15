@@ -1,8 +1,8 @@
 # Threads
 
 `pbl_thread_create()` takes a `struct pbl_thread_attr`: entry, priority,
-privileged flag, a caller-owned stack and up to four `MpuRegion`s that are
-switched in with the thread. With `CONFIG_USERSPACE` it also takes the
+privileged flag, a caller-owned stack and up to two `struct pbl_mpu_region`s that are
+switched in with the thread, on top of the stack guards the kernel adds. With `CONFIG_USERSPACE` it also takes the
 memory the thread's syscalls may use and the stack they run on
 ({doc}`syscalls`).
 
@@ -12,3 +12,8 @@ memory the thread's syscalls may use and the stack they run on
 need: a thread walk with saved registers in the canonical order the core dump
 format expects, saved PC/LR/CONTROL of a blocked thread, stack bounds and
 high-water marks, and a run-time stats snapshot.
+
+## Samples
+
+{doc}`../samples/kernel/threads` creates threads above and below `main()`'s
+priority, and {doc}`../samples/kernel/msgq` passes messages between two.

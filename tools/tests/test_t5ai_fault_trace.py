@@ -55,7 +55,7 @@ static uint32_t hw_primask;
 #define __set_PRIMASK(value) (hw_primask=(value))
 #define T5AI_FAULT_TRACE_TEST
 #include "soc/t5ai/fault_trace.c"
-void dcache_flush(const void *p, size_t size) {
+void pbl_dcache_flush_range(const void *p, size_t size) {
   assert((uintptr_t)p % 32 == 0 && size % 32 == 0); ++flushes;
   if (p == s_text) {
     unsigned n = s_message[2] & 0xffff;
@@ -66,7 +66,7 @@ void dcache_flush(const void *p, size_t size) {
     ++publications;
   }
 }
-void dcache_invalidate(void *p, size_t size) {
+void pbl_dcache_invalidate_range(void *p, size_t size) {
   assert(p == s_text && size == sizeof(s_text)); ++invalidations;
   if (release) s_text[0] = 0;
 }
@@ -192,11 +192,11 @@ class FaultTraceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             tmp = Path(directory)
             (tmp / "cmsis_core.h").write_text("")
-            cache = tmp / "pbl/mcu/cache.h"
+            cache = tmp / "pbl/kernel/cache.h"
             cache.parent.mkdir(parents=True)
             cache.write_text(
-                "#include <stddef.h>\nvoid dcache_flush(const void *, size_t);\n"
-                "void dcache_invalidate(void *, size_t);\n"
+                "#include <stddef.h>\nvoid pbl_dcache_flush_range(const void *, size_t);\n"
+                "void pbl_dcache_invalidate_range(void *, size_t);\n"
             )
             (tmp / "test.c").write_text(HARNESS)
             subprocess.run(

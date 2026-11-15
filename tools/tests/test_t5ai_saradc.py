@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Exercise production MB-IPC and SARADC together against an asynchronous CP model."""
+
 import re
 import unittest
 from pathlib import Path
@@ -152,16 +153,34 @@ static void pump(void){
 static void start(void){assert(t5ai_saradc_request(15,16,completed,(void *)7)==0);}
 """
 
+
 class T5AISaradcTest(unittest.TestCase):
     def run_client(self, checks):
-        headers = {n: "" for p in (MB, ADC)
-                   for n in re.findall(r'#include [<"]([^>"\n]+)[>"]', p.read_text())
-                   if "/" in n and n not in (
-                       "pbl/soc/t5ai/mb_ipc.h", "pbl/soc/t5ai/mailbox_channel.h",
-                       "pbl/soc/t5ai/saradc_ipc.h")}
-        headers["system/status_codes.h"] = (ROOT / "fw/system/status_codes.h").read_text()
-        src = HARNESS.replace("MB_SOURCE", '"'+str(MB)+'"').replace("ADC_SOURCE", '"'+str(ADC)+'"')
-        run_c(src+"\nint main(void){setup();\n"+checks+"\nmunmap(cp_buffer,4096);return 0;}\n", headers)
+        headers = {
+            n: ""
+            for p in (MB, ADC)
+            for n in re.findall(r'#include [<"]([^>"\n]+)[>"]', p.read_text())
+            if "/" in n
+            and n
+            not in (
+                "pbl/soc/t5ai/mb_ipc.h",
+                "pbl/soc/t5ai/mailbox_channel.h",
+                "pbl/soc/t5ai/saradc_ipc.h",
+            )
+        }
+        headers["system/status_codes.h"] = (
+            ROOT / "include/pbl/system/status_codes.h"
+        ).read_text()
+        src = HARNESS.replace("MB_SOURCE", '"' + str(MB) + '"').replace(
+            "ADC_SOURCE", '"' + str(ADC) + '"'
+        )
+        run_c(
+            src
+            + "\nint main(void){setup();\n"
+            + checks
+            + "\nmunmap(cp_buffer,4096);return 0;}\n",
+            headers,
+        )
 
     def test_complete_sequence_and_shared_channel_backpressure(self):
         self.run_client(r"""
@@ -174,18 +193,24 @@ class T5AISaradcTest(unittest.TestCase):
     def test_rejected_raw_data_still_completes_read_done_before_cleanup(self):
         for bad in ("corrupt", "wrong_size"):
             with self.subTest(bad=bad):
-                self.run_client(bad+r"""=true;start();pump();
+                self.run_client(
+                    bad
+                    + r"""=true;start();pump();
  assert(result==E_ERROR && !result_peak && commands==12 && !awaiting_done);
  assert(s_available);
-""")
+"""
+                )
 
     def test_remote_errors_cleanup_only_owned_resources(self):
-        for command in (29,0,1,9,2,3,4,5,6,7,8,30):
+        for command in (29, 0, 1, 9, 2, 3, 4, 5, 6, 7, 8, 30):
             with self.subTest(command=command):
-                self.run_client(f"fail_command={command};start();pump();"+r"""
+                self.run_client(
+                    f"fail_command={command};start();pump();"
+                    + r"""
  assert(result==E_ERROR && !result_peak && !awaiting_done);
  if((fail_command>=6 && fail_command<=8) || fail_command==30)assert(!s_available);
-""")
+"""
+                )
 
     def test_deadline_quarantines_descriptors_and_late_physical_completion(self):
         self.run_client(r"""
@@ -198,10 +223,13 @@ class T5AISaradcTest(unittest.TestCase):
     def test_transport_corruption_and_route_rejection_are_terminal(self):
         for bad in ("bad_route", "bad_wire_crc", "bad_wire_command"):
             with self.subTest(bad=bad):
-                self.run_client(bad+r"""=true;start();pump();
+                self.run_client(
+                    bad
+                    + r"""=true;start();pump();
  assert(result<0 && !s_available && !result_peak);
  assert(t5ai_saradc_request(15,16,completed,0)==E_INVALID_OPERATION);
-""")
+"""
+                )
 
     def test_missing_raw_reply_retains_live_adc_storage_until_reset(self):
         self.run_client(r"""

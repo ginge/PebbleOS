@@ -1,22 +1,23 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/kernel/time.h>
-#include <pbl/drivers/flash.h>
-#include <pbl/drivers/flash/flash_impl.h>
-#include <pbl/kernel/mutex.h>
-#include <pbl/services/analytics/analytics.h>
-#include <pbl/drivers/rtc.h>
-#include <pbl/kernel/irq.h>
-#include <pbl/kernel/sched.h>
-#include <pbl/kernel/thread.h>
-#include <pbl/logging/logging.h>
-#include <pbl/services/filesystem/pfs.h>
-#include <pbl/services/settings/settings_file.h>
-
-#include <pbl/services/blob_db/timeline_item_storage.h>
+#include "pfs.h"
 
 #include <string.h>
+
+#include <pbl/analytics/analytics.h>
+#include <pbl/drivers/flash.h>
+#include <pbl/drivers/flash/flash_impl.h>
+#include <pbl/drivers/rtc.h>
+#include <pbl/kernel/irq.h>
+#include <pbl/kernel/mutex.h>
+#include <pbl/kernel/sched.h>
+#include <pbl/kernel/thread.h>
+#include <pbl/kernel/time.h>
+#include <pbl/logging/logging.h>
+#include <pbl/services/blob_db/timeline_item_storage.h>
+#include <pbl/settings/settings.h>
+#include <pbl/soc/t5ai/rtc.h>
 
 PBL_LOG_MODULE_DEFINE(t5ai_reminder_profile, LOG_LEVEL_DEBUG);
 
@@ -51,25 +52,25 @@ static struct {
   Phase phases[PHASE_COUNT];
   unsigned phase;
   uint32_t since, cpu_since, records, kept;
-  int old_fd;
+  struct pbl_fs_file *old_file;
   bool in_write, in_read;
   uint32_t max_unlock;
   uintptr_t unlock_mutex;
   uint32_t max_wait, wait_owner;
   uintptr_t wait_mutex;
-  SettingsFileRewriteFilterCallback filter;
+  pbl_settings_filter_cb_t filter;
   void *context;
 } s_profile;
 static uint32_t s_skipped;
 
 static uint32_t prv_wall(void) {
-  return (uint32_t)rtc_get_ticks();
+  return (uint32_t)t5ai_rtc_get_ticks();
 }
 
 static uint32_t prv_cpu(void) {
   pbl_irq_lock();
   struct pbl_thread *thread = pbl_thread_current();
-  uint32_t ticks = thread->backend.run_time + pbl_uptime_ticks() - thread->backend.switched_in_at;
+  uint32_t ticks = thread->backend.run_time;
   pbl_irq_unlock();
   return ticks;
 }
@@ -101,17 +102,16 @@ static bool prv_filter(void *key, size_t key_len, void *value, size_t value_len,
   return keep;
 }
 
-status_t __real_settings_file_rewrite_filtered(SettingsFile *, SettingsFileRewriteFilterCallback,
-                                               void *);
-status_t __wrap_settings_file_rewrite_filtered(SettingsFile *file,
-                                               SettingsFileRewriteFilterCallback filter,
-                                               void *context) {
+status_t __real_pbl_settings_rewrite_filtered(struct pbl_settings_file *, pbl_settings_filter_cb_t,
+                                              void *);
+status_t __wrap_pbl_settings_rewrite_filtered(struct pbl_settings_file *file,
+                                              pbl_settings_filter_cb_t filter, void *context) {
   if (!prv_owner() || s_profile.recording || s_profile.complete ||
       strcmp(file->name, s_profile.name)) {
-    return __real_settings_file_rewrite_filtered(file, filter, context);
+    return __real_pbl_settings_rewrite_filtered(file, filter, context);
   }
   s_profile.recording = true;
-  s_profile.old_fd = file->iter.fd;
+  s_profile.old_file = &file->iter.file;
   s_profile.filter = filter;
   s_profile.context = context;
   s_profile.since = prv_wall();
@@ -119,12 +119,12 @@ status_t __wrap_settings_file_rewrite_filtered(SettingsFile *file,
   uint32_t kernel_start = pbl_uptime_ticks();
   s_profile.cpu_since = prv_cpu();
   s_profile.owner = pbl_thread_current();
-  status_t result = __real_settings_file_rewrite_filtered(file, prv_filter, NULL);
+  status_t result = __real_pbl_settings_rewrite_filtered(file, prv_filter, NULL);
   prv_phase(s_profile.phase);
   s_profile.recording = false;
   s_profile.complete = true;
   s_profile.result = result;
-  s_profile.wall_ms = (prv_wall() - wall_start) * (1000u / RTC_TICKS_HZ);
+  s_profile.wall_ms = (prv_wall() - wall_start) * (1000u / 1000u);
   s_profile.kernel_ms = pbl_ticks_to_ms(pbl_uptime_ticks() - kernel_start);
   return result;
 }
@@ -143,15 +143,13 @@ static void prv_dump(void) {
   for (unsigned i = 0; i < PHASE_COUNT; i++) {
     Phase *p = &s_profile.phases[i];
     PBL_LOG_DBG("T5DB phase=%u wall=%lu cpu=%lu R=%lu/%lu/%lu", i,
-                (unsigned long)(p->ticks * (1000u / RTC_TICKS_HZ)),
-                (unsigned long)pbl_ticks_to_ms(p->cpu), (unsigned long)p->ops[READ].calls,
-                (unsigned long)p->ops[READ].bytes,
-                (unsigned long)(p->ops[READ].ticks * (1000u / RTC_TICKS_HZ)));
-    PBL_LOG_DBG("T5DB phase=%u W=%lu/%lu/%lu E=%lu/%lu", i, (unsigned long)p->ops[WRITE].calls,
-                (unsigned long)p->ops[WRITE].bytes,
-                (unsigned long)(p->ops[WRITE].ticks * (1000u / RTC_TICKS_HZ)),
-                (unsigned long)p->ops[ERASE].calls,
-                (unsigned long)(p->ops[ERASE].ticks * (1000u / RTC_TICKS_HZ)));
+                (unsigned long)(p->ticks * (1000u / 1000u)), (unsigned long)pbl_ticks_to_ms(p->cpu),
+                (unsigned long)p->ops[READ].calls, (unsigned long)p->ops[READ].bytes,
+                (unsigned long)(p->ops[READ].ticks * (1000u / 1000u)));
+    PBL_LOG_DBG(
+        "T5DB phase=%u W=%lu/%lu/%lu E=%lu/%lu", i, (unsigned long)p->ops[WRITE].calls,
+        (unsigned long)p->ops[WRITE].bytes, (unsigned long)(p->ops[WRITE].ticks * (1000u / 1000u)),
+        (unsigned long)p->ops[ERASE].calls, (unsigned long)(p->ops[ERASE].ticks * (1000u / 1000u)));
     PBL_LOG_DBG("T5DB phase=%u write_lock=%lu driver=%lu analytics=%lu unlock=%lu mutex_wait=%lu",
                 i, (unsigned long)p->write_wait, (unsigned long)p->driver_write,
                 (unsigned long)p->analytics, (unsigned long)p->flash_unlock,
@@ -163,25 +161,21 @@ static void prv_dump(void) {
               (unsigned long)s_profile.max_unlock);
 }
 
-int __real_pfs_open(const char *, uint8_t, uint8_t, size_t);
-int __wrap_pfs_open(const char *name, uint8_t flags, uint8_t type, size_t size) {
+int __real_pbl_fs_open(struct pbl_fs_file *, const char *, uint32_t);
+int __wrap_pbl_fs_open(struct pbl_fs_file *file, const char *name, uint32_t flags) {
   bool active = prv_active();
-  if (active) {
-    prv_phase((flags & OP_FLAG_OVERWRITE) ? CREATE : REOPEN);
-  }
-  int result = __real_pfs_open(name, flags, type, size);
-  if (active && (flags & OP_FLAG_OVERWRITE)) {
+  if (active)
+    prv_phase((flags & PBL_FS_O_REPLACE) ? CREATE : REOPEN);
+  int result = __real_pbl_fs_open(file, name, flags);
+  if (active && (flags & PBL_FS_O_REPLACE))
     prv_phase(COPY);
-  }
   return result;
 }
-
-status_t __real_pfs_close(int);
-status_t __wrap_pfs_close(int fd) {
-  if (prv_active()) {
-    prv_phase(fd == s_profile.old_fd ? CLOSE_OLD : COMMIT);
-  }
-  return __real_pfs_close(fd);
+int __real_pbl_fs_close(struct pbl_fs_file *);
+int __wrap_pbl_fs_close(struct pbl_fs_file *file) {
+  if (prv_active())
+    prv_phase(file == s_profile.old_file ? CLOSE_OLD : COMMIT);
+  return __real_pbl_fs_close(file);
 }
 
 static void prv_record(unsigned operation, uint32_t bytes, uint32_t since) {
@@ -191,39 +185,44 @@ static void prv_record(unsigned operation, uint32_t bytes, uint32_t since) {
   op->ticks += prv_wall() - since;
 }
 
-void __real_flash_read_bytes(uint8_t *, uint32_t, uint32_t);
-void __wrap_flash_read_bytes(uint8_t *buffer, uint32_t address, uint32_t size) {
+int __real_pbl_flash_read(const struct pbl_flash *, uint32_t, void *, size_t);
+int __wrap_pbl_flash_read(const struct pbl_flash *flash, uint32_t address, void *buffer,
+                          size_t size) {
   bool active = prv_active();
   uint32_t since = active ? prv_wall() : 0;
   if (active)
     s_profile.in_read = true;
-  __real_flash_read_bytes(buffer, address, size);
+  int result = __real_pbl_flash_read(flash, address, buffer, size);
   if (active)
     s_profile.in_read = false;
   if (active)
     prv_record(READ, size, since);
+  return result;
 }
 
-void __real_flash_write_bytes(const uint8_t *, uint32_t, uint32_t);
-void __wrap_flash_write_bytes(const uint8_t *buffer, uint32_t address, uint32_t size) {
+int __real_pbl_flash_write(const struct pbl_flash *, uint32_t, const void *, size_t);
+int __wrap_pbl_flash_write(const struct pbl_flash *flash, uint32_t address, const void *buffer,
+                           size_t size) {
   bool active = prv_active();
   uint32_t since = active ? prv_wall() : 0;
   if (active)
     s_profile.in_write = true;
-  __real_flash_write_bytes(buffer, address, size);
+  int result = __real_pbl_flash_write(flash, address, buffer, size);
   if (active)
     s_profile.in_write = false;
   if (active)
     prv_record(WRITE, size, since);
+  return result;
 }
 
-void __real_flash_erase_sector_blocking(uint32_t);
-void __wrap_flash_erase_sector_blocking(uint32_t address) {
+int __real_pbl_flash_erase(const struct pbl_flash *, uint32_t, size_t);
+int __wrap_pbl_flash_erase(const struct pbl_flash *flash, uint32_t address, size_t size) {
   bool active = prv_active();
   uint32_t since = active ? prv_wall() : 0;
-  __real_flash_erase_sector_blocking(address);
+  int result = __real_pbl_flash_erase(flash, address, size);
   if (active)
-    prv_record(ERASE, 0, since);
+    prv_record(ERASE, size, since);
+  return result;
 }
 
 int __real_pbl_mutex_lock_lr(struct pbl_mutex *, pbl_timeout_t, uintptr_t);

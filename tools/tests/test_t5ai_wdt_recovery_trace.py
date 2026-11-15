@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Exercise actual recovery wrapper delegation and priority snapshots."""
+
 from pathlib import Path
 import subprocess
 import tempfile
@@ -9,7 +10,12 @@ import unittest
 from tools.tests.test_t5ai_bg_pick_trace import STUB as BASE_STUB
 
 ROOT = Path(__file__).resolve().parents[2]
-STUB = BASE_STUB.replace("uint32_t state,run_time,switched_in_at;", "uint32_t state,run_time,switched_in_at,base_prio,mutexes_held;void *waitq;") + r"""
+STUB = (
+    BASE_STUB.replace(
+        "uint32_t state,run_time,switched_in_at;",
+        "uint32_t state,run_time,switched_in_at,base_prio,mutexes_held;void *waitq;",
+    )
+    + r"""
 typedef uint32_t pbl_tick_t;
 typedef void *(*pbl_task_wdt_callback_t)(int,void*);
 typedef int status_t;
@@ -21,6 +27,7 @@ void t5ai_flash_phase_trace_begin(void);
 void t5ai_flash_phase_trace_end(void);
 #define PBL_LOG_SYNC_WRN log_snapshot
 """
+)
 HARNESS = r"""
 #include <assert.h>
 #include <string.h>
@@ -82,17 +89,36 @@ class RecoveryTraceTest(unittest.TestCase):
     def test_delegation_and_snapshots(self):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
-            for header in ("pbl/kernel/irq.h", "pbl/kernel/time.h", "pbl/kernel/sched.h", "pbl/kernel/thread.h", "pbl/logging/logging.h",
-                           "pbl/services/system_task.h", "pbl/task_wdt/task_wdt.h", "pbl/soc/t5ai/flash_ipc.h", "pbl/soc/t5ai/io_trace.h"):
+            for header in (
+                "pbl/kernel/irq.h",
+                "pbl/kernel/time.h",
+                "pbl/kernel/sched.h",
+                "pbl/kernel/thread.h",
+                "pbl/logging/logging.h",
+                "pbl/kernel/work.h",
+                "pbl/task_wdt/task_wdt.h",
+                "pbl/soc/t5ai/flash_ipc.h",
+                "pbl/soc/t5ai/io_trace.h",
+            ):
                 path = directory / header
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text('#include "stub.h"\n')
-            (directory / "stub.h").write_text('#pragma once\n' + STUB)
+            (directory / "stub.h").write_text("#pragma once\n" + STUB)
             (directory / "test.c").write_text(HARNESS)
             exe = directory / "test"
-            subprocess.run(["cc", "-std=c11", "-I" + str(directory),
-                            '-DSOURCE="' + str(ROOT / "soc/t5ai/wdt_recovery_trace.c") + '"',
-                            str(directory / "test.c"), "-o", str(exe)], check=True, capture_output=True)
+            subprocess.run(
+                [
+                    "cc",
+                    "-std=c11",
+                    "-I" + str(directory),
+                    '-DSOURCE="' + str(ROOT / "soc/t5ai/wdt_recovery_trace.c") + '"',
+                    str(directory / "test.c"),
+                    "-o",
+                    str(exe),
+                ],
+                check=True,
+                capture_output=True,
+            )
             subprocess.run([str(exe)], check=True)
 
 

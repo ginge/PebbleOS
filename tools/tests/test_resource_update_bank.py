@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Exercise raw resource transfer rejection before any flash or allocation side effects."""
+
 import subprocess
 import tempfile
 import unittest
@@ -30,8 +31,8 @@ typedef struct { uint32_t words[4]; } FirmwareDescription;
 #define PBL_BT_MIN_LATENCY_MODE_TIMEOUT_PUT_BYTES_SECS 30
 #define MIN(a,b) ((a)<(b)?(a):(b))
 const SystemResourceBank *resource_storage_flash_get_unused_bank(void);
-void *kernel_zalloc(size_t);
-void kernel_free(void *);
+void *pbl_zalloc(size_t);
+void pbl_free(void *);
 void flash_read_bytes(void *, uint32_t, size_t);
 void flash_write_bytes(const void *, uint32_t, size_t);
 uint32_t flash_crc32_legacy(uint32_t,uint32_t);
@@ -50,8 +51,8 @@ static const SystemResourceBank bank={0x4000,0x5000};
 static bool available;
 static unsigned allocations, reads, writes, erases, responsiveness;
 const SystemResourceBank *resource_storage_flash_get_unused_bank(void) {return available?&bank:NULL;}
-void *kernel_zalloc(size_t n) {++allocations;return calloc(1,n);}
-void kernel_free(void *p) {free(p);}
+void *pbl_zalloc(size_t n) {++allocations;return calloc(1,n);}
+void pbl_free(void *p) {free(p);}
 void flash_read_bytes(void *p,uint32_t a,size_t n) {(void)a;++reads;memset(p,0xff,n);}
 void flash_write_bytes(const void *p,uint32_t a,size_t n) {(void)p;(void)a;(void)n;++writes;}
 uint32_t flash_crc32_legacy(uint32_t a,uint32_t n) {(void)a;(void)n;return 0;}
@@ -88,11 +89,17 @@ int main(void) {
 
 class ResourceUpdateBankTest(unittest.TestCase):
     def test_raw_transfer_rejects_missing_bank(self):
-        headers = ("pbl/bluetooth/responsiveness.h", "pbl/drivers/flash.h",
-                   "pbl/services/comm_session/session.h",
-                   "pbl/services/put_bytes/put_bytes_storage_raw.h", "pbl/util/math.h",
-                   "flash_region/flash_region.h", "kernel/pbl_malloc.h",
-                   "resource/resource_storage_flash.h", "system/firmware_storage.h")
+        headers = (
+            "pbl/bluetooth/responsiveness.h",
+            "pbl/drivers/flash.h",
+            "pbl/services/comm_session/session.h",
+            "pbl/services/put_bytes/put_bytes_storage_raw.h",
+            "pbl/util/math.h",
+            "flash_region/flash_region.h",
+            "pbl/kernel/malloc.h",
+            "resource/resource_storage_flash.h",
+            "system/firmware_storage.h",
+        )
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / "stub.h").write_text(STUB)
@@ -102,9 +109,21 @@ class ResourceUpdateBankTest(unittest.TestCase):
                 path.write_text('#include "stub.h"\n')
             (root / "test.c").write_text(HARNESS)
             binary = root / "test"
-            subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                            "-Wno-unused-parameter", "-I", str(root),
-                            str(root / "test.c"),
-                            str(ROOT / "fw/services/put_bytes/put_bytes_storage_raw.c"),
-                            "-o", str(binary)], check=True)
+            subprocess.run(
+                [
+                    "cc",
+                    "-std=c11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-Wno-unused-parameter",
+                    "-I",
+                    str(root),
+                    str(root / "test.c"),
+                    str(ROOT / "pebble/services/put_bytes/put_bytes_storage_raw.c"),
+                    "-o",
+                    str(binary),
+                ],
+                check=True,
+            )
             subprocess.run([str(binary)], check=True)

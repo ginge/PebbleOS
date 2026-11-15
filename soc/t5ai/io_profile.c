@@ -56,7 +56,7 @@ static bool s_cpu_started, s_cpu_finished;
 static uint32_t prv_runtime(struct pbl_thread *thread, uint32_t now) {
   if (!thread)
     return 0u;
-  return thread->backend.run_time + (thread == pbl_cur ? now - thread->backend.switched_in_at : 0u);
+  return thread->backend.run_time;
 }
 static CpuSample prv_cpu_snapshot(void) {
   const uint32_t now = (uint32_t)pbl_uptime_ticks();

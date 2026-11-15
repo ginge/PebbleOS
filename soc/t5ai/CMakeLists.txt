@@ -21,7 +21,8 @@ pbl_library_sources_ifdef(CONFIG_T5AI_REBOOT_TRACE reboot_trace.c)
 pbl_linker_sources(footer linker.ld)
 pbl_linker_sources(memory psram-memory.ld)
 pbl_linker_sources(ram-sections retained.ld framebuffer.ld)
-pbl_include_directories(.)
+pbl_include_directories(. compat)
+pbl_library_sources(${PBL_BASE}/boards/unhygienix/unhygienix_standby.c)
 include(${PBL_BASE}/boards/unhygienix/firmware.cmake)
 
 # Assembly entry points must remain visible through LTO.
@@ -35,8 +36,8 @@ endif()
 
 if(CONFIG_T5AI_REMINDER_PROFILE)
   pbl_library_sources(reminder_profile.c)
-  foreach(symbol settings_file_rewrite_filtered pfs_open pfs_close flash_read_bytes
-                 flash_write_bytes flash_erase_sector_blocking pbl_mutex_lock_lr
+  foreach(symbol pbl_settings_rewrite_filtered pbl_fs_open pbl_fs_close pbl_flash_read
+                 pbl_flash_write pbl_flash_erase pbl_mutex_lock_lr
                  flash_impl_write_page_begin sys_pbl_analytics_add pbl_mutex_unlock
                  timeline_item_storage_flush)
     pbl_link_options(-Wl,--wrap=${symbol})
@@ -46,13 +47,12 @@ if(CONFIG_T5AI_REMINDER_PROFILE)
     set_property(SOURCE ${PBL_BASE}/kernel/mutex.c
       DIRECTORY ${PBL_BASE}/kernel APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
     foreach(pair
-        "fw/services/blob_db|timeline_item_storage.c"
-        "fw/services/settings|settings_file.c"
-        "fw/services/settings|settings_raw_iter.c"
-        "fw/services/filesystem|pfs.c"
-        "fw/services/filesystem|flash_translation.c"
-        "drivers/flash|flash_api.c"
-        "drivers/flash|flash_erase.c")
+        "pebble/services/blob_db|timeline_item_storage.c"
+        "subsys/settings|settings.c"
+        "subsys/settings|raw_iter.c"
+        "subsys/fs|pfs/pfs.c"
+        "subsys/fs|pfs/flash_translation.c"
+        "drivers/flash|flash.c")
       string(REPLACE "|" ";" parts "${pair}")
       list(GET parts 0 directory)
       list(GET parts 1 source)
@@ -60,7 +60,7 @@ if(CONFIG_T5AI_REMINDER_PROFILE)
         DIRECTORY ${PBL_BASE}/${directory} APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
     endforeach()
   endfunction()
-  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_reminder_profile_call_boundaries)
+  cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_reminder_profile_call_boundaries)
 endif()
 
 if(CONFIG_T5AI_INTERRUPT_PROFILE)
@@ -76,23 +76,21 @@ if(CONFIG_T5AI_INTERRUPT_PROFILE)
         DIRECTORY ${PBL_BASE}/kernel APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
     endforeach()
   endfunction()
-  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_interrupt_profile_call_boundaries)
+  cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_interrupt_profile_call_boundaries)
 endif()
 
 if(CONFIG_T5AI_HEAP_TRACE)
   pbl_library_sources(heap_trace.c)
-  foreach(symbol heap_malloc heap_zalloc heap_calloc heap_realloc heap_free pbl_malloc_oom)
+  foreach(symbol pbl_heap_alloc pbl_heap_zalloc pbl_heap_calloc pbl_heap_realloc pbl_heap_free pbl_heap_oom)
     pbl_link_options(-Wl,--wrap=${symbol})
   endforeach()
   function(t5ai_heap_trace_call_boundaries)
-    set_property(SOURCE ${PBL_BASE}/lib/util/heap.c
-      DIRECTORY ${PBL_BASE}/lib/util APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
-    foreach(source pbl_malloc.c kernel_heap.c)
-      set_property(SOURCE ${PBL_BASE}/fw/kernel/${source}
-        DIRECTORY ${PBL_BASE}/fw/kernel APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+    foreach(source heap.c malloc.c)
+      set_property(SOURCE ${PBL_BASE}/kernel/${source}
+        DIRECTORY ${PBL_BASE}/kernel APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
     endforeach()
   endfunction()
-  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_heap_trace_call_boundaries)
+  cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_heap_trace_call_boundaries)
 endif()
 
 if(CONFIG_T5AI_FAULT_TRACE OR CONFIG_T5AI_RETAINED_SLEEP_TEST)
@@ -104,29 +102,27 @@ endif()
 if(CONFIG_T5AI_FAULT_TRACE)
   function(t5ai_fault_trace_call_boundaries)
     # Vector weak aliases are defined locally and cannot be intercepted by --wrap.
-    set_property(SOURCE ${PBL_BASE}/fw/hardfault_handler.c
+    set_property(SOURCE ${PBL_BASE}/pebble/hardfault_handler.c
       DIRECTORY ${PBL_BASE}/fw APPEND PROPERTY COMPILE_DEFINITIONS
       HardFault_Handler=t5ai_stock_HardFault_Handler)
     set_property(SOURCE ${PBL_BASE}/kernel/arch/arm/vector_table.c
       DIRECTORY ${PBL_BASE}/kernel APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
   endfunction()
-  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_fault_trace_call_boundaries)
+  cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_fault_trace_call_boundaries)
 endif()
 
 if(CONFIG_T5AI_BG_PICK_TRACE)
   pbl_library_sources(bg_pick_trace.c)
   set_property(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/bg_pick_trace.c
     APPEND PROPERTY COMPILE_OPTIONS -mgeneral-regs-only -fno-lto)
-  pbl_link_options(-Wl,--wrap=sched_switch_in -Wl,--wrap=system_task_timer_init)
+  pbl_link_options(-Wl,--wrap=sched_switch_in )
   function(t5ai_bg_pick_trace_call_boundaries)
     foreach(source sched.c arch/arm/arch.c)
       set_property(SOURCE ${PBL_BASE}/kernel/${source} DIRECTORY ${PBL_BASE}/kernel
         APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
     endforeach()
-    set_property(SOURCE ${PBL_BASE}/fw/services/system_task/service.c
-      DIRECTORY ${PBL_BASE}/fw/services/system_task APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
   endfunction()
-  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_bg_pick_trace_call_boundaries)
+  cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_bg_pick_trace_call_boundaries)
 endif()
 
 if(CONFIG_T5AI_WDT_RECOVERY_TRACE)
@@ -148,26 +144,26 @@ if(CONFIG_T5AI_WDT_RECOVERY_TRACE)
   function(t5ai_wdt_recovery_trace_call_boundaries)
     set_property(SOURCE ${PBL_BASE}/kernel/mutex.c DIRECTORY ${PBL_BASE}/kernel
       APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
-    foreach(pair "fw/services/filesystem|pfs.c" "drivers/flash|flash_api.c"
-                 "drivers/flash|flash_erase.c")
+    foreach(pair "subsys/fs|pfs/pfs.c" "drivers/flash|flash.c"
+                 "drivers/flash|flash.c")
       string(REPLACE "|" ";" parts "${pair}")
       list(GET parts 0 directory)
       list(GET parts 1 source)
       set_property(SOURCE ${PBL_BASE}/${directory}/${source} DIRECTORY ${PBL_BASE}/${directory}
         APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
     endforeach()
-    foreach(source settings_file.c settings_raw_iter.c)
-      set_property(SOURCE ${PBL_BASE}/fw/services/settings/${source}
-        DIRECTORY ${PBL_BASE}/fw/services/settings APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+    foreach(source settings.c raw_iter.c)
+      set_property(SOURCE ${PBL_BASE}/subsys/settings/${source}
+        DIRECTORY ${PBL_BASE}/subsys/settings APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
     endforeach()
     set_property(SOURCE ${PBL_BASE}/subsys/task_wdt/task_wdt.c
       DIRECTORY ${PBL_BASE}/subsys/task_wdt APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
-    set_property(SOURCE ${PBL_BASE}/fw/services/blob_db/settings_blob_db.c
-      DIRECTORY ${PBL_BASE}/fw/services/blob_db APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
-    set_property(SOURCE ${PBL_BASE}/fw/services/blob_db/endpoint2.c
-      DIRECTORY ${PBL_BASE}/fw/services/blob_db APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+    set_property(SOURCE ${PBL_BASE}/pebble/services/blob_db/settings_blob_db.c
+      DIRECTORY ${PBL_BASE}/pebble/services/blob_db APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+    set_property(SOURCE ${PBL_BASE}/pebble/services/blob_db/endpoint2.c
+      DIRECTORY ${PBL_BASE}/pebble/services/blob_db APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
   endfunction()
-  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_wdt_recovery_trace_call_boundaries)
+  cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_wdt_recovery_trace_call_boundaries)
 endif()
 
 if(CONFIG_T5AI_WDT_CAUSE_TRACE)
@@ -181,16 +177,16 @@ if(CONFIG_T5AI_WDT_CAUSE_TRACE)
   function(t5ai_wdt_cause_trace_call_boundaries)
     set_property(SOURCE ${PBL_BASE}/subsys/task_wdt/task_wdt.c
       DIRECTORY ${PBL_BASE}/subsys/task_wdt APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
-    set_property(SOURCE ${PBL_BASE}/fw/services/settings/settings_file.c
-      DIRECTORY ${PBL_BASE}/fw/services/settings APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+    set_property(SOURCE ${PBL_BASE}/subsys/settings/settings.c
+      DIRECTORY ${PBL_BASE}/subsys/settings APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
   endfunction()
-  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_wdt_cause_trace_call_boundaries)
+  cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_wdt_cause_trace_call_boundaries)
 endif()
 
 if(CONFIG_T5AI_BG_TRACE)
   pbl_library_sources(bg_trace.c)
   foreach(symbol sched_block pbl_mutex_lock_lr pbl_mutex_unlock
-                 system_task_timer_init)
+                )
     pbl_link_options(-Wl,--wrap=${symbol})
   endforeach()
   function(t5ai_bg_trace_call_boundaries)
@@ -214,10 +210,8 @@ if(CONFIG_T5AI_BG_TRACE)
       set_property(SOURCE ${PBL_BASE}/kernel/${source} DIRECTORY ${PBL_BASE}/kernel
         APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
     endforeach()
-    set_property(SOURCE ${PBL_BASE}/fw/services/system_task/service.c
-      DIRECTORY ${PBL_BASE}/fw/services/system_task APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
   endfunction()
-  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_bg_trace_call_boundaries)
+  cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_bg_trace_call_boundaries)
 endif()
 
 if(CONFIG_T5AI_APP_TRACE)
@@ -228,10 +222,10 @@ if(CONFIG_T5AI_APP_TRACE)
     APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
   pbl_link_options(-Wl,--wrap=pbl_msgq_get)
   function(t5ai_app_trace_call_boundaries)
-    set_property(SOURCE ${PBL_BASE}/fw/process_management/process_manager.c
-      DIRECTORY ${PBL_BASE}/fw/process_management APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+    set_property(SOURCE ${PBL_BASE}/pebble/process_management/process_manager.c
+      DIRECTORY ${PBL_BASE}/pebble/process_management APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
   endfunction()
-  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_app_trace_call_boundaries)
+  cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_app_trace_call_boundaries)
 endif()
 
 if(CONFIG_T5AI_SDK_COMPAT_CACHE)
@@ -242,47 +236,45 @@ if(CONFIG_T5AI_SDK_COMPAT_CACHE)
     pbl_link_options(-Wl,--wrap=${symbol})
   endforeach()
   function(t5ai_sdk_compat_call_boundaries)
-    set_property(SOURCE ${PBL_BASE}/fw/process_management/process_manager.c
-      DIRECTORY ${PBL_BASE}/fw/process_management APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+    set_property(SOURCE ${PBL_BASE}/pebble/process_management/process_manager.c
+      DIRECTORY ${PBL_BASE}/pebble/process_management APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
   endfunction()
-  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_sdk_compat_call_boundaries)
+  cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_sdk_compat_call_boundaries)
 endif()
 
 if(CONFIG_T5AI_PIXEL_FAST_PATH)
   pbl_library_sources(pixel_fast.c)
   function(t5ai_pixel_fast_call_boundaries)
     # Rename the stock definition without disabling LTO in the graphics library.
-    set_property(SOURCE ${PBL_BASE}/fw/applib/graphics/graphics_private.c
-      DIRECTORY ${PBL_BASE}/fw/applib APPEND PROPERTY COMPILE_DEFINITIONS
+    set_property(SOURCE ${PBL_BASE}/pebble/applib/graphics/graphics_private.c
+      DIRECTORY ${PBL_BASE}/pebble/applib APPEND PROPERTY COMPILE_DEFINITIONS
       graphics_private_plot_pixel=t5ai_stock_graphics_private_plot_pixel)
   endfunction()
-  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_pixel_fast_call_boundaries)
+  cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_pixel_fast_call_boundaries)
 endif()
 
 if(CONFIG_T5AI_TASK_CPU_METRICS)
   pbl_library_sources(task_cpu_metrics.c)
-  pbl_link_options(-Wl,--wrap=system_task_timer_init)
+
   function(t5ai_task_cpu_metrics_call_boundaries)
-    set_property(SOURCE ${PBL_BASE}/fw/services/system_task/service.c
-      DIRECTORY ${PBL_BASE}/fw/services/system_task APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
   endfunction()
-  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_task_cpu_metrics_call_boundaries)
+  cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_task_cpu_metrics_call_boundaries)
 endif()
 
 if(CONFIG_T5AI_DRAW_PROFILE)
   pbl_library_sources(draw_profile.c)
-  foreach(symbol system_task_timer_init window_render graphics_draw_text pbl_mutex_lock_lr SysTick_Handler sched_block)
+  foreach(symbol window_render graphics_draw_text pbl_mutex_lock_lr SysTick_Handler sched_block)
     pbl_link_options(-Wl,--wrap=${symbol})
   endforeach()
   function(t5ai_draw_profile_boundaries)
     foreach(pair
-        "fw/applib|ui/window.c"
-        "fw/applib|graphics/text_layout.c"
+        "pebble/applib|ui/window.c"
+        "pebble/applib|graphics/text_layout.c"
         "kernel|mutex.c"
         "kernel|sched.c"
         "kernel|arch/arm/vector_table.c"
         "soc/t5ai|tick.c"
-        "fw/services/system_task|service.c")
+)
       string(REPLACE "|" ";" parts "${pair}")
       list(GET parts 0 directory)
       list(GET parts 1 source)
@@ -291,9 +283,9 @@ if(CONFIG_T5AI_DRAW_PROFILE)
     endforeach()
     if(CONFIG_T5AI_DRAW_PROFILE_DETAIL)
     foreach(pair
-        "fw/applib|ui/menu_layer.c"
-        "fw/apps/system|launcher/default/app_glance_structured.c"
-        "fw/apps/system|timeline/text_node.c")
+        "pebble/applib|ui/menu_layer.c"
+        "pebble/apps/system|launcher/default/app_glance_structured.c"
+        "pebble/apps/system|timeline/text_node.c")
       string(REPLACE "|" ";" parts "${pair}")
       list(GET parts 0 directory)
       list(GET parts 1 source)
@@ -303,7 +295,7 @@ if(CONFIG_T5AI_DRAW_PROFILE)
     endforeach()
     endif()
   endfunction()
-  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_draw_profile_boundaries)
+  cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_draw_profile_boundaries)
 endif()
 
 if(CONFIG_T5AI_TOUCH_QUEUE_COALESCE)
@@ -312,43 +304,43 @@ if(CONFIG_T5AI_TOUCH_QUEUE_COALESCE)
     pbl_link_options(-Wl,--wrap=${symbol})
   endforeach()
   function(t5ai_touch_queue_boundaries)
-    set_property(SOURCE ${PBL_BASE}/fw/kernel/events.c
-      DIRECTORY ${PBL_BASE}/fw/kernel APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+    set_property(SOURCE ${PBL_BASE}/pebble/kernel/events.c
+      DIRECTORY ${PBL_BASE}/pebble/kernel APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
     set_property(SOURCE ${PBL_BASE}/kernel/msgq.c
       DIRECTORY ${PBL_BASE}/kernel APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
-    set_property(SOURCE ${PBL_BASE}/fw/applib/ui/recognizer/recognizer_manager.c
-      DIRECTORY ${PBL_BASE}/fw/applib APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
-    set_property(SOURCE ${PBL_BASE}/fw/applib/ui/recognizer/pan.c
-      DIRECTORY ${PBL_BASE}/fw/applib APPEND PROPERTY COMPILE_DEFINITIONS
+    set_property(SOURCE ${PBL_BASE}/pebble/applib/ui/recognizer/recognizer_manager.c
+      DIRECTORY ${PBL_BASE}/pebble/applib APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+    set_property(SOURCE ${PBL_BASE}/pebble/applib/ui/recognizer/pan.c
+      DIRECTORY ${PBL_BASE}/pebble/applib APPEND PROPERTY COMPILE_DEFINITIONS
       sys_get_ticks=t5ai_touch_sample_ticks)
   endfunction()
-  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_touch_queue_boundaries)
+  cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_touch_queue_boundaries)
 endif()
 
 if(CONFIG_T5AI_COMPOSITOR_FAST_PATH)
   pbl_library_sources(compositor_fast.c)
   function(t5ai_compositor_fast_boundaries)
-    set_property(SOURCE ${PBL_BASE}/fw/applib/graphics/8_bit/bitblt_private.c
-      DIRECTORY ${PBL_BASE}/fw/applib APPEND PROPERTY COMPILE_DEFINITIONS
+    set_property(SOURCE ${PBL_BASE}/pebble/applib/graphics/8_bit/bitblt_private.c
+      DIRECTORY ${PBL_BASE}/pebble/applib APPEND PROPERTY COMPILE_DEFINITIONS
       bitblt_bitmap_into_bitmap_tiled=t5ai_stock_bitblt_bitmap_into_bitmap_tiled)
-    set_property(SOURCE ${PBL_BASE}/fw/services/compositor/compositor.c
-      DIRECTORY ${PBL_BASE}/fw/services/compositor APPEND PROPERTY COMPILE_DEFINITIONS
+    set_property(SOURCE ${PBL_BASE}/pebble/services/compositor/compositor.c
+      DIRECTORY ${PBL_BASE}/pebble/services/compositor APPEND PROPERTY COMPILE_DEFINITIONS
       memset=t5ai_compositor_memset)
   endfunction()
-  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_compositor_fast_boundaries)
+  cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_compositor_fast_boundaries)
 endif()
 
 if(CONFIG_T5AI_TEXT_NODE_CACHE)
   pbl_library_sources(text_node_cache.c)
   function(t5ai_text_node_cache_boundaries)
-    set_property(SOURCE ${PBL_BASE}/fw/apps/system/timeline/text_node.c
-      DIRECTORY ${PBL_BASE}/fw/apps/system APPEND PROPERTY COMPILE_DEFINITIONS
+    set_property(SOURCE ${PBL_BASE}/pebble/apps/system/timeline/text_node.c
+      DIRECTORY ${PBL_BASE}/pebble/apps/system APPEND PROPERTY COMPILE_DEFINITIONS
       graphics_text_layout_get_max_used_size=t5ai_text_node_cached_size)
-    set_property(SOURCE ${PBL_BASE}/fw/applib/ui/window.c
-      DIRECTORY ${PBL_BASE}/fw/applib APPEND PROPERTY COMPILE_DEFINITIONS
+    set_property(SOURCE ${PBL_BASE}/pebble/applib/ui/window.c
+      DIRECTORY ${PBL_BASE}/pebble/applib APPEND PROPERTY COMPILE_DEFINITIONS
       window_render=t5ai_cache_stock_window_render)
   endfunction()
-  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_text_node_cache_boundaries)
+  cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_text_node_cache_boundaries)
 endif()
 
 if(CONFIG_T5AI_IO_PROFILE)
@@ -360,11 +352,10 @@ if(CONFIG_T5AI_SD_PFS)
   pbl_library_sources(sd_pfs.c)
   # GNU --wrap needs unresolved calls at link time, including with release LTO.
   function(t5ai_sd_pfs_call_boundaries)
-    set_property(SOURCE ${PBL_BASE}/fw/services/filesystem/pfs.c
-      DIRECTORY ${PBL_BASE}/fw/services/filesystem APPEND PROPERTY COMPILE_DEFINITIONS
-      kernel_malloc_check=t5ai_sd_pfs_malloc_check kernel_free=t5ai_sd_pfs_free)
-    foreach(pair "fw/services/filesystem|pfs.c" "fw/services/filesystem|flash_translation.c"
-                 "fw/flash_region|filesystem_regions.c")
+    set_property(SOURCE ${PBL_BASE}/subsys/fs/pfs/pfs.c
+      DIRECTORY ${PBL_BASE}/subsys/fs APPEND PROPERTY COMPILE_DEFINITIONS
+      pbl_malloc_check=t5ai_sd_pfs_malloc_check pbl_free=t5ai_sd_pfs_free)
+    foreach(pair "subsys/fs|pfs/pfs.c" "subsys/fs|pfs/flash_translation.c")
       string(REPLACE "|" ";" parts "${pair}")
       list(GET parts 0 directory)
       list(GET parts 1 source)
@@ -372,9 +363,9 @@ if(CONFIG_T5AI_SD_PFS)
         DIRECTORY ${PBL_BASE}/${directory} APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
     endforeach()
   endfunction()
-  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_sd_pfs_call_boundaries)
+  cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_sd_pfs_call_boundaries)
   foreach(symbol pfs_init ftl_read ftl_write ftl_erase_sector ftl_erase_subsector
-                 ftl_get_size ftl_format ftl_populate_region_list filesystem_regions_erase_all)
+                 ftl_get_size ftl_format ftl_populate_region_list)
     pbl_link_options(-Wl,--wrap=${symbol})
   endforeach()
 endif()
@@ -383,22 +374,11 @@ endif()
 # stock Pebble logging. Source renaming preserves this boundary with release LTO.
 pbl_library_sources(mailbox_logging.c)
 function(t5ai_mailbox_logging_boundary)
-  set_property(SOURCE ${PBL_BASE}/fw/kernel/kernel_applib_state.c
-    DIRECTORY ${PBL_BASE}/fw/kernel APPEND PROPERTY COMPILE_DEFINITIONS
+  set_property(SOURCE ${PBL_BASE}/pebble/kernel/kernel_applib_state.c
+    DIRECTORY ${PBL_BASE}/pebble/kernel APPEND PROPERTY COMPILE_DEFINITIONS
     kernel_applib_get_log_state=t5ai_stock_get_log_state)
 endfunction()
-cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_mailbox_logging_boundary)
-
-# Preserve generic ARM cache setup; provide T5AI DMA range maintenance locally.
-pbl_library_sources(cache.c)
-function(t5ai_dma_cache_range_functions)
-  set_property(SOURCE ${PBL_BASE}/kernel/arch/arm/cache.c
-    DIRECTORY ${PBL_BASE}/kernel APPEND PROPERTY COMPILE_DEFINITIONS
-    dcache_flush=t5ai_unused_dcache_flush
-    dcache_invalidate=t5ai_unused_dcache_invalidate
-    dcache_flush_invalidate=t5ai_unused_dcache_flush_invalidate)
-endfunction()
-cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_dma_cache_range_functions)
+cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_mailbox_logging_boundary)
 
 if(CONFIG_T5AI_RETAINED_SLEEP_DEADLINE_PROFILE_ONLY)
   pbl_library_sources(sleep_deadline_profile.c)
@@ -406,8 +386,30 @@ if(CONFIG_T5AI_RETAINED_SLEEP_DEADLINE_PROFILE_ONLY)
     pbl_link_options(-Wl,--wrap=${symbol})
   endforeach()
   function(t5ai_sleep_profile_call_boundaries)
-    set_property(SOURCE ${PBL_BASE}/fw/services/new_timer/new_timer.c
-      DIRECTORY ${PBL_BASE}/fw/services/new_timer APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+    set_property(SOURCE ${PBL_BASE}/pebble/services/new_timer/new_timer.c
+      DIRECTORY ${PBL_BASE}/pebble/services/new_timer APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
   endfunction()
-  cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL t5ai_sleep_profile_call_boundaries)
+  cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_sleep_profile_call_boundaries)
 endif()
+
+pbl_link_options(-Wl,--wrap=pbl_console_lock -Wl,--wrap=pbl_console_unlock)
+function(t5ai_console_call_boundaries)
+  set_property(SOURCE ${PBL_BASE}/subsys/console/console.c
+    DIRECTORY ${PBL_BASE}/subsys/console APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+  set_source_files_properties(${PBL_BASE}/subsys/logging/backends/flash_storage.c
+    DIRECTORY ${PBL_BASE}/subsys/logging PROPERTIES HEADER_FILE_ONLY TRUE)
+endfunction()
+cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_console_call_boundaries)
+pbl_library_sources(log_storage.c)
+
+pbl_library_sources(reset.c)
+
+# Idle rechecks the scheduler after queuing CP coordination work.
+target_include_directories(soc__t5ai PRIVATE ${PBL_BASE}/kernel ${PBL_BASE}/kernel/arch ${PBL_BASE}/subsys/fs/pfs)
+
+pbl_library_sources(process_regions.c)
+function(t5ai_process_regions_source)
+  set_source_files_properties(${PBL_BASE}/pebble/process_management/process_regions.c
+    DIRECTORY ${PBL_BASE}/pebble/process_management PROPERTIES HEADER_FILE_ONLY TRUE)
+endfunction()
+cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_process_regions_source)

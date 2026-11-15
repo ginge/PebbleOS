@@ -1,5 +1,6 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
+
 #include <inttypes.h>
 #include <stddef.h>
 #include <string.h>
@@ -71,7 +72,7 @@ static struct {
   bool running;
 } s_watchdog;
 void t5ai_reboot_trace_watchdog(bool running) {
-  uint32_t now = (uint32_t)(t5ai_rtc_get_raw_ticks() / (T5AI_AON_RTC_HZ / 1000u));
+  uint32_t now = (uint32_t)(t5ai_rtc_get_ticks());
   pbl_irq_lock();
   if (running) {
     uint32_t gap = now - s_watchdog.last_ms;
@@ -85,7 +86,7 @@ void t5ai_reboot_trace_watchdog(bool running) {
 }
 static void prv_watchdog_dump(void) {
   pbl_irq_lock();
-  uint32_t now = (uint32_t)(t5ai_rtc_get_raw_ticks() / (T5AI_AON_RTC_HZ / 1000u));
+  uint32_t now = (uint32_t)(t5ai_rtc_get_ticks());
   uint32_t count = s_watchdog.count, age = now - s_watchdog.last_ms;
   uint32_t max_gap = s_watchdog.max_gap;
   bool running = s_watchdog.running;
@@ -113,7 +114,7 @@ void t5ai_reboot_trace_event(T5RebootTraceEvent event, uint32_t value) {
   pbl_irq_lock();
   Record record = {
     .sequence = s_trace.next_sequence,
-    .rtc_ms = (uint32_t)(t5ai_rtc_get_raw_ticks() / (T5AI_AON_RTC_HZ / 1000u)),
+    .rtc_ms = (uint32_t)(t5ai_rtc_get_ticks()),
     .ticks = pbl_uptime_ticks(),
     .event = event,
     .value = value,
@@ -178,8 +179,7 @@ static void prv_entry(void *arg) {
       ++cursor;
     }
     PBL_LOG_DBG("T5REBOOT drain rtc_ms=%" PRIu32 " ticks=%" PRIu32 " next=%" PRIu32,
-                (uint32_t)(t5ai_rtc_get_raw_ticks() / (T5AI_AON_RTC_HZ / 1000u)),
-                (uint32_t)pbl_uptime_ticks(), cursor);
+                (uint32_t)(t5ai_rtc_get_ticks()), (uint32_t)pbl_uptime_ticks(), cursor);
     const uint32_t live = T5AI_TRACE_PMU_LIVE;
     const uint32_t boot = T5AI_TRACE_PMU_BOOT;
     if (live != last_live || boot != last_boot) {

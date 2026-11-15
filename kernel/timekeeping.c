@@ -1,0 +1,280 @@
+/* SPDX-FileCopyrightText: 2026 Core Devices LLC */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+#include "kernel.h"
+
+#include <pbl/drivers/timer.h>
+#include <pbl/kernel/idle.h>
+#include <pbl/util/math.h>
+
+#define FRAC_BITS 32U
+
+static const struct pbl_clocksource *s_cs;
+static const struct pbl_clockevent *s_ce;
+static uint64_t s_cs_mhz;
+static uint32_t s_ce_hz;
+static bool s_running;
+
+// Furthest a clock event may be programmed, in ticks.
+static uint64_t s_max_ticks;
+
+// Ticks per clock source cycle, in 32.32 fixed point.
+static uint64_t s_mult;
+
+// Last raw counter value, and the clock source time in ticks plus a 32-bit fraction.
+static uint32_t s_cs_last;
+static uint64_t s_cs_ticks;
+static uint32_t s_cs_frac;
+
+static uint64_t s_residency_us[PBL_IDLE_STATES_MAX];
+static bool s_idle_disabled;
+
+// Wall clock time minus uptime, in microseconds.
+static int64_t s_realtime_offset_us;
+
+// Read the counter again before it can wrap, and stay within the device limits.
+static void prv_limits_update(void) {
+  if (s_cs == nullptr || s_cs_mhz == 0U || s_ce_hz == 0U) {
+    return;
+  }
+  s_max_ticks = MIN(((uint64_t)(s_cs->mask / 2U) * PBL_TICK_HZ * 1000U) / s_cs_mhz,
+                    ((uint64_t)s_ce->max_delta * PBL_TICK_HZ) / s_ce_hz);
+}
+
+// Brings the clock source time up to date.
+static void prv_update(void) {
+  uint32_t raw = s_cs->ops->read(s_cs);
+  uint64_t acc = s_cs_frac + ((raw - s_cs_last) & s_cs->mask) * s_mult;
+
+  s_cs_last = raw;
+  s_cs_ticks += acc >> FRAC_BITS;
+  s_cs_frac = (uint32_t)acc;
+}
+
+// Clock source time in microseconds.
+static uint64_t prv_now_us(void) {
+  prv_update();
+
+  return (s_cs_ticks * 1000000U + (((uint64_t)s_cs_frac * 1000000U) >> FRAC_BITS)) / PBL_TICK_HZ;
+}
+
+// Uptime in microseconds, also before the clock source runs.
+static uint64_t prv_uptime_us(void) {
+  if (!s_running) {
+    return (sched_uptime_ticks() * 1000000U) / PBL_TICK_HZ;
+  }
+
+  return prv_now_us();
+}
+
+// Returns whether time moved on.
+static bool prv_announce(void) {
+  uint64_t announced = sched_uptime_ticks();
+
+  prv_update();
+  if (s_cs_ticks <= announced) {
+    return false;
+  }
+  sched_announce(s_cs_ticks - announced);
+  return true;
+}
+
+// Raise the next clock event at the start of tick @p ticks.
+static void prv_program(uint64_t ticks) {
+  uint64_t whole;
+  uint32_t frac;
+  uint64_t delta;
+
+  prv_update();
+  if (ticks <= s_cs_ticks) {
+    whole = 0U;
+    frac = 0U;
+  } else if (ticks - s_cs_ticks > s_max_ticks) {
+    whole = s_max_ticks;
+    frac = 0U;
+  } else {
+    // Ticks to go, minus the fraction of the current one already elapsed.
+    whole = ticks - s_cs_ticks;
+    frac = 0U;
+    if (s_cs_frac != 0U) {
+      whole--;
+      frac = (uint32_t)(-s_cs_frac);
+    }
+  }
+
+  delta = whole * s_ce_hz + (((uint64_t)frac * s_ce_hz + UINT32_MAX) >> FRAC_BITS);
+  delta = (delta + PBL_TICK_HZ - 1U) / PBL_TICK_HZ;
+  delta = CLIP(delta, s_ce->min_delta, s_ce->max_delta);
+
+  s_ce->ops->set_next(s_ce, (uint32_t)delta);
+}
+
+void pbl_clocksource_set_mhz(const struct pbl_clocksource *cs, uint64_t mhz) {
+  PBL_ASSERTN(mhz != 0U);
+
+  if (cs != pbl_system_clocksource) {
+    return;
+  }
+
+  unsigned int key = arch_irq_lock();
+  if (s_running) {
+    prv_update();
+  }
+  s_cs_mhz = mhz;
+  s_mult = (((uint64_t)PBL_TICK_HZ * 1000U) << FRAC_BITS) / mhz;
+  prv_limits_update();
+  arch_irq_unlock(key);
+}
+
+void pbl_clocksource_set_hz(const struct pbl_clocksource *cs, uint32_t hz) {
+  pbl_clocksource_set_mhz(cs, (uint64_t)hz * 1000U);
+}
+
+void pbl_clockevent_set_hz(const struct pbl_clockevent *ce, uint32_t hz) {
+  PBL_ASSERTN(hz != 0U);
+
+  if (ce != pbl_system_clockevent) {
+    return;
+  }
+
+  unsigned int key = arch_irq_lock();
+  s_ce_hz = hz;
+  prv_limits_update();
+  arch_irq_unlock(key);
+}
+
+void pbl_clockevent_handler(const struct pbl_clockevent *ce) {
+  bool ticked = false;
+
+  unsigned int key = arch_irq_lock();
+  if (s_running && ce == s_ce) {
+    ticked = prv_announce();
+    prv_program(sched_uptime_ticks() + 1U);
+  }
+  arch_irq_unlock(key);
+
+  timeout_expire();
+  if (ticked) {
+    sched_slice();
+  }
+}
+
+void timekeeping_start(void) {
+  int ret;
+
+  s_cs = pbl_system_clocksource;
+  s_ce = pbl_system_clockevent;
+
+  ret = pbl_device_init(&s_cs->dev);
+  PBL_ASSERTN(ret == 0);
+  ret = pbl_device_init(&s_ce->dev);
+  PBL_ASSERTN(ret == 0);
+  PBL_ASSERTN(s_cs_mhz != 0U && s_ce_hz != 0U);
+  PBL_ASSERTN(pbl_soc_num_idle_states <= PBL_IDLE_STATES_MAX);
+
+  unsigned int key = arch_irq_lock();
+  s_cs_last = s_cs->ops->read(s_cs);
+  s_cs_ticks = sched_uptime_ticks();
+  s_cs_frac = 0U;
+  prv_limits_update();
+  s_running = true;
+  prv_program(s_cs_ticks + 1U);
+  arch_irq_unlock(key);
+}
+
+void timekeeping_announce(void) {
+  unsigned int key = arch_irq_lock();
+  prv_announce();
+  arch_irq_unlock(key);
+}
+
+void timekeeping_idle(pbl_tick_t ticks) {
+  const struct pbl_idle_state *state = nullptr;
+  int limit;
+  int i;
+
+  if (!s_running || s_idle_disabled || ticks == 0U) {
+    return;
+  }
+
+  limit = pbl_soc_idle_state_limit();
+  for (i = MIN(limit, (int)pbl_soc_num_idle_states - 1); i >= 0; i--) {
+    if (ticks >= pbl_soc_idle_states[i].min_ticks) {
+      state = &pbl_soc_idle_states[i];
+      break;
+    }
+  }
+  if (state == nullptr) {
+    return;
+  }
+
+  unsigned int key = arch_irq_lock();
+  uint64_t wake = UINT64_MAX / 2U;
+  if (ticks != PBL_TICK_FOREVER) {
+    wake = sched_uptime_ticks() + ticks - MIN(state->exit_ticks, ticks - 1U);
+  }
+  prv_program(wake);
+  uint64_t start_us = prv_now_us();
+  arch_irq_unlock(key);
+
+  // The lock would keep the kernel's interrupts from waking the CPU up.
+  state->enter();
+
+  key = arch_irq_lock();
+  s_residency_us[i] += prv_now_us() - start_us;
+  prv_announce();
+  // Programming drops the tick that woke the CPU up, and only the ISR expires timeouts.
+  uint64_t now = sched_uptime_ticks();
+  prv_program(timeout_ticks_until_next() == 0U ? now : now + 1U);
+  arch_irq_unlock(key);
+}
+
+uint64_t pbl_realtime_ms(void) {
+  int64_t us;
+
+  unsigned int key = arch_irq_lock();
+  us = (int64_t)prv_uptime_us() + s_realtime_offset_us;
+  arch_irq_unlock(key);
+
+  return (us > 0) ? (uint64_t)us / 1000U : 0U;
+}
+
+time_t pbl_realtime(void) {
+  return (time_t)(pbl_realtime_ms() / 1000U);
+}
+
+void pbl_realtime_set(time_t t) {
+  unsigned int key = arch_irq_lock();
+  const uint64_t old_ms = pbl_realtime_ms();
+  s_realtime_offset_us = (int64_t)t * 1000000 - (int64_t)prv_uptime_us();
+  wallclock_clock_set(old_ms, pbl_realtime_ms());
+  arch_irq_unlock(key);
+}
+
+uint64_t timekeeping_realtime_to_ticks(uint64_t realtime_ms) {
+  const int64_t uptime_us = (int64_t)(realtime_ms * 1000U) - s_realtime_offset_us;
+
+  if (uptime_us <= 0) {
+    return 0U;
+  }
+  // Rounded up, so the wall clock has reached it by then.
+  return ((uint64_t)uptime_us * PBL_TICK_HZ + 999999U) / 1000000U;
+}
+
+void pbl_idle_set_enabled(bool enable) {
+  s_idle_disabled = !enable;
+}
+
+uint64_t pbl_idle_residency_us(size_t state) {
+  uint64_t us;
+
+  if (state >= PBL_IDLE_STATES_MAX) {
+    return 0U;
+  }
+
+  unsigned int key = arch_irq_lock();
+  us = s_residency_us[state];
+  arch_irq_unlock(key);
+
+  return us;
+}

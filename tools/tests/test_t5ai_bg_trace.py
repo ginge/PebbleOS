@@ -1,12 +1,14 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Exercise actual KernelBG trace accounting with controlled scheduler boundaries."""
+
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+
 ROOT = Path(__file__).resolve().parents[2]
-HARNESS = r'''
+HARNESS = r"""
 #include <assert.h>
 #include <stdarg.h>
 #include <sys/mman.h>
@@ -93,10 +95,13 @@ int main(void) {
  __wrap_pbl_mutex_unlock(&mutex); assert(!s_op.kind && s_written>=written);
  return 0;
 }
-'''
+"""
+
+
 class BGTraceTest(unittest.TestCase):
     def test_decode_ready_wait_and_cpu_evidence(self):
         from tools.unhygienix_bg_trace import summarize
+
         text = """T5BG start hz=32000
 T5BG now=64000 cb=00000000 state=0 age_ms=2000 ready_ms=1000 blocked_ms=0 run_ms=0
 T5BG waitq=00000000 op=1 object=28011234 caller=021456ab owner=0 owner_lr=00000000 lost=0
@@ -106,18 +111,22 @@ T5BG segment=1 at=64000 ms=500 state=0 cb=021234ab waitq=00000000 base=1
 T5BG segment=1 op=3 object=28011234 caller=021456ab owner=2 owner_lr=021567ab effective=1
 """
         report = summarize(text)
-        self.assertEqual(report['max_observed_ready_age_ms'], 2000)
-        self.assertEqual(report['windows'][0]['scheduler_picks'],
-                         dict(picks_bg=7, picks_higher=99, picks_equal=0, picks_lower=0))
-        self.assertEqual(report['completed_segments_ms'], {'ready': 500})
-        self.assertEqual(report['segments'][0]['caller'], 0x21456ab)
-        self.assertEqual(report['task_cpu_ticks_in_printed_windows'], {'18:App <FdF Time>': 835})
-        self.assertEqual(report['windows'][0]['operation']['op'], 1)
+        self.assertEqual(report["max_observed_ready_age_ms"], 2000)
+        self.assertEqual(
+            report["windows"][0]["scheduler_picks"],
+            dict(picks_bg=7, picks_higher=99, picks_equal=0, picks_lower=0),
+        )
+        self.assertEqual(report["completed_segments_ms"], {"ready": 500})
+        self.assertEqual(report["segments"][0]["caller"], 0x21456AB)
+        self.assertEqual(
+            report["task_cpu_ticks_in_printed_windows"], {"18:App <FdF Time>": 835}
+        )
+        self.assertEqual(report["windows"][0]["operation"]["op"], 1)
 
     def test_actual_state_and_wait_accounting(self):
         with tempfile.TemporaryDirectory() as tmp:
-            d=Path(tmp)
-            shared='''#pragma once
+            d = Path(tmp)
+            shared = """#pragma once
 #include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
@@ -146,16 +155,45 @@ void pbl_thread_sleep(pbl_timeout_t);
 void probe_log(const char *,...);
 #define PBL_LOG_DBG(...) probe_log(__VA_ARGS__)
 #define PBL_ASSERTN(x) assert(x)
-'''
-            for name in ['pbl/kernel/irq.h','pbl/kernel/mutex.h','pbl/kernel/time.h','pbl/kernel/sched.h',
-                         'pbl/kernel/thread.h','pbl/logging/logging.h','pbl/services/system_task.h',
-                         'kernel/pebble_tasks.h','pbl/kernel/assert.h']:
-                p=d/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text('#include "stub.h"\n')
-            (d/'stub.h').write_text(shared)
-            (d/'test.c').write_text(HARNESS)
-            subprocess.run(['cc','-std=gnu11','-Wall','-Wextra','-Werror','-no-pie',
-                '-I',str(d),'-I',str(ROOT/'include'),
-                f'-DPROFILE_SOURCE="{ROOT / "soc/t5ai/bg_trace.c"}"',str(d/'test.c'),
-                '-o',str(d/'test')],check=True,capture_output=True)
-            subprocess.run([str(d/'test')],check=True)
-if __name__=='__main__': unittest.main()
+"""
+            for name in [
+                "pbl/kernel/irq.h",
+                "pbl/kernel/mutex.h",
+                "pbl/kernel/time.h",
+                "pbl/kernel/sched.h",
+                "pbl/kernel/thread.h",
+                "pbl/logging/logging.h",
+                "pbl/kernel/work.h",
+                "kernel/pebble_tasks.h",
+                "pbl/kernel/assert.h",
+            ]:
+                p = d / name
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text('#include "stub.h"\n')
+            (d / "stub.h").write_text(shared)
+            (d / "test.c").write_text(HARNESS)
+            subprocess.run(
+                [
+                    "cc",
+                    "-std=gnu11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-no-pie",
+                    "-I",
+                    str(d),
+                    "-I",
+                    str(ROOT / "include"),
+                    f'-DPROFILE_SOURCE="{ROOT / "soc/t5ai/bg_trace.c"}"',
+                    str(d / "test.c"),
+                    "-o",
+                    str(d / "test"),
+                ],
+                check=True,
+                capture_output=True,
+            )
+            subprocess.run([str(d / "test")], check=True)
+
+
+if __name__ == "__main__":
+    unittest.main()

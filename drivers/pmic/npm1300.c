@@ -8,19 +8,20 @@
 #include <inttypes.h>
 #include <math.h>
 
+#include <pbl/devicetree.h>
 #include <pbl/drivers/battery.h>
 #include <pbl/drivers/i2c.h>
 #include <pbl/drivers/pmic.h>
 #include <pbl/drivers/pmic/npm1300.h>
 #include <pbl/kernel/delay.h>
+#include <pbl/kernel/irq.h>
+#include <pbl/kernel/reboot.h>
+#include <pbl/kernel/sched.h>
+#include <pbl/kernel/work.h>
 #include <pbl/logging/logging.h>
-#include <pbl/services/system_task.h>
 #include <pbl/util/bits.h>
 #include <pbl/util/misc.h>
 #include <pbl/util/size.h>
-
-#include <board/board.h>
-#include <kernel/events.h>
 
 PBL_LOG_MODULE_DEFINE(driver_pmic_npm1300, CONFIG_DRIVER_PMIC_LOG_LEVEL);
 
@@ -163,7 +164,7 @@ static uint16_t prv_ntc_threshold_code(const Npm1300Config *cfg, uint8_t celsius
   // Ref: PS v1.1 Section 6.2.5: K_NTCTEMP = round(1024 * R_T / (R_T + R_B))
   float t_k = (float)celsius + 273.15f;
   float exponent = (float)cfg->thermistor_beta * ((1.f / 298.15f) - (1.f / t_k));
-  return (uint16_t)((1024.0f / (1.0f + exp(exponent))) + 0.5f);
+  return (uint16_t)((1024.0f / (1.0f + expf(exponent))) + 0.5f);
 }
 
 static int prv_vterm_code(uint16_t mv, uint8_t *code) {
@@ -252,7 +253,7 @@ static int prv_set_vbus_current_lim0(void) {
   return prv_write_register(NPM1300_TASKUPDATELIMSW, NPM1300_TASKUPDATELIMSW_EN);
 }
 
-static void prv_handle_charge_state_change(void *null) {
+static void prv_handle_charge_state_change(struct pbl_work *work) {
   const bool is_charging = pmic_is_charging();
   const bool is_connected = pmic_is_usb_connected();
   PBL_LOG_DBG("nPM1300 Interrupt: Charging? %s Plugged? %s", is_charging ? "YES" : "NO",
@@ -265,13 +266,7 @@ static void prv_handle_charge_state_change(void *null) {
     }
   }
 
-  PebbleEvent event = {
-    .type = PEBBLE_BATTERY_CONNECTION_EVENT,
-    .battery_connection = {
-      .is_connected = battery_is_usb_connected(),
-    },
-  };
-  event_put(&event);
+  battery_connection_changed();
 }
 
 static int prv_clear_pending_interrupts(void) {
@@ -292,12 +287,12 @@ static void prv_pmic_state_change_cb(void *null) {
     PBL_LOG_ERR("Interrupt clear failed (%d)", ret);
   }
 
-  new_timer_start(NPM1300_CHARGER->state->debounce_timer, CHARGER_DEBOUNCE_MS,
-                  prv_handle_charge_state_change, nullptr, 0 /*flags*/);
+  pbl_delayed_work_reschedule(&pbl_sys_workq_high, &NPM1300_CHARGER->state->debounce_timer,
+                              PBL_MSEC(CHARGER_DEBOUNCE_MS));
 }
 
 static void prv_npm1300_interrupt_handler(void *arg) {
-  system_task_add_callback_from_isr(prv_pmic_state_change_cb, nullptr);
+  pbl_sys_work_call_from_isr(prv_pmic_state_change_cb, nullptr);
 }
 
 int pbl_npm1300_charger_init(const struct pbl_device *dev) {
@@ -305,6 +300,10 @@ int pbl_npm1300_charger_init(const struct pbl_device *dev) {
       container_of(dev, const struct pbl_npm1300_charger, dev);
   const struct pbl_npm1300 *pmic = pbl_npm1300_from_cell(dev);
   const Npm1300Config *cfg = charger->cfg;
+  const struct pbl_battery *battery = charger->battery;
+  uint32_t chg_current_ma = battery->constant_charge_current_ua / 1000U;
+  uint32_t vterm_mv = battery->constant_charge_voltage_uv / 1000U;
+  uint32_t term_current_pct = 0U;
   uint16_t ntc_hot;
   uint8_t vterm;
   uint8_t vtermr;
@@ -312,22 +311,22 @@ int pbl_npm1300_charger_init(const struct pbl_device *dev) {
   int ret;
 
   charger->state->dischg_limit_ma = 0;
-  charger->state->debounce_timer = new_timer_create();
+  pbl_delayed_work_init(&charger->state->debounce_timer, prv_handle_charge_state_change);
 
-  if ((cfg->chg_current_ma < 32U) || (cfg->chg_current_ma > 800U) ||
-      (cfg->chg_current_ma % 2U != 0U)) {
-    PBL_LOG_ERR("Invalid charge current: %d mA", cfg->chg_current_ma);
+  if ((chg_current_ma < 32U) || (chg_current_ma > 800U) || (chg_current_ma % 2U != 0U)) {
+    PBL_LOG_ERR("Invalid charge current: %d mA", (int)chg_current_ma);
     return -EINVAL;
   }
 
-  if ((cfg->term_current_pct != 10U) && (cfg->term_current_pct != 20U)) {
-    PBL_LOG_ERR("Invalid termination current: %d", cfg->term_current_pct);
+  term_current_pct = battery->charge_term_current_ua * 100U / battery->constant_charge_current_ua;
+  if ((term_current_pct != 10U) && (term_current_pct != 20U)) {
+    PBL_LOG_ERR("Invalid termination current: %d", (int)term_current_pct);
     return -EINVAL;
   }
 
-  ret = prv_vterm_code(cfg->vterm_mv, &vterm);
+  ret = prv_vterm_code(vterm_mv, &vterm);
   if (ret != 0) {
-    PBL_LOG_ERR("Invalid termination voltage: %d mV", cfg->vterm_mv);
+    PBL_LOG_ERR("Invalid termination voltage: %d mV", (int)vterm_mv);
     return ret;
   }
 
@@ -366,8 +365,8 @@ int pbl_npm1300_charger_init(const struct pbl_device *dev) {
     {NPM1300_BCHGVTERMR, vtermr},
     {NPM1300_NTCHOT, PBL_FIELD_GET(NPM1300_10BIT_MSB_MASK, ntc_hot)},
     {NPM1300_NTCHOTLSB, PBL_FIELD_GET(NPM1300_10BIT_LSB_MASK, ntc_hot)},
-    {NPM1300_BCHGISETMSB, PBL_FIELD_GET(NPM1300_BCHGISET_MSB_MASK, cfg->chg_current_ma / 2U)},
-    {NPM1300_BCHGISETLSB, PBL_FIELD_GET(NPM1300_BCHGISET_LSB_MASK, cfg->chg_current_ma / 2U)},
+    {NPM1300_BCHGISETMSB, PBL_FIELD_GET(NPM1300_BCHGISET_MSB_MASK, chg_current_ma / 2U)},
+    {NPM1300_BCHGISETLSB, PBL_FIELD_GET(NPM1300_BCHGISET_LSB_MASK, chg_current_ma / 2U)},
   };
 
   ret = prv_write_seq(pmic, setup, ARRAY_LENGTH(setup));
@@ -392,7 +391,7 @@ int pbl_npm1300_charger_init(const struct pbl_device *dev) {
 
   const struct prv_reg_val charge_setup[] = {
     {NPM1300_BCHGITERMSEL,
-     (cfg->term_current_pct == 10U) ? NPM1300_BCHGITERMSEL_SEL10 : NPM1300_BCHGITERMSEL_SEL20},
+     (term_current_pct == 10U) ? NPM1300_BCHGITERMSEL_SEL10 : NPM1300_BCHGITERMSEL_SEL20},
     {NPM1300_TESTACCESS, NPM1300_TESTACCESS_VAL0},
     {NPM1300_TESTACCESS, NPM1300_TESTACCESS_VAL1},
     {NPM1300_TESTACCESS, NPM1300_TESTACCESS_VAL2},
@@ -433,25 +432,35 @@ int pbl_npm1300_charger_init(const struct pbl_device *dev) {
   return 0;
 }
 
-int pmic_power_off(void) {
+// Ship mode: everything but the RTC loses power until a button press
+static void prv_power_off(enum pbl_sys_off_mode mode, void *user_data) {
   int ret;
+
+  // I2C transfers need the scheduler
+  if (pbl_in_isr() || pbl_irq_is_locked() || !pbl_kernel_is_running()) {
+    return;
+  }
 
   // Ship mode exits as soon as VBUS is present
   if (pmic_is_usb_connected()) {
-    return -EBUSY;
+    PBL_LOG_ERR("Cannot power off, USB is connected");
+    return;
   }
 
   ret = prv_write_register(NPM1300_TASKENTERSHIPMODE, 1);
   if (ret != 0) {
     PBL_LOG_ERR("Failed to enter ship mode (%d)", ret);
-    return ret;
+    return;
   }
 
   // tPWRDN is 100 ms
   pbl_busy_wait_us(100000);
 
-  return -ETIMEDOUT;
+  PBL_LOG_ERR("Still powered after entering ship mode");
 }
+
+PBL_SYS_OFF_HANDLER_DEFINE(npm1300_power_off, PBL_SYS_OFF_POWER_OFF, PBL_SYS_OFF_PRIO_DEFAULT,
+                           prv_power_off, nullptr);
 
 uint16_t pmic_get_vsys(void) {
   if (prv_write_register(NPM1300_EVENTSADCCLR, NPM1300_EVENTSADC_VSYSRDY) != 0) {
@@ -534,23 +543,6 @@ int battery_get_constants(BatteryConstants *constants) {
   uint16_t raw;
   uint8_t reg;
 
-  // Obtain IBAT full scale
-  ret = prv_read_register(NPM1300_ADCIBATMEASSTATUS, &ibat_status);
-  if (ret != 0) {
-    return ret;
-  }
-
-  if (PBL_FIELD_GET(NPM1300_ADCIBATMEASSTATUS_MODE_MASK, ibat_status) ==
-      NPM1300_ADCIBATMEASSTATUS_MODE_CHRG) {
-    full_scale_ua = ((int32_t)NPM1300_CHARGER->cfg->chg_current_ma * 1000 *
-                     NPM1300_BCHARGER_ADC_CALC_CHARGE_MUL) /
-                    NPM1300_BCHARGER_ADC_CALC_CHARGE_DIV;
-  } else {
-    full_scale_ua = ((int32_t)NPM1300_CHARGER->state->dischg_limit_ma * 1000 *
-                     NPM1300_BCHARGER_ADC_CALC_DISCHARGE_MUL) /
-                    NPM1300_BCHARGER_ADC_CALC_DISCHARGE_DIV;
-  }
-
   // Clear the ADC ready events for VBAT, IBAT, and NTC
   ret = prv_write_register(NPM1300_EVENTSADCCLR, NPM1300_EVENTSADC_VBATRDY |
                                                      NPM1300_EVENTSADC_IBATRDY |
@@ -616,6 +608,24 @@ int battery_get_constants(BatteryConstants *constants) {
       pbl_sleep_ms(ADC_POLL_DELAY_MS);
       elapsed += ADC_POLL_DELAY_MS;
     }
+  }
+
+  // The status holds the mode of the last measurement, so read it only once
+  // this one is done.
+  ret = prv_read_register(NPM1300_ADCIBATMEASSTATUS, &ibat_status);
+  if (ret != 0) {
+    return ret;
+  }
+
+  if (PBL_FIELD_GET(NPM1300_ADCIBATMEASSTATUS_MODE_MASK, ibat_status) ==
+      NPM1300_ADCIBATMEASSTATUS_MODE_CHRG) {
+    full_scale_ua = ((int32_t)NPM1300_CHARGER->battery->constant_charge_current_ua *
+                     NPM1300_BCHARGER_ADC_CALC_CHARGE_MUL) /
+                    NPM1300_BCHARGER_ADC_CALC_CHARGE_DIV;
+  } else {
+    full_scale_ua = ((int32_t)NPM1300_CHARGER->state->dischg_limit_ma * 1000 *
+                     NPM1300_BCHARGER_ADC_CALC_DISCHARGE_MUL) /
+                    NPM1300_BCHARGER_ADC_CALC_DISCHARGE_DIV;
   }
 
   ret = prv_read_register(NPM1300_ADCVBAT2RESULTMSB, &msb);
@@ -785,6 +795,36 @@ static int prv_set_dischg_limit_locked(const struct pbl_npm1300_charger *charger
   return 0;
 }
 
+static int prv_dischg_limit_regs(uint32_t ma, uint8_t *msb, uint8_t *lsb) {
+  if (ma == 200U) {
+    *msb = NPM1300_BCHGISETDISCHARGEMSB_200MA;
+    *lsb = NPM1300_BCHGISETDISCHARGELSB_200MA;
+  } else if (ma == NPM1300_DISCHG_LIMIT_MA_MAX) {
+    *msb = NPM1300_BCHGISETDISCHARGEMSB_1000MA;
+    *lsb = NPM1300_BCHGISETDISCHARGELSB_1000MA;
+  } else {
+    PBL_LOG_ERR("Invalid discharge limit: %" PRIu32 " mA", ma);
+    return -EINVAL;
+  }
+
+  return 0;
+}
+
+static int prv_apply_dischg_limit_locked(const struct pbl_npm1300_charger *charger) {
+  uint32_t ma = charger->state->high_load_count > 0U ? NPM1300_DISCHG_LIMIT_MA_MAX
+                                                     : charger->cfg->dischg_limit_ma;
+  uint8_t msb;
+  uint8_t lsb;
+  int ret;
+
+  ret = prv_dischg_limit_regs(ma, &msb, &lsb);
+  if (ret != 0) {
+    return ret;
+  }
+
+  return prv_set_dischg_limit_locked(charger, ma, msb, lsb);
+}
+
 int pbl_npm1300_charger_set_dischg_limit_ma(const struct pbl_npm1300_charger *charger,
                                             uint32_t ma) {
   const struct pbl_npm1300 *pmic = pbl_npm1300_from_cell(&charger->dev);
@@ -792,15 +832,9 @@ int pbl_npm1300_charger_set_dischg_limit_ma(const struct pbl_npm1300_charger *ch
   uint8_t lsb;
   int ret;
 
-  if (ma == 200U) {
-    msb = NPM1300_BCHGISETDISCHARGEMSB_200MA;
-    lsb = NPM1300_BCHGISETDISCHARGELSB_200MA;
-  } else if (ma == 1000U) {
-    msb = NPM1300_BCHGISETDISCHARGEMSB_1000MA;
-    lsb = NPM1300_BCHGISETDISCHARGELSB_1000MA;
-  } else {
-    PBL_LOG_ERR("Invalid discharge limit: %" PRIu32 " mA", ma);
-    return -EINVAL;
+  ret = prv_dischg_limit_regs(ma, &msb, &lsb);
+  if (ret != 0) {
+    return ret;
   }
 
   pbl_npm1300_lock(pmic);
@@ -808,6 +842,41 @@ int pbl_npm1300_charger_set_dischg_limit_ma(const struct pbl_npm1300_charger *ch
   pbl_npm1300_unlock(pmic);
 
   return ret;
+}
+
+static int prv_high_load_update(int delta) {
+  const struct pbl_npm1300_charger *charger = NPM1300_CHARGER;
+  const struct pbl_npm1300 *pmic = pbl_npm1300_from_cell(&charger->dev);
+  struct pbl_npm1300_charger_state *state = charger->state;
+  int ret;
+
+  if (!pbl_device_is_ready(&charger->dev)) {
+    return -ENODEV;
+  }
+
+  pbl_npm1300_lock(pmic);
+  if (delta < 0 && state->high_load_count == 0U) {
+    pbl_npm1300_unlock(pmic);
+    return -EALREADY;
+  }
+
+  // A failed release keeps the count down, the next update applies the limit again
+  state->high_load_count += delta;
+  ret = prv_apply_dischg_limit_locked(charger);
+  if (ret != 0 && delta > 0) {
+    state->high_load_count -= delta;
+  }
+  pbl_npm1300_unlock(pmic);
+
+  return ret;
+}
+
+int battery_high_load_request(void) {
+  return prv_high_load_update(1);
+}
+
+int battery_high_load_release(void) {
+  return prv_high_load_update(-1);
 }
 
 #ifdef CONFIG_SHELL
@@ -841,3 +910,5 @@ static const struct pbl_shell_cmd sub_pmic[] = {
 
 PBL_SHELL_CMD_REGISTER(pmic, sub_pmic, "PMIC", nullptr);
 #endif
+
+#include PBL_DT_INSTANCES(nordic_npm1300_npm1300_charger)

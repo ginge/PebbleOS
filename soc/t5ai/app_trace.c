@@ -1,17 +1,19 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
-#include <pbl/kernel/time.h>
+#include "kernel/pebble_tasks.h"
+#include "process_management/app_manager.h"
+
+#include <stdint.h>
+#include <string.h>
+
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/msgq.h>
 #include <pbl/kernel/sched.h>
 #include <pbl/kernel/thread.h>
+#include <pbl/kernel/time.h>
 #include <pbl/logging/logging.h>
 #include <pbl/soc/t5ai/app_trace.h>
 #include <pbl/soc/t5ai/rtc.h>
-#include "kernel/pebble_tasks.h"
-#include "process_management/app_manager.h"
-#include <stdint.h>
-#include <string.h>
 
 PBL_LOG_MODULE_DEFINE(t5ai_app_trace, LOG_LEVEL_DEBUG);
 #define BUCKETS 256u
@@ -35,7 +37,7 @@ static uint32_t s_write, s_read, s_lost;
 extern struct pbl_thread *pbl_cur;
 
 static uint32_t prv_cpu(struct pbl_thread *t) {
-  return t->backend.run_time + (t == pbl_cur ? pbl_uptime_ticks() - t->backend.switched_in_at : 0u);
+  return t->backend.run_time;
 }
 static void prv_identity(struct pbl_thread *t, uint32_t now) {
   if (s_id == t->id)

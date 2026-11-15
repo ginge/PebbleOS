@@ -27,4 +27,7 @@ function(pbl_unhygienix_firmware)
             --compiler ${CMAKE_C_COMPILER} --objcopy ${CMAKE_OBJCOPY}
     WORKING_DIRECTORY ${PBL_BASE} VERBATIM)
 endfunction()
-cmake_language(DEFER DIRECTORY ${PBL_BASE} CALL pbl_unhygienix_firmware)
+function(pbl_unhygienix_defer_firmware)
+  cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL pbl_unhygienix_firmware)
+endfunction()
+cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL pbl_unhygienix_defer_firmware)

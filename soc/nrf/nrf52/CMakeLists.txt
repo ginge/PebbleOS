@@ -4,10 +4,10 @@
 pbl_library()
 pbl_include_directories(.)
 pbl_library_sources(
-  ${PBL_BASE}/third_party/hal_nordic/nrfx/mdk/system_nrf52840.c
   init.c
   sleep.c
   idle.c
   ppi.c
+  retained.c
 )
 pbl_linker_sources(memory linker.ld)

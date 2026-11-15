@@ -32,7 +32,13 @@ typedef struct {struct pbl_gpio charge;struct pbl_irq_spec interrupt;
 const T5AIBatteryConfig T5AI_BATTERY_CONFIG={.charge={30},.interrupt={30},
  .channel=15,.samples=16,.cal_low=2716,.cal_span=2854,
  .divider_numerator=2510,.divider_denominator=510};
-typedef struct {void (*cb)(void *);} RegularTimerInfo;
+#define nullptr NULL
+#define PBL_MSEC(ms) (ms)
+#define pbl_ms_to_ticks(ms) (ms)
+struct pbl_work {void (*fn)(struct pbl_work *);};
+struct pbl_delayed_work {struct pbl_work work;};
+static int pbl_sys_workq_high;
+
 typedef struct {unsigned type;struct {bool is_connected;} battery_connection;} PebbleEvent;
 static uint64_t now;
 static unsigned depth,context,requests,updates,events,configures,registrations,queued;
@@ -57,8 +63,16 @@ int pbl_intc_request(const struct pbl_irq_spec *g,void (*cb)(void *),void *ctx){
  assert(g->pin==30 && !ctx);irq_cb=cb;return irq_error;
 }
 int pbl_intc_enable(const struct pbl_irq_spec *g){assert(g->pin==30);return 0;}
-void regular_timer_add_seconds_callback(RegularTimerInfo *t){++registrations;regular_cb=t->cb;}
-bool system_task_add_callback_from_isr_droppable(void (*cb)(void *),void *ctx){
+static struct pbl_delayed_work *periodic;
+static void run_periodic(void *ctx){(void)ctx;periodic->work.fn(&periodic->work);}
+void pbl_delayed_work_init(struct pbl_delayed_work *t,void (*fn)(struct pbl_work *)){t->work.fn=fn;}
+bool pbl_delayed_work_schedule(int *q,struct pbl_delayed_work *t,unsigned ms){
+ assert(q==&pbl_sys_workq_high && ms==1000);++registrations;periodic=t;regular_cb=run_periodic;return true;
+}
+bool pbl_delayed_work_schedule_next(struct pbl_delayed_work *t,unsigned ticks){
+ assert(t==periodic && ticks==1000);return true;
+}
+bool pbl_sys_work_try_call(void (*cb)(void *),void *ctx){
  assert(context==2 && !ctx && depth);
  if(drop)return false;
  assert(!work);work=cb;++queued;return true;
@@ -102,7 +116,7 @@ class T5AIBatteryTest(unittest.TestCase):
             if "/" in n and n != "pbl/drivers/battery.h"
         }
         headers["system/status_codes.h"] = (
-            ROOT / "fw/system/status_codes.h"
+            ROOT / "include/pbl/system/status_codes.h"
         ).read_text()
         run_c(
             ("#define CONFIG_T5AI_POWER_PROFILE 1\n" if profile else "")
@@ -130,13 +144,17 @@ class T5AIBatteryTest(unittest.TestCase):
                 )
 
     def test_battery_profile_preserves_quiet_configuration_and_sampling(self):
-        self.run_driver(r"""
+        self.run_driver(
+            r"""
  begin();done(0,2200);tick();drain();
  assert(sampled_logs==1 && requests==1 && updates==2);
  tick();assert(!work && requests==1);
  now+=60000;unavailable();done(E_ERROR,0);tick();drain();
  assert(failed_logs==1 && sampled_logs==1);
-""", quiet=True, battery_profile=True)
+""",
+            quiet=True,
+            battery_profile=True,
+        )
 
     def test_startup_demand_coalescing_and_freshness(self):
         self.run_driver(r"""

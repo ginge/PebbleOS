@@ -114,6 +114,7 @@ static uint8_t s_advertising_requested;
 static uint8_t s_acl_tx[T5AI_HCI_MAX_ACL_SIZE];
 PBL_THREAD_STACK_DEFINE(s_hci_task_stack, T5AI_HCI_TASK_STACK_BYTES);
 static struct pbl_thread *s_hci_task;
+static struct pbl_thread s_hci_thread;
 static struct pbl_msgq *s_acl_tx_queue;
 static PBL_MSGQ_DEFINE(s_acl_tx_messages, sizeof(struct os_mbuf *), T5AI_HCI_ACL_TX_QUEUE_CAPACITY);
 
@@ -459,8 +460,10 @@ void ble_transport_ll_init(void) {
       .prio = T5AI_HCI_TASK_PRIORITY,
       .privileged = true,
     };
-    pebble_task_create(PebbleTask_BTHCI, &parameters);
-    s_hci_task = pebble_task_get_thread(PebbleTask_BTHCI);
+    if (pbl_thread_create(&s_hci_thread, &parameters) == 0) {
+      s_hci_task = &s_hci_thread;
+      pebble_task_register(PebbleTask_BTHCI, s_hci_task);
+    }
     if (s_hci_task == NULL) {
       prv_set_started(false);
       PBL_LOG_ERR("T5AI HCI polling task creation failed");

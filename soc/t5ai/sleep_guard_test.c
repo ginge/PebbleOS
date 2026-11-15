@@ -1,11 +1,12 @@
 /* SPDX-License-Identifier: Apache-2.0 */
+
 #include <pbl/drivers/rtc.h>
+#include <pbl/kernel/cache.h>
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/section.h>
+#include <pbl/kernel/time.h>
+#include <pbl/kernel/work.h>
 #include <pbl/logging/logging.h>
-#include <pbl/mcu/cache.h>
-#include <pbl/services/new_timer/new_timer.h>
-#include <pbl/services/system_task.h>
 #include <pbl/soc/t5ai/hci_ipc.h>
 #include <pbl/soc/t5ai/mailbox_channel.h>
 #include <pbl/soc/t5ai/mb_ipc.h>
@@ -35,7 +36,7 @@ static volatile struct {
   uint32_t magic, inverse;
 } s_guard_attempt __attribute__((section(".t5ai_sleep_trace"), aligned(GUARD_TRACE_ALIGNMENT)));
 static uint32_t s_guard_generation;
-static TimerID s_guard_timer;
+static struct pbl_delayed_work s_guard_timer;
 static bool s_guard_started, s_guard_reported;
 static unsigned s_guard_attempts, s_guard_wait_steps;
 static uint32_t s_guard_seen_owners, s_guard_last_owners;
@@ -47,7 +48,7 @@ enum {
   GuardReady_Hci = 1u << 2,
   GuardReady_All = GuardReady_Mailbox | GuardReady_Ipc | GuardReady_Hci,
 };
-static void prv_schedule(void *context);
+static void prv_schedule(struct pbl_work *context);
 
 [[noreturn]] PBL_SECTION_RAM static void prv_guard_wait(void) {
   __disable_irq();
@@ -74,13 +75,12 @@ static void prv_report_admission(time_t now) {
 
 static void prv_run(void *context) {
   (void)context;
-  const time_t now = rtc_get_time();
+  const time_t now = pbl_realtime();
   const time_t slot = CONFIG_T5AI_SLEEP_GUARD_TEST_AT_UTC;
   if (!slot || prv_slot_expired(now, slot) ||
       (now < slot && ++s_guard_wait_steps >= GUARD_TEST_WAIT_STEPS)) {
     prv_cancel_lease();
-    new_timer_delete(s_guard_timer);
-    s_guard_timer = TIMER_INVALID_ID;
+    pbl_delayed_work_cancel(&s_guard_timer);
     prv_report_admission(now);
     PBL_LOG_DBG("T5GUARD UTC slot closed/wait exhausted; no WFI");
     return;
@@ -91,8 +91,7 @@ static void prv_run(void *context) {
       status = t5ai_native_alarm_prepare_sleep(T5AI_PM_NATIVE_ALARM_MAX_TICKS, &s_guard_generation);
     if (status != S_SUCCESS) {
       prv_cancel_lease();
-      new_timer_delete(s_guard_timer);
-      s_guard_timer = TIMER_INVALID_ID;
+      pbl_delayed_work_cancel(&s_guard_timer);
       PBL_LOG_ERR("T5GUARD CP lease rejected; no WFI");
       return;
     }
@@ -101,11 +100,13 @@ static void prv_run(void *context) {
                 (unsigned long)GUARD_READ(GUARD_AON_LPO_ADDRESS),
                 (unsigned long)GUARD_READ(GUARD_AON_CONTROL_ADDRESS));
     s_guard_reported = true;
-    (void)new_timer_start(s_guard_timer, GUARD_TEST_RETRY_MS, prv_schedule, NULL, 0);
+    (void)pbl_delayed_work_reschedule(&pbl_sys_workq_high, &s_guard_timer,
+                                      PBL_MSEC(GUARD_TEST_RETRY_MS));
     return;
   }
   if (now < slot) {
-    (void)new_timer_start(s_guard_timer, GUARD_TEST_RETRY_MS, prv_schedule, NULL, 0);
+    (void)pbl_delayed_work_reschedule(&pbl_sys_workq_high, &s_guard_timer,
+                                      PBL_MSEC(GUARD_TEST_RETRY_MS));
     return;
   }
   pbl_irq_lock();
@@ -128,12 +129,12 @@ static void prv_run(void *context) {
     __set_PRIMASK(primask);
     pbl_irq_unlock();
     if (++s_guard_attempts < GUARD_TEST_ATTEMPTS && !work.faulted) {
-      (void)new_timer_start(s_guard_timer, GUARD_TEST_ADMISSION_RETRY_MS, prv_schedule, NULL, 0);
+      (void)pbl_delayed_work_reschedule(&pbl_sys_workq_high, &s_guard_timer,
+                                        PBL_MSEC(GUARD_TEST_ADMISSION_RETRY_MS));
       return;
     }
     prv_cancel_lease();
-    new_timer_delete(s_guard_timer);
-    s_guard_timer = TIMER_INVALID_ID;
+    pbl_delayed_work_cancel(&s_guard_timer);
     prv_report_admission(now);
     PBL_LOG_ERR("T5GUARD busy/fault budget exhausted; no WFI");
     return;
@@ -141,16 +142,15 @@ static void prv_run(void *context) {
   // Best-effort evidence only; the UTC slot bounds retries after whole-chip reset.
   s_guard_attempt.magic = GUARD_ATTEMPT_MAGIC;
   s_guard_attempt.inverse = ~GUARD_ATTEMPT_MAGIC;
-  dcache_flush((const void *)&s_guard_attempt, sizeof(s_guard_attempt));
+  pbl_dcache_flush_range((const void *)&s_guard_attempt, sizeof(s_guard_attempt));
   __DSB();
   // Cache maintenance must not carry admission beyond the expiring slot.
-  const time_t arm_time = rtc_get_time();
+  const time_t arm_time = pbl_realtime();
   if (arm_time < slot || prv_slot_expired(arm_time, slot)) {
     __set_PRIMASK(primask);
     pbl_irq_unlock();
     prv_cancel_lease();
-    new_timer_delete(s_guard_timer);
-    s_guard_timer = TIMER_INVALID_ID;
+    pbl_delayed_work_cancel(&s_guard_timer);
     PBL_LOG_DBG("T5GUARD slot closed at arm boundary; no WFI");
     return;
   }
@@ -158,20 +158,18 @@ static void prv_run(void *context) {
     __set_PRIMASK(primask);
     pbl_irq_unlock();
     prv_cancel_lease();
-    new_timer_delete(s_guard_timer);
-    s_guard_timer = TIMER_INVALID_ID;
+    pbl_delayed_work_cancel(&s_guard_timer);
     PBL_LOG_ERR("T5GUARD rejected before WFI");
     return;
   }
   prv_guard_wait();
 }
 
-static void prv_schedule(void *context) {
+static void prv_schedule(struct pbl_work *context) {
   (void)context;
-  if (!system_task_add_callback_droppable(prv_run, NULL)) {
+  if (!pbl_sys_work_try_call(prv_run, NULL)) {
     prv_cancel_lease();
-    new_timer_delete(s_guard_timer);
-    s_guard_timer = TIMER_INVALID_ID;
+    pbl_delayed_work_cancel(&s_guard_timer);
     PBL_LOG_ERR("T5GUARD scheduling failed; no WFI");
   }
 }
@@ -181,7 +179,7 @@ void t5ai_sleep_guard_test_start(void) {
     return;
   s_guard_started = true;
   const time_t slot = CONFIG_T5AI_SLEEP_GUARD_TEST_AT_UTC;
-  if (!slot || prv_slot_expired(rtc_get_time(), slot)) {
+  if (!slot || prv_slot_expired(pbl_realtime(), slot)) {
     PBL_LOG_DBG("T5GUARD no future UTC slot; test disabled");
     return;
   }
@@ -193,6 +191,7 @@ void t5ai_sleep_guard_test_start(void) {
               (unsigned long)GUARD_READ(GUARD_AON_SNAPSHOT_ADDRESS));
   if (boot == T5AI_RESET_REASON_SLEEP_RESUME || attempted)
     return;
-  s_guard_timer = new_timer_create();
-  (void)new_timer_start(s_guard_timer, GUARD_TEST_SETTLE_MS, prv_schedule, NULL, 0);
+  pbl_delayed_work_init(&s_guard_timer, prv_schedule);
+  (void)pbl_delayed_work_reschedule(&pbl_sys_workq_high, &s_guard_timer,
+                                    PBL_MSEC(GUARD_TEST_SETTLE_MS));
 }

@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Run actual system-task recovery helpers against delayed BG progress."""
+
 from pathlib import Path
 import subprocess
 import tempfile
@@ -57,11 +58,13 @@ int main(void){
 
 class SystemTaskRecoveryTest(unittest.TestCase):
     def test_recovery_waits_for_successful_bg_feed(self):
-        source = (ROOT / "fw/services/system_task/service.c").read_text()
+        source = (ROOT / "pebble/services/system_task/service.c").read_text()
         start = source.index("static void prv_app_throttle_end(void *data)")
         end = source.index("//! The system task is starved", start)
         feed_start = source.index("void system_task_watchdog_feed(void)")
-        feed_end = source.index("\nstatic void handle_system_task_send_failure", feed_start)
+        feed_end = source.index(
+            "\nstatic void handle_system_task_send_failure", feed_start
+        )
         helpers = source[start:end] + source[feed_start:feed_end]
         with tempfile.TemporaryDirectory() as tmp:
             cfile = Path(tmp) / "test.c"

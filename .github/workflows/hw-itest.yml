@@ -5,6 +5,7 @@ on:
     - cron: "0 2 * * *"
   pull_request_target:
     types: [labeled]
+  workflow_dispatch:
 
 permissions: {}
 
@@ -43,13 +44,15 @@ jobs:
     needs: authorize
     if: >
       !cancelled() &&
-      (github.event_name == 'schedule' || needs.authorize.result == 'success')
+      (github.event_name == 'schedule' ||
+       github.event_name == 'workflow_dispatch' ||
+       needs.authorize.result == 'success')
     runs-on: ubuntu-24.04
     permissions:
       contents: read
 
     container:
-      image: ghcr.io/coredevices/pebbleos-docker:v10
+      image: ghcr.io/coredevices/pebbleos-docker:v13
 
     strategy:
       fail-fast: false
@@ -60,6 +63,12 @@ jobs:
             variant: normal
           - watch: getafix
             board: getafix@dvt2
+            variant: prf
+          - watch: obelix
+            board: obelix@pvt
+            variant: normal
+          - watch: obelix
+            board: obelix@pvt
             variant: prf
 
     steps:
@@ -105,7 +114,8 @@ jobs:
             build/pebbleos.elf
             build/pebbleos.hex
             build/system_resources.pbpack
-            build/fw/loghash_dict.json
+            build/log.dict.json
+            build/generated/include/devicetree/partitions.h
             build/normal_*.pbz
 
   test:
@@ -126,6 +136,12 @@ jobs:
           - watch: getafix
             board: getafix@dvt2
             variant: prf
+          - watch: obelix
+            board: obelix@pvt
+            variant: normal
+          - watch: obelix
+            board: obelix@pvt
+            variant: prf
 
     steps:
       - name: Checkout
@@ -138,7 +154,7 @@ jobs:
       - name: Set up Python
         run: |
           rm -rf .venv
-          /opt/homebrew/bin/python3 -m venv .venv
+          /opt/homebrew/bin/python3.14 -m venv .venv
           .venv/bin/pip install -U pip
           .venv/bin/pip install -r requirements.txt
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"

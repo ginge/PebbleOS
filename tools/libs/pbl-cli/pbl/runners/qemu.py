@@ -5,7 +5,7 @@ import os
 import platform
 import sys
 
-from pbl import emulator
+from pbl import emulator, lock
 
 from .core import Runner, RunnerCaps, RunnerError
 
@@ -68,6 +68,11 @@ class QemuRunner(Runner):
             bt_hci=getattr(args, "bt_hci", None),
         )
 
+    def locks(self, command):
+        if command != "run":
+            return []
+        return [(lock.serial_key(self.bt_hci), f"Bluetooth controller {self.bt_hci}")]
+
     def do_run(self, command):
         if command == "debug":
             port = self.gdb_port(GDB_PROXY_PORT)
@@ -87,8 +92,30 @@ class QemuRunner(Runner):
         if self.bt_hci and not hci_uart:
             raise RunnerError("--bt-hci needs a build with CONFIG_BT_HCI_UART=y")
 
-        # The flash images are build artifacts. The micro flash is always
-        # rebuilt; the SPI flash only unless the caller wants to keep it.
+        return self.run_program(
+            self._command_line(build, decoration, self._flash_images(build)),
+            cwd=build.topdir,
+        )
+
+    def console_command(self):
+        build = self.cfg.build
+        argv = [
+            self._qemu(build),
+            "-rtc", "base=localtime",
+            "-monitor", "none",
+            "-display", "none",
+            "-no-reboot",
+            "-serial", "null",
+            "-serial", "null",
+            "-serial", "stdio",
+        ]  # fmt: skip
+        images = self._flash_images(build)
+        return argv + self._machine_args(build, images, audio=False), {}
+
+    def _flash_images(self, build):
+        """Build the flash images, which are build artifacts, and return the
+        SPI one. The micro flash is always rebuilt; the SPI flash only
+        unless the caller wants to keep it."""
         targets = [MICRO_FLASH_TARGET]
         spi_flash = build.join(SPI_FLASH_IMAGE)
         if not self.keep_flash_image or not os.path.isfile(spi_flash):
@@ -96,10 +123,14 @@ class QemuRunner(Runner):
         self.call(
             self.quote("cmake", "--build", build, *(f"--target={t}" for t in targets))
         )
+        return spi_flash
 
-        return self.run_program(
-            self._command_line(build, decoration, spi_flash), cwd=build.topdir
-        )
+    @staticmethod
+    def _qemu(build):
+        qemu = os.getenv("PEBBLE_QEMU_BIN")
+        if not qemu or not (os.path.isfile(qemu) and os.access(qemu, os.X_OK)):
+            qemu = build.tool("qemu") or "qemu-pebble"
+        return qemu
 
     def _gdb_proxy(self, port):
         build = self.cfg.build
@@ -123,13 +154,15 @@ class QemuRunner(Runner):
             )
         return self.decoration
 
-    def _machine_args(self, build, spi_flash):
+    def _machine_args(self, build, spi_flash, audio=True):
         machine = build.config.CONFIG_QEMU_MACHINE
         if not machine or machine == "unknown":
             raise RunnerError(f"board {build.board} declares no QEMU machine")
 
         if build.config.CONFIG_PLATFORM_EMERY or build.config.CONFIG_PLATFORM_FLINT:
             driver = "coreaudio" if platform.system() == "Darwin" else "sdl"
+            if not audio:
+                driver = "none"
             machine_args = [
                 "-machine", f"{machine},audiodev=snd0",
                 "-audiodev", f"{driver},id=snd0",
@@ -144,10 +177,7 @@ class QemuRunner(Runner):
         ]
 
     def _command_line(self, build, decoration, spi_flash):
-        qemu = os.getenv("PEBBLE_QEMU_BIN")
-        if not qemu or not (os.path.isfile(qemu) and os.access(qemu, os.X_OK)):
-            qemu = build.tool("qemu") or "qemu-pebble"
-
+        qemu = self._qemu(build)
         machine_args = self._machine_args(build, spi_flash)
 
         display = f"sdl,decoration={decoration}" if decoration else "sdl"
@@ -169,8 +199,8 @@ class QemuRunner(Runner):
             "-qmp", f"unix:{qmp},server=on,wait=off",
             "-s",
             "-serial", "file:uart1.log",
-            "-serial", f"tcp::{emulator.PEBBLE_TOOL_PORT},server=on,wait=off",
-            "-serial", f"tcp::{emulator.CONSOLE_PORT},server=on,wait=off",
+            "-serial", f"tcp::{emulator.PEBBLE_TOOL_PORT},server=on,wait=off,nodelay=on",
+            "-serial", f"tcp::{emulator.CONSOLE_PORT},server=on,wait=off,nodelay=on",
         ]
         if self.bt_hci:
             launch += ["-serial", self.bt_hci]

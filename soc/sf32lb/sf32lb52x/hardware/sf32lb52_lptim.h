@@ -5,8 +5,6 @@
 
 #include <pbl/util/bits.h>
 
-#include <hardware/sf32lb52_memorymap.h>
-
 /* Register offsets */
 
 #define SF32LB52_LPTIM_ISR_OFFSET  0x0000
@@ -19,6 +17,15 @@
 #define SF32LB52_LPTIM_CNT_OFFSET  0x001c
 
 /* Register bit definitions */
+
+#define LPTIM_ISR_OC     PBL_BIT(2)
+#define LPTIM_ISR_OCWKUP PBL_BIT(10)
+
+#define LPTIM_ICR_OCCLR   PBL_BIT(2)
+#define LPTIM_ICR_WKUPCLR PBL_BIT(8)
+
+#define LPTIM_IER_OCIE PBL_BIT(2)
+#define LPTIM_IER_OCWE PBL_BIT(10)
 
 #define LPTIM_CFGR_CKSEL      PBL_BIT(0)
 #define LPTIM_CFGR_INTCKSEL   PBL_BIT(5)

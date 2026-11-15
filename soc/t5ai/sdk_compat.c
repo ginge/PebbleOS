@@ -1,24 +1,25 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "kernel/memory_layout.h"
 #include "kernel/pebble_tasks.h"
 #include "process_management/app_manager.h"
-#include "process_management/worker_manager.h"
-#include "process_management/process_manager.h"
 #include "process_management/pebble_process_md.h"
-#include <pbl/kernel/thread.h>
+#include "process_management/process_manager.h"
+#include "process_management/worker_manager.h"
 
 #include <stdbool.h>
 #include <stdint.h>
 
-#define SDK_VALID (1u << 0)
+#include <pbl/kernel/mpu.h>
+#include <pbl/kernel/thread.h>
+
+#define SDK_VALID   (1u << 0)
 #define SDK_LEGACY2 (1u << 1)
 #define SDK_LEGACY3 (1u << 2)
 
 // Apps may read these flags, but only privileged process lifecycle code writes them.
-static volatile uint32_t s_app_sdk KERNEL_READONLY_DATA;
-static volatile uint32_t s_worker_sdk KERNEL_READONLY_DATA;
+static uint32_t s_app_sdk KERNEL_READONLY_DATA;
+static uint32_t s_worker_sdk KERNEL_READONLY_DATA;
 extern struct pbl_thread *pbl_cur;
 extern struct pbl_thread *g_task_threads[NumPebbleTask];
 
@@ -36,9 +37,9 @@ void __wrap_process_manager_process_setup(PebbleTask task) {
                          (type == ProcessAppSDKType_Legacy3x ? SDK_LEGACY3 : 0u);
   // Setup completes before the new App/Worker thread is created.
   if (task == PebbleTask_App) {
-    s_app_sdk = flags;
+    KERNEL_READONLY_DATA_SET(s_app_sdk, flags);
   } else if (task == PebbleTask_Worker) {
-    s_worker_sdk = flags;
+    KERNEL_READONLY_DATA_SET(s_worker_sdk, flags);
   }
 }
 
@@ -46,9 +47,9 @@ void __wrap_process_manager_process_cleanup(PebbleTask task) {
   __real_process_manager_process_cleanup(task);
   // The old thread has been unregistered and aborted before invalidation.
   if (task == PebbleTask_App) {
-    s_app_sdk = 0u;
+    KERNEL_READONLY_DATA_SET(s_app_sdk, 0u);
   } else if (task == PebbleTask_Worker) {
-    s_worker_sdk = 0u;
+    KERNEL_READONLY_DATA_SET(s_worker_sdk, 0u);
   }
 }
 

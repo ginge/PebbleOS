@@ -32,7 +32,7 @@ static WriteFn write_cb;
 static void *write_arg;
 static unsigned writes;
 
-void *kernel_zalloc_check(size_t size) {
+void *pbl_zalloc_check(size_t size) {
   size_t *p = calloc(1, size + sizeof(size_t));
   assert(p);
   *p = size;
@@ -40,7 +40,7 @@ void *kernel_zalloc_check(size_t size) {
   live_bytes += size;
   return p + 1;
 }
-void kernel_free(void *data) {
+void pbl_free(void *data) {
   if (!data)
     return;
   size_t *p = (size_t *)data - 1;
@@ -88,7 +88,7 @@ void nimble_gattc_op_queue_push(int (*fn)(void *), void *arg) {
 void nimble_gattc_op_queue_complete(void) {
   assert(queued_start && !queue_done);
   ++queue_done;
-  kernel_free(queued_arg);
+  pbl_free(queued_arg);
   queued_arg = NULL;
   queued_start = NULL;
 }
@@ -96,7 +96,7 @@ static void run_queued(void) {
   int (*fn)(void *) = queued_start;
   if (fn(queued_arg)) {
     assert(!queue_done);
-    kernel_free(queued_arg);
+    pbl_free(queued_arg);
     queued_arg = NULL;
     queued_start = NULL;
   }
@@ -220,7 +220,7 @@ static void one_service(bool subscription) {
 }
 static void release_services(void) {
   for (unsigned i = 0; i < emitted; ++i)
-    kernel_free(services[i]);
+    pbl_free(services[i]);
   emitted = 0;
 }
 static void check_done(unsigned indications, unsigned callbacks) {

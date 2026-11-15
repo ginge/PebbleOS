@@ -14,8 +14,8 @@ pbl_library_sources(service.c util.c)
 
 `pbl_library()`
 : Declare the library the following `pbl_library_*()` calls apply to,
-  named after its directory (`fw/services/timeline` →
-  `fw__services__timeline`). The target is only created once it gets its
+  named after its directory (`pebble/services/timeline` →
+  `pebble__services__timeline`). The target is only created once it gets its
   first source, so a directory whose sources are all configured out
   contributes nothing.
 
@@ -87,7 +87,7 @@ Kconfig symbols are ordinary CMake variables, so directories and sources
 follow the configuration:
 
 ```cmake
-pbl_add_subdirectory_ifdef(CONFIG_MIC mic)
+pbl_add_subdirectory_ifdef(CONFIG_AUDIO audio)
 pbl_library_sources_ifdef(CONFIG_ACCEL_LSM6DSO lsm6dso/lsm6dso.c)
 ```
 

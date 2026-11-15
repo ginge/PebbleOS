@@ -27,12 +27,14 @@ class TuyaMemoryLayoutTest(unittest.TestCase):
         self.assertEqual(int(match.group(1), 16), 0x60000000)
         self.assertLessEqual(int(match.group(2)), 128)
 
-        compositor = (ROOT / "fw/services/compositor/compositor.c").read_text()
+        compositor = (ROOT / "pebble/services/compositor/compositor.c").read_text()
         self.assertIn('section(".t5ai_framebuffer")', compositor)
 
     def test_pfs_flags_reservation_stays_in_vendor_ap_audio_slab(self):
-        layout = ROOT / ("third_party/hal_tuya/TuyaOpen-T5AI/t5_os/projects/"
-                         "tuya_app/partitions/bk7258/ram_regions.csv")
+        layout = ROOT / (
+            "third_party/hal_tuya/TuyaOpen-T5AI/t5_os/projects/"
+            "tuya_app/partitions/bk7258/ram_regions.csv"
+        )
         regions = {}
         cursor = 0
         for line in layout.read_text().splitlines():
@@ -43,9 +45,15 @@ class TuyaMemoryLayoutTest(unittest.TestCase):
             cursor = start + int(fields[3], 0)
             regions[fields[0]] = (start, cursor)
         header = (ROOT / "include/pbl/soc/t5ai/memory.h").read_text()
+
         def constant(name):
-            return int(re.search(r"#define " + name + r" (0x[0-9a-fA-F]+|[0-9]+)u",
-                                 header).group(1), 0)
+            return int(
+                re.search(
+                    r"#define " + name + r" (0x[0-9a-fA-F]+|[0-9]+)u", header
+                ).group(1),
+                0,
+            )
+
         begin = constant("T5AI_PFS_FLAGS_PSRAM_BASE")
         end = begin + constant("T5AI_PFS_FLAGS_PSRAM_SIZE")
         audio_begin, audio_end = regions["PSRAM_MEM_SLAB_AUDIO"]
@@ -53,8 +61,10 @@ class TuyaMemoryLayoutTest(unittest.TestCase):
         self.assertLessEqual(end, audio_end)
         self.assertEqual(regions["CP_PSRAM_HEAP"][0], 0x60700000)
         self.assertLessEqual(end, regions["CP_PSRAM_HEAP"][0])
-        self.assertNotEqual(constant("T5AI_PFS_FLAGS_MPU_REGION"),
-                            constant("T5AI_DISPLAY_PSRAM_MPU_REGION"))
+        self.assertNotEqual(
+            constant("T5AI_PFS_FLAGS_MPU_REGION"),
+            constant("T5AI_DISPLAY_PSRAM_MPU_REGION"),
+        )
 
     def test_ap_only_nimble_pool_storage_uses_t5ai_psram(self):
         sections = (ROOT / "soc/t5ai/framebuffer.ld").read_text()
@@ -106,10 +116,20 @@ int main(void) {
             binary = Path(directory) / "put_bytes_pool"
             source.write_text(harness)
             subprocess.run(
-                [compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
-                 "-I", str(ROOT / "include"), str(source),
-                 str(ROOT / "drivers/t5ai/put_bytes_job_buffer.c"),
-                 "-o", str(binary)], check=True,
+                [
+                    compiler,
+                    "-std=c11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-I",
+                    str(ROOT / "include"),
+                    str(source),
+                    str(ROOT / "drivers/t5ai/put_bytes_job_buffer.c"),
+                    "-o",
+                    str(binary),
+                ],
+                check=True,
             )
             subprocess.run([str(binary)], check=True)
 
@@ -117,10 +137,11 @@ int main(void) {
         compiler = shutil.which("cc")
         if not compiler:
             self.skipTest("Host C compiler unavailable")
-        board = (ROOT / "fw/board/boards/board_unhygienix.c").read_text()
+        board = (ROOT / "boards/unhygienix/unhygienix.c").read_text()
         start = board.index("static bool prv_validate_framebuffer_ram(void)")
         end = board.index("static void prv_assert_power_latch", start)
-        harness = r"""
+        harness = (
+            r"""
 #include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -133,7 +154,9 @@ static void dsb(void) {
   if (++barrier == corrupt_at) memory.words[137] ^= 1u;
 }
 #define __DSB() dsb()
-""" + board[start:end] + r"""
+"""
+            + board[start:end]
+            + r"""
 int main(void) {
   for (corrupt_at = 0; corrupt_at <= 2; ++corrupt_at) {
     memory.before = 0x12345678u; memory.after = 0x87654321u; barrier = 0;
@@ -146,12 +169,24 @@ int main(void) {
   }
 }
 """
+        )
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "psram.c"
             binary = Path(directory) / "psram"
             source.write_text(harness)
-            subprocess.run([compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
-                            str(source), "-o", str(binary)], check=True)
+            subprocess.run(
+                [
+                    compiler,
+                    "-std=c11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    str(source),
+                    "-o",
+                    str(binary),
+                ],
+                check=True,
+            )
             subprocess.run([str(binary)], check=True)
 
 

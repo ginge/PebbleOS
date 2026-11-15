@@ -1,16 +1,18 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/kernel/time.h>
 #include <inttypes.h>
+
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/sched.h>
 #include <pbl/kernel/thread.h>
+#include <pbl/kernel/time.h>
+#include <pbl/kernel/work.h>
 #include <pbl/logging/logging.h>
-#include <pbl/services/system_task.h>
-#include <pbl/task_wdt/task_wdt.h>
+#include <pbl/soc/t5ai/diagnostics.h>
 #include <pbl/soc/t5ai/flash_ipc.h>
 #include <pbl/soc/t5ai/io_trace.h>
+#include <pbl/task_wdt/task_wdt.h>
 
 PBL_LOG_MODULE_DEFINE(t5ai_wdt_recovery_trace, LOG_LEVEL_DEBUG);
 
@@ -35,18 +37,18 @@ status_t __wrap_settings_blob_db_mark_all_dirty(void) {
 static void prv_flash_dump(unsigned phase) {
   T5AIFlashDiagnostics flash;
   t5ai_flash_ipc_get_diagnostics(&flash);
-  PBL_LOG_SYNC_WRN("T5REC flash phase=%u active=%" PRIu32 " start=%" PRIu32
-                   " settings=%" PRIu32 " settings_start=%" PRIu32,
+  PBL_LOG_SYNC_WRN("T5REC flash phase=%u active=%" PRIu32 " start=%" PRIu32 " settings=%" PRIu32
+                   " settings_start=%" PRIu32,
                    phase, flash.active_command, flash.active_tick,
                    __atomic_load_n(&s_settings_active, __ATOMIC_RELAXED),
                    __atomic_load_n(&s_settings_start, __ATOMIC_RELAXED));
   const T5AIFlashOperationDiagnostics *ops[] = {&flash.read, &flash.write, &flash.erase};
   for (unsigned i = 0; i < 3; ++i) {
     const T5AIFlashOperationDiagnostics *op = ops[i];
-    PBL_LOG_SYNC_WRN("T5REC io phase=%u op=%u count=%" PRIu32 " max_ms=%" PRIu32
-                     " last_ms=%" PRIu32 " offset=%" PRIu32 " len=%" PRIu32,
-                     phase, i, op->count, op->max_ms, op->last_ms,
-                     op->last_offset, op->last_length);
+    PBL_LOG_SYNC_WRN("T5REC io phase=%u op=%u count=%" PRIu32 " max_ms=%" PRIu32 " last_ms=%" PRIu32
+                     " offset=%" PRIu32 " len=%" PRIu32,
+                     phase, i, op->count, op->max_ms, op->last_ms, op->last_offset,
+                     op->last_length);
   }
 }
 
@@ -58,24 +60,30 @@ static Snapshot prv_snapshot(struct pbl_thread *thread) {
   if (!thread) {
     return (Snapshot){0};
   }
-  return (Snapshot){thread->id, thread->backend.base_prio, thread->prio,
-                    thread->backend.mutexes_held, thread->backend.state,
-                    (uintptr_t)thread->backend.waitq, thread->backend.run_time};
+  return (Snapshot){
+    thread->id,
+    thread->backend.base_prio,
+    thread->prio,
+    t5ai_diagnostics_held_mutexes(thread),
+    thread->backend.state,
+    (uintptr_t)thread->backend.waitq,
+    thread->backend.run_time
+  };
 }
 
 static void prv_dump(unsigned phase) {
   pbl_irq_lock();
   Snapshot app = prv_snapshot(g_task_threads[PebbleTask_App]);
-  Snapshot bg = prv_snapshot(g_task_threads[PebbleTask_KernelBackground]);
+  Snapshot bg = prv_snapshot(pbl_sys_workq.thread);
   pbl_tick_t ticks = pbl_uptime_ticks();
   pbl_irq_unlock();
   PBL_LOG_SYNC_WRN("T5REC clocks phase=%u ticks=%" PRIu32 " app_cpu=%" PRIu32 " bg_cpu=%" PRIu32,
                    phase, ticks, app.cpu, bg.cpu);
-  PBL_LOG_SYNC_WRN("T5REC app phase=%u id=%" PRIu32 " base=%" PRIu32
-                   " eff=%" PRIu32 " held=%" PRIu32 " state=%" PRIu32 " waitq=%08" PRIx32,
+  PBL_LOG_SYNC_WRN("T5REC app phase=%u id=%" PRIu32 " base=%" PRIu32 " eff=%" PRIu32
+                   " held=%" PRIu32 " state=%" PRIu32 " waitq=%08" PRIx32,
                    phase, app.id, app.base, app.effective, app.held, app.state, app.waitq);
-  PBL_LOG_SYNC_WRN("T5REC bg phase=%u id=%" PRIu32 " base=%" PRIu32
-                   " eff=%" PRIu32 " held=%" PRIu32 " state=%" PRIu32 " waitq=%08" PRIx32,
+  PBL_LOG_SYNC_WRN("T5REC bg phase=%u id=%" PRIu32 " base=%" PRIu32 " eff=%" PRIu32 " held=%" PRIu32
+                   " state=%" PRIu32 " waitq=%08" PRIx32,
                    phase, bg.id, bg.base, bg.effective, bg.held, bg.state, bg.waitq);
 }
 
@@ -92,8 +100,8 @@ static void *prv_expired(int channel, void *data) {
 
 int __real_pbl_task_wdt_add(struct pbl_thread *, uint32_t, pbl_task_wdt_callback_t, void *);
 int __wrap_pbl_task_wdt_add(struct pbl_thread *thread, uint32_t timeout_ms,
-                          pbl_task_wdt_callback_t callback, void *data) {
-  if ((thread ? thread : pbl_cur) != g_task_threads[PebbleTask_KernelBackground]) {
+                            pbl_task_wdt_callback_t callback, void *data) {
+  if ((thread ? thread : pbl_cur) != pbl_sys_workq.thread) {
     return __real_pbl_task_wdt_add(thread, timeout_ms, callback, data);
   }
   int channel = __real_pbl_task_wdt_add(thread, timeout_ms, prv_expired, NULL);

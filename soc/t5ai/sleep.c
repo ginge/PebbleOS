@@ -1,10 +1,12 @@
 /* SPDX-License-Identifier: Apache-2.0 */
+
 #include <pbl/drivers/rtc.h>
+#include <pbl/kernel/cache.h>
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/section.h>
+#include <pbl/kernel/time.h>
+#include <pbl/kernel/work.h>
 #include <pbl/logging/logging.h>
-#include <pbl/mcu/cache.h>
-#include <pbl/services/system_task.h>
 #include <pbl/soc/t5ai/hci_ipc.h>
 #include <pbl/soc/t5ai/mailbox_channel.h>
 #include <pbl/soc/t5ai/mb_ipc.h>
@@ -352,7 +354,7 @@ static void prv_test_report(void *context) {
 
 static bool prv_test_window_open(void) {
   const time_t slot = CONFIG_T5AI_RETAINED_SLEEP_TEST_AT_UTC;
-  const time_t now = rtc_get_time();
+  const time_t now = pbl_realtime();
   return slot && now >= slot && (uint32_t)(now - slot) < SLEEP_TEST_SLOT_SECONDS;
 }
 #endif
@@ -478,11 +480,11 @@ static void prv_canary_prepare(uint32_t generation) {
   s_canary_generation = generation;
   for (unsigned i = 0; i < SLEEP_CANARY_WORDS; ++i)
     s_psram_canary[i] = SLEEP_CANARY_PATTERN ^ generation ^ i;
-  dcache_flush(s_psram_canary, sizeof(s_psram_canary));
+  pbl_dcache_flush_range(s_psram_canary, sizeof(s_psram_canary));
 }
 
 static bool prv_canary_valid(void) {
-  dcache_invalidate(s_psram_canary, sizeof(s_psram_canary));
+  pbl_dcache_invalidate_range(s_psram_canary, sizeof(s_psram_canary));
   for (unsigned i = 0; i < SLEEP_CANARY_WORDS; ++i)
     if (s_psram_canary[i] != (SLEEP_CANARY_PATTERN ^ s_canary_generation ^ i))
       return false;
@@ -861,19 +863,19 @@ void t5ai_sleep_start(void) {
                           s_sleep_trace.stage != SLEEP_TRACE_COMPLETE;
   if (t5ai_reset_reason_is_sleep_timeout(t5ai_reset_reason_get_boot_ap()) || unfinished) {
     prv_fail(T5AISleepFault_ResumeTimeout);
-    if (!system_task_add_callback_droppable(prv_recovery_diagnostic, NULL))
+    if (!pbl_sys_work_try_call(prv_recovery_diagnostic, NULL))
       PBL_LOG_ERR("T5SLEEP recovery diagnostic dropped");
     return;
   }
 #ifdef CONFIG_T5AI_RETAINED_SLEEP_TEST
   // A global reset can discard the AP reason and breadcrumb while CP trace survives.
-  if (!system_task_add_callback_droppable(prv_recovery_diagnostic, NULL))
+  if (!pbl_sys_work_try_call(prv_recovery_diagnostic, NULL))
     PBL_LOG_ERR("T5SLEEP startup diagnostic dropped");
   s_test_not_before = T5AI_AON_RTC_COUNT_LOW + SLEEP_START_DELAY_MS * SLEEP_AON_PER_MS;
 #endif
   s_phase = SleepIdle;
 #ifndef CONFIG_T5AI_RETAINED_SLEEP_TEST
-  if (!system_task_add_callback_droppable(prv_preflight_worker, NULL))
+  if (!pbl_sys_work_try_call(prv_preflight_worker, NULL))
     PBL_LOG_DBG("T5SLEEP contract preflight deferred");
 #endif
 }
@@ -917,12 +919,12 @@ void t5ai_sleep_service(uint32_t deadline) {
       s_phase = SleepNeedsCleanup;
     if (s_phase != SleepNeedsCleanup) {
       const time_t slot = CONFIG_T5AI_RETAINED_SLEEP_TEST_AT_UTC;
-      const time_t now = rtc_get_time();
+      const time_t now = pbl_realtime();
       if (slot && now >= slot && (uint32_t)(now - slot) >= SLEEP_TEST_SLOT_SECONDS &&
           (s_phase == SleepIdle || s_phase == SleepTestComplete || s_phase == SleepFailed) &&
           !s_test_reported && !s_test_report_queued) {
         s_test_report_queued = true;
-        if (!system_task_add_callback_droppable(prv_test_report, NULL))
+        if (!pbl_sys_work_try_call(prv_test_report, NULL))
           s_test_report_queued = false;
       }
       return;
@@ -974,7 +976,7 @@ void t5ai_sleep_service(uint32_t deadline) {
     queue = true;
   }
   pbl_irq_unlock();
-  if (queue && !system_task_add_callback_droppable(prv_worker, NULL)) {
+  if (queue && !pbl_sys_work_try_call(prv_worker, NULL)) {
     pbl_irq_lock();
     s_phase = s_phase == SleepCleanupQueued ? SleepNeedsCleanup : SleepIdle;
     ++s_stats.dropped;

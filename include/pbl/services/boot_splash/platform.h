@@ -14,7 +14,7 @@ void boot_splash_platform_cancel_start(void);
 uint8_t *boot_splash_platform_alloc(size_t size);
 void boot_splash_platform_free(uint8_t *buffer);
 #else
-#include <kernel/pbl_malloc.h>
+#include <pbl/kernel/malloc.h>
 
 static inline bool boot_splash_platform_defer_start(void) {
   return false;
@@ -22,9 +22,9 @@ static inline bool boot_splash_platform_defer_start(void) {
 static inline void boot_splash_platform_cancel_start(void) {
 }
 static inline uint8_t *boot_splash_platform_alloc(size_t size) {
-  return kernel_malloc(size);
+  return pbl_malloc(size);
 }
 static inline void boot_splash_platform_free(uint8_t *buffer) {
-  kernel_free(buffer);
+  pbl_free(buffer);
 }
 #endif

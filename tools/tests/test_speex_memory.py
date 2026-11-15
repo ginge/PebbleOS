@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Exercise codec allocation ownership with real Speex and the production heap."""
+
 import re
 import shutil
 import subprocess
@@ -36,12 +37,17 @@ static inline void pbl_mutex_unlock(struct pbl_mutex *m) {
 #define MAX(a,b) ((a)>(b)?(a):(b))
 """,
     "pbl/logging/logging.h": """#pragma once
+#define PBL_LOG_ALWAYS(...)
 #define PBL_LOG_MODULE_DECLARE(...)
+#define PBL_LOG_MODULE_DEFINE(...)
 #define PBL_LOG_DBG(...)
 #define PBL_LOG_ERR(...)
 #define PBL_LOG_WRN(...)
 #define PBL_LOG_VERBOSE(...)
 """,
+    "pbl/kernel/fatal.h": "[[noreturn]] void pbl_fatal_error_handler(uintptr_t);\n",
+    "pbl/util/logging.h": "",
+    "pbl/services/mic_manager.h": "#define MIC_MANAGER_CHANNELS 1\n#define MIC_MANAGER_SAMPLE_RATE 16000\n",
     "board/board.h": "#pragma once\n#define MIC NULL\n",
     "pbl/services/voice_endpoint.h": """#pragma once
 #include <stdint.h>
@@ -53,14 +59,16 @@ typedef struct __attribute__((packed)) {
 }
 
 T5_BACKEND = r"""
+#include <stdlib.h>
 #include "soc/t5ai/voice_memory.c"
+[[noreturn]] void pbl_fatal_error_handler(uintptr_t reason) { (void)reason; abort(); }
 void util_dbgserial_str(const char *str) { (void)str; }
 void util_log(const char *file, int line, const char *str) {
   (void)file; (void)line; (void)str;
 }
 static void check_empty(void) {
   unsigned used, available, largest;
-  heap_calc_totals(&s_heap, &used, &available, &largest);
+  pbl_heap_stats(&s_heap, &used, &available, &largest);
   assert(used == 0 && available && largest);
   assert(!s_mutex.locked);
 }
@@ -70,19 +78,19 @@ DEFAULT_BACKEND = r"""
 #include <assert.h>
 #include <stdlib.h>
 static size_t live;
-void *kernel_malloc_check(size_t n) {
+void *pbl_malloc_check(size_t n) {
   void *p = malloc(n); assert(p); ++live; return p;
 }
-void *kernel_zalloc_check(size_t n) {
+void *pbl_zalloc_check(size_t n) {
   void *p = calloc(1, n); assert(p); ++live; return p;
 }
-void *kernel_realloc(void *p, size_t n) {
+void *pbl_realloc(void *p, size_t n) {
   if (n > 1000000) return NULL;
   void *result = realloc(p, n);
   if (!p && result) ++live;
   return result;
 }
-void kernel_free(void *p) { if (p) { assert(live); --live; } free(p); }
+void pbl_free(void *p) { if (p) { assert(live); --live; } free(p); }
 static void check_empty(void) { assert(!live); }
 """
 
@@ -129,9 +137,9 @@ LIFECYCLE = r"""
 #include <assert.h>
 #include <string.h>
 #include <pbl/services/voice/voice_speex.h>
-#include <pbl/drivers/mic.h>
+
 #include <speex/speex_bits.h>
-uint32_t mic_get_channels(MicDevice *device) { (void)device; return 1; }
+
 int main(void) {
   assert(!voice_speex_is_initialized());
   voice_speex_deinit();
@@ -140,7 +148,7 @@ int main(void) {
     assert(voice_speex_get_frame_size() == 320);
     int16_t *samples = voice_speex_get_frame_buffer(); assert(samples);
 #ifdef TEST_T5
-    assert(heap_contains_address(&s_heap, samples));
+    assert(pbl_heap_contains(&s_heap, samples));
 #endif
     assert(voice_speex_get_frame_buffer_size() == 640);
     AudioTransferInfoSpeex info;
@@ -162,7 +170,7 @@ int main(void) {
   speex_bits_read_from(&bits, input, 4096);
   assert(bits.buf_size == 4096 && bits.nbBits == 4096 * 8);
 #ifdef TEST_T5
-  assert(heap_contains_address(&s_heap, bits.chars));
+  assert(pbl_heap_contains(&s_heap, bits.chars));
   char *previous = bits.chars;
   // Real Speex must retain its allocation when the bounded arena cannot grow it.
   speex_bits_read_from(&bits, input, sizeof(input));
@@ -187,38 +195,77 @@ class SpeexMemoryTest(unittest.TestCase):
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(text)
             source = directory / "test.c"
-            source.write_text("#include <stdbool.h>\n" +
-                              (T5_BACKEND if t5 else DEFAULT_BACKEND) + body)
+            source.write_text(
+                "#include <stdbool.h>\n"
+                + (T5_BACKEND if t5 else DEFAULT_BACKEND)
+                + body
+            )
             sources = [source]
             if t5:
-                sources.append(ROOT / "lib/util/heap.c")
+                sources.append(ROOT / "kernel/heap.c")
             else:
                 sources.append(ROOT / "third_party/speex/memory.c")
             flags = []
             if codec:
                 cmake = (ROOT / "third_party/speex/CMakeLists.txt").read_text()
-                names = re.search(r"set\(speex_sources(.*?)\)", cmake, re.DOTALL)[1].split()
+                names = re.search(r"set\(speex_sources(.*?)\)", cmake, re.DOTALL)[
+                    1
+                ].split()
                 sources += [ROOT / "third_party/speex" / name for name in names]
-                sources.append(ROOT / "fw/services/voice/voice_speex.c")
-                flags = ["-DHAVE_CONFIG_H", "-DOS_SUPPORT_CUSTOM", "-DFIXED_POINT",
-                         "-DDISABLE_FLOAT_API", "-DDISABLE_VBR", "-DDISABLE_WARNINGS",
-                         "-DDISABLE_NOTIFICATIONS", "-DNB_ENC_STACK=(2000*sizeof(spx_sig_t))",
-                         "-DNB_DEC_STACK=(1500*sizeof(spx_sig_t))"]
-            command = [compiler, "-std=gnu11", "-O2", "-include", "stdbool.h",
-                       "-Dstatic_assert=_Static_assert", "-Dnullptr=NULL",
-                       "-I", str(directory), "-I", str(ROOT / "include"),
-                       "-I", str(ROOT), "-I", str(ROOT / "fw"),
-                       "-I", str(ROOT / "third_party/speex"),
-                       "-I", str(ROOT / "third_party/speex/speex/include"),
-                       "-I", str(ROOT / "third_party/speex/speex/libspeex")]
+                sources.append(ROOT / "pebble/services/voice/voice_speex.c")
+                flags = [
+                    "-DHAVE_CONFIG_H",
+                    "-DOS_SUPPORT_CUSTOM",
+                    "-DFIXED_POINT",
+                    "-DDISABLE_FLOAT_API",
+                    "-DDISABLE_VBR",
+                    "-DDISABLE_WARNINGS",
+                    "-DDISABLE_NOTIFICATIONS",
+                    "-DNB_ENC_STACK=(2000*sizeof(spx_sig_t))",
+                    "-DNB_DEC_STACK=(1500*sizeof(spx_sig_t))",
+                ]
+            command = [
+                compiler,
+                "-std=gnu23",
+                "-O2",
+                "-include",
+                "stdbool.h",
+                "-Dstatic_assert=_Static_assert",
+                "-Dnullptr=NULL",
+                "-I",
+                str(directory),
+                "-I",
+                str(ROOT / "include"),
+                "-I",
+                str(ROOT),
+                "-I",
+                str(ROOT / "pebble"),
+                "-I",
+                str(ROOT / "third_party/speex"),
+                "-I",
+                str(ROOT / "third_party/speex/speex/include"),
+                "-I",
+                str(ROOT / "third_party/speex/speex/libspeex"),
+            ]
             if t5:
-                command.append("-DTEST_T5")
+                command += ["-DTEST_T5", "-DCONFIG_SOC_T5AI"]
             command += flags + [str(path) for path in sources]
             binary = directory / "test"
-            result = subprocess.run(command + ["-lm", "-o", str(binary)], check=False, capture_output=True, text=True)
+            result = subprocess.run(
+                command + ["-lm", "-o", str(binary)],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             # Child assertion failures are intentional in the T5 contract case.
-            result = subprocess.run([str(binary)], check=False, capture_output=True, text=True, cwd=directory)
+            result = subprocess.run(
+                [str(binary)],
+                check=False,
+                capture_output=True,
+                text=True,
+                cwd=directory,
+            )
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_t5_contract(self):

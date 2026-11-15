@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Exercise the production MPU restore assembly and each descriptor-store boundary."""
+
 import ast
 import os
 import re
@@ -11,11 +12,11 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SDK = Path(os.environ.get('PEBBLE_SDK_PATH', '/home/baz/pebbleos-sdk-0.1.8'))
-CC = SDK / 'arm-none-eabi/bin/arm-none-eabi-gcc'
-QEMU = SDK / 'qemu/bin/qemu-pebble'
+SDK = Path(os.environ.get("PEBBLE_SDK_PATH", "/home/baz/pebbleos-sdk-0.1.8"))
+CC = SDK / "arm-none-eabi/bin/arm-none-eabi-gcc"
+QEMU = SDK / "qemu/bin/qemu-pebble"
 
-HARNESS = r'''
+HARNESS = r"""
 #include <stdint.h>
 #define REG(a) (*(volatile uint32_t *)(a))
 static uint32_t old[8], next[8];
@@ -93,17 +94,17 @@ __attribute__((section(".vectors"))) const uintptr_t vectors[]={
  0x20004000,(uintptr_t)reset,(uintptr_t)nmi,(uintptr_t)fault,(uintptr_t)fault,
  (uintptr_t)fault,(uintptr_t)fault,0,0,0,0,0,0,0,0,0,(uintptr_t)irq
 };
-'''
-LINKER = '''ENTRY(reset)
+"""
+LINKER = """ENTRY(reset)
 MEMORY { FLASH (rx) : ORIGIN = 0, LENGTH = 4M
  RAM (rwx) : ORIGIN = 0x20000000, LENGTH = 512K }
 SECTIONS { .text : { KEEP(*(.vectors)) *(.text*) *(.rodata*) } >FLASH
  .ramcode : { *(.ramcode*) } >RAM
  .bss (NOLOAD) : { *(.bss*) *(COMMON) } >RAM }
-'''
+"""
 
 
-V7_BEFORE = r'''
+V7_BEFORE = r"""
 // r1 -> thread's MPU words; clobbers r2, r4-r11.
 #define RESTORE_MPU \
   "  ldr r2, =0xe000ed98 \n"            /* MPU_RNR */                      \
@@ -114,26 +115,46 @@ V7_BEFORE = r'''
   "  stmia r2!, {r4-r11} \n"
 
 PBL_NAKED void PendSV_Handler
-'''
+"""
+
 
 def production_macro(first, v8=True, source=None):
     if source is None:
-        source = (ROOT / 'kernel/arch/arm/arch.c').read_text()
-    block = source[source.index('// r1 -> thread\'s MPU words;'):source.index('PBL_NAKED void PendSV_Handler')]
-    pp = '#define STR_(x) #x\n#define STR(x) STR_(x)\n' + block + '\nRESTORE_MPU\n'
-    args = [str(CC), '-E', '-P', '-x', 'c', f'-DFIRST_MPU_REGION={first}', '-']
+        source = (ROOT / "kernel/arch/arm/arch.c").read_text()
+    block = source[
+        source.index("// r1 -> thread's MPU words;") : source.index(
+            "PBL_NAKED void PendSV_Handler"
+        )
+    ]
+    pp = "#define STR_(x) #x\n#define STR(x) STR_(x)\n" + block + "\nRESTORE_MPU\n"
+    args = [
+        str(CC),
+        "-E",
+        "-P",
+        "-x",
+        "c",
+        f"-DFIRST_MPU_REGION={first}",
+        "-I",
+        str(ROOT / "include"),
+        "-",
+    ]
     if v8:
-        args.insert(-1, '-DCONFIG_ARMV8_M_MAINLINE')
+        args.insert(-1, "-DCONFIG_ARMV8_M_MAINLINE")
+        args.insert(-1, "-DCONFIG_SOC_T5AI")
     expanded = subprocess.check_output(args, input=pp, text=True)
-    return ''.join(ast.literal_eval(x) for x in re.findall(r'"(?:[^"\\]|\\.)*"', expanded))
+    return "".join(
+        ast.literal_eval(x) for x in re.findall(r'"(?:[^"\\]|\\.)*"', expanded)
+    )
 
 
 def assembly(instructions, inject):
     # For the boundary test, expose each store of the production STM explicitly.
     if inject:
-        stores = ''.join(f'str r{4+i}, [r2, #{4*i}]\n' for i in range(8))
-        instructions = instructions.replace('  stmia r2!, {r4-r11} \n', stores+'add r2,r2,#32\n')
-        probe = '''push {r0-r3,r12,lr}
+        stores = "".join(f"str r{4 + i}, [r2, #{4 * i}]\n" for i in range(8))
+        instructions = instructions.replace(
+            "  stmia r2!, {r4-r11} \n", stores + "add r2,r2,#32\n"
+        )
+        probe = """push {r0-r3,r12,lr}
 ldr r0,=0xe000e200
 mov r1,#1
 str r1,[r0]
@@ -143,9 +164,12 @@ str r1,[r0]
 dsb
 isb
 pop {r0-r3,r12,lr}
-'''
-        instructions = ''.join(line+'\n'+probe for line in instructions.splitlines() if line.strip())
-    return '''.syntax unified
+"""
+        instructions = "".join(
+            line + "\n" + probe for line in instructions.splitlines() if line.strip()
+        )
+    return (
+        """.syntax unified
 .thumb
 .section .ramcode,"ax",%progbits
 .global restore
@@ -153,52 +177,98 @@ pop {r0-r3,r12,lr}
 restore:
 push {r4-r11,lr}
 sub sp,sp,#4
-'''+instructions+'''ldr r3,=restored_r0
+"""
+        + instructions
+        + """ldr r3,=restored_r0
 str r0,[r3]
 ldr r3,=restored_r1
 str r1,[r3]
 add sp,sp,#4
 pop {r4-r11,pc}
 .ltorg
-'''
+"""
+    )
 
 
-@unittest.skipUnless(CC.exists() and QEMU.exists(), 'ARM SDK/QEMU unavailable')
+@unittest.skipUnless(CC.exists() and QEMU.exists(), "ARM SDK/QEMU unavailable")
 class MpuRestoreTests(unittest.TestCase):
     def test_actual_restore_and_intermediate_maps(self):
         with tempfile.TemporaryDirectory() as directory:
             tmp = Path(directory)
-            (tmp/'test.c').write_text(HARNESS)
-            (tmp/'test.ld').write_text(LINKER)
+            (tmp / "test.c").write_text(HARNESS)
+            (tmp / "test.ld").write_text(LINKER)
+
             def run(first, scenario, mask, inject, instructions):
-                (tmp/'restore.S').write_text(assembly(instructions, inject))
-                subprocess.run([str(CC), '-mcpu=cortex-m33', '-mthumb', '-mgeneral-regs-only',
-                                '-O1', '-nostdlib', '-fno-builtin', f'-DFIRST={first}',
-                                f'-DSCENARIO={scenario}', f'-DMASK={mask}', f'-DINJECT={inject}',
-                                '-Wl,--no-warn-rwx-segments,-T,'+str(tmp/'test.ld'),
-                                str(tmp/'test.c'), str(tmp/'restore.S'), '-o', str(tmp/'test.elf')], check=True)
-                return subprocess.run([str(QEMU), '-M', 'pebble-gabbro', '-display', 'none',
-                                       '-serial', 'null', '-monitor', 'none', '-semihosting-config',
-                                       'enable=on,target=native', '-kernel', str(tmp/'test.elf')],
-                                      check=False, capture_output=True, text=True, timeout=10,
-                                      preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_CORE, (0, 0)))
+                (tmp / "restore.S").write_text(assembly(instructions, inject))
+                subprocess.run(
+                    [
+                        str(CC),
+                        "-mcpu=cortex-m33",
+                        "-mthumb",
+                        "-mgeneral-regs-only",
+                        "-O1",
+                        "-nostdlib",
+                        "-fno-builtin",
+                        f"-DFIRST={first}",
+                        f"-DSCENARIO={scenario}",
+                        f"-DMASK={mask}",
+                        f"-DINJECT={inject}",
+                        "-Wl,--no-warn-rwx-segments,-T," + str(tmp / "test.ld"),
+                        str(tmp / "test.c"),
+                        str(tmp / "restore.S"),
+                        "-o",
+                        str(tmp / "test.elf"),
+                    ],
+                    check=True,
+                )
+                return subprocess.run(
+                    [
+                        str(QEMU),
+                        "-M",
+                        "pebble-gabbro",
+                        "-display",
+                        "none",
+                        "-serial",
+                        "null",
+                        "-monitor",
+                        "none",
+                        "-semihosting-config",
+                        "enable=on,target=native",
+                        "-kernel",
+                        str(tmp / "test.elf"),
+                    ],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_CORE, (0, 0)),
+                )
+
             for first in [4, 8]:
                 actual = production_macro(first)
                 for scenario in range(4):
                     for mask in [0, 1]:
                         for inject in [0, 1]:
-                            with self.subTest(first=first, scenario=scenario, mask=mask, inject=inject):
+                            with self.subTest(
+                                first=first, scenario=scenario, mask=mask, inject=inject
+                            ):
                                 result = run(first, scenario, mask, inject, actual)
-                                self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
-                                self.assertIn('PASS MPU restore', result.stdout+result.stderr)
+                                self.assertEqual(
+                                    result.returncode, 0, result.stdout + result.stderr
+                                )
+                                self.assertIn(
+                                    "PASS MPU restore", result.stdout + result.stderr
+                                )
             # Removing the disable stores must expose the overlapping-map failure.
             broken = production_macro(4)
-            broken = re.sub(r'  str r3, \[r2, #(?:4|12|20|28)\] \n', '', broken)
+            broken = re.sub(r"  str r3, \[r2, #(?:4|12|20|28)\] \n", "", broken)
             result = run(4, 0, 0, 1, broken)
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn('FAIL', result.stdout+result.stderr)
+            self.assertIn("FAIL", result.stdout + result.stderr)
             # Compare ARMv7 expansion with the preserved pre-fix source exactly.
             before = V7_BEFORE
             for first in [4, 8]:
-                self.assertEqual(production_macro(first, v8=False),
-                                 production_macro(first, v8=False, source=before))
+                self.assertEqual(
+                    production_macro(first, v8=False),
+                    production_macro(first, v8=False, source=before),
+                )

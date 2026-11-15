@@ -38,10 +38,17 @@
 
 /** @brief Backend operations. */
 struct pbl_shell_backend_api {
-  /** Writes output. Runs on the thread printing, usually KernelBG. */
+  /** Writes output. Runs on the thread printing, usually SysWorkq. */
   void (*write)(const struct pbl_shell *sh, const char *data, size_t len);
   /** Optional. A submitted command finished with @p ret. */
   void (*done)(const struct pbl_shell *sh, int ret);
+  /**
+   * Optional. Hold back other users of the transport while the prompt and the line being edited
+   * change, for backends that print over them. Must be recursive. Not held while commands run.
+   */
+  void (*lock)(const struct pbl_shell *sh);
+  /** Optional. Undoes @ref lock. */
+  void (*unlock)(const struct pbl_shell *sh);
 };
 
 /** @cond INTERNAL_HIDDEN */
@@ -93,20 +100,26 @@ struct pbl_shell {
   }
 
 /**
- * @brief Start a session of an interactive shell.
- *
- * Drops pending input; the prompt is printed from KernelBG. Call from an interrupt handler.
+ * @brief Start an interactive shell; the prompt is printed from SysWorkq.
  *
  * @param sh Interactive shell.
  */
-void pbl_shell_start_from_isr(const struct pbl_shell *sh);
+void pbl_shell_start(const struct pbl_shell *sh);
 
 /**
- * @brief End the session of an interactive shell, dropping pending input.
+ * @brief Check whether an interactive shell is waiting at its prompt.
+ *
+ * @param sh Interactive shell.
+ * @return true if the shell is started and no command is running.
+ */
+bool pbl_shell_at_prompt(const struct pbl_shell *sh);
+
+/**
+ * @brief Print the prompt and the line being edited again, e.g. after other output.
  *
  * @param sh Interactive shell.
  */
-void pbl_shell_stop(const struct pbl_shell *sh);
+void pbl_shell_redraw(const struct pbl_shell *sh);
 
 /**
  * @brief Queue a character received by an interactive shell.
@@ -122,7 +135,7 @@ void pbl_shell_input_from_isr(const struct pbl_shell *sh, char c);
 /**
  * @brief Run a command line on a line shell.
  *
- * The line is copied and runs on KernelBG; @ref pbl_shell_backend_api::done reports the result.
+ * The line is copied and runs on SysWorkq; @ref pbl_shell_backend_api::done reports the result.
  *
  * @param sh Line shell.
  * @param line Command line, not NUL-terminated.
@@ -130,7 +143,7 @@ void pbl_shell_input_from_isr(const struct pbl_shell *sh, char c);
  * @retval 0 The command was submitted.
  * @retval -EBUSY A command is running.
  * @retval -ENOSPC @p line is longer than @c CONFIG_SHELL_CMD_BUFF_SIZE.
- * @retval -ENOMEM The command could not be queued to KernelBG.
+ * @retval -ENOMEM The command could not be queued to SysWorkq.
  */
 int pbl_shell_execute_line(const struct pbl_shell *sh, const char *line, size_t len);
 

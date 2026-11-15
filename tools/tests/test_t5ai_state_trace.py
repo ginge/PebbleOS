@@ -50,8 +50,8 @@ void probe_log(const char *, ...) __attribute__((format(printf, 1, 2)));
 #define PBL_LOG_WRN(...) probe_log(__VA_ARGS__)
 #define PBL_LOG_DBG(...) probe_log(__VA_ARGS__)
 """,
-    "pbl/mcu/cache.h": "#include <stddef.h>\nvoid dcache_flush(const void *, size_t);\nstatic inline void dcache_invalidate(void *p, size_t n) {(void)p;(void)n;}\nstatic inline void dcache_align(uintptr_t *p, size_t *n) {size_t o=*p&31;*p-=o;*n=(*n+o+31)&~31;}\n",
-    "pbl/services/system_task.h": "void *system_task_get_current_callback(void);\n",
+    "pbl/kernel/cache.h": "#include <stddef.h>\nvoid pbl_dcache_flush_range(const void *, size_t);\nstatic inline void pbl_dcache_invalidate_range(void *p, size_t n) {(void)p;(void)n;}\nstatic inline void dcache_align(uintptr_t *p, size_t *n) {size_t o=*p&31;*p-=o;*n=(*n+o+31)&~31;}\n",
+    "pbl/kernel/work.h": "void *system_task_get_current_callback(void);\n",
     "kernel/pebble_tasks.h": """
 #include "pbl/kernel/thread.h"
 enum { PebbleTask_KernelBackground, PebbleTask_App };
@@ -81,7 +81,7 @@ struct pbl_thread *pebble_task_get_thread(int task) {
   return task == PebbleTask_App ? &app : &bg;
 }
 void *system_task_get_current_callback(void) { assert(irq_depth); return callback; }
-void dcache_flush(const void *address, size_t length) {
+void pbl_dcache_flush_range(const void *address, size_t length) {
   (void)address; assert(length); flushes++;
 }
 void pbl_thread_sleep(unsigned ticks) { (void)ticks; }
@@ -200,11 +200,20 @@ class T5AIStateTraceTest(unittest.TestCase):
             executable = directory / "probe"
             subprocess.run(
                 [
-                    "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                    "-DCONFIG_T5AI_STATE_TRACE=1", "-I", str(directory),
-                    "-I", str(ROOT / "include"),
+                    "cc",
+                    "-std=c11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-DCONFIG_T5AI_STATE_TRACE=1",
+                    "-I",
+                    str(directory),
+                    "-I",
+                    str(ROOT / "include"),
                     f'-DT5AI_TRACE_SOURCE="{ROOT / "soc/t5ai/state_trace.c"}"',
-                    str(harness), "-o", str(executable),
+                    str(harness),
+                    "-o",
+                    str(executable),
                 ],
                 check=True,
             )

@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Strict split RAM/cache model for T5AI IPC ranges and returned AP storage."""
+
 import re
 import unittest
 from pathlib import Path
@@ -29,8 +30,8 @@ static void operation(const void *p,size_t n,bool clean) {
  if(clean) memcpy(ram+offset,cache+offset,n);
  else memcpy(cache+offset,ram+offset,n);
 }
-static void dcache_flush(const void *p,size_t n) {operation(p,n,true);}
-static void dcache_invalidate(void *p,size_t n) {operation(p,n,false);}
+static void pbl_dcache_flush_range(const void *p,size_t n) {uintptr_t a=(uintptr_t)p; dcache_align(&a,&n); operation((void *)a,n,true);}
+static void pbl_dcache_invalidate_range(void *p,size_t n) {uintptr_t a=(uintptr_t)p; dcache_align(&a,&n); operation((void *)a,n,false);}
 #include <pbl/soc/t5ai/cache.h>
 static void reset(void) {memset(cache,0xa5,sizeof(cache));memset(ram,0x5a,sizeof(ram));calls=0;}
 """
@@ -38,7 +39,9 @@ static void reset(void) {memset(cache,0xa5,sizeof(cache));memset(ram,0x5a,sizeof
 
 class IPCCacheTest(unittest.TestCase):
     def test_all_offsets_lengths_and_dirty_neighbours(self):
-        run_c(MODEL + r"""
+        run_c(
+            MODEL
+            + r"""
 int main(void) {
  // ACL, commands and flash writes may start at any byte. Cleaning must publish
  // every payload byte, with dirty neighbours preserved in both cache and RAM.
@@ -63,19 +66,34 @@ int main(void) {
  }
  return 0;
 }
-""", {"pbl/mcu/cache.h": "#pragma once\n"})
+""",
+            {"pbl/kernel/cache.h": "#pragma once\n"},
+        )
 
     def test_production_mailbox_layout_preserves_dirty_ack_state(self):
         source = (ROOT / "drivers/t5ai/mailbox_channel.c").read_text()
-        tx = re.search(r"typedef struct \{\n  T5AIMailboxMessage message.*?} TxChannel;", source, re.S)[0]
-        slot = re.search(r"typedef struct \{\n  T5AIMailboxMessage message;.*?MailboxOwnedSlot;", source, re.S)[0]
-        run_c(MODEL + r"""
+        tx = re.search(
+            r"typedef struct \{\n  T5AIMailboxMessage message.*?} TxChannel;",
+            source,
+            re.S,
+        )[0]
+        slot = re.search(
+            r"typedef struct \{\n  T5AIMailboxMessage message;.*?MailboxOwnedSlot;",
+            source,
+            re.S,
+        )[0]
+        run_c(
+            MODEL
+            + r"""
 #define T5AI_SHARED_ALIGNMENT 32u
 typedef struct {uint32_t header,parameter1,parameter2,parameter3;} T5AIMailboxMessage;
 typedef void (*T5AIMailboxTransmitHandler)(void);
 struct pbl_sem {unsigned value;};struct pbl_mutex {unsigned value;};
 typedef unsigned TxState;
-""" + tx + slot + r"""
+"""
+            + tx
+            + slot
+            + r"""
 int main(void) {
  _Static_assert(offsetof(TxChannel,ack)>=32,"ACK state shares CP return line");
  _Static_assert(sizeof(TxChannel)%32==0,"array stride shares lines");
@@ -93,19 +111,28 @@ int main(void) {
  assert(ram[64]==0x5a);
  return 0;
 }
-""", {"pbl/mcu/cache.h": "#pragma once\n"})
+""",
+            {"pbl/kernel/cache.h": "#pragma once\n"},
+        )
 
     def test_hci_remote_descriptors_and_indirect_tx_payloads(self):
         from tools.tests.test_t5ai_timing import function
 
         source = (ROOT / "third_party/nimble/transport/t5ai_hci_ipc.c").read_text()
-        types = source[source.index("typedef struct {\n  uint8_t type;"):
-                       source.index("typedef struct {\n  T5AIMIPCFrame frame;\n}")]
+        types = source[
+            source.index("typedef struct {\n  uint8_t type;") : source.index(
+                "typedef struct {\n  T5AIMIPCFrame frame;\n}"
+            )
+        ]
         # Map a low wire-address window; RAM is distinct from AP cached bytes.
-        model = MODEL.replace("static _Alignas(LINE) unsigned char cache[320];",
-                              "static unsigned char *cache;")
+        model = MODEL.replace(
+            "static _Alignas(LINE) unsigned char cache[320];",
+            "static unsigned char *cache;",
+        )
         model = model.replace("sizeof(cache)", "4096")
-        harness = model + r'''
+        harness = (
+            model
+            + r"""
 #include <sys/mman.h>
 #include <pbl/soc/t5ai/memory.h>
 #include <pbl/soc/t5ai/mailbox_protocol.h>
@@ -117,7 +144,9 @@ typedef int status_t;
 #define T5AI_HCI_TYPE 1
 #define T5AI_MIPC_CPU_AP 1
 #define T5AI_MIPC_SEND_FLAG_SYNC 1
-''' + types + r'''
+"""
+            + types
+            + r"""
 static const char *s_channel_name=(void *)0x28000100;
 static uint8_t prv_next_sequence(void) {return 1;}
 static bool t5ai_cp_mailbox_shared_range_valid(uintptr_t p,size_t n) {
@@ -127,7 +156,13 @@ static bool t5ai_cp_mailbox_shared_range_valid(uintptr_t p,size_t n) {
 static status_t prv_send_frame(T5AIMIPCFrame *frame) {
  t5ai_cache_clean(frame,sizeof(*frame));return 0;
 }
-''' + function(source, "prv_pointer") + "\n" + function(source, "prv_prepare_outbound") + "\n" + function(source, "prv_decode_remote") + r'''
+"""
+            + function(source, "prv_pointer")
+            + "\n"
+            + function(source, "prv_prepare_outbound")
+            + "\n"
+            + function(source, "prv_decode_remote")
+            + r"""
 int main(void) {
  cache=mmap((void *)0x28000000,4096,PROT_READ|PROT_WRITE,
             MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED,-1,0);
@@ -159,17 +194,24 @@ int main(void) {
  }
  munmap(cache,4096);return 0;
 }
-'''
-        harness = harness.replace("MIPC_SOURCE", '"' + str(ROOT / "drivers/t5ai/mipc.c") + '"')
-        run_c(harness, {"pbl/mcu/cache.h": "#pragma once\n"})
+"""
+        )
+        harness = harness.replace(
+            "MIPC_SOURCE", '"' + str(ROOT / "drivers/t5ai/mipc.c") + '"'
+        )
+        run_c(harness, {"pbl/kernel/cache.h": "#pragma once\n"})
 
     def test_production_flash_write_publishes_unaligned_tail(self):
         from tools.tests.test_t5ai_timing import function
 
         source = (ROOT / "drivers/flash/t5ai_flash_ipc.c").read_text()
-        model = MODEL.replace("static _Alignas(LINE) unsigned char cache[320];",
-                              "static unsigned char *cache;").replace("sizeof(cache)", "4096")
-        run_c(model + r'''
+        model = MODEL.replace(
+            "static _Alignas(LINE) unsigned char cache[320];",
+            "static unsigned char *cache;",
+        ).replace("sizeof(cache)", "4096")
+        run_c(
+            model
+            + r"""
 #include <sys/mman.h>
 typedef int status_t;
 #define E_INVALID_ARGUMENT -1
@@ -190,7 +232,9 @@ static int prv_flash_transaction(unsigned command) {
  assert(s_flash_command.crc==s_flash_command.length_and_status);
  return 0;
 }
-''' + function(source, "t5ai_flash_ipc_write") + r'''
+"""
+            + function(source, "t5ai_flash_ipc_write")
+            + r"""
 int main(void) {
  cache=mmap((void *)0x28000000,4096,PROT_READ|PROT_WRITE,
             MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED,-1,0);
@@ -204,15 +248,21 @@ int main(void) {
  }
  munmap(cache,4096);return 0;
 }
-''', {"pbl/mcu/cache.h": "#pragma once\n"})
+""",
+            {"pbl/kernel/cache.h": "#pragma once\n"},
+        )
 
     def test_production_flash_read_refreshes_cp_lease_before_copy(self):
         from tools.tests.test_t5ai_timing import function
 
         source = (ROOT / "drivers/flash/t5ai_flash_ipc.c").read_text()
-        model = MODEL.replace("static _Alignas(LINE) unsigned char cache[320];",
-                              "static unsigned char *cache;").replace("sizeof(cache)", "4096")
-        run_c(model + r'''
+        model = MODEL.replace(
+            "static _Alignas(LINE) unsigned char cache[320];",
+            "static unsigned char *cache;",
+        ).replace("sizeof(cache)", "4096")
+        run_c(
+            model
+            + r"""
 #include <sys/mman.h>
 typedef int status_t;
 typedef unsigned pbl_prio_t;
@@ -258,7 +308,9 @@ static int prv_flash_transaction(unsigned command) {
  } else assert(command==FLASH_READ_DONE && s_flash_command.buffer==0);
  return 0;
 }
-''' + function(source, "t5ai_flash_ipc_read") + r'''
+"""
+            + function(source, "t5ai_flash_ipc_read")
+            + r"""
 int main(void) {
  cache=mmap((void *)0x28000000,4096,PROT_READ|PROT_WRITE,
             MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED,-1,0);
@@ -276,7 +328,9 @@ int main(void) {
  }
  munmap(cache,4096);return 0;
 }
-''', {"pbl/mcu/cache.h": "#pragma once\n"})
+""",
+            {"pbl/kernel/cache.h": "#pragma once\n"},
+        )
 
     def test_ipc_call_sites_use_range_contract(self):
         # Keep descriptor and indirect-payload paths in the regression inventory.
@@ -284,7 +338,7 @@ int main(void) {
             "third_party/nimble/transport/t5ai_hci_ipc.c": (7, 4),
             "drivers/flash/t5ai_flash_ipc.c": (1, 1),
             "drivers/t5ai/mb_ipc.c": (2, 2),
-            "drivers/t5ai/mailbox_channel.c": (1, 1),
+            "drivers/t5ai/mailbox_channel.c": (4, 14),
             "drivers/t5ai/cp_mailbox.c": (2, 1),
         }
         for path, (clean, receive) in paths.items():

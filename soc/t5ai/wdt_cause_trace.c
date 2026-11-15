@@ -1,19 +1,27 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include <inttypes.h>
+
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/thread.h>
+#include <pbl/kernel/work.h>
 #include <pbl/logging/logging.h>
-#include <pbl/services/system_task.h>
+#include <pbl/soc/t5ai/diagnostics.h>
 #include <pbl/soc/t5ai/rtc.h>
 #include <pbl/task_wdt/task_wdt.h>
-#include <inttypes.h>
 
 PBL_LOG_MODULE_DEFINE(t5ai_wdt_cause_trace, LOG_LEVEL_DEBUG);
 
 #define RECORDS 8u
 
-enum { Suspend = 1, Resume, FeedAll, FeedChannel, FeedThread };
+enum {
+  Suspend = 1,
+  Resume,
+  FeedAll,
+  FeedChannel,
+  FeedThread
+};
 typedef struct {
   uint32_t kind, rtc, arg, lr, thread, bg_state, callback;
 } Record;
@@ -30,12 +38,15 @@ extern struct pbl_thread *pbl_cur;
 
 static void prv_record(uint32_t kind, uint32_t arg, uintptr_t lr) {
   pbl_irq_lock();
-  struct pbl_thread *bg = g_task_threads[PebbleTask_KernelBackground];
+  struct pbl_thread *bg = pbl_sys_workq.thread;
   Record record = {
-    .kind = kind, .rtc = T5AI_AON_RTC_COUNT_LOW, .arg = arg, .lr = lr,
+    .kind = kind,
+    .rtc = T5AI_AON_RTC_COUNT_LOW,
+    .arg = arg,
+    .lr = lr,
     .thread = pbl_cur ? pbl_cur->id : 0,
     .bg_state = bg ? bg->backend.state : PBL_THREAD_DEAD,
-    .callback = (uintptr_t)system_task_get_current_callback(),
+    .callback = (uintptr_t)pbl_sys_workq.current_fn,
   };
   if (kind >= FeedAll) {
     Feed *feed = &s_feeds[kind - FeedAll];
@@ -69,10 +80,9 @@ void __wrap_pbl_task_wdt_feed_all(void) {
 }
 int __real_pbl_task_wdt_add(struct pbl_thread *, uint32_t, pbl_task_wdt_callback_t, void *);
 int __wrap_pbl_task_wdt_add(struct pbl_thread *thread, uint32_t timeout_ms,
-                          pbl_task_wdt_callback_t callback, void *data) {
+                            pbl_task_wdt_callback_t callback, void *data) {
   int channel = __real_pbl_task_wdt_add(thread, timeout_ms, callback, data);
-  if (channel >= 0 && (thread ? thread : pbl_cur) ==
-                          g_task_threads[PebbleTask_KernelBackground]) {
+  if (channel >= 0 && (thread ? thread : pbl_cur) == pbl_sys_workq.thread) {
     pbl_irq_lock();
     s_bg_channel = channel;
     pbl_irq_unlock();
@@ -87,7 +97,7 @@ int __wrap_pbl_task_wdt_feed(int channel) {
 }
 void __real_pbl_task_wdt_feed_thread(struct pbl_thread *thread);
 void __wrap_pbl_task_wdt_feed_thread(struct pbl_thread *thread) {
-  if (thread && thread == g_task_threads[PebbleTask_KernelBackground])
+  if (thread && thread == pbl_sys_workq.thread)
     prv_record(FeedThread, thread->id, (uintptr_t)__builtin_return_address(0));
   __real_pbl_task_wdt_feed_thread(thread);
 }

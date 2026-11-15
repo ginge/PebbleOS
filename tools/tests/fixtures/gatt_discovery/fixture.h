@@ -73,8 +73,8 @@ int ble_gattc_write_flat(uint16_t, uint16_t, const void *, uint16_t, WriteFn, vo
 int ble_uuid_cmp(const ble_uuid_t *, const ble_uuid_t *);
 void ble_uuid_to_str(const ble_uuid_t *, char *);
 void nimble_uuid_to_pebble(const ble_uuid_any_t *, Uuid *);
-void *kernel_zalloc_check(size_t);
-void kernel_free(void *);
+void *pbl_zalloc_check(size_t);
+void pbl_free(void *);
 void bt_lock(void);
 void bt_unlock(void);
 bool gap_le_connection_is_valid(const GAPLEConnection *);

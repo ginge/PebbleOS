@@ -1,0 +1,51 @@
+/* SPDX-FileCopyrightText: 2024 Google LLC */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+#include "menu.h"
+
+#include "activity_tracker.h"
+#include "bluetooth.h"
+#include "display.h"
+#include "health.h"
+#include "notifications.h"
+#include "quick_launch.h"
+#include "quiet_time.h"
+#include "system.h"
+#include "themes.h"
+#include "time.h"
+#include "timeline.h"
+#include "vibe_patterns.h"
+
+#include <pbl/kernel/assert.h>
+
+#include <applib/ui/app_window_stack.h>
+
+static const SettingsModuleGetMetadata s_submodule_registry[] = {
+  [SettingsMenuItemBluetooth] = settings_bluetooth_get_info,
+  [SettingsMenuItemNotifications] = settings_notifications_get_info,
+  [SettingsMenuItemVibrations] = settings_vibe_patterns_get_info,
+  [SettingsMenuItemQuietTime] = settings_quiet_time_get_info,
+  [SettingsMenuItemTimeline] = settings_timeline_get_info,
+  [SettingsMenuItemHealth] = settings_health_get_info,
+  [SettingsMenuItemActivity] = settings_activity_tracker_get_info,
+  [SettingsMenuItemQuickLaunch] = settings_quick_launch_get_info,
+  [SettingsMenuItemDateTime] = settings_time_get_info,
+  [SettingsMenuItemDisplay] = settings_display_get_info,
+  [SettingsMenuItemThemes] = settings_themes_get_info,
+  [SettingsMenuItemSystem] = settings_system_get_info,
+};
+
+const SettingsModuleMetadata *settings_menu_get_submodule_info(SettingsMenuItem category) {
+  PBL_ASSERTN(category < SettingsMenuItem_Count);
+  return s_submodule_registry[category]();
+}
+
+const char *settings_menu_get_status_name(SettingsMenuItem category) {
+  const SettingsModuleMetadata *info = settings_menu_get_submodule_info(category);
+  return info->name;
+}
+
+void settings_menu_push(SettingsMenuItem category) {
+  Window *window = settings_menu_get_submodule_info(category)->init();
+  app_window_stack_push(window, true /* animated */);
+}

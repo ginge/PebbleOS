@@ -46,6 +46,28 @@ T5AI_DISPLAY_RAM 0x60000000         0x00020000         rw
                 0x6001081e __t5ai_framebuffer_end__ = .
 """
 
+    def test_static_kernel_stacks_stay_below_isr_stack(self):
+        layout = self.LAYOUT
+        for name in MODULE.LEGACY_STACK_SYMBOLS:
+            layout = (
+                "\n".join(line for line in layout.splitlines() if name not in line)
+                + "\n"
+            )
+        base = "FLASH 0x02120000 0x001a0000 xr\n.isr_vector 0x02120000 0x140\n" + layout
+        stacks = (
+            " .bss.s_main_stack\n  0x28010000 0x200\n"
+            " .bss.s_sys_stack 0x28010200 0x400\n"
+            " .bss.s_sys_high_stack 0x28010600 0x400\n"
+        )
+        self.assertEqual(MODULE.validate_map(base + stacks), [])
+        self.assertTrue(MODULE.validate_map(base))
+        self.assertTrue(
+            MODULE.validate_map(base + stacks.replace("0x28010600", "0x28010100"))
+        )
+        self.assertTrue(
+            MODULE.validate_map(base + stacks.replace("0x28010600", "0x28010f00"))
+        )
+
     def test_accepts_exact_slot_and_sections(self):
         text = (
             """\

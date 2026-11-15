@@ -26,7 +26,7 @@ typedef void (*NewTimerCallback)(void *);
 static RtcTicks now;
 static unsigned locks,starts,stops,deletes;
 static bool result=true;
-static RtcTicks rtc_get_ticks(void){return now;}
+static RtcTicks t5ai_rtc_get_ticks(void){return now;}
 static void pbl_irq_lock(void){++locks;}
 static void pbl_irq_unlock(void){assert(locks);--locks;}
 static bool __real_new_timer_start(TimerID id,uint32_t ms,NewTimerCallback cb,void *ctx,uint32_t flags){

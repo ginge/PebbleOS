@@ -1,7 +1,7 @@
 # Activity
 
 The activity service counts steps and tracks sleep from the
-accelerometer. It lives in `fw/services/activity/`, and apps reach it
+accelerometer. It lives in `pebble/services/activity/`, and apps reach it
 through the Health API. This page describes the algorithms, called
 Kraepelin, and how they are integrated into the firmware. The plots below
 are drawn from the step samples the unit tests use.
@@ -291,12 +291,13 @@ watch's orientation.
 ### Code organization
 
 ```text
-fw/services/activity/
+pebble/services/activity/
   activity.c
   activity_insights.c
   kraepelin/
-    kraepelin_algorithm.c
     activity_algorithm_kraepelin.c
+lib/kraepelin/
+  kraepelin.c
 ```
 
 `activity.c`
@@ -307,17 +308,17 @@ fw/services/activity/
 `activity_insights.c`
 : The Health timeline pins and notifications.
 
-`kraepelin/kraepelin_algorithm.c`
-: The step and sleep algorithms themselves. It depends on almost nothing
-  outside itself, and originates from open source code provided by the
-  Stanford Wearables Lab.
+`lib/kraepelin/kraepelin.c`
+: The step and sleep algorithms themselves, a library that depends on
+  nothing but the utility library. It originates from open source code
+  provided by the Stanford Wearables Lab.
 
 `kraepelin/activity_algorithm_kraepelin.c`
 : Adapts the algorithms to the algorithm interface `activity.c` expects,
   and handles their memory, persistent storage and the rest of their
   integration. Another algorithm would implement the same interface.
 
-The Health API for apps is `fw/applib/health_service.c`, which runs
+The Health API for apps is `pebble/applib/health_service.c`, which runs
 unprivileged and calls into the activity service for the step and sleep
 data.
 
@@ -325,8 +326,8 @@ data.
 
 `activity.c` asks the algorithm for its accelerometer sampling rate and
 subscribes to the accel service with it. All step and sleep processing
-runs on the KernelBackground task: the subscription is made from a
-KernelBackground callback.
+runs on the SysWorkq task: the subscription is made from a
+SysWorkq callback.
 
 The accel service calls `activity.c` once a second with 25 samples, which
 it passes to the algorithm's handler in `activity_algorithm_kraepelin.c`.
@@ -359,8 +360,8 @@ byte by taking its square root, and the orientation is one byte as well:
 
 ## Testing
 
-The unit tests in `tests/fw/services/activity/` run recorded data through
-`kraepelin_algorithm.c` and check its results.
+The unit tests in `tests/pebble/services/activity/` run recorded data through
+`lib/kraepelin/kraepelin.c` and check its results.
 
 ### Step samples
 

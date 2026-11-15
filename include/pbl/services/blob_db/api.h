@@ -9,9 +9,9 @@
 #include <time.h>
 
 #include <pbl/kernel/compiler.h>
+#include <pbl/kernel/malloc.h>
+#include <pbl/system/status_codes.h>
 #include <pbl/util/list.h>
-
-#include <system/status_codes.h>
 
 /**
  * @defgroup services_blob_db BlobDB
@@ -24,7 +24,7 @@
  * response codes are described in @c docs/reference/blob-db.md.
  *
  * Each database implements the @c BlobDB*Impl callbacks and is registered with its id in
- * the @c s_blob_dbs table of @c fw/services/blob_db/api.c. Callbacks are blocking and return
+ * the @c s_blob_dbs table of @c pebble/services/blob_db/api.c. Callbacks are blocking and return
  * once the command has been executed; a database is not guaranteed to persist across
  * reboots. Unimplemented operations return @c E_INVALID_OPERATION.
  *
@@ -39,10 +39,10 @@
  *
  * int len = blob_db_get_len(BlobDBIdContacts, (const uint8_t *)&key, sizeof(key));
  * if (len > 0) {
- *   uint8_t *buf = kernel_malloc_check(len);
+ *   uint8_t *buf = pbl_malloc_check(len);
  *   rv = blob_db_read(BlobDBIdContacts, (const uint8_t *)&key, sizeof(key), buf, len);
  *   ...
- *   kernel_free(buf);
+ *   pbl_free(buf);
  * }
  * @endcode
  * @{
@@ -214,7 +214,7 @@ void blob_db_init_dbs(void);
 /**
  * @brief Compact every database that implements ::BlobDBCompactImpl.
  *
- * Must be called after blob_db_init_dbs(). Performs flash I/O: call it from a system task
+ * Must be called after blob_db_init_dbs(). Performs flash I/O: call it from a background work queue
  * callback, not from the kernel main loop.
  */
 void blob_db_compact_growable_dbs(void);

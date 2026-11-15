@@ -1,12 +1,12 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "system/profiler.h"
-
 #include <stdbool.h>
 #include <stdint.h>
 
+#include <pbl/drivers/timer.h>
 #include <pbl/logging/logging.h>
+#include <pbl/profiler/profiler.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/power.h>
 
@@ -86,8 +86,10 @@ void t5ai_power_init(void) {
       PBL_LOG_ERR("Active CPU clock vote failed: %ld", (long)status);
     } else {
       s_initialized = true;
-      PROFILER_INIT;
-      PROFILER_START;
+#ifdef CONFIG_PROFILER
+      pbl_profiler_reset();
+      pbl_profiler_start();
+#endif
     }
   }
   t5ai_power_sync_tick_clock();
@@ -110,12 +112,7 @@ void t5ai_power_sync_tick_clock(void) {
     return;
   }
   SystemCoreClock = actual_hz;
-  const uint32_t reload = actual_hz / CONFIG_KERNEL_TICK_HZ - 1u;
-  if ((SysTick->CTRL & SysTick_CTRL_ENABLE_Msk) && SysTick->LOAD != reload) {
-    SysTick->LOAD = reload;
-    // Discard the residual period calibrated against the previous clock.
-    SysTick->VAL = 0u;
-  }
+  pbl_clockevent_set_hz(pbl_system_clockevent, actual_hz);
 }
 
 #ifdef CONFIG_T5AI_TICKLESS_WFI

@@ -14,17 +14,10 @@
 #define T5AI_DISPLAY_PSRAM_BASE 0x60000000u
 #define T5AI_DISPLAY_PSRAM_SIZE (128u * 1024u)
 
-// Pebble's native ARM kernel owns configurable MPU regions 4..7.
-// The boot-stage map leaves fixed regions 8..9 active, so region 10 is the
-// first fixed region available to the native Pebble image.
-#define T5AI_DISPLAY_PSRAM_MPU_REGION 10u
-
 // Native AP owns this part of the vendor audio slab; CP heap starts at 0x60700000.
 #define T5AI_PFS_FLAGS_PSRAM_BASE 0x60020000u
 #define T5AI_PFS_FLAGS_PSRAM_SIZE 8192u
-#define T5AI_PFS_FLAGS_MPU_REGION 11u
 
 // AP-only staging inside the retired vendor audio slab, after SD metadata.
-#define T5AI_DISPLAY_DMA_PSRAM_BASE       0x60024000u
-#define T5AI_DISPLAY_DMA_PSRAM_SIZE       (16u * 1024u)
-#define T5AI_DISPLAY_DMA_PSRAM_MPU_REGION 12u
+#define T5AI_DISPLAY_DMA_PSRAM_BASE 0x60024000u
+#define T5AI_DISPLAY_DMA_PSRAM_SIZE (16u * 1024u)

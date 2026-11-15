@@ -1,13 +1,14 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Exercise the real T5-only timing wrappers with deterministic blocking calls."""
+
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-STUB = r'''
+STUB = r"""
 #pragma once
 #include <stdbool.h>
 #include <stddef.h>
@@ -20,7 +21,7 @@ enum pbl_analytics_key { METRIC };
 struct pbl_thread { uint32_t id; struct { uint32_t run_time, switched_in_at; } backend; };
 struct pbl_thread *pbl_thread_current(void);
 uint32_t pbl_uptime_ticks(void);
-uint64_t rtc_get_ticks(void);
+uint64_t t5ai_rtc_get_ticks(void);
 #define RTC_TICKS_HZ 1000u
 uint32_t pbl_ticks_to_ms(uint32_t ticks);
 void pbl_irq_lock(void);
@@ -35,8 +36,8 @@ void test_log(const char *, ...);
 typedef bool (*SettingsFileRewriteFilterCallback)(void *, size_t, void *, size_t, void *);
 typedef struct { char *name; struct { int fd; } iter; } SettingsFile;
 typedef struct { SettingsFile file; struct pbl_mutex mutex; char *name; } TimelineItemStorage;
-'''
-HARNESS = r'''
+"""
+HARNESS = r"""
 #include "stub.h"
 #include <assert.h>
 #include <stdarg.h>
@@ -49,7 +50,7 @@ static bool fail_open, db_held;
 static const char *db_name = "reminderdb";
 struct pbl_thread *pbl_thread_current(void) { return current; }
 uint32_t pbl_uptime_ticks(void) { return now; }
-uint64_t rtc_get_ticks(void) { return (uint64_t)now * 3; }
+uint64_t t5ai_rtc_get_ticks(void) { return (uint64_t)now * 3; }
 uint32_t pbl_ticks_to_ms(uint32_t t) { return t; }
 void pbl_irq_lock(void) {}
 void pbl_irq_unlock(void) {}
@@ -153,7 +154,7 @@ int main(void) {
   assert(s_profile.phases[CREATE].ticks == 3000);
   return 0;
 }
-'''
+"""
 
 
 class ReminderProfileTest(unittest.TestCase):
@@ -161,17 +162,43 @@ class ReminderProfileTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)
             (directory / "stub.h").write_text(STUB)
-            for header in ("kernel/mutex", "drivers/flash/flash_impl", "services/analytics/analytics", "drivers/rtc", "drivers/flash", "kernel/irq", "kernel/time", "kernel/sched", "kernel/thread",
-                           "logging/logging", "services/filesystem/pfs",
-                           "services/settings/settings_file", "services/blob_db/timeline_item_storage"):
+            for header in (
+                "kernel/mutex",
+                "drivers/flash/flash_impl",
+                "services/analytics/analytics",
+                "drivers/rtc",
+                "drivers/flash",
+                "kernel/irq",
+                "kernel/time",
+                "kernel/sched",
+                "kernel/thread",
+                "logging/logging",
+                "services/filesystem/pfs",
+                "services/settings/settings_file",
+                "services/blob_db/timeline_item_storage",
+            ):
                 path = directory / "pbl" / (header + ".h")
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text('#include "stub.h"\n')
             (directory / "test.c").write_text(HARNESS)
             binary = directory / "test"
-            subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                            "-I", str(directory), "-I", str(ROOT),
-                            str(directory / "test.c"), "-o", str(binary)], check=True)
+            subprocess.run(
+                [
+                    "cc",
+                    "-std=c11",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-I",
+                    str(directory),
+                    "-I",
+                    str(ROOT),
+                    str(directory / "test.c"),
+                    "-o",
+                    str(binary),
+                ],
+                check=True,
+            )
             subprocess.run([str(binary)], check=True)
 
 

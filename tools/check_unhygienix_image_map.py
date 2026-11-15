@@ -22,10 +22,9 @@ PARTITION_SYMBOLS = {
     "__APP_RAM__": 0x28032000,
     "__APP_RAM_size__": 0x34000,
 }
+LEGACY_STACK_SYMBOLS = ("__kernel_main_stack_start__", "__kernel_bg_stack_start__")
 REQUIRED_SYMBOLS = (
     "__isr_stack_start__",
-    "__kernel_main_stack_start__",
-    "__kernel_bg_stack_start__",
     "_heap_start",
     "_heap_end",
     "__t5ai_framebuffer_start__",
@@ -74,7 +73,11 @@ def validate_map(text: str) -> list[str]:
             )
 
         symbol = SYMBOL_RE.match(line)
-        if symbol and symbol.group(2) in (*REQUIRED_SYMBOLS, *PARTITION_SYMBOLS):
+        if symbol and symbol.group(2) in (
+            *REQUIRED_SYMBOLS,
+            *LEGACY_STACK_SYMBOLS,
+            *PARTITION_SYMBOLS,
+        ):
             symbols[symbol.group(2)] = int(symbol.group(1), 16)
 
         section = SECTION_RE.match(line)
@@ -140,13 +143,13 @@ def validate_map(text: str) -> list[str]:
     else:
         kernel_begin, kernel_length = EXPECTED_MEMORY["RAM"]
         kernel_end = kernel_begin + kernel_length
-        stack_heap = [symbols[name] for name in REQUIRED_SYMBOLS[:5]]
+        stack_heap = [symbols[name] for name in REQUIRED_SYMBOLS[:3]]
         if stack_heap != sorted(stack_heap) or not all(
             kernel_begin <= address <= kernel_end for address in stack_heap
         ):
             errors.append("stack/heap symbols are unordered or outside RAM")
         display_begin, display_length = EXPECTED_MEMORY["T5AI_DISPLAY_RAM"]
-        framebuffer = [symbols[name] for name in REQUIRED_SYMBOLS[5:]]
+        framebuffer = [symbols[name] for name in REQUIRED_SYMBOLS[3:]]
         if framebuffer != sorted(framebuffer) or not (
             display_begin
             <= framebuffer[0]
@@ -154,6 +157,51 @@ def validate_map(text: str) -> list[str]:
             <= display_begin + display_length
         ):
             errors.append("framebuffer symbols are outside T5AI_DISPLAY_RAM")
+
+    # Upstream keeps thread stacks as static BSS buffers instead of linker reservations.
+    stacks = {}
+    for match in re.finditer(
+        r"^\s*\.bss\.(s_main_stack|s_sys_stack|s_sys_high_stack)(?:\.lto_priv\.\d+)?"
+        r"\s+0x([0-9a-fA-F]+)\s+0x([0-9a-fA-F]+)",
+        text,
+        re.MULTILINE,
+    ):
+        stacks[match[1]] = (int(match[2], 16), int(match[3], 16))
+    legacy = all(name in symbols for name in LEGACY_STACK_SYMBOLS)
+    if legacy:
+        layout = [
+            symbols.get(name, 0)
+            for name in (
+                "__isr_stack_start__",
+                *LEGACY_STACK_SYMBOLS,
+                "_heap_start",
+                "_heap_end",
+            )
+        ]
+        ram_begin, ram_size = EXPECTED_MEMORY["RAM"]
+        if layout != sorted(layout) or not all(
+            ram_begin <= addr <= ram_begin + ram_size for addr in layout
+        ):
+            errors.append("legacy stack/heap symbols are unordered or outside RAM")
+    else:
+        for name in ("s_main_stack", "s_sys_stack", "s_sys_high_stack"):
+            if name not in stacks:
+                errors.append(f"map is missing kernel thread stack {name}")
+                continue
+            begin, size = stacks[name]
+            ram_begin, ram_size = EXPECTED_MEMORY["RAM"]
+            if (
+                size < 128
+                or begin < ram_begin
+                or begin + size
+                > min(
+                    ram_begin + ram_size, symbols.get("__isr_stack_start__", ram_begin)
+                )
+            ):
+                errors.append(f"kernel thread stack {name} is outside RAM or too small")
+        ranges = sorted(stacks.values())
+        if any(a + size > b for (a, size), (b, _) in zip(ranges, ranges[1:])):
+            errors.append("kernel thread stacks overlap")
 
     for name, expected in PARTITION_SYMBOLS.items():
         if symbols.get(name) != expected:

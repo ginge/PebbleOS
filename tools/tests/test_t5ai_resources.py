@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Exercise the production T5 backend and shared resource routing on the host."""
+
 import subprocess
 import tempfile
 import unittest
@@ -8,16 +9,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 STUBS = {
-    'applib/applib_resource.h': '',
-    'pbl/kernel/compiler.h': '#define PBL_PACKED __attribute__((packed))\n',
-    'pbl/logging/logging.h': '''
+    "applib/applib_resource.h": "",
+    "pbl/kernel/compiler.h": "#define PBL_PACKED __attribute__((packed))\n",
+    "pbl/logging/logging.h": """
 #define PBL_LOG_INFO(...)
 #define PBL_LOG_WRN(...)
 #define PBL_LOG_ERR(...)
 #define PBL_LOG_DBG(...) test_log(__VA_ARGS__)
 static inline void test_log(const char *fmt, ...) { (void)fmt; }
-''',
-    'pbl/drivers/flash.h': '''
+""",
+    "pbl/drivers/flash.h": """
 #include <stdint.h>
 #define FLASH_REGION_SYSTEM_RESOURCES_BANK_0_BEGIN 0x02400000u
 #ifndef TEST_BANK_SIZE
@@ -29,26 +30,26 @@ static inline void test_log(const char *fmt, ...) { (void)fmt; }
 void flash_read_bytes(uint8_t *, uint32_t, uint32_t);
 void flash_write_bytes(const uint8_t *, uint32_t, uint32_t);
 uint32_t flash_crc32_legacy(uint32_t, uint32_t);
-''',
-    'pbl/services/process_management/app_storage.h': '',
-    'system/bootbits.h': '''
+""",
+    "pbl/services/process_management/app_storage.h": "",
+    "system/bootbits.h": """
 #define BOOT_BIT_NEW_SYSTEM_RESOURCES_AVAILABLE 1
 void boot_bit_clear(int);
-''',
-    'pbl/services/filesystem/app_file.h': '''
+""",
+    "pbl/services/filesystem/app_file.h": """
 void app_file_name_make(char *, size_t, uint32_t, const char *, size_t);
-''',
-    'system/hexdump.h': '',
-    'pbl/kernel/assert.h': '#include <assert.h>\n#define PBL_ASSERTN(x) assert(x)\n',
-    'system/version.h': '',
-    'pbl/util/size.h': '#define ARRAY_LENGTH(x) (sizeof(x) / sizeof((x)[0]))\n',
-    'pbl/util/testing.h': '#define PBL_T_STATIC static\n',
-    'resource/resource_version.auto.h': '''
+""",
+    "system/hexdump.h": "",
+    "pbl/kernel/assert.h": "#include <assert.h>\n#define PBL_ASSERTN(x) assert(x)\n",
+    "system/version.h": "",
+    "pbl/util/size.h": "#define ARRAY_LENGTH(x) (sizeof(x) / sizeof((x)[0]))\n",
+    "pbl/util/testing.h": "#define PBL_T_STATIC static\n",
+    "resource/resource_version.auto.h": """
 extern ResourceVersion test_resource_version;
 #define SYSTEM_RESOURCE_VERSION test_resource_version
-''',
+""",
 }
-HARNESS = r'''
+HARNESS = r"""
 #define _GNU_SOURCE
 #include <sys/mman.h>
 #include <assert.h>
@@ -217,10 +218,12 @@ int main(void) {
   puts("full boot CRC, bounded tables, immutable bank and resource routing passed");
   return 0;
 }
-'''
+"""
 
 
-STOCK_HARNESS = HARNESS.split("static void init_expect")[0] + r'''
+STOCK_HARNESS = (
+    HARNESS.split("static void init_expect")[0]
+    + r"""
 int main(void) {
   bank = mmap((void *)(uintptr_t)base, 0x100000, PROT_READ | PROT_WRITE,
               MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
@@ -239,7 +242,8 @@ int main(void) {
   assert(!memcmp(out, "abcd", sizeof(out)));
   return 0;
 }
-'''
+"""
+)
 
 
 class T5ResourcesTest(unittest.TestCase):
@@ -249,37 +253,61 @@ class T5ResourcesTest(unittest.TestCase):
             for name, content in STUBS.items():
                 path = directory / name
                 path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text('#pragma once\n' + content)
-            harness = directory / 'test.c'
+                path.write_text("#pragma once\n" + content)
+            harness = directory / "test.c"
             harness.write_text(STOCK_HARNESS if stock else HARNESS)
-            binary = directory / 'test'
-            subprocess.run([
-                'cc', '-std=gnu2x', '-Wall', '-Wextra', '-Werror',
-                '-Wno-unused-parameter', '-DCONFIG_SOC_T5AI=1', '-Dmemcpy=tracked_memcpy',
-                '-DTEST_BANK_SIZE=0x100000u', *defines,
-                '-I', str(directory), '-I', str(ROOT / 'fw'), '-I', str(ROOT / 'include'),
-                str(harness), str(ROOT / ('fw/resource/resource_storage_flash.c' if stock
-                                         else 'soc/t5ai/resource_storage.c')),
-                str(ROOT / 'fw/resource/resource_storage.c'),
-                str(ROOT / 'subsys/crc/crc32_legacy.c'), '-o', str(binary),
-            ], check=True)
+            binary = directory / "test"
+            subprocess.run(
+                [
+                    "cc",
+                    "-std=gnu2x",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-Wno-unused-parameter",
+                    "-DCONFIG_SOC_T5AI=1",
+                    "-Dmemcpy=tracked_memcpy",
+                    "-DTEST_BANK_SIZE=0x100000u",
+                    *defines,
+                    "-I",
+                    str(directory),
+                    "-I",
+                    str(ROOT / "fw"),
+                    "-I",
+                    str(ROOT / "include"),
+                    str(harness),
+                    str(
+                        ROOT
+                        / (
+                            "pebble/resource/resource_storage_flash.c"
+                            if stock
+                            else "soc/t5ai/resource_storage.c"
+                        )
+                    ),
+                    str(ROOT / "pebble/resource/resource_storage.c"),
+                    str(ROOT / "subsys/crc/crc32_legacy.c"),
+                    "-o",
+                    str(binary),
+                ],
+                check=True,
+            )
             subprocess.run([str(binary)], check=True)
 
     def test_stock_backend_keeps_spare_bank(self):
         self.compile_and_run(stock=True)
 
     def test_mapped_backend_and_routing(self):
-        self.compile_and_run('-DCONFIG_MMAP_RESOURCES=1')
+        self.compile_and_run("-DCONFIG_MMAP_RESOURCES=1")
 
     def test_copy_only_backend(self):
         self.compile_and_run()
 
     def test_truncated_manifest_geometry(self):
-        self.compile_and_run('-UTEST_BANK_SIZE', '-DTEST_BANK_SIZE=4u')
+        self.compile_and_run("-UTEST_BANK_SIZE", "-DTEST_BANK_SIZE=4u")
 
     def test_truncated_table_geometry(self):
-        self.compile_and_run('-UTEST_BANK_SIZE', '-DTEST_BANK_SIZE=32u')
+        self.compile_and_run("-UTEST_BANK_SIZE", "-DTEST_BANK_SIZE=32u")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

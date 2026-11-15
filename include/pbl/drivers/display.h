@@ -119,10 +119,26 @@ struct pbl_display {
   enum pbl_display_format format;
   /** Panel mounted upside down. */
   bool rotated;
+  /**
+   * Pixels hidden at each end of the rows of the top half of a round panel, mirrored in the bottom
+   * half, or NULL.
+   */
+  const uint8_t *round_mask;
 };
 
 /** @brief The display, defined by the board. */
 extern const struct pbl_display *const DISPLAY;
+
+/**
+ * @brief Get the pixels hidden at each end of a row of a round panel.
+ *
+ * @param disp Display, with a @ref pbl_display.round_mask.
+ * @param y Row.
+ * @return Pixels hidden at each end of the row.
+ */
+static inline uint16_t pbl_display_round_inset(const struct pbl_display *disp, uint16_t y) {
+  return disp->round_mask[(y < disp->height / 2) ? y : (disp->height - 1 - y)];
+}
 
 /**
  * @brief Define the class state of display @p sym, for the @c PBL_*_DEFINE() macro of a driver.
@@ -145,18 +161,17 @@ extern const struct pbl_display *const DISPLAY;
  * @param _height Height, in pixels.
  * @param _format Framebuffer format.
  * @param _rotated Panel mounted upside down.
+ * @param ... Other mounting properties, designated initializers of struct pbl_display.
  */
-#define PBL_DISPLAY_INIT(sym, _name, _ops, _deps, _width, _height, _format, _rotated)            \
-  {                                                                                              \
-    .dev =                                                                                       \
-        PBL_DEVICE_INIT_CLASS(sym, _name, pbl_display_init, nullptr, _deps, &pbl_display_class), \
-    .ops = (_ops),                                                                               \
-    .state = &sym##_display_state,                                                               \
-    .width = (_width),                                                                           \
-    .height = (_height),                                                                         \
-    .format = (_format),                                                                         \
-    .rotated = (_rotated),                                                                       \
-  }
+#define PBL_DISPLAY_INIT(sym, _name, _ops, _deps, _width, _height, _format, _rotated, ...)         \
+  {.dev = PBL_DEVICE_INIT_CLASS(sym, _name, pbl_display_init, nullptr, _deps, &pbl_display_class), \
+   .ops = (_ops),                                                                                  \
+   .state = &sym##_display_state,                                                                  \
+   .width = (_width),                                                                              \
+   .height = (_height),                                                                            \
+   .format = (_format),                                                                            \
+   .rotated = (_rotated),                                                                          \
+   __VA_ARGS__}
 
 /**
  * @brief Device init of every display: sets the class state up, then calls the driver's init.

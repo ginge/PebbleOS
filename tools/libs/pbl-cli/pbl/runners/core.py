@@ -23,6 +23,8 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import NamedTuple
 
+from pbl import lock
+
 # Commands a runner may implement.
 COMMANDS = ("flash", "run", "erase", "debug", "debugserver")
 
@@ -63,18 +65,23 @@ class RunnerConfig(NamedTuple):
     pbpack_file: str | None = None  # None on PRF builds
     firmware_slot: int | None = None  # None without multiple slots
     resources_file: str | None = None
-    resources_address: int | None = None  # in the board's flash layout
-    erase_ranges: tuple = ()  # (address, size) in the board's flash layout
+    resources_address: int | None = None  # offset in the flash
+    erase_ranges: tuple = ()  # (offset, size) in the flash
     sftool: str = "sftool"
     gdb: str | None = None
     gdb_port: int | None = None  # None for the runner's default
     build: object | None = None  # pbl.build.BuildDir, for runners on the host
     extra_args: tuple = ()  # passed on to the program a runner starts
+    tty: str | None = None  # the device's serial port
+    probe: str | None = None  # the debug probe, as the runner names it
+    watch: object | None = None  # pbl.lab.Watch, from the lab
     dry_run: bool = False
 
 
 class Runner(ABC):
     name = None
+    #: What the runner uses of a lab's watch: "serial" and/or "probe".
+    lab_ports = ()
 
     def __init__(self, cfg):
         self.cfg = cfg
@@ -104,6 +111,15 @@ class Runner(ABC):
     def do_create(cls, cfg, args):
         return cls(cfg)
 
+    def console_command(self):
+        """``(argv, env)`` running the build on the host with nothing on the
+        screen, its console on stdout and no port another instance would
+        want, for the runners that can. ``env`` is added to the environment.
+        """
+        raise UnsupportedOperation(
+            f"{self.name} runner cannot run the build with its console on stdout"
+        )
+
     def run(self, command):
         caps = self.capabilities()
         if command not in caps.commands:
@@ -114,7 +130,27 @@ class Runner(ABC):
             raise UnsupportedOperation(
                 f"{self.name} runner does not support flashing resources"
             )
-        return self.do_run(command)
+        if self.cfg.dry_run:
+            return self.do_run(command)
+        try:
+            with lock.holding(self.locks(command)):
+                return self.do_run(command)
+        except lock.LockError as e:
+            raise RunnerError(str(e)) from None
+
+    def locks(self, command):
+        """The locks (:mod:`pbl.lock`) ``command`` holds while it runs."""
+        locks = []
+        if "serial" in self.lab_ports:
+            locks.append((lock.serial_key(self.cfg.tty), f"serial port {self.cfg.tty}"))
+        if "probe" in self.lab_ports and self.cfg.watch is not None:
+            locks.append(
+                (
+                    lock.probe_key(self.cfg.watch.name),
+                    f"watch {self.cfg.watch.name}'s debug probe",
+                )
+            )
+        return locks
 
     @abstractmethod
     def do_run(self, command):

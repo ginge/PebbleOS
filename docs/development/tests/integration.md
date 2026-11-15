@@ -76,7 +76,8 @@ reachable only at random.
 
 `--erase-fs` erases the watch's filesystem first (bondings, settings, apps
 and data) and the bonding kept for PRF, for a known starting point, with
-{doc}`../../pbl/erase` and the board's runner.
+{doc}`../../pbl/erase` and the board's runner. It also clears the timezone,
+which the firmware keeps outside the filesystem.
 
 The integration tests run debug builds, including the current measurements
 (see below): release builds have no usable console.
@@ -93,20 +94,18 @@ what plays the phone. The same tests run on any of:
 | Watch, serial console | Bumble, on a dongle | the lab's watch, and its first dongle for the phone |
 | Watch, serial console | CoreApp | `--phone coreapp` (not supported yet) |
 
-A lab file describes the hardware wired to this host, and nothing else:
-watches (board, serial port, the supply powering them), power supplies and
-Bluetooth dongles. Pass it with `--lab` (or `$PBL_ITEST_LAB`), and the
-harness takes the setup for the build from it: the watch running its
-board (`--lab-watch` picks another), its supply, and a dongle for the
-phone. Options on the command line override it.
-`tests/integration/lab.example.yaml` describes the format:
+The setup comes from the {doc}`lab file <../../pbl/lab>`, which describes
+the hardware wired to this host and the rest of `pbl` uses too: the watch
+running the build's board (`--watch` picks another), its supply, and a dongle for the phone. Options on the
+command line override it. A session on a watch holds the locks on all of
+those ports while it runs.
 
 ```shell
 pbl -b build-getafix itest --lab ~/pebble-lab.yaml --flash-before
 ```
 
 The report starts with the setup, e.g. `setup: getafix, serial
-/dev/tty.wchusbserial1, PPK2 auto at 3800 mV, phone bumble on
+/dev/tty.wchusbserial1, ppk2 auto at 3800 mV, phone bumble on
 /dev/cu.usbmodem1101`. Tests that need what the setup lacks are skipped
 with the reason, without touching the device: a test needs a phone when it
 takes `phones`, and a power supply when it takes `power`.
@@ -117,14 +116,12 @@ The harness reaches the watch through one or more connections, each
 offering some of: the debug prompt, the log stream, and the Pebble protocol
 (what the phone app speaks, used for input, screenshots and blob DB). Each
 is served by the first connection that has it. By default the harness uses
-the debug console, over PULSE when `CONFIG_PULSE_EVERYWHERE` is set and as
-the legacy text console otherwise; `--connection` replaces the default and
+the debug console; `--connection` replaces the default and
 may be repeated:
 
 | Connection                  | Prompt | Logs     | Pebble protocol |
 | --------------------------- | ------ | -------- | --------------- |
-| `pulse:TTY` / `pulse:socket://HOST:PORT` | yes | yes | yes (tunneled) |
-| `serial:TTY[@BAUD]`         | yes    | yes      | no              |
+| `serial:TTY[@BAUD]`         | yes    | yes      | yes (in frames) |
 | `ble:WATCH[@CONTROLLER]`    | no     | no       | yes             |
 | `devconn:HOST[:PORT]`       | no     | app only | yes             |
 | `qemu:HOST:PORT`            | no     | no       | yes             |
@@ -138,6 +135,11 @@ pbl itest --connection serial:/dev/tty.usbserial-1 --connection devconn:192.168.
 
 Tests that need something no connection offers are skipped, e.g. the
 `prompt` fixture without a prompt.
+
+The harness's own sessions tell the watch that the phone app supports
+every protocol capability but settings sync, since nothing would answer
+the watch's settings write-backs. `dut.set_phone_settings_sync(True)`
+turns it on, for tests that answer them themselves.
 
 ### Bluetooth
 
@@ -154,7 +156,7 @@ the controller is a dongle's serial port, or `--ble-controller`:
 
 ```shell
 pbl itest --connection ble:auto@/dev/cu.usbmodem1101 \
-    --connection pulse:/dev/tty.usbserial-1
+    --connection serial:/dev/tty.usbserial-1
 ```
 
 Pairing has to be confirmed on the watch; the harness does it with the
@@ -242,6 +244,8 @@ Everything a run produces goes to `BUILD/itest` (or `--results-dir`):
 - `<test>/failure.png`: the screen when a test failed; the tail of the log
   is added to the failure report too
 - `<test>/<name>.json`, `<name>.csv`: current measurements
+- `<test>/rerun1/`, ...: the same files for each rerun of a test marked
+  `flaky` (pytest-rerunfailures)
 - `qemu.log`, `uart1.log`, `flash.log`: the emulator's and the flasher's
   output
 - with `-n`, the session-wide files are in a directory per worker (`gw0`,
@@ -275,7 +279,9 @@ for tests that do not depend on the board, or that take too long for every
 pull request.
 
 The lab's watches run the suite nightly, normal and recovery firmware. A
-maintainer can run it on a pull request by adding the `ci:hw-itest` label;
+maintainer can also run it on a branch of the repository, such as `main`,
+with `gh workflow run hw-itest.yml --ref <branch>`, or on a pull request
+by adding the `ci:hw-itest` label;
 each time the label is added, the pull request runs once more. The run
 executes the pull request's own code on the lab machine, so review all of
 it first, including tooling and Python requirements. On someone else's
@@ -384,6 +390,9 @@ def test_idle(ui, power):
     assert m.mean_ua < LIMIT_UA, m
 ```
 
+The harness drives the supply through `pbl.power` (see {doc}`/pbl/power`),
+so a lab's supply of any type that measures serves the power tests.
+
 `power.measure(name)` measures the duration of a `with` block instead,
 connections and all. A measurement has `mean_ua`, `min_ua`, `max_ua`,
 `percentile_ua(q)`, `charge_uah` and `energy_uwh`, and is saved in the
@@ -392,12 +401,13 @@ averages); record them with `record_property` to have them in the JUnit
 report. A measurement that lost samples fails rather than report a wrong
 figure.
 
-The power tests measure TicToc idling while advertising fast and slow for
-discovery, and in airplane mode. They wipe the watch first (`dut.wipe()`),
-so run them on a test watch, with no phone bonded to it nearby. Each passes
-within 10% of the board's nominal figure in `power/test_idle.py`, measured
-at 3.8 V; update the nominals when a change moves them on purpose. Boards
-without nominals record their figures with a warning.
+The power tests measure TicToc idling in airplane mode. They wipe the watch
+first (`dut.wipe()`), so run them on a test watch. Each passes within 10% of
+the board's nominal figure in `power/test_idle.py`, measured at 3.8 V, and
+one out of range is rerun once; update the nominals when a change moves them
+on purpose. Boards without nominals record their figures with a warning.
+Advertising current is not measured: scans from phones and computers nearby
+add scan responses to it, so it depends on where the watch is.
 
 ## Recovery firmware
 
@@ -410,7 +420,7 @@ over the single bond,
 installing the normal firmware from the phone and "Reset to PRF" from it,
 the backlight timeout, turning off after 10 minutes unplugged and
 unconnected (not while a phone or a charger is connected), the low battery
-screen, and the current advertising, connected and off. On the emulator
+screen, and the current connected and off. On the emulator
 the screens are compared with golden images, the backlight is timed on the
 display, and `dut.set_battery()` sets the emulated battery's charge and
 charger; on a watch the current is measured with a PPK2, the backlight

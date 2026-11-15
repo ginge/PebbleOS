@@ -18,7 +18,10 @@ Two classes carry design notes worth reading before changing them:
 :maxdepth: 1
 
 device_model.md
+simulators.md
 crc/index.md
+crypto/index.md
+clk/index.md
 ```
 
 The {apidoc}`API reference <drivers>` documents every driver class.

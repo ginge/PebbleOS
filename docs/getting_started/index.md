@@ -21,6 +21,7 @@ sudo apt install \
     bison \
     clang \
     cmake \
+    device-tree-compiler \
     flex \
     gcc \
     gcc-multilib \
@@ -55,6 +56,7 @@ sudo dnf install \
     clang \
     cmake \
     dash \
+    dtc \
     flex \
     freetype-devel \
     gcc \
@@ -189,14 +191,13 @@ On a real board, `pbl run` flashes the firmware to the watch. With a
 {doc}`programmer <../programmers/index>` connected as the
 {doc}`board's page <../boards/index>` shows, add `--resources` the first
 time to write the system resources too. Without one, go through the phone
-paired with the watch, connected over adb if it runs Android:
+paired with the watch:
 
 ```shell
-pbl run -r phone
+pbl run -r phone --via adb|cloud|ip [--address $IP]
 ```
 
-{doc}`../pbl/run` covers the options of each case, including phones
-reached over the network.
+{doc}`../pbl/run` covers the options of each case.
 
 ## Next steps
 

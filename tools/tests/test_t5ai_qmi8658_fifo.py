@@ -23,6 +23,9 @@ HEADERS = [
     "pbl/kernel/sem.h",
     "pbl/kernel/thread.h",
     "pbl/kernel/delay.h",
+    "pbl/kernel/time.h",
+    "pbl/kernel/work.h",
+    "pbl/soc/t5ai/rtc.h",
     "pbl/services/new_timer/new_timer.h",
     "system/status_codes.h",
     "pbl/logging/logging.h",
@@ -41,6 +44,21 @@ typedef struct {
 } AccelRawBatch;
 typedef int IMUCoordinateAxis;
 typedef int TimerID;
+typedef unsigned pbl_tick_t;
+struct pbl_work {void (*fn)(struct pbl_work *);};
+struct pbl_delayed_work {struct pbl_work work;};
+static int pbl_sys_workq_high;
+#define PBL_MSEC(ms) (ms)
+#define PBL_TICKS(t) (t)
+#define pbl_ms_to_ticks(ms) (ms)
+void pbl_delayed_work_init(struct pbl_delayed_work *,void (*)(struct pbl_work *));
+bool pbl_delayed_work_reschedule(int *,struct pbl_delayed_work *,unsigned);
+bool pbl_delayed_work_schedule_next(struct pbl_delayed_work *,unsigned);
+bool pbl_delayed_work_cancel(struct pbl_delayed_work *);
+bool pbl_delayed_work_cancel_sync(struct pbl_delayed_work *);
+bool pbl_sys_work_call_high(void (*)(void *),void *);
+uint64_t pbl_realtime_ms(void);
+
 #define TIMER_INVALID_ID -1
 #define TIMER_START_FLAG_REPEATING 1
 #define I2C_QMI8658 0
@@ -118,7 +136,7 @@ int pbl_intc_disable(const struct pbl_irq_spec *);
 """
 EXTRA = r"""
 #define PBL_LOG_WRN(...) ((void)0)
-uint64_t rtc_get_ticks(void);
+uint64_t t5ai_rtc_get_ticks(void);
 """
 HARNESS = r"""
 #include "stub.h"
@@ -252,14 +270,21 @@ int pbl_i2c_burst_read(const struct pbl_i2c_dev *b, uint8_t reg, uint8_t *p, uns
  return 0;
 }
 void rtc_get_time_ms(time_t *s, uint16_t *ms) { *s=now_ms/1000; *ms=now_ms%1000; }
-uint64_t rtc_get_ticks(void) { return now_ms; }
+uint64_t t5ai_rtc_get_ticks(void) { return now_ms; }
+uint64_t pbl_realtime_ms(void) { return now_ms; }
+void pbl_delayed_work_init(struct pbl_delayed_work *t,void (*fn)(struct pbl_work *)){t->work.fn=fn;}
+bool pbl_delayed_work_reschedule(int *q,struct pbl_delayed_work *t,unsigned ms){assert(q==&pbl_sys_workq_high);timer_ms=ms;return true;}
+bool pbl_delayed_work_schedule_next(struct pbl_delayed_work *t,unsigned ms){timer_ms=ms;return true;}
+bool pbl_delayed_work_cancel(struct pbl_delayed_work *t){timer_ms=0;return true;}
+bool pbl_delayed_work_cancel_sync(struct pbl_delayed_work *t){return pbl_delayed_work_cancel(t);}
+
 void pbl_sleep_ms(unsigned ms) { now_ms+=ms; }
 TimerID new_timer_create(void) { return 1; }
 bool new_timer_start(TimerID t, uint32_t ms, void (*cb)(void *), void *d, int f) {
  (void)t; (void)d; (void)f; assert(cb==prv_timer_callback); timer_ms=ms; return true;
 }
 bool new_timer_stop(TimerID t) { (void)t; timer_ms=0; return true; }
-bool new_timer_add_work_callback(void (*cb)(void *),void *data) {
+bool pbl_sys_work_call_high(void (*cb)(void *),void *data) {
  if(full) return false; assert(!queued); queued=cb; queued_data=data; return true;
 }
 void pbl_accel_report_sample(const struct pbl_accel *a,const AccelDriverSample *s) { (void)s; assert(false); }
@@ -296,7 +321,7 @@ int main(void) {
  pbl_qmi8658_ops.init(&sensor.accel);
 #ifdef CONFIG_T5AI_ACCEL_DISABLED
  assert(io==1 && !sensor_state.initialized && !created && !irq_enabled && !timer_ms);
- assert(sensor_state.timer==TIMER_INVALID_ID && !sensor_state.active);
+ assert(sensor_state.timer_period==0 && !sensor_state.active);
  assert(set_count(1)==-ENODEV && set_shake(true)==-ENODEV);
  set_interval(32000); assert(set_rotated(true)==0);
  AccelDriverSample disabled_sample;

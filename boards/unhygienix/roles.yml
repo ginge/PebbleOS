@@ -1,0 +1,32 @@
+console_uart:
+  symbol: "&T5AI_CONSOLE_UART"
+  include: pbl/soc/t5ai/devices.h
+accel:
+  symbol: "&T5AI_QMI8658.accel"
+  include: pbl/soc/t5ai/devices.h
+backlight:
+  symbol: "&pbl_backlight_t5ai"
+  include: pbl/drivers/backlight/t5ai.h
+display:
+  symbol: "&T5AI_DISPLAY"
+  include: pbl/soc/t5ai/devices.h
+touch:
+  symbol: "&T5AI_TOUCH"
+  include: pbl/soc/t5ai/devices.h
+flash:
+  symbol: "&T5AI_FLASH"
+  include: pbl/soc/t5ai/devices.h
+rtc:
+  symbol: "&T5AI_RTC"
+  include: pbl/soc/t5ai/devices.h
+mic:
+  symbol: "&T5AI_MIC"
+  include: pbl/soc/t5ai/devices.h
+als:
+  symbol: nullptr
+die_temp:
+  symbol: nullptr
+vibe:
+  symbol: nullptr
+battery:
+  symbol: nullptr

@@ -1,14 +1,17 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
-#include <pbl/soc/t5ai/heap_trace.h>
-#include <pbl/soc/t5ai/rtc.h>
-#include <pbl/util/heap.h>
+
+#include "pbl/kernel/malloc.h"
+
+#include <inttypes.h>
+
+#include <pbl/kernel/assert.h>
+#include <pbl/kernel/heap.h>
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/thread.h>
 #include <pbl/logging/logging.h>
-#include "kernel/kernel_heap.h"
-#include <pbl/kernel/assert.h>
-#include <inttypes.h>
+#include <pbl/soc/t5ai/heap_trace.h>
+#include <pbl/soc/t5ai/rtc.h>
 
 PBL_LOG_MODULE_DEFINE(t5ai_heap_trace, LOG_LEVEL_DEBUG);
 #define RECORD_COUNT 16u
@@ -20,11 +23,11 @@ static Record s_records[RECORD_COUNT];
 static uint32_t s_next, s_last_dump, s_omitted;
 static bool s_dumping;
 static uint32_t prv_now(void) {
-  return (uint32_t)(t5ai_rtc_get_raw_ticks() / (T5AI_AON_RTC_HZ / 1000u));
+  return (uint32_t)(t5ai_rtc_get_ticks());
 }
-static void prv_record(Heap *heap, uint32_t op, size_t bytes, uintptr_t client, uintptr_t site,
-                       void *pointer) {
-  if (heap != kernel_heap_get())
+static void prv_record(struct pbl_heap *heap, uint32_t op, size_t bytes, uintptr_t client,
+                       uintptr_t site, void *pointer) {
+  if (heap != pbl_malloc_heap())
     return;
   pbl_irq_lock();
   if (!s_dumping) {
@@ -47,33 +50,33 @@ static void prv_record(Heap *heap, uint32_t op, size_t bytes, uintptr_t client, 
 }
 // The call site is a fallback when the allocator's supplied client PC is zero.
 #define SITE ((uintptr_t)__builtin_return_address(0))
-void *__real_heap_malloc(Heap *, unsigned long, uintptr_t);
-void *__wrap_heap_malloc(Heap *heap, unsigned long bytes, uintptr_t client) {
-  void *ptr = __real_heap_malloc(heap, bytes, client);
+void *__real_pbl_heap_alloc(struct pbl_heap *, size_t, uintptr_t);
+void *__wrap_pbl_heap_alloc(struct pbl_heap *heap, size_t bytes, uintptr_t client) {
+  void *ptr = __real_pbl_heap_alloc(heap, bytes, client);
   prv_record(heap, 1, bytes, client, SITE, ptr);
   return ptr;
 }
-void *__real_heap_zalloc(Heap *, size_t, uintptr_t);
-void *__wrap_heap_zalloc(Heap *heap, size_t bytes, uintptr_t client) {
-  void *ptr = __real_heap_zalloc(heap, bytes, client);
+void *__real_pbl_heap_zalloc(struct pbl_heap *, size_t, uintptr_t);
+void *__wrap_pbl_heap_zalloc(struct pbl_heap *heap, size_t bytes, uintptr_t client) {
+  void *ptr = __real_pbl_heap_zalloc(heap, bytes, client);
   prv_record(heap, 2, bytes, client, SITE, ptr);
   return ptr;
 }
-void *__real_heap_calloc(Heap *, size_t, size_t, uintptr_t);
-void *__wrap_heap_calloc(Heap *heap, size_t count, size_t bytes, uintptr_t client) {
-  void *ptr = __real_heap_calloc(heap, count, bytes, client);
+void *__real_pbl_heap_calloc(struct pbl_heap *, size_t, size_t, uintptr_t);
+void *__wrap_pbl_heap_calloc(struct pbl_heap *heap, size_t count, size_t bytes, uintptr_t client) {
+  void *ptr = __real_pbl_heap_calloc(heap, count, bytes, client);
   prv_record(heap, 3, count * bytes, client, SITE, ptr);
   return ptr;
 }
-void *__real_heap_realloc(Heap *, void *, unsigned long, uintptr_t);
-void *__wrap_heap_realloc(Heap *heap, void *old, unsigned long bytes, uintptr_t client) {
-  void *ptr = __real_heap_realloc(heap, old, bytes, client);
+void *__real_pbl_heap_realloc(struct pbl_heap *, void *, size_t, uintptr_t);
+void *__wrap_pbl_heap_realloc(struct pbl_heap *heap, void *old, size_t bytes, uintptr_t client) {
+  void *ptr = __real_pbl_heap_realloc(heap, old, bytes, client);
   prv_record(heap, 4, bytes, client, SITE, ptr);
   return ptr;
 }
-void __real_heap_free(Heap *, void *, uintptr_t);
-void __wrap_heap_free(Heap *heap, void *ptr, uintptr_t client) {
-  __real_heap_free(heap, ptr, client);
+void __real_pbl_heap_free(struct pbl_heap *, void *, uintptr_t);
+void __wrap_pbl_heap_free(struct pbl_heap *heap, void *ptr, uintptr_t client) {
+  __real_pbl_heap_free(heap, ptr, client);
   prv_record(heap, 5, 0, client, SITE, ptr);
 }
 static void prv_dump(bool fatal) {
@@ -86,7 +89,7 @@ static void prv_dump(bool fatal) {
   uint32_t end = s_next, omitted = s_omitted;
   pbl_irq_unlock();
   unsigned used, free_bytes, largest;
-  heap_calc_totals(kernel_heap_get(), &used, &free_bytes, &largest);
+  pbl_heap_stats(pbl_malloc_heap(), &used, &free_bytes, &largest);
   PBL_LOG_DBG("T5HEAP fatal=%u rtc_ms=%" PRIu32 " used=%u free=%u largest=%u next=%" PRIu32, fatal,
               prv_now(), used, free_bytes, largest, end);
   PBL_LOG_DBG("T5HEAP omitted_during_dump=%" PRIu32, omitted);
@@ -113,9 +116,9 @@ void t5ai_heap_trace_dump(void) {
   s_last_dump = now;
   prv_dump(false);
 }
-[[noreturn]] void __real_pbl_malloc_oom(size_t, uintptr_t, Heap *);
-[[noreturn]] void __wrap_pbl_malloc_oom(size_t bytes, uintptr_t lr, Heap *heap) {
-  if (heap == kernel_heap_get())
+[[noreturn]] void __real_pbl_heap_oom(struct pbl_heap *, size_t, uintptr_t);
+[[noreturn]] void __wrap_pbl_heap_oom(struct pbl_heap *heap, size_t bytes, uintptr_t lr) {
+  if (heap == pbl_malloc_heap())
     prv_dump(true);
-  __real_pbl_malloc_oom(bytes, lr, heap);
+  __real_pbl_heap_oom(heap, bytes, lr);
 }

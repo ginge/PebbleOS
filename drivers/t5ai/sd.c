@@ -12,10 +12,10 @@
 #include <pbl/drivers/gpio.h>
 #include <pbl/drivers/pinctrl.h>
 #include <pbl/drivers/t5ai/sd.h>
+#include <pbl/kernel/cache.h>
 #include <pbl/kernel/kernel.h>
 #include <pbl/kernel/time.h>
 #include <pbl/logging/logging.h>
-#include <pbl/mcu/cache.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/delay.h>
 #include <pbl/soc/t5ai/memory.h>
@@ -317,9 +317,9 @@ static int prv_dma_start(unsigned channel, void *buffer, size_t bytes, bool writ
   if (ret != 0)
     return ret;
   if (write)
-    dcache_flush(buffer, bytes);
+    pbl_dcache_flush_range(buffer, bytes);
   else
-    dcache_flush_invalidate(buffer, bytes);
+    pbl_dcache_flush_invalidate_range(buffer, bytes);
   return pbl_dma_prep_slave_single(dma, buffer, bytes,
                                    write ? PBL_DMA_MEM_TO_DEV : PBL_DMA_DEV_TO_MEM, prv_dma_done,
                                    (void *)(uintptr_t)write);
@@ -447,7 +447,7 @@ static int prv_transfer(uint32_t sector, void *buffer, uint32_t count, bool writ
   pbl_irq_unlock();
 #endif
   if (!write) {
-    dcache_invalidate(dma_buffer, bytes);
+    pbl_dcache_invalidate_range(dma_buffer, bytes);
     if (dma_buffer != buffer) {
       memcpy(buffer, dma_buffer, bytes);
     }

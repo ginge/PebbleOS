@@ -51,7 +51,7 @@ static int pbl_dma_prep_slave_single(const struct pbl_dma_chan *c,void *buf,size
  assert(dir==0 && len && len<=65536);++submits;dma_buf=buf;dma_len=len;dma_cb=cb;dma_arg=arg;return 0;
 }
 static int pbl_dma_terminate(const struct pbl_dma_chan *c){++terminated;return 0;}
-static void dcache_flush(void *buf,size_t len){}
+static void pbl_dcache_flush_range(void *buf,size_t len){}
 static void delay_us(unsigned us){if(drain_steps && --drain_steps==0)regs[0x70/4]=(1u<<2)|(1u<<16);}
 static void NVIC_SetPriority(int irq,unsigned priority){assert(irq==20 && priority==6);}
 static void NVIC_EnableIRQ(int irq){assert(irq==20);}

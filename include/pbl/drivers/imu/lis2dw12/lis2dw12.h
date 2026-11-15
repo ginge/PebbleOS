@@ -9,12 +9,9 @@
 #include <pbl/drivers/gpio.h>
 #include <pbl/drivers/i2c.h>
 #include <pbl/drivers/intc.h>
-#include <pbl/drivers/rtc.h>
+#include <pbl/kernel/cache.h>
 #include <pbl/kernel/compiler.h>
-#include <pbl/mcu/cache.h>
-#include <pbl/services/regular_timer.h>
-
-#include <board/board.h>
+#include <pbl/kernel/work.h>
 
 /**
  * @defgroup drivers_imu_lis2dw12 LIS2DW12
@@ -41,12 +38,12 @@ typedef struct LIS2DW12State {
   /** Samples per FIFO batch requested by the subscribers, 0 when not streaming. */
   uint8_t num_samples;
   /** Raw FIFO read buffer, filled through DMA, see @ref PBL_I2C_MSG_DMA_SAFE. */
-  uint8_t raw_sample_buf[DCACHE_ROUND_UP(
-      LIS2DW12_FIFO_SIZE * LIS2DW12_SAMPLE_SIZE_BYTES)] PBL_ALIGNED(DCACHE_LINE_SIZE_MAX);
+  uint8_t raw_sample_buf[PBL_DCACHE_ROUND_UP(
+      LIS2DW12_FIFO_SIZE * LIS2DW12_SAMPLE_SIZE_BYTES)] PBL_ALIGNED(PBL_DCACHE_LINE_SIZE);
   /** Watchdog timer detecting a stalled INT1 stream. */
-  RegularTimerInfo int1_wdt_timer;
+  struct pbl_wallclock_work int1_wdt_timer;
   /** Time of the last FIFO read. */
-  RtcTicks last_fifo_read_tick;
+  uint64_t last_fifo_read_tick;
   /** Expected INT1 period in milliseconds. */
   uint32_t int1_period_ms;
   /** Number of stream recoveries performed. */
@@ -73,9 +70,12 @@ struct pbl_lis2dw12 {
   LIS2DW12State *state;
   /** I2C device. */
   struct pbl_i2c_dev i2c;
-  /** INT1 interrupt line. */
+  /**
+   * INT1 interrupt line. Without one the part is only reset and left powered down, and
+   * streaming and shake detection are not supported.
+   */
   struct pbl_irq_spec int1;
-  /** INT1 input, to read back the pad level. */
+  /** INT1 input, to read back the pad level, none without @ref int1. */
   struct pbl_gpio int1_in;
   /** Sensor axis feeding each watch axis (0: X, 1: Y, 2: Z). */
   uint8_t axis_map[3];
@@ -92,21 +92,18 @@ extern const struct pbl_accel_ops pbl_lis2dw12_ops;
  *
  * Only one instance is supported.
  *
- * @param sym Symbol of the instance; the accelerometer is @c sym.accel.
+ * @param sym Symbol of the instance, a struct pbl_accel.
  * @param _bus I2C bus.
  * @param _addr 7-bit I2C address.
- * @param ... Designated initializers of the remaining fields: @c int1, @c int1_in, @c axis_map
- *            and @c axis_dir.
+ * @param ... Designated initializers of the remaining fields: @c axis_map, @c axis_dir and,
+ *            optionally, @c int1 and @c int1_in.
  */
-#define PBL_LIS2DW12_DEFINE(sym, _bus, _addr, ...)                             \
-  PBL_ACCEL_STATE_DEFINE(sym);                                                 \
-  static LIS2DW12State sym##_lis2dw12_state;                                   \
-  const struct pbl_lis2dw12 sym = {                                            \
-    .accel = PBL_ACCEL_INIT(sym, "lis2dw12", &(_bus)->dev, &pbl_lis2dw12_ops), \
-    .state = &sym##_lis2dw12_state,                                            \
-    .i2c = PBL_I2C_DEV(_bus, _addr),                                           \
-    __VA_ARGS__,                                                               \
-  };                                                                           \
-  PBL_DEVICE_REGISTER(sym, &sym.accel.dev)
+#define PBL_LIS2DW12_DEFINE(sym, _bus, _addr, ...)                                \
+  PBL_ACCEL_STATE_DEFINE(sym);                                                    \
+  static LIS2DW12State sym##_lis2dw12_state;                                      \
+  PBL_DEVICE_INSTANCE(sym, struct pbl_lis2dw12, struct pbl_accel, accel) {        \
+    .accel = PBL_ACCEL_INIT(sym, "lis2dw12", &(_bus)->dev, &pbl_lis2dw12_ops),    \
+    .state = &sym##_lis2dw12_state, .i2c = PBL_I2C_DEV(_bus, _addr), __VA_ARGS__, \
+  }
 
 /** @} */

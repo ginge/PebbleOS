@@ -1,0 +1,15 @@
+/* SPDX-FileCopyrightText: 2024 Google LLC */
+/* SPDX-License-Identifier: Apache-2.0 */
+
+#include <pbl/kernel/malloc.h>
+#include <pbl/services/blob_db/util.h>
+
+void blob_db_util_free_dirty_list(BlobDBDirtyItem *dirty_list) {
+  ListNode *head = &dirty_list->node;
+  ListNode *cur;
+  while (head) {
+    cur = head;
+    list_remove(cur, &head, nullptr);
+    pbl_free(cur);
+  }
+}

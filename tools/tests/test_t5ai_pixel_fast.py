@@ -133,9 +133,9 @@ def function(source, name):
 
 class PixelFastTest(unittest.TestCase):
     def test_stock_equivalence(self):
-        types = (ROOT / "fw/applib/graphics/gtypes.c").read_text()
-        bitmap = (ROOT / "fw/applib/graphics/gbitmap.c").read_text()
-        graphics = (ROOT / "fw/applib/graphics/graphics_private.c").read_text()
+        types = (ROOT / "pebble/applib/graphics/gtypes.c").read_text()
+        bitmap = (ROOT / "pebble/applib/graphics/gbitmap.c").read_text()
+        graphics = (ROOT / "pebble/applib/graphics/graphics_private.c").read_text()
         table = re.search(
             r"static const uint8_t s_blending_lookup_33_percent\[.*?\n};",
             types,

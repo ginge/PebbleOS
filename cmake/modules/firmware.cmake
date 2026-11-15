@@ -181,39 +181,14 @@ function(pbl_link_firmware)
       OUTPUT ${syscalls_stamp}
       COMMAND ${PBL_TOOLCHAIN_ENV} ${PYTHON_EXECUTABLE} ${PBL_FIRMWARE_PY} check-syscalls
               --elf ${elf} --objdump ${CMAKE_OBJDUMP}
-              --legacy ${PBL_BASE}/fw/syscall/legacy_syscalls.txt
+              --legacy ${PBL_BASE}/pebble/syscall/legacy_syscalls.txt
       COMMAND ${CMAKE_COMMAND} -E touch ${syscalls_stamp}
-      DEPENDS pebbleos ${PBL_FIRMWARE_PY} ${PBL_BASE}/fw/syscall/legacy_syscalls.txt
+      DEPENDS pebbleos ${PBL_FIRMWARE_PY} ${PBL_BASE}/pebble/syscall/legacy_syscalls.txt
       WORKING_DIRECTORY ${PBL_BASE}
       COMMENT "Checking syscall definitions"
       VERBATIM
     )
     list(APPEND artifacts ${syscalls_stamp})
-  endif()
-
-  # Hashed log strings: the dictionary the console and the bundle use to
-  # turn hashes back into messages.
-  set(loghash ${PROJECT_BINARY_DIR}/fw/loghash_dict.json)
-  if(CONFIG_LOG_HASHED)
-    set(fw_loghash ${PROJECT_BINARY_DIR}/pebbleos_loghash_dict.json)
-    add_custom_command(
-      OUTPUT ${fw_loghash}
-      COMMAND ${PBL_TOOLCHAIN_ENV} ${PYTHON_EXECUTABLE} ${PBL_GENERATE_PY} loghash
-              --elf ${elf} --output ${fw_loghash}
-      DEPENDS pebbleos ${PBL_GENERATE_PY}
-      WORKING_DIRECTORY ${PBL_BASE}
-      COMMENT "Checking and hashing log strings"
-      VERBATIM
-    )
-    add_custom_command(
-      OUTPUT ${loghash}
-      COMMAND ${PBL_TOOLCHAIN_ENV} ${PYTHON_EXECUTABLE} ${PBL_GENERATE_PY} loghash-merge
-              --output ${loghash} ${fw_loghash}
-      DEPENDS ${fw_loghash} ${PBL_GENERATE_PY}
-      WORKING_DIRECTORY ${PBL_BASE}
-      VERBATIM
-    )
-    list(APPEND artifacts ${loghash})
   endif()
 
   if(PBL_PBPACK)
@@ -234,6 +209,10 @@ function(pbl_link_firmware)
     list(APPEND artifacts ${sizes_stamp})
   endif()
   add_custom_target(pbl_firmware ALL DEPENDS ${artifacts})
+  # So is the log dictionary, which the logging subsystem builds.
+  if(TARGET pbl_log_dict)
+    add_dependencies(pbl_firmware pbl_log_dict)
+  endif()
 
   # The merged catalog is a target of its own, declared where its recipe is.
   get_property(pot GLOBAL PROPERTY PBL_POT_TARGET)
@@ -250,7 +229,7 @@ function(pbl_link_firmware)
     list(APPEND bundle_args --resources ${PBL_PBPACK} --layouts ${PBL_LAYOUTS})
   endif()
   if(CONFIG_LOG_HASHED)
-    list(APPEND bundle_args --loghash ${loghash})
+    list(APPEND bundle_args --loghash ${PBL_LOG_DICT})
   endif()
   add_custom_target(bundle
     COMMAND ${PBL_TOOLCHAIN_ENV} ${PYTHON_EXECUTABLE} ${PBL_FIRMWARE_PY} bundle ${bundle_args}

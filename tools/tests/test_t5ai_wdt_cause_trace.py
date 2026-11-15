@@ -1,6 +1,7 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Check actual watchdog diagnostic wrappers, delegation and bounded records."""
+
 from pathlib import Path
 import subprocess
 import tempfile
@@ -60,8 +61,12 @@ class WdtCauseTraceTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             directory = Path(tmp)
             for header in (
-                "pbl/kernel/irq.h", "pbl/kernel/thread.h", "pbl/logging/logging.h",
-                "pbl/services/system_task.h", "pbl/soc/t5ai/rtc.h", "pbl/task_wdt/task_wdt.h",
+                "pbl/kernel/irq.h",
+                "pbl/kernel/thread.h",
+                "pbl/logging/logging.h",
+                "pbl/kernel/work.h",
+                "pbl/soc/t5ai/rtc.h",
+                "pbl/task_wdt/task_wdt.h",
             ):
                 path = directory / header
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -69,11 +74,18 @@ class WdtCauseTraceTest(unittest.TestCase):
             (directory / "stub.h").write_text(STUB)
             (directory / "test.c").write_text(HARNESS)
             executable = directory / "test"
-            subprocess.run([
-                "cc", "-std=c11", "-I" + str(directory),
-                '-DSOURCE="' + str(ROOT / "soc/t5ai/wdt_cause_trace.c") + '"',
-                str(directory / "test.c"), "-o", str(executable),
-            ], check=True)
+            subprocess.run(
+                [
+                    "cc",
+                    "-std=c11",
+                    "-I" + str(directory),
+                    '-DSOURCE="' + str(ROOT / "soc/t5ai/wdt_cause_trace.c") + '"',
+                    str(directory / "test.c"),
+                    "-o",
+                    str(executable),
+                ],
+                check=True,
+            )
             subprocess.run([str(executable)], check=True)
 
 

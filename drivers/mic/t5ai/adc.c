@@ -2,22 +2,22 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
 #include "board/board.h"
-#include "kernel/pbl_malloc.h"
+#include "pbl/kernel/malloc.h"
 
 #include <inttypes.h>
 
 #include <pbl/drivers/dma/t5ai.h>
 #include <pbl/drivers/mic/t5ai/definitions.h>
 #include <pbl/kernel/assert.h>
+#include <pbl/kernel/cache.h>
 #include <pbl/kernel/kernel.h>
+#include <pbl/kernel/work.h>
 #include <pbl/logging/logging.h>
-#include <pbl/mcu/cache.h>
-#include <pbl/services/system_task.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/delay.h>
 #include <pbl/soc/t5ai/rtc.h>
 
-PBL_LOG_MODULE_DEFINE(driver_mic_t5ai, CONFIG_DRIVER_MIC_LOG_LEVEL);
+PBL_LOG_MODULE_DEFINE(driver_mic_t5ai, CONFIG_DRIVER_AUDIO_LOG_LEVEL);
 
 // BK7258 AP aud_ll_macro_def.h and sys_ll.h in the pinned Tuya BSP.
 #define AUD_RESET              0x08u
@@ -68,7 +68,7 @@ static int prv_dma_start(MicDevice *device) {
     ret = pbl_dma_slave_config(&s_dma, &cfg);
   if (ret != 0)
     return ret;
-  dcache_flush_invalidate(device->state->dma_buffer, DMA_BYTES);
+  pbl_dcache_flush_invalidate_range(device->state->dma_buffer, DMA_BYTES);
   return pbl_dma_prep_dma_cyclic(&s_dma, device->state->dma_buffer, DMA_BYTES, DMA_BYTES / 2u,
                                  PBL_DMA_DEV_TO_MEM, prv_dma_done, (void *)device);
 }
@@ -185,7 +185,6 @@ static void prv_dispatch(void *context) {
     state->count -= state->buffer_len;
     pbl_irq_unlock();
     state->handler(state->buffer, state->buffer_len, state->context);
-    system_task_watchdog_feed();
   }
   pbl_irq_lock();
   state->pending = false;
@@ -234,7 +233,7 @@ static void prv_dma_done(void *arg, int status) {
     state->dropped_samples += T5AI_MIC_DMA_HALF_SAMPLES;
   } else {
     uint32_t *words = state->dma_buffer + (writing_second ? 0u : T5AI_MIC_DMA_HALF_SAMPLES);
-    dcache_invalidate(words, DMA_BYTES / 2u);
+    pbl_dcache_invalidate_range(words, DMA_BYTES / 2u);
     size_t write_index = state->write_index;
     for (unsigned i = 0; i < T5AI_MIC_DMA_HALF_SAMPLES; ++i) {
       state->ring[write_index] = (int16_t)words[i]; // MIC1 low half; discard MIC2.
@@ -250,7 +249,7 @@ static void prv_dma_done(void *arg, int status) {
   }
   if (state->count >= state->buffer_len && !state->pending) {
     state->pending = true;
-    if (!system_task_add_callback_from_isr_droppable(prv_dispatch, (void *)device)) {
+    if (!pbl_sys_work_try_call(prv_dispatch, (void *)device)) {
       state->pending = false;
     }
   }
@@ -290,12 +289,12 @@ bool mic_start(MicDevice *device, MicDataHandlerCB handler, void *context, int16
     return false;
   }
   // Each half occupies whole cache lines; maintenance cannot touch the other half.
-  state->dma_allocation = kernel_malloc(DMA_BYTES + DMA_CACHE_ALIGNMENT - 1u);
+  state->dma_allocation = pbl_malloc(DMA_BYTES + DMA_CACHE_ALIGNMENT - 1u);
   state->dma_buffer = (uint32_t *)(((uintptr_t)state->dma_allocation + DMA_CACHE_ALIGNMENT - 1u) &
                                    ~(uintptr_t)(DMA_CACHE_ALIGNMENT - 1u));
   state->ring = s_mono_ring;
   if (!state->dma_allocation || !prv_power_up(device)) {
-    kernel_free(state->dma_allocation);
+    pbl_free(state->dma_allocation);
     state->dma_allocation = NULL;
     state->dma_buffer = NULL;
     state->ring = NULL;
@@ -304,7 +303,7 @@ bool mic_start(MicDevice *device, MicDataHandlerCB handler, void *context, int16
   }
   if (prv_dma_start(device) != 0) {
     (void)prv_power_down(device);
-    kernel_free(state->dma_allocation);
+    pbl_free(state->dma_allocation);
     state->dma_allocation = NULL;
     state->dma_buffer = NULL;
     state->ring = NULL;
@@ -337,7 +336,7 @@ void mic_stop(MicDevice *device) {
     state->running = false;
     pbl_irq_unlock();
     (void)prv_power_down(device);
-    kernel_free(state->dma_allocation);
+    pbl_free(state->dma_allocation);
     state->dma_allocation = NULL;
     state->dma_buffer = NULL;
     state->ring = NULL;

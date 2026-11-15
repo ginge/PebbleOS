@@ -12,10 +12,9 @@
 #include <pbl/drivers/battery/t5ai.h>
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/time.h>
+#include <pbl/kernel/work.h>
 #include <pbl/logging/logging.h>
 #include <pbl/services/battery/battery_state.h>
-#include <pbl/services/regular_timer.h>
-#include <pbl/services/system_task.h>
 #include <pbl/soc/t5ai/saradc_ipc.h>
 
 PBL_LOG_MODULE_DEFINE(driver_battery_t5ai, LOG_LEVEL_DEBUG);
@@ -165,11 +164,18 @@ static void prv_regular_callback(void *context) {
                    (s_charge_dirty && now - s_charge_changed_at >= CHARGE_DEBOUNCE_MS);
   if (due && !s_work_queued) {
     s_work_queued = true;
-    if (!system_task_add_callback_from_isr_droppable(prv_service_update, NULL)) {
+    if (!pbl_sys_work_try_call(prv_service_update, NULL)) {
       s_work_queued = false;
     }
   }
   pbl_irq_unlock();
+}
+
+static struct pbl_delayed_work s_regular;
+static void prv_battery_tick(struct pbl_work *work) {
+  (void)work;
+  prv_regular_callback(nullptr);
+  pbl_delayed_work_schedule_next(&s_regular, pbl_ms_to_ticks(1000));
 }
 
 void battery_init(void) {
@@ -191,8 +197,8 @@ void battery_init(void) {
   s_retry_at = pbl_uptime_ms() + STARTUP_DELAY_MS;
   s_retry = true;
   s_initialized = true;
-  static RegularTimerInfo timer = {.cb = prv_regular_callback};
-  regular_timer_add_seconds_callback(&timer);
+  pbl_delayed_work_init(&s_regular, prv_battery_tick);
+  (void)pbl_delayed_work_schedule(&pbl_sys_workq_high, &s_regular, PBL_MSEC(1000));
 }
 
 int battery_get_millivolts(void) {

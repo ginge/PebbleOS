@@ -1,7 +1,40 @@
-# Unhygienix current status — 14 November 2026
+# Unhygienix current status — 15 November 2026
 
 The latest installation checkpoint below is the current installed state. Dated entries preserve
 the state and evidence at their recorded checkpoint.
+
+## Upstream main migration — 15 November
+
+The Tuya branch incorporates Core Devices main through `f4926c952` (717 upstream
+commits). The production application now lives under `pebble/`; Unhygienix board
+implementation and device roles live under `boards/unhygienix/`. Scoped legacy
+hardware declarations remain under `soc/t5ai/compat/`.
+
+The T5AI port uses upstream device classes for RTC, NOR flash, microphone audio
+and CP console UART. AON clock-source and one-shot SysTick clock-event drivers
+replace periodic tick compensation; retained sleep preserves the programmed
+wake deadline. Board-local MPU regions preserve non-shareable cache behavior.
+The context switch selects a T5AI-local MPU restore sequence because the stock
+sequence permits transient overlapping ARMv8-M descriptors. Other targets retain
+the upstream context-switch implementation.
+
+Normal Unhygienix firmware builds and generates the protected T5AI image with
+its existing partition-map checks. All 432 upstream host tests pass, including
+graphics fixtures. Migrated driver regressions exercise storage, RTC, timer,
+touch, battery, IMU, codec allocation and console behavior; ARM QEMU checks
+interrupt injection at MPU descriptor-write boundaries. Optional tick, heap,
+reboot, state, draw and reminder diagnostic sources compile against the new APIs.
+Diagnostic combinations have not all been linked or exercised on hardware.
+
+The broad legacy `tools/tests` suite is not green: several fixtures and source
+inventory assertions still refer to removed timer, settings, PULSE and kernel
+interfaces. Those results are not a firmware runtime validation. Build and test
+logs are retained locally under the ignored `build-tuya-upstream/` directory.
+
+This firmware has not been flashed. The installed-watch checkpoints below remain
+the hardware evidence; boot, reconnection and connected-idle validation are still
+required for the migrated build. CP inputs, HCI wire ABI and SD/NOR partition
+geometry remain pinned. Unsupported update and recovery paths remain disabled.
 
 ## Native QSPI/DMA readability — 14 November
 

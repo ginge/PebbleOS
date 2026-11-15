@@ -73,7 +73,7 @@ static struct { uint32_t CTRL, LOAD, VAL; } s_systick;
 class T5AIPowerTest(unittest.TestCase):
     def test_board_startup_elects_clock(self):
         # Compile the real board startup function with the real power driver.
-        board = (ROOT / "fw/board/boards/board_unhygienix.c").read_text()
+        board = (ROOT / "boards/unhygienix/unhygienix.c").read_text()
         start = board.index("void board_init(void) {")
         end = board.index("\n}", start) + 2
         startup = board[start:end]

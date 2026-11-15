@@ -12,6 +12,8 @@ sh<2
 packaging
 PyYAML
 kconfiglib
+# Devicetree checks (tools/devicetree/validate.py)
+dtschema==2026.9
 intelhex>=2.1,<3
 pyelftools
 libclang
@@ -33,6 +35,7 @@ libpebble2>=0.0.16
 
 # Integration tests (tests/integration)
 pytest
+pytest-rerunfailures
 pytest-xdist
 numpy
 ppk2-api
@@ -40,6 +43,5 @@ ppk2-api
 bumble>=0.0.235
 
 -e tools/libs/pbl-cli
--e tools/libs/pebble-commander
--e tools/libs/pulse2
+-e tools/libs/pbl-console[protocol]
 -e tools/libs/pebble-loghash

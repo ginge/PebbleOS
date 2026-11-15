@@ -38,8 +38,13 @@ HARNESS = r"""
 #define PBL_GPIO(dev,p,f) {.pin=(p)}
 #define PBL_IRQ_SPEC(dev,p,f) {.pin=(p)}
 #define I2C_CST92XX ((void *)1)
-typedef uint32_t TimerID;
-typedef struct {void (*cb)(void *);bool scheduled;} RegularTimerInfo;
+#define nullptr NULL
+#define PBL_MSEC(ms) (ms)
+#define pbl_ms_to_ticks(ms) (ms)
+struct pbl_work {void (*fn)(struct pbl_work *);bool pending;};
+struct pbl_delayed_work {struct pbl_work work;bool scheduled;unsigned id;};
+#define PBL_WORK_DEFINE(name,fn) struct pbl_work name={fn,false}
+static int pbl_sys_workq,pbl_sys_workq_high;
 struct pbl_device {int unused;};
 static const struct {struct pbl_device dev;} T5AI_GPIO_INTC;
 struct pbl_touch {int unused;};
@@ -104,19 +109,30 @@ int pbl_i2c_read(const void *p,uint8_t *data,unsigned n){
  if(interrupt_during_read){fire_irq();fire_irq();interrupt_during_read=false;}
  memcpy(data,wire,10);return fail_read?-1:0;
 }
-TimerID new_timer_create(void){assert(context==USER);return ++timer_creates;}
-bool new_timer_start(TimerID id,unsigned ms,void (*cb)(void *),void *data,unsigned flags){
- assert(context==BG && !depth && id==1 && !flags);
- timer_ms=ms;timer_cb=cb;timer_data=data;timer_pending=true;return true;
+static void delayed_cb(void *data){struct pbl_delayed_work *t=data;t->work.fn(&t->work);}
+void pbl_delayed_work_init(struct pbl_delayed_work *t,void (*fn)(struct pbl_work *)){
+ t->work.fn=fn;t->id=++timer_creates;
 }
-bool new_timer_stop(TimerID id){assert(context!=ISR && !depth && id==1);timer_pending=false;return true;}
-bool regular_timer_is_scheduled(RegularTimerInfo *t){return t->scheduled;}
-void regular_timer_add_seconds_callback(RegularTimerInfo *t){assert(!t->scheduled);t->scheduled=true;}
-bool regular_timer_remove_callback(RegularTimerInfo *t){t->scheduled=false;return true;}
-bool system_task_add_callback_from_isr_droppable_raised(void (*cb)(void *),void *data){
- assert(depth);++enqueue_calls;
- if(qcount>=queue_limit)return false;
- queue[qcount].cb=cb;queue[qcount++].data=data;++refs;return true;
+bool pbl_delayed_work_reschedule(int *q,struct pbl_delayed_work *t,unsigned ms){
+ assert(q==&pbl_sys_workq_high && !depth);t->scheduled=true;
+ if(t->id==1){timer_ms=ms;timer_cb=delayed_cb;timer_data=t;timer_pending=true;}
+ return true;
+}
+bool pbl_delayed_work_schedule(int *q,struct pbl_delayed_work *t,unsigned ms){
+ return pbl_delayed_work_reschedule(q,t,ms);
+}
+bool pbl_delayed_work_schedule_next(struct pbl_delayed_work *t,unsigned ms){
+ assert(ms==1000);t->scheduled=true;return true;
+}
+bool pbl_delayed_work_cancel(struct pbl_delayed_work *t){
+ t->scheduled=false;if(t->id==1)timer_pending=false;return true;
+}
+static void work_cb(void *arg){struct pbl_work *w=arg;w->pending=false;w->fn(w);}
+bool pbl_work_submit_boosted(int *q,struct pbl_work *w){
+ assert(q==&pbl_sys_workq && depth);++enqueue_calls;
+ if(w->pending)return false;
+ assert(qcount<16);w->pending=true;
+ queue[qcount].cb=work_cb;queue[qcount++].data=w;++refs;return true;
 }
 void pbl_input_report_key(unsigned code,bool down,bool sync){
  assert(context==BG && !depth && code==4 && !sync && !input_phase);
@@ -159,7 +175,7 @@ void fire_timer(void){
  context=TIMER;timer_cb(timer_data);context=USER;
 }
 void fire_watchdog(void){
- assert(s_watchdog_timer.scheduled);context=TIMER;s_watchdog_timer.cb(NULL);context=USER;
+ assert(s_watchdog_timer.scheduled);context=TIMER;s_watchdog_timer.work.fn(&s_watchdog_timer.work);context=USER;
 }
 void report(bool down,unsigned x,unsigned y){
  memset(wire,0,10);wire[0]=6;wire[5]=down;wire[6]=0xab;
@@ -167,7 +183,7 @@ void report(bool down,unsigned x,unsigned y){
 }
 void setup(void){
  report(false,0,0);assert(pbl_touch_cst92xx_t5ai_ops.init(TOUCH)==0);assert(pbl_touch_cst92xx_t5ai_ops.init(TOUCH)==0);
- assert(timer_creates==1 && reads==1 && !reset_pin && !irq_enabled);
+ assert(timer_creates==2 && reads==1 && !reset_pin && !irq_enabled);
  test_set_enabled(true);
  assert(irq_enabled && reset_pin && qcount==1 && refs==1 && s_watchdog_timer.scheduled);
 }
@@ -251,8 +267,8 @@ fire_timer();run_one();assert(timer_ms==1000 && resets==baseline+1);
 before=reads;for(unsigned i=0;i<100;++i)fire_irq();
 fire_watchdog();assert(!qcount && reads==before && timer_pending);
 // Retry enqueue rejection remains recoverable through the regular watchdog.
-queue_limit=0;fire_timer();assert(s_retry_pending && !qcount && !s_transfer_retry);
-queue_limit=8;fail_read=false;report(false,0,0);fire_watchdog();run_one();
+fire_timer();assert(qcount==1 && !s_transfer_retry);
+fail_read=false;report(false,0,0);fire_watchdog();run_one();
 assert(!timer_pending && !s_transfer_retry && !output[samples-1].down);
 report(true,20,30);fire_irq();run_one();assert(output[samples-1].down);
 """)
@@ -260,12 +276,12 @@ report(true,20,30);fire_irq();run_one();assert(output[samples-1].down);
     def test_disable_during_failure_rejects_stale_retry_and_repeated_cycles(self):
         self.run_driver(r"""
 fail_write=true;run_one();assert(s_transfer_retry && timer_ms==80);
-void (*old_timer)(void *)=timer_cb;void *old_data=timer_data;
+
 for(unsigned i=0;i<10;++i){
  test_set_enabled(false);unsigned before=reads;
  fire_irq();assert(!qcount && reads==before && !timer_pending && !reset_pin);
  test_set_enabled(true);assert(qcount==1 && !s_transfer_retry);
- context=TIMER;old_timer(old_data);context=USER;
+
  assert(qcount==1 && s_callback_scheduled);
  fail_write=false;report(false,0,0);run_one();assert(!timer_pending);
 }
@@ -296,16 +312,13 @@ assert(!timer_pending && !refs && !s_callback_scheduled);
 unsigned before=reads;fire_watchdog();assert(reads==before && !qcount);
 """)
 
-    def test_failed_enqueue_and_lost_edge_recovered_without_timer_io(self):
+    def test_embedded_work_coalesces_and_recovers_lost_edges_without_timer_io(self):
         self.run_driver(r"""
-run_one();queue_limit=0;unsigned before=reads;
-report(true,10,20);fire_irq();
-assert(!qcount && !refs && s_retry_pending && !s_callback_scheduled);
-fire_watchdog();assert(!qcount && reads==before && !refs);
-queue_limit=8;fire_watchdog();assert(qcount==1 && reads==before);run_one();
-assert(output[samples-1].down && !s_retry_pending);
-queue_limit=0;fire_timer();assert(!qcount && s_retry_pending && !refs);
-queue_limit=8;fire_watchdog();assert(qcount==1);run_one();
+run_one();unsigned before=reads;
+report(true,10,20);fire_irq();fire_irq();fire_watchdog();
+assert(qcount==1 && refs==1 && reads==before);run_one();
+assert(output[samples-1].down);
+fire_timer();assert(qcount==1);fire_irq();assert(qcount==1);run_one();
 report(false,0,0);fire_timer();run_one();assert(!timer_pending);
 // INT fell without a delivered ISR: watchdog catches the asserted line.
 pad=0;before=reads;fire_watchdog();assert(qcount==1 && reads==before);
@@ -330,20 +343,19 @@ assert(reads==before && timer_pending && timer_ms==80 && !s_i2c_lock.held);
     def test_disable_reenable_rejects_queued_callbacks_and_old_timer(self):
         self.run_driver(r"""
 report(true,100,200);run_one();
-void (*old_timer)(void *)=timer_cb;void *old_data=timer_data;
+
 fire_irq();assert(qcount==1);
 test_set_enabled(false);
 assert(!irq_enabled && !reset_pin && !timer_pending && !s_watchdog_timer.scheduled);
 unsigned before=reads,prior=samples;run_one();assert(reads==before && samples==prior && !refs);
 // Re-enable queues new work; stale timer must not clear its coalescing state.
 test_set_enabled(true);assert(qcount==1 && s_callback_scheduled);
-context=TIMER;old_timer(old_data);context=USER;
+
 assert(qcount==1 && s_callback_scheduled);
 run_one();assert(samples==prior+1 && output[samples-1].down);
 fire_irq();test_set_enabled(false);test_set_enabled(true);
-assert(qcount==2);before=reads;run_one();
-assert(reads==before && s_callback_scheduled && qcount==1);
-run_one();assert(reads==before+1 && !s_callback_scheduled && !refs);
+assert(qcount==1);before=reads;run_one();
+assert(reads==before+1 && !s_callback_scheduled && !refs);
 """)
 
     def test_production_ack_and_ack_failure_recovery(self):

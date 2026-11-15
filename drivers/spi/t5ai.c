@@ -3,9 +3,9 @@
 #include <string.h>
 
 #include <pbl/drivers/spi/t5ai.h>
+#include <pbl/kernel/cache.h>
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/timer.h>
-#include <pbl/mcu/cache.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/delay.h>
 #include <pbl/util/misc.h>
@@ -97,7 +97,7 @@ static int prv_submit_dma_chunk(const struct pbl_spi_bus *bus) {
   const size_t remaining = xfer->len - s_dma_offset;
   const size_t count = remaining > QSPI_DMA_CHUNK_BYTES ? QSPI_DMA_CHUNK_BYTES : remaining;
   void *buffer = (uint8_t *)xfer->tx_buf + s_dma_offset;
-  dcache_flush(buffer, count);
+  pbl_dcache_flush_range(buffer, count);
   pbl_irq_lock();
   s_dma_active = true;
   const int ret = pbl_dma_prep_slave_single(&prv_device(bus)->dma, buffer, count,

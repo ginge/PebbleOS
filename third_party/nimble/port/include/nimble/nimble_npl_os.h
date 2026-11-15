@@ -8,16 +8,15 @@
 #ifndef _NIMBLE_NPL_OS_H_
 #define _NIMBLE_NPL_OS_H_
 
-#include "kernel/pbl_malloc.h"
 #include "os/os_cputime.h"
-#include "pbl/drivers/rtc.h"
 #include "pbl/kernel/irq.h"
 #include "pbl/kernel/msgq.h"
 #include "pbl/kernel/mutex.h"
 #include "pbl/kernel/sched.h"
 #include "pbl/kernel/sem.h"
 #include "pbl/kernel/thread.h"
-#include "pbl/services/new_timer/new_timer.h"
+#include "pbl/kernel/time.h"
+#include "pbl/kernel/work.h"
 
 #include <assert.h>
 #include <stdint.h>
@@ -26,7 +25,7 @@
 #if NRF52_SERIES
 #include "pbl/soc/nrf/sleep.h"
 
-#include <pbl/drivers/clocksource.h>
+#include <pbl/drivers/clk/nrf52.h>
 #endif
 
 // Pool blocks hold pointers.
@@ -51,7 +50,7 @@ struct ble_npl_eventq {
 };
 
 struct ble_npl_callout {
-  TimerID handle;
+  struct pbl_delayed_work work;
 
   //! whether we have made changes to this timer from ISR state and need
   //! someone to go sync them back up on the main thread for us
@@ -59,9 +58,9 @@ struct ble_npl_callout {
 
   //! if we are pending_update, there might have been some ticks between
   //! when we asked to do work, and when it happens; set an actual target
-  //! time in ticks for newtimer, rather than deferring the number of ticks
+  //! time in ticks for the timer, rather than deferring the number of ticks
   //! to start counting when we actually schedule
-  RtcTicks update_target_time_ticks;
+  uint64_t update_target_time_ticks;
 
   //! event to be pushed for update from ISR
   struct ble_npl_event update_ev;
@@ -192,7 +191,7 @@ static inline void ble_npl_callout_set_arg(struct ble_npl_callout *co, void *arg
 }
 
 static inline ble_npl_time_t ble_npl_time_get(void) {
-  /* This downconverts from an RtcTicks (uint64_t) to a uint32_t.  This is
+  /* This downconverts from an uint64_t (uint64_t) to a uint32_t.  This is
    * safe because nothing in NimBLE uses an absolute ble_npl_time_get (i.e.,
    * it does not turn it into an absolute ble_npl_time_t), or a
    * ble_npl_time_get that is long-lived; it is always compared by
@@ -205,7 +204,7 @@ static inline ble_npl_time_t ble_npl_time_get(void) {
    * instance, ble_gap.c fails to build with any other definition of
    * ble_npl_time_t.)
    */
-  return rtc_get_ticks();
+  return pbl_uptime_ticks();
 }
 
 static inline ble_npl_error_t ble_npl_time_ms_to_ticks(uint32_t ms, ble_npl_time_t *out_ticks) {
@@ -244,10 +243,9 @@ static inline void ble_npl_hw_exit_critical(uint32_t ctx) {
 static inline bool ble_npl_hw_is_in_critical(void) {
   return pbl_irq_is_locked();
 }
-#undef realloc
-#define realloc kernel_realloc
-
 #if NRF52_SERIES
+
+static const struct pbl_clk ble_npl_hfclk = PBL_CLK(NRF52_CLOCK, NRF52_CLK_HFCLK);
 
 static inline void nrf52_clock_hfxo_request(void) {
   /* Any time NimBLE wants to turn on the HFXO, we are also going to have
@@ -257,11 +255,11 @@ static inline void nrf52_clock_hfxo_request(void) {
    * HFXO.
    */
   soc_nrf_sleep_full_block();
-  clocksource_hfxo_request();
+  (void)pbl_clk_enable(&ble_npl_hfclk);
 }
 
 static inline void nrf52_clock_hfxo_release(void) {
-  clocksource_hfxo_release();
+  (void)pbl_clk_disable(&ble_npl_hfclk);
   soc_nrf_sleep_full_release();
 }
 

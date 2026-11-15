@@ -24,12 +24,12 @@ def load_config(revision, variant):
             "BOARD_REVISION": revision,
         },
     ):
-        config = kconfiglib.Kconfig(str(ROOT / "Kconfig"), warn=False)
+        config = kconfiglib.Kconfig(str(ROOT / "pebble/Kconfig"), warn=False)
         paths = [
             "boards/getafix/defconfig",
             f"boards/getafix/defconfig.{revision}",
-            "fw/prj.conf",
-            f"fw/prj_{variant}.conf",
+            "pebble/prj.conf",
+            f"pebble/prj_{variant}.conf",
         ]
         for index, path in enumerate(paths):
             config.load_config(str(ROOT / path), replace=index == 0)

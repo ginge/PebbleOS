@@ -8,9 +8,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <pbl/kernel/idle.h>
-#include <pbl/kernel/init.h>
-
 #include <emscripten/emscripten.h>
 #include <emscripten/fiber.h>
 #include <kernel.h>
@@ -36,8 +33,13 @@ struct posix_thread {
 
 struct pbl_thread *pbl_cur;
 
+void arch_cur_set(struct pbl_thread *t) {
+  pbl_cur = t;
+}
+
 static bool s_switch_pending;
 static bool s_in_isr;
+static unsigned int s_irq_locked;
 
 static emscripten_fiber_t s_host_fiber;
 static uint8_t s_host_async_stack[FIBER_ASYNC_STACK_SIZE];
@@ -97,10 +99,11 @@ static void prv_host_turn(emscripten_fiber_t *from) {
 static void prv_switch(void) {
   s_switch_pending = false;
   struct pbl_thread *prev = pbl_cur;
-  struct pbl_thread *next = sched_switch_in();
+  struct pbl_thread *next = sched_next;
   if (next == prev) {
     return;
   }
+  arch_cur_set(next);
   struct posix_thread *pt = prev->backend.arch.pt;
   if (prev->backend.state == PBL_THREAD_DEAD) {
     prev->backend.arch.pt = nullptr;
@@ -108,6 +111,9 @@ static void prv_switch(void) {
   }
   emscripten_fiber_swap(&pt->fiber, &next->backend.arch.pt->fiber);
   prv_reap();
+}
+
+void arch_early_init(void) {
 }
 
 void arch_init(void) {
@@ -119,11 +125,11 @@ void arch_thread_init(struct pbl_thread *t, void (*entry)(void *), void *arg) {
   t->backend.arch.pt = pt;
 }
 
-void arch_thread_regions_set(struct pbl_thread *t, const MpuRegion *const *regions) {
+void arch_thread_regions_set(struct pbl_thread *t, const struct pbl_mpu_region *const *regions) {
 }
 
 void arch_start(void) {
-  irq_reset();
+  s_irq_locked = 0;
   // The boot fiber is done; it is never resumed.
   emscripten_fiber_swap(&s_boot->fiber, &pbl_cur->backend.arch.pt->fiber);
   PBL_ASSERTN(false);
@@ -154,11 +160,26 @@ uint32_t arch_cycles_per_sec(void) {
   return 1000000000U;
 }
 
-void arch_irq_disable(void) {
+// Fibers only switch when they block, which no heap operation does.
+void arch_heap_lock(void) {
 }
 
-void arch_irq_enable(void) {
-  if (s_in_isr || !pbl_kernel_is_started()) {
+void arch_heap_unlock(void) {
+}
+
+unsigned int arch_irq_lock(void) {
+  unsigned int key = s_irq_locked;
+  s_irq_locked = 1;
+  return key;
+}
+
+bool arch_irq_is_locked(void) {
+  return s_irq_locked != 0;
+}
+
+void arch_irq_unlock(unsigned int key) {
+  s_irq_locked = key;
+  if (key != 0 || s_in_isr || !pbl_kernel_is_started()) {
     return;
   }
   if (emscripten_get_now() - s_host_turn_ms > HOST_TURN_MS) {
@@ -178,14 +199,14 @@ void arch_thread_info_regs(const struct pbl_thread *t, uint32_t regs[PBL_THREAD_
 }
 
 void arch_idle(pbl_tick_t max_ticks) {
-  pbl_soc_idle(max_ticks);
+  if (sched_idle_confirm()) {
+    timekeeping_idle(max_ticks);
+  }
 }
 
 static void prv_boot_main(void *arg) {
   prv_reap();
-  pbl_soc_early_init();
-  s_entry();
-  PBL_ASSERTN(false);
+  kernel_init(s_entry);
 }
 
 void pbl_posix_start(int (*entry)(void)) {
