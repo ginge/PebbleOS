@@ -197,6 +197,9 @@ static void prv_failure_report(void) {
 
 static void prv_complete(const struct pbl_i2c_bus *bus, int status) {
   if (prv_dev(bus)->state->active) {
+    // Native completion only wakes the caller; it does not disable the controller.
+    NVIC_DisableIRQ(prv_dev(bus)->irqn);
+    NVIC_ClearPendingIRQ(prv_dev(bus)->irqn);
     prv_dev(bus)->state->active = false;
     pbl_i2c_bus_complete(bus, status);
   }
@@ -300,7 +303,6 @@ static int prv_init(const struct pbl_i2c_bus *bus) {
   T5AI_SYSTEM_CPU1_INTERRUPT_ENABLE |= T5AI_I2C0_INTERRUPT_ENABLE;
   NVIC_ClearPendingIRQ(prv_dev(bus)->irqn);
   NVIC_SetPriority(prv_dev(bus)->irqn, T5AI_I2C_IRQ_PRIORITY);
-  NVIC_EnableIRQ(prv_dev(bus)->irqn);
   prv_release_idle_clock(bus);
   return 0;
 }
@@ -317,14 +319,11 @@ static void prv_enable(const struct pbl_i2c_bus *bus) {
   prv_regs(bus)->global_control |= T5AI_I2C_GLOBAL_CLOCK_GATE_BYPASS;
   prv_regs(bus)->config |= T5AI_I2C_CONFIG_ENABLE;
   delay_us(T5AI_I2C_ENABLE_SETTLE_US);
-#ifdef CONFIG_T5AI_I2C_IDLE_GATING
-  // The pinned HAL requires bypass throughout transfers to read ACK reliably.
-  NVIC_ClearPendingIRQ(prv_dev(bus)->irqn);
-  NVIC_EnableIRQ(prv_dev(bus)->irqn);
-#endif
 }
 
 static void prv_disable(const struct pbl_i2c_bus *bus) {
+  NVIC_DisableIRQ(prv_dev(bus)->irqn);
+  NVIC_ClearPendingIRQ(prv_dev(bus)->irqn);
   // Completion requests STOP; keep the controller clocked until it leaves the bus.
   unsigned us = 0;
   while ((prv_regs(bus)->status & T5AI_I2C_STATUS_BUSY) && us++ < T5AI_I2C_STOP_TIMEOUT_US) {
@@ -419,6 +418,9 @@ static int prv_start(const struct pbl_i2c_bus *bus, uint16_t addr, struct pbl_i2
   state->addr = addr;
   state->active = true;
   prv_start_message(bus);
+  // Publish all transfer state and clear the stale peripheral status before IRQ delivery.
+  NVIC_ClearPendingIRQ(prv_dev(bus)->irqn);
+  NVIC_EnableIRQ(prv_dev(bus)->irqn);
   pbl_irq_unlock();
   return 0;
 }
@@ -427,6 +429,8 @@ static void prv_irq_handler(const struct pbl_i2c_bus *bus) {
   T5AII2CRegisters *regs = prv_regs(bus);
   struct pbl_i2c_t5ai_state *state = prv_dev(bus)->state;
   if (!state->active) {
+    NVIC_DisableIRQ(prv_dev(bus)->irqn);
+    NVIC_ClearPendingIRQ(prv_dev(bus)->irqn);
     return;
   }
   const uint32_t status = regs->status;

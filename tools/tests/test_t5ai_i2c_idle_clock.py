@@ -33,7 +33,7 @@ int main(void) {
  uint8_t value=0x42;struct pbl_i2c_msg msg={.buf=&value,.len=1};
  for(unsigned i=0;i<3;++i) {
   elapsed=0;assert(!pbl_i2c_t5ai_ops.init(bus));idle(bus);
-  pbl_i2c_t5ai_ops.enable(bus);assert(irq_enabled);
+  pbl_i2c_t5ai_ops.enable(bus);assert(!irq_enabled);
   assert(prv_regs(bus)->global_control&T5AI_I2C_GLOBAL_CLOCK_GATE_BYPASS);
   assert(!pbl_i2c_t5ai_ops.start(bus,0x51,&msg,1));
   irq(bus,T5AI_I2C_STATUS_ACK|T5AI_I2C_STATUS_INTERRUPT);

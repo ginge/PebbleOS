@@ -76,7 +76,7 @@ void NVIC_EnableIRQ(int irq){assert(irq==6);irq_enabled=true;}
 static unsigned irq_depth;
 void pbl_irq_lock(void){++irq_depth;}
 void pbl_irq_unlock(void){assert(irq_depth);--irq_depth;}
-void pbl_i2c_bus_complete(const struct pbl_i2c_bus *b,int status){++completions;b->state->status=status;}
+void pbl_i2c_bus_complete(const struct pbl_i2c_bus *b,int status){assert(!irq_enabled);++completions;b->state->status=status;}
 int main(void) {
  assert(mmap((void *)0x44000000,0x20000,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED,-1,0)!=(void *)-1);
  assert(mmap((void *)T5AI_I2C0_BASE,4096,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED,-1,0)!=(void *)-1);
@@ -87,7 +87,7 @@ int main(void) {
  uint8_t data[2]={0x12,0x34};
  struct pbl_i2c_msg msg={.len=2,.buf=data,.flags=PBL_I2C_MSG_WRITE};
  sda_high=false;release_after=3;pbl_i2c_t5ai_ops.init(bus);
- assert(sda_high && pulses==4 && irq_enabled); // Three clocks plus STOP.
+ assert(sda_high && pulses==4 && !irq_enabled); // Three clocks plus STOP.
  assert(pin_calls==1);
  pbl_i2c_t5ai_ops.enable(bus);assert(pbl_i2c_t5ai_ops.start(bus,0x5a,&msg,1)==0);
  unsigned calls=gpio_calls;
@@ -214,6 +214,51 @@ int main(void){
 }
 """
         self.run_harness(HARNESS.split("int main(void)")[0] + main)
+
+    def test_irq_is_masked_until_start_and_before_completion(self):
+        prefix = HARNESS.split("int main(void)")[0]
+        prefix = prefix.replace(
+            "void NVIC_EnableIRQ(int irq){assert(irq==6);irq_enabled=true;}",
+            "static struct pbl_i2c_t5ai_state *observed;\n"
+            "void NVIC_EnableIRQ(int irq){assert(irq==6 && observed && observed->active);"
+            "assert(observed->msgs && observed->addressing);"
+            "assert(((T5AII2CRegisters *)T5AI_I2C0_BASE)->status==T5AI_I2C_STATUS_START);"
+            "irq_enabled=true;}",
+        )
+        main = r"""
+int main(void) {
+ assert(mmap((void *)0x44000000,0x20000,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED,-1,0)!=(void *)-1);
+ assert(mmap((void *)T5AI_I2C0_BASE,4096,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED,-1,0)!=(void *)-1);
+ struct pbl_i2c_bus_state state={0};struct pbl_i2c_t5ai_state hw={0};
+ struct pbl_i2c_t5ai dev={.bus={.state=&state},.state=&hw,.base=T5AI_I2C0_BASE,
+  .irqn=6,.frequency=100000,.scl={.pin=20},.sda={.pin=21}};
+ const struct pbl_i2c_bus *bus=&dev.bus; observed=&hw;
+ pbl_i2c_t5ai_ops.init(bus);assert(!irq_enabled);
+ for (unsigned i=0;i<4;++i) {
+  elapsed=0;
+  pbl_i2c_t5ai_ops.enable(bus);
+  // Stale peripheral flags cannot interrupt the caller between enable and start.
+  prv_regs(bus)->status=T5AI_I2C_STATUS_INTERRUPT|T5AI_I2C_STATUS_TIMEOUT;
+  assert(!irq_enabled && !hw.active);
+  // A late already-entered ISR also masks the inactive source without completion.
+  irq_enabled=true;in_isr=true;pbl_i2c_t5ai_irq_handler(&dev);in_isr=false;
+  assert(!irq_enabled && completions==i);
+  uint8_t value=0;struct pbl_i2c_msg msg={.buf=&value,.len=1};
+  assert(!pbl_i2c_t5ai_ops.start(bus,0x51,&msg,1) && irq_enabled);
+  // Address NACK completes once, masks IRQ before waking caller and preserves STOP.
+  prv_regs(bus)->status=T5AI_I2C_STATUS_INTERRUPT;
+  in_isr=true;pbl_i2c_t5ai_irq_handler(&dev);in_isr=false;
+  assert(completions==i+1 && state.status==-ENXIO && !irq_enabled && !hw.active);
+  assert(prv_regs(bus)->status==T5AI_I2C_STATUS_STOP);
+  pbl_i2c_t5ai_ops.disable(bus);
+ }
+ return 0;
+}
+"""
+        for gating in (False, True):
+            with self.subTest(idle_gating=gating):
+                config = "#define CONFIG_T5AI_I2C_IDLE_GATING 1\n" if gating else ""
+                self.run_harness(config + prefix + main)
 
     def run_harness(self, harness):
         with tempfile.TemporaryDirectory() as temporary:
