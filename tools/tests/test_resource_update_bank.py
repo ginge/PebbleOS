@@ -23,6 +23,15 @@ typedef struct { uint32_t num_bytes_written, crc_of_bytes; } PbInstallStatus;
 typedef struct { uint32_t begin, end; } SystemResourceBank;
 typedef struct { uint32_t words[4]; } FirmwareDescription;
 #define CONFIG_PBLBOOT 1
+#define FLASH NULL
+#define PART_FIRMWARE_DEST_OFFSET 0x1000u
+#define PART_FIRMWARE_DEST_SIZE 0x1000u
+int pbl_flash_read(const void *,uint32_t,void *,size_t);
+int pbl_flash_write(const void *,uint32_t,const void *,size_t);
+uint32_t pbl_flash_crc32_legacy(const void *,uint32_t,size_t);
+uint32_t pbl_flash_crc32(const void *,uint32_t,size_t);
+int pbl_flash_erase(const void *,uint32_t,size_t);
+
 #define FLASH_REGION_FIRMWARE_DEST_BEGIN 0x1000
 #define FLASH_REGION_FIRMWARE_DEST_END 0x2000
 #define PBL_BT_CONSUMER_PP_PUT_BYTES 1
@@ -37,8 +46,8 @@ void flash_read_bytes(void *, uint32_t, size_t);
 void flash_write_bytes(const void *, uint32_t, size_t);
 uint32_t flash_crc32_legacy(uint32_t,uint32_t);
 uint32_t flash_crc32(uint32_t,uint32_t);
-void *comm_session_get_system_session(void);
-void comm_session_set_responsiveness(void *,int,int,int);
+void *pbl_pp_session_get_system(void);
+void pbl_pp_session_set_responsiveness(void *,int,int,int,void *);
 void flash_region_erase_optimal_range(uint32_t,uint32_t,uint32_t,uint32_t);
 bool pb_storage_raw_get_status(PutBytesObjectType,PbInstallStatus *);
 bool pb_storage_raw_init(PutBytesStorage *,PutBytesObjectType,uint32_t,PutBytesStorageInfo *,uint32_t);
@@ -57,11 +66,16 @@ void flash_read_bytes(void *p,uint32_t a,size_t n) {(void)a;++reads;memset(p,0xf
 void flash_write_bytes(const void *p,uint32_t a,size_t n) {(void)p;(void)a;(void)n;++writes;}
 uint32_t flash_crc32_legacy(uint32_t a,uint32_t n) {(void)a;(void)n;return 0;}
 uint32_t flash_crc32(uint32_t a,uint32_t n) {(void)a;(void)n;return 0;}
-void *comm_session_get_system_session(void) {return NULL;}
-void comm_session_set_responsiveness(void *s,int a,int b,int c) {(void)s;(void)a;(void)b;(void)c;++responsiveness;}
+void *pbl_pp_session_get_system(void) {return NULL;}
+void pbl_pp_session_set_responsiveness(void *s,int a,int b,int c,void *cb) {assert(!cb);(void)s;(void)a;(void)b;(void)c;++responsiveness;}
 void flash_region_erase_optimal_range(uint32_t a,uint32_t b,uint32_t c,uint32_t d) {
  assert(a==bank.begin && b==bank.begin && c==bank.end && d==bank.end);++erases;
 }
+int pbl_flash_read(const void *f,uint32_t a,void *p,size_t n){flash_read_bytes(p,a,n);return 0;}
+int pbl_flash_write(const void *f,uint32_t a,const void *p,size_t n){flash_write_bytes(p,a,n);return 0;}
+uint32_t pbl_flash_crc32_legacy(const void *f,uint32_t a,size_t n){return flash_crc32_legacy(a,n);}
+uint32_t pbl_flash_crc32(const void *f,uint32_t a,size_t n){return flash_crc32(a,n);}
+int pbl_flash_erase(const void *f,uint32_t a,size_t n){flash_region_erase_optimal_range(a,a,a+n,a+n);return 0;}
 int main(void) {
  PutBytesStorage s={.impl_data=(void *)1,.current_offset=37};
  PutBytesStorageInfo info={0}; PbInstallStatus status={11,22};
@@ -92,7 +106,8 @@ class ResourceUpdateBankTest(unittest.TestCase):
         headers = (
             "pbl/bluetooth/responsiveness.h",
             "pbl/drivers/flash.h",
-            "pbl/services/comm_session/session.h",
+            "pbl/board/partitions.h",
+            "pbl/pp/session.h",
             "pbl/services/put_bytes/put_bytes_storage_raw.h",
             "pbl/util/math.h",
             "flash_region/flash_region.h",
@@ -112,7 +127,7 @@ class ResourceUpdateBankTest(unittest.TestCase):
             subprocess.run(
                 [
                     "cc",
-                    "-std=c11",
+                    "-std=gnu23",
                     "-Wall",
                     "-Wextra",
                     "-Werror",

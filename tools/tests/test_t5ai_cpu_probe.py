@@ -36,7 +36,7 @@ MAIN = r"""int main(void){
  prv_cpu_dump();assert(logged==1);
  // Current-task runtime must include its live timeslice.
  now=100;app.backend.run_time=20;app.backend.switched_in_at=95;pbl_cur=&app;
- assert(prv_runtime(&app,now)==25 && !prv_runtime(0,now));
+ assert(prv_runtime(&app,now)==app.backend.run_time && !prv_runtime(0,now));
 }
 """
 

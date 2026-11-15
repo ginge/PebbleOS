@@ -9,6 +9,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 STUBS = {
+    "flash_region/flash_region.h": "#include <pbl/drivers/flash.h>\n#define FLASH_REGION_BASE_ADDRESS 0x02000000u\n",
+    "pbl/board/partitions.h": "#include <pbl/drivers/flash.h>\n#define PART_SYSTEM_RESOURCES_BANK_0_OFFSET FLASH_REGION_SYSTEM_RESOURCES_BANK_0_BEGIN\n#define PART_SYSTEM_RESOURCES_BANK_0_SIZE TEST_BANK_SIZE\n#define PART_SYSTEM_RESOURCES_BANK_1_OFFSET FLASH_REGION_SYSTEM_RESOURCES_BANK_1_BEGIN\n#define PART_SYSTEM_RESOURCES_BANK_1_SIZE TEST_BANK_SIZE\n",
     "applib/applib_resource.h": "",
     "pbl/kernel/compiler.h": "#define PBL_PACKED __attribute__((packed))\n",
     "pbl/logging/logging.h": """
@@ -19,6 +21,7 @@ STUBS = {
 static inline void test_log(const char *fmt, ...) { (void)fmt; }
 """,
     "pbl/drivers/flash.h": """
+#include <stddef.h>
 #include <stdint.h>
 #define FLASH_REGION_SYSTEM_RESOURCES_BANK_0_BEGIN 0x02400000u
 #ifndef TEST_BANK_SIZE
@@ -27,6 +30,10 @@ static inline void test_log(const char *fmt, ...) { (void)fmt; }
 #define FLASH_REGION_SYSTEM_RESOURCES_BANK_0_END (0x02400000u + TEST_BANK_SIZE)
 #define FLASH_REGION_SYSTEM_RESOURCES_BANK_1_BEGIN (0x02400000u + TEST_BANK_SIZE)
 #define FLASH_REGION_SYSTEM_RESOURCES_BANK_1_END (0x02400000u + 2 * TEST_BANK_SIZE)
+#define FLASH NULL
+int pbl_flash_read(const void *,uint32_t,void *,size_t);
+int pbl_flash_write(const void *,uint32_t,const void *,size_t);
+uint32_t pbl_flash_crc32_legacy(const void *,uint32_t,size_t);
 void flash_read_bytes(uint8_t *, uint32_t, uint32_t);
 void flash_write_bytes(const uint8_t *, uint32_t, uint32_t);
 uint32_t flash_crc32_legacy(uint32_t, uint32_t);
@@ -36,8 +43,8 @@ uint32_t flash_crc32_legacy(uint32_t, uint32_t);
 #define BOOT_BIT_NEW_SYSTEM_RESOURCES_AVAILABLE 1
 void boot_bit_clear(int);
 """,
-    "pbl/services/filesystem/app_file.h": """
-void app_file_name_make(char *, size_t, uint32_t, const char *, size_t);
+    "pbl/services/process_management/app_file.h": """
+void app_file_path_make(char *, size_t, uint32_t, const char *, size_t);
 """,
     "system/hexdump.h": "",
     "pbl/kernel/assert.h": "#include <assert.h>\n#define PBL_ASSERTN(x) assert(x)\n",
@@ -98,7 +105,7 @@ void boot_bit_clear(int bit) { assert(bit == 1); clears++; }
 bool resource_version_matches(const ResourceVersion *a, const ResourceVersion *b) {
   return a->crc == b->crc;
 }
-void app_file_name_make(char *p, size_t n, uint32_t id, const char *suffix, size_t len) {
+void app_file_path_make(char *p, size_t n, uint32_t id, const char *suffix, size_t len) {
   (void)p; (void)n; (void)id; (void)suffix; (void)len;
 }
 static bool app_find(ResourceStoreEntry *e, ResAppNum a, uint32_t id) {
@@ -132,6 +139,10 @@ static void setup(void) {
   table(1)->crc = pbl_crc32_legacy("efgh", 4);
   reads = read_bytes = crcs = 0;
 }
+static uint32_t physical(uint32_t a){return a<0x02000000u?a+0x02000000u:a;}
+int pbl_flash_read(const void *f,uint32_t a,void *p,size_t n){flash_read_bytes(p,physical(a),n);return 0;}
+int pbl_flash_write(const void *f,uint32_t a,const void *p,size_t n){flash_write_bytes(p,physical(a),n);return 0;}
+uint32_t pbl_flash_crc32_legacy(const void *f,uint32_t a,size_t n){return flash_crc32_legacy(physical(a),n);}
 static void init_expect(bool valid, unsigned expected_crcs) {
   resource_storage_init();
   assert(crcs == expected_crcs);
@@ -189,13 +200,12 @@ int main(void) {
   assert(app_queries == 1 && builtin_queries == 1);
   char out[4]; assert(resource_storage_read(&e, 0, out, 4) == 4);
   assert(memcmp(out, "abcd", 4) == 0);
-  assert(e.impl->readonly_bytes(&e, false) == NULL);
 #ifdef CONFIG_MMAP_RESOURCES
-  assert(e.impl->readonly_bytes(&e, true) == (const uint8_t *)(uintptr_t)(base + e.offset));
+  assert(e.impl->readonly_bytes(&e) == (const uint8_t *)(uintptr_t)(base + e.offset));
   assert(resource_storage_flash_bytes_are_readonly((const void *)(uintptr_t)base));
   assert(resource_storage_flash_bytes_are_readonly((const void *)(uintptr_t)(base + TEST_BANK_SIZE - 1)));
 #else
-  assert(e.impl->readonly_bytes(&e, true) == NULL);
+  assert(e.impl->readonly_bytes(&e) == NULL);
   assert(!resource_storage_flash_bytes_are_readonly((const void *)(uintptr_t)base));
 #endif
   assert(!resource_storage_flash_bytes_are_readonly((const void *)(uintptr_t)(base - 1)));
@@ -272,7 +282,7 @@ class T5ResourcesTest(unittest.TestCase):
                     "-I",
                     str(directory),
                     "-I",
-                    str(ROOT / "fw"),
+                    str(ROOT / "pebble"),
                     "-I",
                     str(ROOT / "include"),
                     str(harness),

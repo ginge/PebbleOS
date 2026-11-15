@@ -27,7 +27,6 @@ def load_config(revision, variant):
         config = kconfiglib.Kconfig(str(ROOT / "pebble/Kconfig"), warn=False)
         paths = [
             "boards/getafix/defconfig",
-            f"boards/getafix/defconfig.{revision}",
             "pebble/prj.conf",
             f"pebble/prj_{variant}.conf",
         ]
@@ -41,6 +40,17 @@ def load_config(revision, variant):
 
 
 class GetafixBoardsTest(unittest.TestCase):
+    def test_revision_haptics_device(self):
+        for revision, model, address in (
+            ("dvt", "aw86233", "5a"),
+            ("dvt2", "aw86225", "58"),
+        ):
+            with self.subTest(revision=revision):
+                dts = (ROOT / f"boards/getafix/getafix_{revision}.dts").read_text()
+                self.assertIn(f"haptics: haptics@{address}", dts)
+                self.assertIn(f'compatible = "awinic,{model}";', dts)
+                self.assertIn(f"reg = <0x{address}>;", dts)
+
     def test_revision_discovery(self):
         choices = available_boards(str(ROOT))
         for revision in ("dvt", "dvt2"):
@@ -50,14 +60,8 @@ class GetafixBoardsTest(unittest.TestCase):
                 board = parse_board(str(ROOT), target)
                 self.assertEqual(board.revision, revision)
                 self.assertEqual(board.normalized, f"getafix_{revision}")
-                expected_runners = ["sftool"]
+                expected_runners = ["sftool", "probe-rs", "phone"]
                 self.assertEqual(board.runners, expected_runners)
-
-    def test_original_dvt_keeps_its_haptics(self):
-        config = load_config("dvt", "normal")
-        self.assertEqual(config["SHELL"], "y")
-        self.assertEqual(config["VIBE_AW8623X"], "y")
-        self.assertEqual(config["VIBE_AW86225"], "n")
 
 
 if __name__ == "__main__":

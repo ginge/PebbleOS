@@ -195,7 +195,10 @@ typedef int32_t time_t;
 static time_t wall=1000;
 static time_t pbl_realtime(void){return wall;}
 #define TIMER_INVALID_ID 0u
-typedef unsigned TimerID;
+#define PBL_MSEC(ms) (ms)
+struct pbl_work {void (*fn)(struct pbl_work *);};
+struct pbl_delayed_work {struct pbl_work work;};
+static int pbl_sys_workq_high;
 typedef struct {uint32_t owners;bool faulted;} T5AISleepBlockers;
 static unsigned errors,created,deleted,starts,locks,hw_mask,armed,last_delay;
 typedef int status_t;
@@ -208,7 +211,8 @@ static int t5ai_native_alarm_cancel(uint32_t gen){assert(gen==17);++lease_cancel
 
 static bool quiet=true,guard_ok=true,faulted,drop,channel_ready=true;
 static uint8_t boot;
-static void (*scheduled)(void *),(*queued)(void *);
+static void (*scheduled)(struct pbl_work *);
+static void (*queued)(void *);
 static jmp_buf sleeping;
 #define __disable_irq() (hw_mask=1)
 #define __get_PRIMASK() hw_mask
@@ -225,10 +229,10 @@ static bool t5ai_mb_ipc_sleep_ready(void){return quiet;}
 static bool t5ai_hci_sleep_ready(void){return quiet;}
 static T5AISleepBlockers t5ai_sleep_blockers(void){assert(hw_mask && locks==1);return (T5AISleepBlockers){.owners=quiet?0:1,.faulted=faulted};}
 static void pbl_dcache_flush_range(const void *p,unsigned n){assert(p && n==8);if(CASE==15)wall=1002;if(CASE==16)wall=999;}
-static TimerID new_timer_create(void){++created;return 1;}
-static void new_timer_delete(TimerID id){assert(id==1);++deleted;}
-static int new_timer_start(TimerID id,unsigned ms,void (*fn)(void *),void *ctx,unsigned flags){
- assert(id==1 && !ctx && !flags && (ms==30000 || ms==1000 || ms==20));scheduled=fn;last_delay=ms;++starts;return 0;
+static void pbl_delayed_work_init(struct pbl_delayed_work *t,void (*fn)(struct pbl_work *)){++created;t->work.fn=fn;}
+static bool pbl_delayed_work_cancel(struct pbl_delayed_work *t){++deleted;return true;}
+static int pbl_delayed_work_reschedule(int *q,struct pbl_delayed_work *t,unsigned ms){
+ assert(q==&pbl_sys_workq_high && (ms==30000 || ms==1000 || ms==20));scheduled=t->work.fn;last_delay=ms;++starts;return 0;
 }
 static bool pbl_sys_work_try_call(void (*fn)(void *),void *ctx){
  assert(!ctx);if(drop)return false;queued=fn;return true;

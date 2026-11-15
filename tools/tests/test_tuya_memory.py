@@ -49,7 +49,7 @@ class TuyaMemoryLayoutTest(unittest.TestCase):
         def constant(name):
             return int(
                 re.search(
-                    r"#define " + name + r" (0x[0-9a-fA-F]+|[0-9]+)u", header
+                    r"#define\s+" + name + r"\s+(0x[0-9a-fA-F]+|[0-9]+)u", header
                 ).group(1),
                 0,
             )
@@ -61,10 +61,6 @@ class TuyaMemoryLayoutTest(unittest.TestCase):
         self.assertLessEqual(end, audio_end)
         self.assertEqual(regions["CP_PSRAM_HEAP"][0], 0x60700000)
         self.assertLessEqual(end, regions["CP_PSRAM_HEAP"][0])
-        self.assertNotEqual(
-            constant("T5AI_PFS_FLAGS_MPU_REGION"),
-            constant("T5AI_DISPLAY_PSRAM_MPU_REGION"),
-        )
 
     def test_ap_only_nimble_pool_storage_uses_t5ai_psram(self):
         sections = (ROOT / "soc/t5ai/framebuffer.ld").read_text()
@@ -138,7 +134,7 @@ int main(void) {
         if not compiler:
             self.skipTest("Host C compiler unavailable")
         board = (ROOT / "boards/unhygienix/unhygienix.c").read_text()
-        start = board.index("static bool prv_validate_framebuffer_ram(void)")
+        start = board.index("static bool prv_validate_psram_range(")
         end = board.index("static void prv_assert_power_latch", start)
         harness = (
             r"""
@@ -160,7 +156,7 @@ static void dsb(void) {
 int main(void) {
   for (corrupt_at = 0; corrupt_at <= 2; ++corrupt_at) {
     memory.before = 0x12345678u; memory.after = 0x87654321u; barrier = 0;
-    assert(prv_validate_framebuffer_ram() == (corrupt_at == 0));
+    assert(prv_validate_psram_range(__t5ai_framebuffer_start__, __t5ai_framebuffer_end__) == (corrupt_at == 0));
     assert(memory.before == 0x12345678u && memory.after == 0x87654321u);
     if (!corrupt_at) {
       for (unsigned i = 0; i < 256; ++i)

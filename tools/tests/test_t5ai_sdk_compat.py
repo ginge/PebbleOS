@@ -1,16 +1,18 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Compare actual T5 SDK fast paths with stock answers across process lifecycles."""
-from pathlib import Path
+
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 STUB = r"""
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
+#define KERNEL_READONLY_DATA_SET(v,x) ((v)=(x))
 #define KERNEL_READONLY_DATA __attribute__((section(".kernel_unpriv_ro_bss")))
 typedef enum {PebbleTask_App, PebbleTask_Worker, PebbleTask_KernelMain, NumPebbleTask} PebbleTask;
 typedef enum {ProcessAppSDKType_System, ProcessAppSDKType_Legacy2x,
@@ -89,21 +91,43 @@ class SdkCompatTest(unittest.TestCase):
     def test_real_fast_paths_and_readonly_storage(self):
         with tempfile.TemporaryDirectory() as tmp:
             d = Path(tmp)
-            for header in ("kernel/memory_layout.h", "kernel/pebble_tasks.h",
-                           "process_management/app_manager.h", "process_management/worker_manager.h",
-                           "process_management/process_manager.h", "process_management/pebble_process_md.h",
-                           "pbl/kernel/thread.h"):
+            for header in (
+                "kernel/memory_layout.h",
+                "kernel/pebble_tasks.h",
+                "process_management/app_manager.h",
+                "process_management/worker_manager.h",
+                "process_management/process_manager.h",
+                "process_management/pebble_process_md.h",
+                "pbl/kernel/thread.h",
+                "pbl/kernel/mpu.h",
+            ):
                 p = d / header
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text('#include "stub.h"\n')
             (d / "stub.h").write_text(STUB)
             (d / "test.c").write_text(HARNESS)
             executable = d / "test"
-            subprocess.run(["cc", "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
-                            '-DSOURCE="' + str(ROOT / "soc/t5ai/sdk_compat.c") + '"',
-                            "-I", str(d), str(d / "test.c"), "-o", str(executable)], check=True)
+            subprocess.run(
+                [
+                    "cc",
+                    "-std=c11",
+                    "-O2",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    '-DSOURCE="' + str(ROOT / "soc/t5ai/sdk_compat.c") + '"',
+                    "-I",
+                    str(d),
+                    str(d / "test.c"),
+                    "-o",
+                    str(executable),
+                ],
+                check=True,
+            )
             subprocess.run([str(executable)], check=True)
-            sections = subprocess.check_output(["objdump", "-h", str(executable)], text=True)
+            sections = subprocess.check_output(
+                ["objdump", "-h", str(executable)], text=True
+            )
             self.assertRegex(sections, r"\.kernel_unpriv_ro_bss\s+00000008\b")
 
 

@@ -14,6 +14,35 @@ configuration is separate.
 Run commands from the PebbleOS repository root. Keep supplied build inputs and
 generated validation artifacts under `build/`.
 
+## Tooling tests after the upstream migration — 15 November
+
+Run the suite from the repository root with the project Python dependencies
+installed and CMake, a host C compiler, ARM GCC and QEMU available on `PATH`:
+
+```sh
+python3 -m unittest discover -v -s tools/tests
+```
+
+The fixtures now use upstream flash/partition classes, delayed work, device
+roles, system-off handlers, clock events and SDK read-only data access. Reset,
+retained-store invalidation, flash bounds/failure handling, resource routing and
+transfer rejection retain executable coverage. Getafix revision-specific
+haptics checks use devicetree rather than removed revision defconfigs.
+
+Retired tests modeled the removed periodic-tick compensation, private kernel
+thread/KernelBG layouts, old timer/settings/heap interfaces, direct display DMA
+and the PULSE trace CLI. Historical source-text and old-commit equivalence
+assertions were removed with those fixtures. Current timer, idle, native
+SPI/DMA, MPU, storage and diagnostic guard tests cover the corresponding
+supported paths. The retired diagnostic models are not runtime validation of
+the migrated optional trace modules; those still need hardware exercise.
+
+The full suite passes with 463 tests discovered, including the CMake Bluetooth
+backend matrix. Fifteen optional CP tests remain skipped: they require Unicorn
+and/or explicitly supplied reviewed CP binaries and linked artifact profiles.
+These qualification tests remain available and were not converted into passing
+stubs. Results are in `build-tuya-upstream/legacy-tests-final.log` locally.
+
 ## Production diagnostic cleanup — 14 November
 
 QSPI/DMA profiling and both pre-splash workload options/code are retired from

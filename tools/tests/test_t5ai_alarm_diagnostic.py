@@ -11,7 +11,13 @@ PREFIX = r"""
 #include <stdint.h>
 #include <stddef.h>
 typedef int status_t;
-typedef unsigned TimerID;
+#define nullptr NULL
+#define PBL_MSEC(ms) (ms)
+#define pbl_ms_to_ticks(ms) (ms)
+struct pbl_work {void (*fn)(struct pbl_work *);};
+struct pbl_delayed_work {struct pbl_work work;};
+static int pbl_sys_workq_high;
+
 #define TIMER_INVALID_ID 0
 #define TIMER_START_FLAG_REPEATING 1
 #define S_SUCCESS 0
@@ -22,10 +28,12 @@ typedef unsigned TimerID;
 #define PBL_LOG_DBG(...) ((void)0)
 static unsigned created,deleted,arms,cancels,gen;
 static bool task,fire,reject,drop;
-static void (*timer_cb)(void *),(*queued)(void *);
-static unsigned new_timer_create(void){++created;return 9;}
-static bool new_timer_start(unsigned id,unsigned ms,void (*cb)(void *),void *arg,unsigned flags){assert(id==9 && ms==1000 && !arg && flags==1);timer_cb=cb;return true;}
-static void new_timer_delete(unsigned id){assert(task && id==9);++deleted;timer_cb=NULL;}
+static void (*timer_cb)(struct pbl_work *);
+static void (*queued)(void *);
+static void pbl_delayed_work_init(struct pbl_delayed_work *t,void (*fn)(struct pbl_work *)){++created;t->work.fn=fn;}
+static bool pbl_delayed_work_schedule(int *q,struct pbl_delayed_work *t,unsigned ms){assert(q==&pbl_sys_workq_high && ms==1000);timer_cb=t->work.fn;return true;}
+static bool pbl_delayed_work_schedule_next(struct pbl_delayed_work *t,unsigned ms){assert(ms==1000);return true;}
+static bool pbl_delayed_work_cancel(struct pbl_delayed_work *t){assert(task);++deleted;timer_cb=NULL;return true;}
 static bool pbl_sys_work_try_call(void (*cb)(void *),void *arg){assert(!task && !arg);if(drop)return false;assert(!queued);queued=cb;return true;}
 static int t5ai_native_alarm_init(void){assert(task);return 0;}
 static bool t5ai_native_alarm_fired(unsigned id,uint32_t *tick){assert(task);*tick=17;return fire && id==1;}

@@ -1,9 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
-"""Update admission, platform defaults and stock enabled-path equivalence."""
+"""Update admission and platform defaults."""
 
 import os
-import re
 import subprocess
 import tempfile
 import unittest
@@ -27,8 +26,6 @@ SOURCES = (
     "pebble/services/prf_update/service.c",
     "pebble/services/put_bytes/put_bytes.c",
 )
-# Pin the pre-change implementation; do not silently move comparisons with HEAD.
-BASELINE = "b694ad747c0fc317f61123cc5537daaaab02fc2d"
 
 
 def function(path, signature):
@@ -99,6 +96,7 @@ for name in (
     "kernel/ui/modals/modal_manager.h",
     "process_management/app_manager.h",
     "flash_region/flash_region.h",
+    "pbl/board/partitions.h",
     "system/firmware_storage.h",
 ):
     HEADERS[name] = "#pragma once\n"
@@ -249,37 +247,3 @@ int main(void) {
             ("CONFIG_RECOVERY_FW", "CONFIG_RECOVERY_UPDATE_SUPPORTED"),
         ):
             self.compile_run(source, defines, sources=(SOURCES[1],))
-
-    def test_supported_paths_preprocess_identically_to_baseline(self):
-        # Compare real shared C tokens with platform capabilities enabled. Includes
-        # are empty here; native PutBytes tests and ARM builds check compilation.
-        with tempfile.TemporaryDirectory() as directory:
-            directory = Path(directory)
-            for name in SOURCES:
-                before = subprocess.check_output(
-                    ["git", "show", f"{BASELINE}:{name}"], cwd=ROOT, text=True
-                )
-                # Upstream renamed the unconditional panic without changing admission.
-                before = re.sub(r"\bWTF\b", "pbl_panic()", before)
-                after = (ROOT / name).read_text()
-                includes = re.findall(
-                    r'^#include [<"]([^>"]+)', before + after, re.MULTILINE
-                )
-                for include in includes:
-                    header = directory / include
-                    header.parent.mkdir(parents=True, exist_ok=True)
-                    header.touch()
-                for recovery in (False, True):
-                    outputs = []
-                    for label, text in (("before", before), ("after", after)):
-                        path = directory / f"{label}.c"
-                        path.write_text(text)
-                        cmd = ["cc", "-E", "-P", "-I", str(directory)]
-                        cmd += [f"-DCONFIG_{cap}" for cap in CAPABILITIES]
-                        if recovery:
-                            cmd.append("-DCONFIG_RECOVERY_FW")
-                        outputs.append(
-                            subprocess.check_output(cmd + [str(path)], text=True)
-                        )
-                    with self.subTest(source=name, recovery=recovery):
-                        self.assertEqual(outputs[0], outputs[1])

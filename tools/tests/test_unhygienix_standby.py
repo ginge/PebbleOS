@@ -26,9 +26,9 @@ class UnhygienixStandbyTest(unittest.TestCase):
 
     def test_board_selects_only_local_implementation(self):
         kernel = (ROOT / "pebble/kernel/CMakeLists.txt").read_text()
-        board = (ROOT / "pebble/board/CMakeLists.txt").read_text()
+        board = (ROOT / "soc/t5ai/CMakeLists.txt").read_text()
         self.assertIn(
             "if(CONFIG_BOARD_UNHYGIENIX)\n  pbl_filter_sources(sources EXCLUDE util/standby.c)",
             kernel,
         )
-        self.assertIn("boards/unhygienix_standby.c", board)
+        self.assertIn("boards/unhygienix/unhygienix_standby.c", board)

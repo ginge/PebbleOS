@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from itertools import pairwise
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -89,7 +90,7 @@ int main(void) {
     def test_t5ai_write_path_has_no_retained_probe_instrumentation(self):
         flash = (ROOT / "drivers/flash/t5ai.c").read_text()
         main = (ROOT / "pebble/main.c").read_text()
-        registers = (ROOT / "pebble/pbl/system/rtc_registers.h").read_text()
+        registers = (ROOT / "include/pbl/soc/t5ai/rtc_registers.h").read_text()
 
         self.assertNotIn("T5AI_FLASH_FAILURE_", registers)
         self.assertNotIn("T5AI_FLASH_FAILURE_", flash)
@@ -382,6 +383,16 @@ int main(void) {
             test_source = directory / "test.c"
             test_source.write_text(source)
             binary = directory / "test"
+            fake = directory / "pbl/drivers/flash.h"
+            fake.parent.mkdir(parents=True)
+            fake.write_text(
+                "#pragma once\n#include <stdint.h>\n#include <stdbool.h>\n#define PAGE_SIZE_BYTES 256u\n#define SECTOR_SIZE_BYTES 65536u\n#define SECTOR_ADDR_MASK (~(SECTOR_SIZE_BYTES-1u))\n#define SUBSECTOR_SIZE_BYTES 4096u\n#define SUBSECTOR_ADDR_MASK (~(SUBSECTOR_SIZE_BYTES-1u))\n"
+            )
+            log = directory / "pbl/logging/logging.h"
+            log.parent.mkdir(parents=True)
+            log.write_text(
+                "#pragma once\n#define PBL_LOG_MODULE_DECLARE(...)\n#define PBL_LOG_ERR(...)\n#define PBL_LOG_WRN(...)\n"
+            )
             for header_cache in (True, False):
                 mode_source = source
                 if not header_cache:
@@ -404,6 +415,12 @@ int main(void) {
                         "-Werror",
                         "-DCONFIG_SOC_T5AI=1",
                         "-DCONFIG_BOARD_UNHYGIENIX=1",
+                        "-I",
+                        str(directory),
+                        "-I",
+                        str(ROOT / "soc/t5ai/compat"),
+                        "-I",
+                        str(ROOT / "include/pbl"),
                         *defines,
                         "-I",
                         str(ROOT),
@@ -472,7 +489,7 @@ int main(void) {
             subprocess.run([str(binary)], check=True)
 
     def test_board_regions_do_not_overlap(self):
-        header = (ROOT / "pebble/flash_region/flash_region_t5ai.h").read_text()
+        header = (ROOT / "soc/t5ai/compat/flash_region/flash_region.h").read_text()
         values = {}
         for line in header.splitlines():
             fields = line.split()
@@ -502,7 +519,7 @@ int main(void) {
             spans.append((begin, end, region))
 
         spans.sort()
-        for (_, left_end, left), (right_begin, _, right) in zip(spans, spans[1:]):
+        for (_, left_end, left), (right_begin, _, right) in pairwise(spans):
             self.assertLessEqual(left_end, right_begin, f"{left} overlaps {right}")
 
 

@@ -1,12 +1,14 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 """Exercise the T5AI driver through the real upstream backlight class."""
+
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+
 
 class BacklightTest(unittest.TestCase):
     def test_device_init_brightness_and_refresh(self):
@@ -31,18 +33,19 @@ static inline bool pbl_device_is_ready(const struct pbl_device *d) {return d->re
             "pbl/util/misc.h": """#include <stddef.h>
 #define container_of(ptr,type,member) ((type *)((char *)(ptr)-offsetof(type,member)))
 """,
+            "pbl/drivers/panel/co5300.h": "int pbl_panel_co5300_set_brightness(unsigned char);\n",
             "pbl/drivers/display/t5ai.h": """#pragma once
 #include <stdint.h>
 #define T5AI_AMOLED_MIN_BRIGHTNESS 8u
 void display_co5300_set_brightness(uint8_t);
 """,
         }
-        source = r'''
+        source = r"""
 #include <assert.h>
 #include <stdint.h>
 static unsigned writes;
 static uint8_t level;
-void display_co5300_set_brightness(uint8_t value) { ++writes; level = value; }
+int pbl_panel_co5300_set_brightness(uint8_t value) { ++writes; level = value; return 0; }
 #include CLASS_SOURCE
 #include DRIVER_SOURCE
 int main(void) {
@@ -61,7 +64,7 @@ int main(void) {
  }
  assert(pbl_backlight_set_brightness(bl, 0) == 0 && level == 8);
 }
-'''
+"""
         with tempfile.TemporaryDirectory() as directory:
             tmp = Path(directory)
             for name, contents in headers.items():
@@ -70,11 +73,24 @@ int main(void) {
                 path.write_text(contents)
             path = tmp / "test.c"
             path.write_text(source)
-            subprocess.run([
-                "cc", "-std=gnu2x", "-Wall", "-Wextra", "-Werror",
-                "-Wno-unused-parameter", "-I", str(tmp), "-I", str(ROOT / "include"),
-                f'-DCLASS_SOURCE="{ROOT / "drivers/backlight/backlight.c"}"',
-                f'-DDRIVER_SOURCE="{ROOT / "drivers/backlight/t5ai.c"}"',
-                str(path), "-o", str(tmp / "test"),
-            ], check=True)
+            subprocess.run(
+                [
+                    "cc",
+                    "-std=gnu2x",
+                    "-Wall",
+                    "-Wextra",
+                    "-Werror",
+                    "-Wno-unused-parameter",
+                    "-I",
+                    str(tmp),
+                    "-I",
+                    str(ROOT / "include"),
+                    f'-DCLASS_SOURCE="{ROOT / "drivers/backlight/backlight.c"}"',
+                    f'-DDRIVER_SOURCE="{ROOT / "drivers/backlight/t5ai.c"}"',
+                    str(path),
+                    "-o",
+                    str(tmp / "test"),
+                ],
+                check=True,
+            )
             subprocess.run([str(tmp / "test")], check=True)

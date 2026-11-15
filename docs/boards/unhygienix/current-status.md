@@ -26,10 +26,13 @@ interrupt injection at MPU descriptor-write boundaries. Optional tick, heap,
 reboot, state, draw and reminder diagnostic sources compile against the new APIs.
 Diagnostic combinations have not all been linked or exercised on hardware.
 
-The broad legacy `tools/tests` suite is not green: several fixtures and source
-inventory assertions still refer to removed timer, settings, PULSE and kernel
-interfaces. Those results are not a firmware runtime validation. Build and test
-logs are retained locally under the ignored `build-tuya-upstream/` directory.
+The `tools/tests` fixtures have been migrated or retired for the upstream APIs.
+The full suite passes: 463 tests discovered, with 15 optional CP qualification
+cases skipped because they require Unicorn and/or reviewed external artifacts.
+This is host validation; optional diagnostic modules still need hardware exercise.
+The [tooling test notes](tooling.md#tooling-tests-after-the-upstream-migration--15-november)
+describe retained coverage and retired fixtures. Build and test logs are retained
+locally under the ignored `build-tuya-upstream/` directory.
 
 This firmware has not been flashed. The installed-watch checkpoints below remain
 the hardware evidence; boot, reconnection and connected-idle validation are still

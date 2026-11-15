@@ -23,6 +23,9 @@ typedef unsigned T5AICpuFrequency;
 typedef int status_t;
 static struct {uint32_t CTRL,LOAD,VAL;} systick;
 #define SysTick (&systick)
+static uint32_t event_hz;
+static const void *pbl_system_clockevent;
+static void pbl_clockevent_set_hz(const void *ce,uint32_t hz){event_hz=hz;}
 static uint32_t hw_mode, hw_cpu0, hw_cpu1, hw_ana9, SystemCoreClock;
 static unsigned votes;static bool reject;
 void t5ai_power_sync_tick_clock(void);
@@ -36,9 +39,9 @@ int main(void){
  hw_mode=0x31;hw_cpu1=16;SysTick->CTRL=1;SysTick->LOAD=119999;
  reject=true;t5ai_power_init();assert(!s_initialized && votes==1);
  reject=false;t5ai_power_init();assert(s_initialized && votes==2);
- assert(t5ai_power_clock_hz()==240000000 && SystemCoreClock==240000000 && SysTick->LOAD==239999);
+ assert(t5ai_power_clock_hz()==240000000 && SystemCoreClock==240000000 && event_hz==240000000);
  t5ai_power_init();assert(votes==2); // No vote per idle entry or repeated init.
- hw_mode=0x33;t5ai_power_sync_tick_clock();assert(t5ai_power_clock_hz()==120000000 && SysTick->LOAD==119999);
+ hw_mode=0x33;t5ai_power_sync_tick_clock();assert(t5ai_power_clock_hz()==120000000 && event_hz==120000000);
  hw_mode=0x10;assert(!t5ai_power_clock_hz()); // Uncalibrated DCO is not guessed.
  return 0;
 }

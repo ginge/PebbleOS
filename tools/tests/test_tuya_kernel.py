@@ -10,32 +10,6 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class TuyaKernelCheckTest(unittest.TestCase):
-    def test_t5ai_safe_reset_requests_cpu0_whole_chip_reboot(self):
-        reset = (ROOT / "pebble/kernel/reset.c").read_text()
-        hci_ipc = (ROOT / "third_party/nimble/transport/t5ai_hci_ipc.c").read_text()
-        hci_header = (ROOT / "include/pbl/soc/t5ai/hci_ipc.h").read_text()
-        self.assertIn("#ifdef CONFIG_SOC_T5AI", reset)
-        self.assertIn("t5ai_hci_ipc_request_system_reboot()", reset)
-        self.assertIn("T5AI_SYSTEM_TYPE 1u", hci_ipc)
-        self.assertIn("T5AI_SYSTEM_REBOOT 0u", hci_ipc)
-        self.assertIn("s_system_reboot_request", hci_ipc)
-        self.assertIn("prv_prepare_outbound(&s_system_reboot_request", hci_ipc)
-        self.assertIn("t5ai_hci_ipc_request_system_reboot", hci_header)
-
-    def test_t5ai_uses_stock_fault_handler_with_optional_local_trace(self):
-        handler = (ROOT / "pebble/hardfault_handler.c").read_text()
-        build = (ROOT / "soc/t5ai/CMakeLists.txt").read_text()
-        self.assertNotIn("CONFIG_SOC_T5AI", handler)
-        self.assertIn("if(CONFIG_T5AI_FAULT_TRACE)", build)
-        self.assertIn("HardFault_Handler=t5ai_stock_HardFault_Handler", build)
-        self.assertIn("fault_trace.c", build)
-
-    def test_t5ai_cacheable_mpu_regions_are_non_shareable(self):
-        mpu = (ROOT / "kernel/arch/arm/mpu_armv8m.c").read_text()
-        self.assertIn("#ifdef CONFIG_SOC_T5AI", mpu)
-        self.assertIn("region->cache_policy != MpuCachePolicy_NotCacheable", mpu)
-        self.assertIn("shareability = ARM_MPU_SH_NON", mpu)
-
     def test_t5ai_reclaims_only_measured_gabbro_runtime_headroom(self):
         defaults = (ROOT / "soc/t5ai/Kconfig.defconfig").read_text()
         self.assertIn("config APP_RAM_GABBRO_RUNTIME_SIZE", defaults)
@@ -57,25 +31,6 @@ class TuyaKernelCheckTest(unittest.TestCase):
             self.assertNotIn(region, flash)
         self.assertNotIn("FLASH_REGION_FIRMWARE_SLOT_0_BEGIN", flash)
         self.assertNotIn("FLASH_REGION_FIRMWARE_SLOT_1_BEGIN", flash)
-
-    def test_t5ai_bluetooth_uses_common_service_initialization(self):
-        services = (ROOT / "pebble/services/services_common/service.c").read_text()
-        main = (ROOT / "pebble/main.c").read_text()
-        self.assertNotIn("CONFIG_SOC_T5AI", services)
-        self.assertLess(
-            services.index("shared_prf_storage_init();"),
-            services.index("bt_persistent_storage_init();"),
-        )
-        self.assertLess(
-            services.index("bt_persistent_storage_init();"),
-            services.index("bt_ctl_init();"),
-        )
-        self.assertIn("comm_default_kernel_sender_init();", services)
-        self.assertIn("put_bytes_init();", services)
-        self.assertIn("services_init();", main)
-        build = (ROOT / "pebble/services/bluetooth/CMakeLists.txt").read_text()
-        self.assertIn("bluetooth_persistent_storage_prf.c", build)
-        self.assertNotIn("bluetooth_persistent_storage_t5ai.c", build)
 
     def test_t5ai_shared_i2c_bus_uses_cst92xx_qualified_standard_mode(self):
         board = (ROOT / "boards/unhygienix/unhygienix.c").read_text()
@@ -119,9 +74,8 @@ class TuyaKernelCheckTest(unittest.TestCase):
     def test_t5ai_announces_ap_startup_before_enabling_interrupts(self):
         initialization = (ROOT / "soc/t5ai/init.c").read_text()
         early = initialization.split("void pbl_soc_early_init(void)", 1)[1]
-        self.assertLess(early.index("SystemInit();"), early.index("icache_enable();"))
         self.assertLess(
-            early.index("dcache_enable();"),
+            early.index("SystemInit();"),
             early.index("t5ai_cp_mailbox_announce_power_up();"),
         )
         self.assertLess(
@@ -415,7 +369,7 @@ int main(void) {
         mb_ipc = (ROOT / "drivers/t5ai/mb_ipc.c").read_text()
         flash = (ROOT / "drivers/flash/t5ai_flash_ipc.c").read_text()
         battery = (ROOT / "drivers/battery/t5ai.c").read_text()
-        dbgserial = (ROOT / "pebble/console/dbgserial_t5ai.c").read_text()
+        dbgserial = (ROOT / "drivers/uart/t5ai_console.c").read_text()
         reset = (ROOT / "drivers/watchdog/t5ai.c").read_text()
 
         physical_init = physical.split("status_t t5ai_mailbox_channel_init", 1)[
@@ -430,7 +384,7 @@ int main(void) {
         self.assertIn("RebootReasonCode_MailboxTimeout", physical)
         self.assertRegex(mb_ipc, r"#define MB_IPC_PHYSICAL_TIMEOUT_MS\s+5000u")
         self.assertRegex(mailbox, r"#define CP_RUNTIME_TIMEOUT_MS\s+5000u")
-        self.assertIn("#define IPC_TIMEOUT_MS 5000u", flash)
+        self.assertRegex(flash, r"#define IPC_TIMEOUT_MS\s+5000u")
         self.assertLess(
             mailbox.index("t5ai_mailbox_channel_register(channel"),
             mailbox.index("t5ai_mailbox_channel_start()"),
@@ -448,7 +402,7 @@ int main(void) {
         self.assertNotIn("t5ai_saradc_read_peak", battery_get)
         self.assertNotIn("pbl_thread_create", battery)
         self.assertNotIn("pbl_thread_sleep", battery)
-        self.assertIn("s_t5ai_mutex", dbgserial)
+        self.assertIn("t5ai_mailbox_channel_is_owner()", dbgserial)
         self.assertIn("T5AI_AON_PMU_R2", reset)
 
     def test_t5ai_holds_psram_power_before_board_validation(self):
@@ -472,37 +426,6 @@ int main(void) {
             init.index("t5ai_power_init();"),
         )
 
-    def test_t5ai_clock_and_tick_ownership_is_soc_local(self):
-        initialization = (ROOT / "soc/t5ai/init.c").read_text()
-        tick = (ROOT / "soc/t5ai/tick.c").read_text()
-        power = (ROOT / "soc/t5ai/power.c").read_text()
-        main = (ROOT / "pebble/main.c").read_text()
-        self.assertIn("SystemCoreClock = CONFIG_T5AI_CORE_CLOCK_HZ", initialization)
-        self.assertIn("t5ai_power_sync_tick_clock();", tick)
-        self.assertIn("pbl_kernel_tick_isr();", tick)
-        self.assertIn("T5AICpuFrequency_240MHz", power)
-        self.assertNotIn("SysTick->", main)
-        self.assertNotIn("CONFIG_SOC_T5AI", main)
-
-    def test_t5ai_debug_uart_keeps_the_board_runtime_configuration(self):
-        console = (ROOT / "pebble/console/dbgserial_t5ai.c").read_text()
-        driver = (ROOT / "drivers/uart/t5ai.c").read_text()
-        self.assertIn("t5ai_cp_mailbox_log", console)
-        self.assertNotIn("uart_set_baud_rate", console)
-        self.assertIn(
-            "regs->global_ctrl = UART_GLOBAL_RESET_RELEASE | UART_GLOBAL_CLOCK_GATE_BYPASS;",
-            driver,
-        )
-        self.assertIn(
-            "T5AI_SYSTEM_CPU0_INTERRUPT_ENABLE |= T5AI_UART0_INTERRUPT_ENABLE",
-            driver,
-        )
-        self.assertIn(
-            "T5AI_SYSTEM_CPU1_INTERRUPT_ENABLE |= T5AI_UART0_INTERRUPT_ENABLE",
-            driver,
-        )
-        self.assertIn("UART_INT_RX_FINISH", driver)
-
     def test_t5ai_cp_logging_rejects_interrupt_context(self):
         mailbox = (ROOT / "drivers/t5ai/cp_mailbox.c").read_text()
         cp_log = mailbox.split("status_t t5ai_cp_mailbox_log", 1)[1]
@@ -524,17 +447,6 @@ int main(void) {
         early_init = early_init.split("void board_init(void)", 1)[0]
         self.assertIn("watchdog_init();", early_init)
         self.assertNotIn("watchdog_start();", early_init)
-
-    def test_t5ai_kernelbg_uses_native_poll_and_message_queue(self):
-        service = (ROOT / "pebble/services/system_task/service.c").read_text()
-        self.assertNotIn("CONFIG_SOC_T5AI", service)
-        self.assertIn(
-            "pbl_poll_group_wait(&s_system_task_queue_set, PBL_FOREVER)", service
-        )
-        self.assertIn("pbl_msgq_get(activated_queue, &event, PBL_NO_WAIT)", service)
-        self.assertIn("system_task_watchdog_feed();", service)
-        app_manager = (ROOT / "pebble/process_management/app_manager.c").read_text()
-        self.assertNotIn("CONFIG_SOC_T5AI", app_manager)
 
     def test_t5ai_initializes_gpio_keys(self):
         board = (ROOT / "boards/unhygienix/unhygienix.c").read_text()
@@ -581,84 +493,6 @@ int main(void) {
         self.assertIn("T5AI_RTC_MIN_VALID_TIME", rtc)
         self.assertIn("#define T5AI_RTC_MIN_VALID_TIME 1577836800u", rtc)
         self.assertIn("if (base_ticks > ticks", rtc)
-
-    def test_fault_priorities_use_unshifted_native_kernel_priority(self):
-        compiler = shutil.which("cc")
-        if not compiler:
-            self.skipTest("Host C compiler unavailable")
-        fault = (ROOT / "pebble/kernel/fault_handling.c").read_text()
-        function = fault[
-            fault.index("void enable_fault_handlers(void)") : fault.index(
-                "typedef struct CrashInfo"
-            )
-        ]
-        harness = (
-            r"""
-#include <assert.h>
-#include <stdint.h>
-#define PBL_IRQ_PRIO_MAX_SYSCALL 0x80u
-#define __NVIC_PRIO_BITS 4u
-#define MemoryManagement_IRQn 0
-#define BusFault_IRQn 1
-#define UsageFault_IRQn 2
-#define SCB_SHCSR_MEMFAULTENA_Msk 1u
-#define SCB_SHCSR_BUSFAULTENA_Msk 2u
-#define SCB_SHCSR_USGFAULTENA_Msk 4u
-#define SCB_CCR_DIV_0_TRP_Msk 16u
-static struct { uint32_t SHCSR, CCR; } scb;
-#define SCB (&scb)
-#define __DSB() ((void)0)
-#define __ISB() ((void)0)
-static unsigned priorities[3], calls;
-static void NVIC_SetPriority(unsigned irq, unsigned prio) {
-  assert(irq < 3); priorities[irq] = prio; ++calls;
-}
-"""
-            + function
-            + r"""
-int main(void) {
-  scb.SHCSR = 0x100u; scb.CCR = 0xffu;
-  enable_fault_handlers();
-  assert(calls == 3);
-  for (unsigned i = 0; i < 3; ++i) assert(priorities[i] == 8u);
-  assert(scb.SHCSR == 0x107u && scb.CCR == 0xefu);
-}
-"""
-        )
-        with tempfile.TemporaryDirectory() as directory:
-            source = Path(directory) / "fault_priority.c"
-            binary = Path(directory) / "fault_priority"
-            source.write_text(harness)
-            subprocess.run(
-                [
-                    compiler,
-                    "-std=c11",
-                    "-Wall",
-                    "-Wextra",
-                    "-Werror",
-                    str(source),
-                    "-o",
-                    str(binary),
-                ],
-                check=True,
-            )
-            subprocess.run([str(binary)], check=True)
-
-    def test_t5ai_scales_raw_aon_ticks_at_the_rtc_boundary(self):
-        interface = (ROOT / "include/pbl/drivers/rtc.h").read_text()
-        implementation = (ROOT / "drivers/rtc/t5ai.c").read_text()
-        t5ai_interface = interface.split("#elif defined(CONFIG_SOC_T5AI)", 1)[1]
-        t5ai_interface = t5ai_interface.split("#else", 1)[0]
-        self.assertIn("#define RTC_TICKS_HZ (1000u)", t5ai_interface)
-        self.assertIn(
-            "#define T5AI_AON_RTC_HZ 32000u",
-            (ROOT / "include/pbl/soc/t5ai/rtc.h").read_text(),
-        )
-        self.assertIn(
-            "return prv_raw_ticks() / (T5AI_AON_RTC_HZ / RTC_TICKS_HZ);",
-            implementation,
-        )
-        self.assertIn("elapsed / T5AI_AON_RTC_HZ", implementation)
 
 
 if __name__ == "__main__":

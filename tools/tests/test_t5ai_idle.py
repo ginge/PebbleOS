@@ -1,69 +1,36 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Exercise the actual idle path with scheduler changes and elapsed ticks."""
+"""Exercise the migrated idle-state callback after CP coordination queues work."""
 
-import subprocess
-import tempfile
 import unittest
-from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
+from tools.tests.native_t5ai_harness import run
+from tools.tests.test_t5ai_native_objects import body
 
 
 class IdleTest(unittest.TestCase):
-    def test_gate_scheduler_and_accounting(self):
-        source = (ROOT / "soc/t5ai/idle.c").read_text()
-        function = source[
-            source.index("void pbl_soc_idle") : source.index("bool pbl_soc_tick_enable")
-        ]
-        common = (ROOT / "pebble/kernel/util/idle.c").read_text()
-        harness = r"""
+    def test_scheduler_recheck_prevents_sleep_after_queuing_work(self):
+        run(
+            "soc/t5ai/idle.c",
+            r"""
 #include <assert.h>
 #include <stdbool.h>
 #include <stdint.h>
-typedef uint64_t RtcTicks;
-typedef unsigned pbl_tick_t;
-static bool confirm, masked;
-static unsigned wfi, confirms, reads, profiles;
-static RtcTicks ticks, s_wfi_ticks;
-
-static RtcTicks rtc_get_ticks(void){++reads;return ticks;}
-static uint32_t t5ai_interrupt_profile_irq_enter(void){++profiles;return 42;}
-static void __disable_irq(void){assert(!masked);masked=true;}
-static void __enable_irq(void){assert(masked);masked=false;}
-static bool pbl_idle_confirm(void){assert(masked);++confirms;return confirm;}
-static void __DSB(void){assert(masked);}
-static void __WFI(void){assert(masked && idle_is_allowed() && confirm);++wfi;ticks+=17;}
-static void __ISB(void){assert(masked);}
-static void t5ai_interrupt_profile_irq_exit(unsigned id,uint32_t start){assert(masked && id==3 && start==42);}
-"""
-        main = r"""
+static bool confirm=true,queued,deep;
+static unsigned services,checks,enters,wfi;
+static uint32_t t5ai_tick_idle_deadline(uint32_t max){assert(max==UINT32_MAX);return 123;}
+static void t5ai_sleep_service(uint32_t deadline){assert(deadline==123);++services;if(queued)confirm=false;}
+static bool sched_idle_confirm(void){++checks;return confirm;}
+static bool t5ai_sleep_enter(uint32_t deadline){assert(confirm && deadline==123);++enters;return deep;}
+static void pbl_cpu_idle(void){assert(confirm);++wfi;}
+""",
+            r"""
 int main(void){
-
- idle_set_enabled(false);confirm=true;pbl_soc_idle(100);
- assert(!wfi && !confirms && !reads && !profiles && !s_wfi_ticks && !masked);
- idle_set_enabled(true);confirm=false;pbl_soc_idle(100);
- assert(!wfi && confirms==1 && !s_wfi_ticks && !masked);
- confirm=true;pbl_soc_idle(100);
- assert(wfi==1 && confirms==2 && s_wfi_ticks==17 && !masked);
- idle_set_enabled(false);pbl_soc_idle(0);assert(wfi==1 && s_wfi_ticks==17);
+ queued=true;prv_idle();assert(services==1 && checks==1 && !enters && !wfi);
+ queued=false;confirm=true;deep=true;prv_idle();assert(services==2 && checks==2 && enters==1 && !wfi);
+ deep=false;prv_idle();assert(services==3 && checks==3 && enters==2 && wfi==1);
+ return 0;
 }
-"""
-        with tempfile.TemporaryDirectory() as tmp:
-            p = Path(tmp)
-            (p / "test.c").write_text(
-                "#include <stdbool.h>\n" + common + harness + function + main
-            )
-            subprocess.run(
-                [
-                    "cc",
-                    "-std=c11",
-                    "-Wall",
-                    "-Wextra",
-                    "-Werror",
-                    str(p / "test.c"),
-                    "-o",
-                    str(p / "test"),
-                ],
-                check=True,
-            )
-            subprocess.run([str(p / "test")], check=True)
+""",
+            defines=("CONFIG_T5AI_RETAINED_SLEEP",),
+            transform=lambda source: body(source, "prv_idle"),
+        )

@@ -213,6 +213,8 @@ class BootSplashPlatformTest(unittest.TestCase):
                     "-O2",
                     "-Dnullptr=NULL",
                     "-DCONFIG_KERNEL_STACK_ALIGN=32",
+                    "-DCONFIG_SERVICE_BOOT_SPLASH_THREAD_STACK_SIZE=2048",
+                    "-DCONFIG_SERVICE_BOOT_SPLASH_THREAD_PRIO=1",
                     "-I",
                     str(directory),
                     "-I",
@@ -245,7 +247,7 @@ class BootSplashPlatformTest(unittest.TestCase):
             )
             self.assertEqual(
                 config["BOOT_SPLASH_ARGB2222"],
-                "y" if board in ("unhygienix", "qemu_emery") else "n",
+                "y" if board == "unhygienix" else "n",
             )
         for revision in ("dvt", "dvt2"):
             self.assertEqual(

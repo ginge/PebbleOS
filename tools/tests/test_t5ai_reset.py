@@ -12,6 +12,8 @@ from tools.tests.test_t5ai_native_objects import body
 ROOT = Path(__file__).resolve().parents[2]
 
 HEADERS = {
+    "pbl/kernel/irq.h": "#pragma once\n#include <stdbool.h>\nextern unsigned test_basepri;\nstatic inline bool pbl_irq_is_locked(void){return test_basepri!=0;}\n",
+    "pbl/kernel/reboot.h": "#pragma once\nenum pbl_sys_off_mode {PBL_SYS_OFF_RESTART_PREPARE,PBL_SYS_OFF_POWER_OFF_PREPARE};\n#define PBL_SYS_OFF_PRIO_LOW 0\n#define PBL_SYS_OFF_HANDLER_DEFINE(s,m,p,fn,arg) static const void *s __attribute__((unused)) = fn\n",
     "pbl/kernel/sched.h": "#pragma once\n#include <pbl/kernel/kernel.h>\n",
     "pbl/kernel/types.h": "#pragma once\n",
     "pbl/kernel/compiler.h": """
@@ -176,7 +178,7 @@ int main(void) {
   reboot_reason_get(&reason);
   assert(memcmp(&reason, &first, sizeof(reason)) == 0);
   assert(t5ai_reset_reason_get_ap() == first_marker);
-  reboot_reason_set_restarted_safely();
+  prv_sys_off_prepare(PBL_SYS_OFF_RESTART_PREPARE, NULL);
   first.restarted_safely = true;
   reboot_reason_get(&reason);
   assert(memcmp(&reason, &first, sizeof(reason)) == 0);
@@ -266,6 +268,7 @@ class T5AIResetTest(unittest.TestCase):
                     "-std=gnu11",
                     "-Wall",
                     "-Wextra",
+                    "-Wno-unused-parameter",
                     "-Werror",
                     "-Wno-address-of-packed-member",
                     "-I",

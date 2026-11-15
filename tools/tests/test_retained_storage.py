@@ -1,19 +1,16 @@
 # SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com>
 # SPDX-License-Identifier: Apache-2.0
 
-import re
-import subprocess
-import tempfile
 import unittest
 from pathlib import Path
 
 from tools.tests import test_t5ai_reset as reset_test
 
 ROOT = Path(__file__).resolve().parents[2]
-STOCK_BASELINE = "f40a377469d5ed0083a8b7b0be78b4e51954623e"
 
 STUBS = {
     **reset_test.HEADERS,
+    "pbl/board/partitions.h": "#pragma once\n",
     "pbl/crc/crc.h": "#pragma once\nuint32_t pbl_crc32(uint32_t, const void *, size_t);\n",
     "pbl/drivers/flash.h": "#pragma once\nvoid flash_read_bytes(uint8_t *, uint32_t, size_t);\n",
     "pbl/drivers/rtc.h": "#pragma once\nvoid rtc_init(void);\n",
@@ -126,72 +123,6 @@ class RetainedStorageTest(unittest.TestCase):
                 f'-DRETAINED_SOURCE="{ROOT / "soc/t5ai/retained.c"}"',
             ),
         )
-
-    def test_stock_backend_generated_code_is_unchanged(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            directory = Path(temporary)
-            for name, contents in STUBS.items():
-                p = directory / name
-                p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_text(contents)
-            (directory / "prelude.h").write_text(PRELUDE)
-            for backend in (
-                "CONFIG_SOC_NRF52",
-                "CONFIG_SOC_SF32LB52",
-                "CONFIG_QEMU",
-                "CONFIG_SOC_POSIX",
-            ):
-                for filename in ("bootbits.c", "reboot_reason.c"):
-                    with self.subTest(backend=backend, file=filename):
-                        before = directory / "before" / filename
-                        before.parent.mkdir(exist_ok=True)
-                        before.write_bytes(
-                            subprocess.check_output(
-                                [
-                                    "git",
-                                    "show",
-                                    f"{STOCK_BASELINE}:pebble/system/{filename}",
-                                ],
-                                cwd=ROOT,
-                            )
-                        )
-                        assemblies = []
-                        for source in (before, ROOT / "pebble/system" / filename):
-                            output = directory / "output.s"
-                            subprocess.run(
-                                [
-                                    "cc",
-                                    "-std=gnu2x",
-                                    "-O2",
-                                    "-fno-ident",
-                                    "-Wno-address-of-packed-member",
-                                    "-S",
-                                    str(source),
-                                    "-include",
-                                    str(directory / "prelude.h"),
-                                    "-I",
-                                    str(directory),
-                                    "-I",
-                                    str(ROOT / "include"),
-                                    "-I",
-                                    str(ROOT / "pebble"),
-                                    "-I",
-                                    str(ROOT / "pebble/system"),
-                                    f"-D{backend}=1",
-                                    "-o",
-                                    str(output),
-                                ],
-                                check=True,
-                            )
-                            assembly = re.sub(
-                                r"^\s*\.file.*$",
-                                "",
-                                output.read_text(),
-                                flags=re.MULTILINE,
-                            )
-                            assembly = re.sub(r"\.LF([BE])\d+", r".LF\1", assembly)
-                            assemblies.append(assembly)
-                        self.assertEqual(*assemblies)
 
 
 if __name__ == "__main__":

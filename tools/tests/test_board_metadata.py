@@ -16,7 +16,7 @@ class BoardMetadataTest(unittest.TestCase):
     def test_qemu_decorations_reach_cli_board_spec(self):
         board = parse_board(str(ROOT), "qemu_gabbro")
         self.assertEqual(board.qemu, {"decorations": ["pr2-bk20", "pr2-gd14"]})
-        self.assertEqual(board.runners, [])
+        self.assertEqual(board.runners, ["qemu"])
 
     def test_every_discovered_board_exposes_qemu_metadata(self):
         for target in available_boards(str(ROOT)):
@@ -31,9 +31,15 @@ class BoardMetadataTest(unittest.TestCase):
         self.assertEqual(parse_board(str(ROOT), "unhygienix").runners, ["tyutool"])
 
     def test_invalid_qemu_metadata_is_rejected(self):
-        for metadata in ("qemu: []", "qemu: {decorations: invalid}",
-                         "qemu: {decorations: [one, one]}"):
-            with self.subTest(metadata=metadata), tempfile.TemporaryDirectory() as directory:
+        for metadata in (
+            "qemu: []",
+            "qemu: {decorations: invalid}",
+            "qemu: {decorations: [one, one]}",
+        ):
+            with (
+                self.subTest(metadata=metadata),
+                tempfile.TemporaryDirectory() as directory,
+            ):
                 board_dir = Path(directory) / "boards/example"
                 board_dir.mkdir(parents=True)
                 (board_dir / "example.yml").write_text(metadata)
