@@ -7,11 +7,10 @@
 
 #include <pbl/drivers/watchdog.h>
 #include <pbl/kernel/section.h>
+#include <pbl/soc/t5ai/core.h>
 #include <pbl/soc/t5ai/reboot_trace.h>
 #include <pbl/soc/t5ai/reset.h>
 #include <pbl/soc/t5ai/state_trace.h>
-
-#include <cmsis_core.h>
 
 // Force-reboot values reproduce wdt_hal_force_reboot(), including both key writes.
 #define T5AI_AON_LPO_SOURCE_MASK          0x3u

@@ -16,11 +16,10 @@
 #include <pbl/kernel/kernel.h>
 #include <pbl/kernel/time.h>
 #include <pbl/logging/logging.h>
+#include <pbl/soc/t5ai/core.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/delay.h>
 #include <pbl/soc/t5ai/memory.h>
-
-#include <cmsis_core.h>
 
 #ifdef CONFIG_T5AI_SD_4BIT
 #define DATA_WIDTH (1u << 2)

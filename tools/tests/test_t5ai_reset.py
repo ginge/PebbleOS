@@ -21,7 +21,7 @@ HEADERS = {
 #define PBL_PACKED __attribute__((packed))
 #define PBL_NORETURN __attribute__((noreturn))
 """,
-    "cmsis_core.h": """
+    "pbl/soc/t5ai/core.h": """
 #pragma once
 #define __disable_irq() ((void)0)
 #define __DSB() ((void)0)
@@ -42,7 +42,7 @@ static inline int pbl_kernel_is_running(void) { return test_kernel_running; }
 """,
     "pbl/mcu/interrupts.h": """
 #pragma once
-#include <cmsis_core.h>
+#include <pbl/soc/t5ai/core.h>
 extern unsigned test_isr;
 static inline int mcu_state_is_isr(void) { return test_isr; }
 """,

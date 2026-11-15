@@ -4,13 +4,12 @@
 
 #include <stdint.h>
 
+#include <pbl/soc/t5ai/core.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/delay.h>
 #include <pbl/soc/t5ai/reboot_trace.h>
 #include <pbl/soc/t5ai/reset.h>
 #include <pbl/soc/t5ai/retained.h>
-
-#include <cmsis_core.h>
 
 uint32_t SystemCoreClock = CONFIG_T5AI_CORE_CLOCK_HZ;
 

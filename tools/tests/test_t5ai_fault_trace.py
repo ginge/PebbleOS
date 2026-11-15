@@ -191,7 +191,9 @@ class FaultTraceTests(unittest.TestCase):
     def test_actual_source(self):
         with tempfile.TemporaryDirectory() as directory:
             tmp = Path(directory)
-            (tmp / "cmsis_core.h").write_text("")
+            core = tmp / "pbl/soc/t5ai/core.h"
+            core.parent.mkdir(parents=True)
+            core.write_text("")
             cache = tmp / "pbl/kernel/cache.h"
             cache.parent.mkdir(parents=True)
             cache.write_text(

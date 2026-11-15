@@ -16,7 +16,7 @@
   } while (0)
 #endif
 
-#include "board/board.h"
+#include "applib/platform.h"
 
 #include <errno.h>
 #include <stdbool.h>
@@ -33,6 +33,7 @@
 #include <pbl/kernel/mutex.h>
 #include <pbl/kernel/work.h>
 #include <pbl/logging/logging.h>
+#include <pbl/soc/t5ai/devices.h>
 
 PBL_LOG_MODULE_DEFINE(driver_touch_cst92xx, CONFIG_DRIVER_TOUCH_LOG_LEVEL);
 

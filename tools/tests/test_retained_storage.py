@@ -22,7 +22,7 @@ STUBS = {
 STUBS["pbl/soc/t5ai/cache.h"] = (
     "#pragma once\n#define t5ai_cache_clean(p, n) ((void)0)\n"
 )
-STUBS["cmsis_core.h"] += (
+STUBS["pbl/soc/t5ai/core.h"] += (
     "\n#define __get_PRIMASK() 0u\n#define __set_PRIMASK(v) ((void)(v))\n"
 )
 STUBS["pbl/kernel/compiler.h"] += (
@@ -41,7 +41,7 @@ PRELUDE = """
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
-#include <cmsis_core.h>
+#include <pbl/soc/t5ai/core.h>
 #include <pbl/kernel/compiler.h>
 #include <pbl/system/rtc_registers.h>
 """
@@ -107,7 +107,7 @@ class RetainedStorageTest(unittest.TestCase):
         headers = {
             **reset_test.HEADERS,
             "pbl/soc/t5ai/cache.h": STUBS["pbl/soc/t5ai/cache.h"],
-            "cmsis_core.h": STUBS["cmsis_core.h"],
+            "pbl/soc/t5ai/core.h": STUBS["pbl/soc/t5ai/core.h"],
             "pbl/kernel/assert.h": STUBS["pbl/kernel/assert.h"],
         }
         reset_test.T5AIResetTest().compile_run(

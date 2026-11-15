@@ -2,14 +2,12 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/kernel/assert.h>
-
 #include <errno.h>
 #include <stdint.h>
 
 #include <pbl/drivers/gpio/t5ai.h>
-
-#include <cmsis_core.h>
+#include <pbl/kernel/assert.h>
+#include <pbl/soc/t5ai/core.h>
 
 // BK7258 AON GPIO register layout from the pinned T5AI BSP. Each pin has one
 // configuration register; output-enable is active low.

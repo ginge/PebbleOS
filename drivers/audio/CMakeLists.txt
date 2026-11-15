@@ -14,4 +14,4 @@ pbl_library_sources_ifdef(CONFIG_AUDIO_DA7212 da7212.c)
 pbl_library_sources_ifdef(CONFIG_AUDIO_DMIC dmic.c)
 pbl_library_sources_ifdef(CONFIG_AUDIO_SHELL shell.c)
 
-pbl_library_sources_ifdef(CONFIG_SOC_T5AI ../mic/t5ai/adc.c t5ai_mic.c)
+pbl_library_sources_ifdef(CONFIG_SOC_T5AI t5ai_mic.c)

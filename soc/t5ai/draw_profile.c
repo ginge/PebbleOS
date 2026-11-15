@@ -13,11 +13,10 @@
 #include <pbl/kernel/thread.h>
 #include <pbl/kernel/time.h>
 #include <pbl/logging/logging.h>
+#include <pbl/soc/t5ai/core.h>
 #include <pbl/soc/t5ai/draw_profile.h>
 #include <pbl/soc/t5ai/interrupt_profile.h>
 #include <pbl/soc/t5ai/rtc.h>
-
-#include <cmsis_core.h>
 
 PBL_LOG_MODULE_DEFINE(t5ai_draw_profile, LOG_LEVEL_DEBUG);
 #ifdef CONFIG_T5AI_DRAW_PROFILE_DETAIL

@@ -8,11 +8,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 HEADERS = {
-    "board/board.h": "#define I2C_PCF85063 1\n",
-    "pbl/drivers/i2c.h": "",
+    "pbl/soc/t5ai/devices.h": "#define I2C_PCF85063 1\n",
+    "pbl/drivers/i2c/t5ai.h": "",
     "pbl/drivers/rtc.h": "",
     "pbl/soc/t5ai/rtc.h": "",
-    "cmsis_core.h": "",
+    "pbl/soc/t5ai/core.h": "",
     "pbl/soc/t5ai/cache.h": "#define t5ai_cache_clean test_clean\n",
     "pbl/kernel/assert.h": "#define PBL_ASSERTN(x) assert(x)\n",
 }
@@ -67,8 +67,6 @@ static void restore_mask(unsigned v);
 #define __DSB() ((void)0)
 typedef uint64_t RtcTicks;
 typedef struct { uint32_t words[5]; } TimezoneInfo;
-static void rtc_get_time_ms(time_t *, uint16_t *);
-static time_t rtc_get_time(void);
 static uint8_t control, calendar[7];
 static int calls, fail_at, fail_also, corrupt_at, corrupt_kind, restarts;
 static int operation(void) {
@@ -97,13 +95,14 @@ static int pbl_i2c_burst_write(int d, unsigned r, const uint8_t *v, size_t n) {
 }
 #include RETAINED_SOURCE
 #include RTC_SOURCE
+static time_t read_time(void) {time_t t;assert(T5AI_RTC.ops->get_time(&T5AI_RTC,&t)==0);return t;}
 static int injection, point, target, pending, active;
 static time_t observed;
 static void interrupt(void) {
   if (active) return;
   active = 1;
-  if (injection == 1) observed = rtc_get_time();
-  if (injection == 2) { raw += 32000; rtc_set_time(1800000000); }
+  if (injection == 1) observed = read_time();
+  if (injection == 2) { raw += 32000; T5AI_RTC.ops->set_time(&T5AI_RTC, 1800000000); }
   active = 0;
 }
 static void restore_mask(unsigned v) {
@@ -141,7 +140,7 @@ EXTERNAL = r"""
 int main(int argc, char **argv) {
   assert(argc == 2);
   int scenario = atoi(argv[1]);
-  rtc_init();
+  prv_restore_retained_time();
   time_t epoch = 1793318400;
   if (scenario <= 6) {
     fail_at = scenario;
@@ -153,9 +152,9 @@ int main(int argc, char **argv) {
     if (scenario == 3) assert(!(control & 0x20));
     assert(!irq_mask);
     fail_at = 0; calls = 0; s_external_rtc_present = true;
-    rtc_set_time(epoch + 1); // bounded retry repairs health
+    T5AI_RTC.ops->set_time(&T5AI_RTC, epoch + 1); // bounded retry repairs health
     assert(s_external_rtc_ready && s_external_rtc_error == 0);
-    assert(rtc_get_time() == epoch + 1);
+    assert(read_time() == epoch + 1);
   } else if (scenario == 7) {
     fail_at = 3; fail_also = 4;
     assert(!prv_external_rtc_write(epoch));
@@ -166,44 +165,44 @@ int main(int argc, char **argv) {
     assert(!s_external_rtc_ready && s_external_rtc_error != 0);
   } else if (scenario <= 11) {
     fail_at = scenario - 9; // boot control/calendar read failure: no writes
-    rtc_init_timers();
+    prv_restore_external_time();
     assert(!s_external_rtc_ready && !s_external_rtc_present);
     assert(calls == fail_at && !restarts && !irq_mask);
-    rtc_set_time(epoch); assert(calls == fail_at);
+    T5AI_RTC.ops->set_time(&T5AI_RTC, epoch); assert(calls == fail_at);
   } else if (scenario == 12) {
     control = 0x20; // responding stopped clock initialized from fallback
-    rtc_init_timers();
+    prv_restore_external_time();
     assert(s_external_rtc_ready && !(control & 0x20));
-    assert(rtc_get_time() == T5AI_RTC_MIN_VALID_TIME);
+    assert(read_time() == T5AI_RTC_MIN_VALID_TIME);
   } else if (scenario == 13) {
     assert(prv_external_rtc_write(epoch));
-    calls = 0; rtc_init_timers();
-    assert(calls == 2 && s_external_rtc_ready && rtc_get_time() == epoch);
+    calls = 0; prv_restore_external_time();
+    assert(calls == 2 && s_external_rtc_ready && read_time() == epoch);
   } else if (scenario <= 19) {
     control = 0x20; fail_at = scenario - 11; // each boot repair operation
-    rtc_init_timers();
+    prv_restore_external_time();
     assert(!s_external_rtc_ready && s_external_rtc_present);
     assert(t5ai_retained_read(T5AI_RTC_EXTERNAL_UNTRUSTED));
-    fail_at = 0; calls = 0; rtc_set_time(epoch);
+    fail_at = 0; calls = 0; T5AI_RTC.ops->set_time(&T5AI_RTC, epoch);
     assert(s_external_rtc_ready && !t5ai_retained_read(T5AI_RTC_EXTERNAL_UNTRUSTED));
   } else if (scenario == 20) {
-    rtc_set_time(epoch);
+    T5AI_RTC.ops->set_time(&T5AI_RTC, epoch);
     fail_at = 3; assert(!prv_external_rtc_write(epoch + 100));
     assert(!(control & 0x20)); // plausible wrong time after failed calendar write
     fail_at = 0; calls = 0;
-    rtc_init(); rtc_init_timers();
-    assert(s_external_rtc_ready && rtc_get_time() == epoch);
+    prv_restore_retained_time(); prv_restore_external_time();
+    assert(s_external_rtc_ready && read_time() == epoch);
     assert(calls == 8); // did not trust the calendar; repaired from retained fallback
     fail_at = 3; calls = 0;
     assert(!prv_external_rtc_write(epoch + 100));
     // An interrupted clock commit must not erase the external fault signature.
     s_retained.magic = 0;
     test_clean(&s_retained, sizeof(s_retained));
-    rtc_init();
+    prv_restore_retained_time();
     assert(t5ai_retained_read(T5AI_RTC_EXTERNAL_UNTRUSTED) ==
            T5AI_RTC_EXTERNAL_UNTRUSTED_VALUE);
-    fail_at = 0; calls = 0; rtc_init_timers();
-    assert(s_external_rtc_ready && rtc_get_time() == T5AI_RTC_MIN_VALID_TIME);
+    fail_at = 0; calls = 0; prv_restore_external_time();
+    assert(s_external_rtc_ready && read_time() == T5AI_RTC_MIN_VALID_TIME);
   } else if (scenario == 21) {
     assert(!prv_external_rtc_write(0)); // out-of-range year: no bus traffic
     assert(!s_external_rtc_ready && calls == 0);
@@ -279,7 +278,7 @@ int main(int argc, char **argv) {
   assert(argc == 2);
   int mode = atoi(argv[1]);
   raw = 0x1fffffff0ULL;
-  rtc_init(); rtc_set_time(1700000000);
+  prv_restore_retained_time(); T5AI_RTC.ops->set_time(&T5AI_RTC, 1700000000);
   assert(sizeof(s_retained) == 136);
   t5ai_retained_write(RTC_TIMEZONE_GMTOFFSET, 1234);
   t5ai_retained_write(REBOOT_REASON_REGISTER_1, 5678);
@@ -287,59 +286,58 @@ int main(int argc, char **argv) {
     // Reader ISR requested at every raw/tuple publication access waits for commit.
     raw += 32000000;
     injection = 1; target = mode;
-    rtc_set_time(1700000100);
+    T5AI_RTC.ops->set_time(&T5AI_RTC, 1700000100);
     if (point >= target) assert(observed == 1700000100);
     assert(!pending && !irq_mask);
   } else if (mode < 40) {
     injection = 2; target = mode - 19;
-    time_t seconds; uint16_t ms;
-    rtc_get_time_ms(&seconds, &ms);
-    assert(seconds == 1700000000 && ms == 0);
+    time_t seconds = read_time();
+    assert(seconds == 1700000000);
     assert(!pending && !irq_mask);
-    if (point >= target) assert(rtc_get_time() == 1800000000);
+    if (point >= target) assert(read_time() == 1800000000);
   } else if (mode < 47) {
     // Raw snapshot has four accesses, then six persistence store boundaries.
     target = mode - 40 + 4; injection = 3;
-    if (!setjmp(reset_target)) rtc_set_time(1800000000);
+    if (!setjmp(reset_target)) T5AI_RTC.ops->set_time(&T5AI_RTC, 1800000000);
     injection = 0; irq_mask = 0;
     memcpy(&s_retained, durable, sizeof(s_retained));
-    t5ai_retained_init(); rtc_init();
-    time_t result = rtc_get_time();
+    t5ai_retained_init(); prv_restore_retained_time();
+    time_t result = read_time();
     assert(result == 1700000000 || result == 1800000000 ||
            result == T5AI_RTC_MIN_VALID_TIME);
     if (mode >= 42 && mode <= 46) assert(result == T5AI_RTC_MIN_VALID_TIME);
   } else if (mode == 47 || mode >= 61) {
-    raw = 0x1ffffffffULL; rtc_set_time(1700000000);
+    raw = 0x1ffffffffULL; T5AI_RTC.ops->set_time(&T5AI_RTC, 1700000000);
     injection = 4; target = mode == 47 ? 1 : mode - 59;
     uint64_t sampled = prv_raw_ticks();
     assert(sampled == 0x200000001ULL || (target == 4 && sampled == 0x1ffffffffULL));
     injection = 0;
     raw += 32000;
-    time_t sec; uint16_t ms; rtc_get_time_ms(&sec, &ms);
-    assert(sec == 1700000001 && ms == 0);
+    time_t sec = read_time();
+    assert(sec == 1700000001);
   } else if (mode == 48) {
-    raw = UINT64_MAX - 15999; rtc_set_time(1700000000);
+    raw = UINT64_MAX - 15999; T5AI_RTC.ops->set_time(&T5AI_RTC, 1700000000);
     raw += 32000;
-    assert(rtc_get_time() == 1700000001); // modulo raw elapsed across full wrap
+    assert(read_time() == 1700000001); // modulo raw elapsed across full wrap
   } else if (mode == 49) {
-    uint64_t before = rtc_get_ticks();
-    rtc_set_time(1800000000); rtc_set_time(1700000000);
-    assert(rtc_get_ticks() == before);
-    raw += 32000; assert(rtc_get_ticks() == before + 1000);
-    irq_mask = 1; rtc_get_time(); rtc_set_time(1700000000);
+    uint64_t before = (t5ai_rtc_get_raw_ticks() / 32u);
+    T5AI_RTC.ops->set_time(&T5AI_RTC, 1800000000); T5AI_RTC.ops->set_time(&T5AI_RTC, 1700000000);
+    assert((t5ai_rtc_get_raw_ticks() / 32u) == before);
+    raw += 32000; assert((t5ai_rtc_get_raw_ticks() / 32u) == before + 1000);
+    irq_mask = 1; read_time(); T5AI_RTC.ops->set_time(&T5AI_RTC, 1700000000);
     assert(irq_mask == 1); // nested/ISR caller's mask is preserved
     assert(t5ai_retained_read(RTC_TIMEZONE_GMTOFFSET) == 1234);
     assert(t5ai_retained_read(REBOOT_REASON_REGISTER_1) == 5678);
   } else if (mode == 50) {
-    raw = 0; rtc_init(); // counter reset rebases existing saved epoch
-    assert(rtc_get_time() == 1700000000);
+    raw = 0; prv_restore_retained_time(); // counter reset rebases existing saved epoch
+    assert(read_time() == 1700000000);
   } else {
     injection = 5; target = mode - 50;
-    if (!setjmp(reset_target)) rtc_set_time(1800000000);
+    if (!setjmp(reset_target)) T5AI_RTC.ops->set_time(&T5AI_RTC, 1800000000);
     injection = 0; irq_mask = 0;
     memcpy(&s_retained, durable, sizeof(s_retained));
-    rtc_init();
-    time_t result = rtc_get_time();
+    prv_restore_retained_time();
+    time_t result = read_time();
     assert(result == 1700000000 || result == 1800000000 ||
            result == T5AI_RTC_MIN_VALID_TIME);
   }

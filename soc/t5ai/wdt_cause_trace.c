@@ -1,6 +1,8 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include "kernel/pebble_tasks.h"
+
 #include <inttypes.h>
 
 #include <pbl/kernel/irq.h>
@@ -33,7 +35,6 @@ static Record s_ring[RECORDS];
 static uint32_t s_written, s_read, s_lost;
 static Feed s_feeds[3];
 static int s_bg_channel = -1;
-extern struct pbl_thread *g_task_threads[NumPebbleTask];
 extern struct pbl_thread *pbl_cur;
 
 static void prv_record(uint32_t kind, uint32_t arg, uintptr_t lr) {

@@ -21,7 +21,7 @@ pbl_library_sources_ifdef(CONFIG_T5AI_REBOOT_TRACE reboot_trace.c)
 pbl_linker_sources(footer linker.ld)
 pbl_linker_sources(memory psram-memory.ld)
 pbl_linker_sources(ram-sections retained.ld framebuffer.ld)
-pbl_include_directories(. compat)
+pbl_include_directories(.)
 pbl_library_sources(${PBL_BASE}/boards/unhygienix/unhygienix_standby.c)
 include(${PBL_BASE}/boards/unhygienix/firmware.cmake)
 
@@ -38,7 +38,7 @@ if(CONFIG_T5AI_REMINDER_PROFILE)
   pbl_library_sources(reminder_profile.c)
   foreach(symbol pbl_settings_rewrite_filtered pbl_fs_open pbl_fs_close pbl_flash_read
                  pbl_flash_write pbl_flash_erase pbl_mutex_lock_lr
-                 flash_impl_write_page_begin sys_pbl_analytics_add pbl_mutex_unlock
+                 t5ai_flash_ipc_write sys_pbl_analytics_add pbl_mutex_unlock
                  timeline_item_storage_flush)
     pbl_link_options(-Wl,--wrap=${symbol})
   endforeach()
@@ -52,7 +52,8 @@ if(CONFIG_T5AI_REMINDER_PROFILE)
         "subsys/settings|raw_iter.c"
         "subsys/fs|pfs/pfs.c"
         "subsys/fs|pfs/flash_translation.c"
-        "drivers/flash|flash.c")
+        "drivers/flash|flash.c"
+        "drivers/flash|t5ai_flash_ipc.c")
       string(REPLACE "|" ";" parts "${pair}")
       list(GET parts 0 directory)
       list(GET parts 1 source)
@@ -103,7 +104,7 @@ if(CONFIG_T5AI_FAULT_TRACE)
   function(t5ai_fault_trace_call_boundaries)
     # Vector weak aliases are defined locally and cannot be intercepted by --wrap.
     set_property(SOURCE ${PBL_BASE}/pebble/hardfault_handler.c
-      DIRECTORY ${PBL_BASE}/fw APPEND PROPERTY COMPILE_DEFINITIONS
+      DIRECTORY ${PBL_BASE}/pebble APPEND PROPERTY COMPILE_DEFINITIONS
       HardFault_Handler=t5ai_stock_HardFault_Handler)
     set_property(SOURCE ${PBL_BASE}/kernel/arch/arm/vector_table.c
       DIRECTORY ${PBL_BASE}/kernel APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
@@ -129,23 +130,23 @@ if(CONFIG_T5AI_WDT_RECOVERY_TRACE)
   if(CONFIG_T5AI_REMINDER_PROFILE)
     message(FATAL_ERROR "Select one settings linker-wrapper profiler at a time")
   endif()
+  pbl_include_directories(${PBL_BASE}/subsys/settings)
   pbl_library_sources(wdt_recovery_trace.c settings_sync_trace.c flash_phase_trace.c)
   set_property(SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/wdt_recovery_trace.c
     ${CMAKE_CURRENT_SOURCE_DIR}/settings_sync_trace.c
     ${CMAKE_CURRENT_SOURCE_DIR}/flash_phase_trace.c
     APPEND PROPERTY COMPILE_OPTIONS -mgeneral-regs-only -fno-lto)
   pbl_link_options(-Wl,--wrap=pbl_task_wdt_add -Wl,--wrap=settings_blob_db_mark_all_dirty)
-  foreach(symbol pfs_open pfs_close prefs_private_lock alerts_preferences_lock
-                 pbl_mutex_lock_lr pbl_mutex_unlock flash_read_bytes flash_write_bytes
-                 flash_erase_sector_blocking settings_file_mark_all_dirty
-                 settings_raw_iter_write_header settings_raw_iter_write_key settings_raw_iter_write_val)
+  foreach(symbol pbl_fs_open pbl_fs_close prefs_private_lock alerts_preferences_lock
+                 pbl_mutex_lock_lr pbl_mutex_unlock pbl_flash_read pbl_flash_write
+                 pbl_flash_erase pbl_settings_mark_all_dirty
+                 pbl_settings__raw_iter_write_header pbl_settings__raw_iter_write_key pbl_settings__raw_iter_write_val)
     pbl_link_options(-Wl,--wrap=${symbol})
   endforeach()
   function(t5ai_wdt_recovery_trace_call_boundaries)
     set_property(SOURCE ${PBL_BASE}/kernel/mutex.c DIRECTORY ${PBL_BASE}/kernel
       APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
-    foreach(pair "subsys/fs|pfs/pfs.c" "drivers/flash|flash.c"
-                 "drivers/flash|flash.c")
+    foreach(pair "subsys/fs|pfs/pfs.c" "subsys/fs|fs.c" "drivers/flash|flash.c")
       string(REPLACE "|" ";" parts "${pair}")
       list(GET parts 0 directory)
       list(GET parts 1 source)
@@ -382,12 +383,12 @@ cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_mailbox_logging_bou
 
 if(CONFIG_T5AI_RETAINED_SLEEP_DEADLINE_PROFILE_ONLY)
   pbl_library_sources(sleep_deadline_profile.c)
-  foreach(symbol new_timer_start new_timer_stop new_timer_delete)
+  foreach(symbol pbl_timer_start pbl_timer_stop)
     pbl_link_options(-Wl,--wrap=${symbol})
   endforeach()
   function(t5ai_sleep_profile_call_boundaries)
-    set_property(SOURCE ${PBL_BASE}/pebble/services/new_timer/new_timer.c
-      DIRECTORY ${PBL_BASE}/pebble/services/new_timer APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
+    set_property(SOURCE ${PBL_BASE}/kernel/timer.c
+      DIRECTORY ${PBL_BASE}/kernel APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
   endfunction()
   cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_sleep_profile_call_boundaries)
 endif()

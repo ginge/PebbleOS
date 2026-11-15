@@ -4,9 +4,8 @@
 
 #include <pbl/kernel/assert.h>
 #include <pbl/soc/t5ai/cache.h>
+#include <pbl/soc/t5ai/core.h>
 #include <pbl/soc/t5ai/retained.h>
-
-#include <cmsis_core.h>
 #define T5AI_RETAINED_WORDS 32u
 #define T5AI_RETAINED_MAGIC 0x50355452u
 typedef struct {

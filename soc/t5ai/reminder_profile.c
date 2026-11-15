@@ -7,7 +7,6 @@
 
 #include <pbl/analytics/analytics.h>
 #include <pbl/drivers/flash.h>
-#include <pbl/drivers/flash/flash_impl.h>
 #include <pbl/drivers/rtc.h>
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/mutex.h>
@@ -17,6 +16,7 @@
 #include <pbl/logging/logging.h>
 #include <pbl/services/blob_db/timeline_item_storage.h>
 #include <pbl/settings/settings.h>
+#include <pbl/soc/t5ai/flash_ipc.h>
 #include <pbl/soc/t5ai/rtc.h>
 
 PBL_LOG_MODULE_DEFINE(t5ai_reminder_profile, LOG_LEVEL_DEBUG);
@@ -258,11 +258,11 @@ int __wrap_pbl_mutex_lock_lr(struct pbl_mutex *mutex, pbl_timeout_t timeout, uin
   return result;
 }
 
-int __real_flash_impl_write_page_begin(const void *, FlashAddress, size_t);
-int __wrap_flash_impl_write_page_begin(const void *buffer, FlashAddress address, size_t size) {
+status_t __real_t5ai_flash_ipc_write(uint32_t, const void *, size_t);
+status_t __wrap_t5ai_flash_ipc_write(uint32_t address, const void *buffer, size_t size) {
   bool active = prv_active();
   uint32_t since = active ? prv_wall() : 0;
-  int result = __real_flash_impl_write_page_begin(buffer, address, size);
+  status_t result = __real_t5ai_flash_ipc_write(address, buffer, size);
   if (active)
     s_profile.phases[s_profile.phase].driver_write += prv_wall() - since;
   return result;

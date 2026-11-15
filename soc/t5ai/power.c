@@ -7,10 +7,9 @@
 #include <pbl/drivers/timer.h>
 #include <pbl/logging/logging.h>
 #include <pbl/profiler/profiler.h>
+#include <pbl/soc/t5ai/core.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/power.h>
-
-#include <cmsis_core.h>
 
 PBL_LOG_MODULE_DEFINE(soc_t5ai_power, LOG_LEVEL_DEBUG);
 

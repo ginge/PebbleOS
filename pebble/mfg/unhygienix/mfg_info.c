@@ -4,8 +4,6 @@
 
 #include "mfg/mfg_info.h"
 
-#include "flash_region/flash_region.h"
-
 #include <pbl/drivers/flash.h>
 
 #define CURRENT_DATA_VERSION 0

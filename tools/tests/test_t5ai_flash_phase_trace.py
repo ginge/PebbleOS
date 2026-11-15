@@ -19,7 +19,9 @@ struct pbl_thread {unsigned id;};
 struct pbl_mutex {struct pbl_thread *owner;};
 extern uint32_t ticks,clock_aon;
 #define T5AI_AON_RTC_COUNT_LOW clock_aon
-#define OP_FLAG_OVERWRITE 4
+#define PBL_FS_O_REPLACE 8
+struct pbl_fs_file {int unused;};
+struct pbl_flash {int unused;};
 #define PBL_LOG_MODULE_DEFINE(...)
 #define LOG_LEVEL_DEBUG 0
 #define PBL_LOG_SYNC_WRN test_log
@@ -41,34 +43,36 @@ void pbl_irq_lock(void){++locked;}
 void pbl_irq_unlock(void){assert(locked);--locked;}
 void test_log(const char *fmt,...){assert(!locked);++logs;}
 static void elapsed(unsigned ms){ticks+=ms;clock_aon+=32*ms;}
-int __real_pfs_open(const char *n,uint8_t f,uint8_t t,size_t s){elapsed(3);return -7;}
-status_t __real_pfs_close(int fd){elapsed(4);return -9;}
+int __real_pbl_fs_open(struct pbl_fs_file *file,const char *n,uint32_t flags){elapsed(3);return -7;}
+int __real_pbl_fs_close(struct pbl_fs_file *file){elapsed(4);return -9;}
 int __real_pbl_mutex_lock_lr(struct pbl_mutex*m,pbl_timeout_t t,uintptr_t lr){elapsed(5);return -1;}
 void __real_pbl_mutex_unlock(struct pbl_mutex*m){elapsed(1000);}
 void __real_prefs_private_lock(void){elapsed(6);}
 void __real_alerts_preferences_lock(void){elapsed(7);}
-void __real_flash_read_bytes(uint8_t*b,uint32_t a,uint32_t s){elapsed(8);}
-void __real_flash_write_bytes(const uint8_t*b,uint32_t a,uint32_t s){elapsed(9);}
-void __real_flash_erase_sector_blocking(uint32_t a){elapsed(10);}
+int __real_pbl_flash_read(const struct pbl_flash *f,uint32_t a,void *b,size_t s){elapsed(8);return -11;}
+int __real_pbl_flash_write(const struct pbl_flash *f,uint32_t a,const void *b,size_t s){elapsed(9);return -12;}
+int __real_pbl_flash_erase(const struct pbl_flash *f,uint32_t a,size_t s){elapsed(10);return -13;}
 int main(void){
  ticks=clock_aon=UINT32_MAX-5;t5ai_flash_phase_trace_begin();
  assert(s_owner==7);
- assert(__wrap_pfs_open("file",OP_FLAG_OVERWRITE,0,10)==-7);
+ struct pbl_fs_file file;
+ assert(__wrap_pbl_fs_open(&file,"file",PBL_FS_O_REPLACE)==-7);
  assert(s_phases[TEMP_OPEN].count==1 && s_phases[TEMP_OPEN].aon==96);
- assert(__wrap_pfs_close(1)==-9 && s_phases[CLOSE].ticks==4);
+ assert(__wrap_pbl_fs_close(&file)==-9 && s_phases[CLOSE].ticks==4);
  struct pbl_mutex m={&app};
  assert(__wrap_pbl_mutex_lock_lr(&m,0,0)==-1);
  assert(s_wait_mutex==(uintptr_t)&m && s_wait_owner==8 && s_wait_max==160);
  __wrap_pbl_mutex_unlock(&m);
  assert(s_phases[MUTEX_UNLOCK].max_aon==32000);
  __wrap_prefs_private_lock();__wrap_alerts_preferences_lock();
- __wrap_flash_read_bytes(0,0,0);__wrap_flash_write_bytes(0,0,0);
- __wrap_flash_erase_sector_blocking(0);
+ assert(__wrap_pbl_flash_read(NULL,0,NULL,0)==-11);
+ assert(__wrap_pbl_flash_write(NULL,0,NULL,0)==-12);
+ assert(__wrap_pbl_flash_erase(NULL,0,0)==-13);
  assert(s_phases[FLASH_ERASE].ticks==10 && !logs);
- current=&app;t5ai_flash_phase_trace_begin();__wrap_pfs_close(1);
+ current=&app;t5ai_flash_phase_trace_begin();__wrap_pbl_fs_close(&file);
  t5ai_flash_phase_trace_end();assert(s_owner==7 && s_phases[CLOSE].count==1);
  current=&bg;t5ai_flash_phase_trace_end();assert(!s_owner && logs>0);
- __wrap_pfs_close(1);assert(s_phases[CLOSE].count==1 && !locked);
+ __wrap_pbl_fs_close(&file);assert(s_phases[CLOSE].count==1 && !locked);
 }
 """
 
@@ -80,10 +84,12 @@ class FlashPhaseTraceTest(unittest.TestCase):
             for header in (
                 "pbl/kernel/irq.h",
                 "pbl/kernel/mutex.h",
-                "pbl/kernel/time.h", "pbl/kernel/sched.h",
+                "pbl/kernel/time.h",
+                "pbl/kernel/sched.h",
                 "pbl/kernel/thread.h",
                 "pbl/logging/logging.h",
-                "pbl/services/filesystem/pfs.h",
+                "pbl/fs/fs.h",
+                "pbl/drivers/flash.h",
                 "pbl/soc/t5ai/io_trace.h",
                 "pbl/soc/t5ai/rtc.h",
             ):

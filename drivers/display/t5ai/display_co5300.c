@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "board/board.h"
+#include "applib/platform.h"
 
 #include <errno.h>
 #include <string.h>
@@ -9,6 +9,7 @@
 #include <pbl/drivers/panel/co5300.h>
 #include <pbl/kernel/delay.h>
 #include <pbl/logging/logging.h>
+#include <pbl/soc/t5ai/devices.h>
 #include <pbl/soc/t5ai/memory.h>
 #include <pbl/soc/t5ai/rtc.h>
 #define PANEL_WIDTH                  466u

@@ -192,7 +192,6 @@ static void prv_snapshot(void) {
   memcpy(totals, s_totals, sizeof(totals));
   if (state < 5u)
     totals[state] += age;
-  uint32_t ticks = pbl_uptime_ticks();
   for (struct pbl_thread *t = pbl_all_threads; t && count < THREADS; t = t->backend.all_next) {
     Thread *out = &threads[count++];
     *out = (Thread){

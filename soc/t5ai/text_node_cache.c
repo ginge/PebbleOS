@@ -7,8 +7,7 @@
 
 #include <pbl/kernel/thread.h>
 #include <pbl/logging/logging.h>
-
-#include <cmsis_core.h>
+#include <pbl/soc/t5ai/core.h>
 
 PBL_LOG_MODULE_DEFINE(t5ai_text_node_cache, LOG_LEVEL_DEBUG);
 #define CACHE_ENTRIES 16u

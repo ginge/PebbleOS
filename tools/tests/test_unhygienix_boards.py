@@ -109,14 +109,14 @@ class UnhygienixBoardsTest(unittest.TestCase):
         shared_prf = (
             ROOT / "pebble/services/shared_prf_storage/shared_prf_storage.c"
         ).read_text()
-        regions = (ROOT / "soc/t5ai/compat/flash_region/flash_region.h").read_text()
+        regions = (ROOT / "include/pbl/soc/t5ai/partitions.h").read_text()
         flash = (ROOT / "drivers/flash/t5ai.c").read_text()
         factory_reset = (ROOT / "pebble/kernel/util/factory_reset.c").read_text()
 
         self.assertNotIn("CONFIG_SOC_T5AI", shared_prf)
         self.assertIn("pbl_flash_partition_erase(PART_SHARED_PRF_STORAGE,", shared_prf)
-        self.assertIn("FLASH_REGION_SHARED_PRF_STORAGE_BEGIN 0x024ea000", regions)
-        self.assertRegex(regions, r"FLASH_REGION_SHARED_PRF_STORAGE_END\s+0x024fa000")
+        self.assertRegex(regions, r"PART_SHARED_PRF_STORAGE_OFFSET\s+0x4ea000u")
+        self.assertRegex(regions, r"PART_SHARED_PRF_STORAGE_SIZE\s+0x10000u")
         self.assertIn("in_shared_prf", flash)
         self.assertIn("shared_prf_storage_wipe_all();", factory_reset)
 

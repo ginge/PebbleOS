@@ -153,7 +153,7 @@ static void t5ai_sleep_fault(void){++faults;}
         for path in (
             "drivers/spi/t5ai.c",
             "drivers/t5ai/sd.c",
-            "drivers/mic/t5ai/adc.c",
+            "drivers/audio/t5ai_mic.c",
         ):
             source = (ROOT / path).read_text()
             self.assertIn("pbl_dma_", source)

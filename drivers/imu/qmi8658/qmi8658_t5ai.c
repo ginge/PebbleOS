@@ -2,7 +2,6 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "board/board.h"
 #include "system/status_codes.h"
 
 #include <errno.h>
@@ -24,6 +23,7 @@
 #include <pbl/kernel/time.h>
 #include <pbl/kernel/work.h>
 #include <pbl/logging/logging.h>
+#include <pbl/soc/t5ai/devices.h>
 #include <pbl/soc/t5ai/rtc.h>
 #include <pbl/util/misc.h>
 

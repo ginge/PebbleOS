@@ -16,7 +16,6 @@
 
 PBL_LOG_MODULE_DEFINE(t5ai_bg_pick_trace, LOG_LEVEL_DEBUG);
 
-extern struct pbl_thread *g_task_threads[NumPebbleTask];
 extern struct pbl_thread *pbl_cur;
 struct pbl_thread *__real_sched_switch_in(void);
 
@@ -59,7 +58,7 @@ struct pbl_thread *__wrap_sched_switch_in(void) {
     if (next == bg)
       ++s_trace.bg;
     else if (next->prio > bg->prio) {
-      if (next == g_task_threads[PebbleTask_App])
+      if (next == pebble_task_get_thread(PebbleTask_App))
         ++s_trace.app_higher;
       else
         ++s_trace.other_higher;
@@ -81,7 +80,7 @@ static void prv_report(void *data) {
   (void)data;
   pbl_irq_lock();
   struct pbl_thread *bg = pbl_sys_workq.thread;
-  struct pbl_thread *app = g_task_threads[PebbleTask_App];
+  struct pbl_thread *app = pebble_task_get_thread(PebbleTask_App);
   uint32_t now = T5AI_AON_RTC_COUNT_LOW;
   if (s_trace.ready)
     prv_max(&s_trace.ready_peak, now - s_trace.ready_since);

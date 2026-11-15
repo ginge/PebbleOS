@@ -1,18 +1,20 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "flash_region/flash_region.h"
-
 #include <stdint.h>
 
 #include <pbl/kernel/compiler.h>
+#include <pbl/soc/t5ai/image_layout.h>
 
 #define T5AI_IMAGE_LAYOUT_VERSION 2u
 
 _Static_assert(CONFIG_FW_FLASH_SIZE ==
-                   FLASH_REGION_FIRMWARE_SLOT_0_END - FLASH_REGION_FIRMWARE_SLOT_0_BEGIN,
+                   (T5AI_FLASH_XIP_BASE + PART_FIRMWARE_SLOT_0_OFFSET + PART_FIRMWARE_SLOT_0_SIZE) -
+                       (T5AI_FLASH_XIP_BASE + PART_FIRMWARE_SLOT_0_OFFSET),
                "Firmware linker and flash layout must agree");
-_Static_assert(FLASH_REGION_SYSTEM_RESOURCES_BANK_0_BEGIN == FLASH_REGION_FIRMWARE_SLOT_0_END,
+_Static_assert((T5AI_FLASH_XIP_BASE + PART_SYSTEM_RESOURCES_BANK_0_OFFSET) ==
+                   (T5AI_FLASH_XIP_BASE + PART_FIRMWARE_SLOT_0_OFFSET + PART_FIRMWARE_SLOT_0_SIZE),
                "Resources must follow firmware");
-_Static_assert(FLASH_REGION_SYSTEM_RESOURCES_BANK_0_END <= FLASH_REGION_CD_BEGIN,
+_Static_assert((T5AI_FLASH_XIP_BASE + PART_SYSTEM_RESOURCES_BANK_0_OFFSET +
+                PART_SYSTEM_RESOURCES_BANK_0_SIZE) <= (T5AI_FLASH_XIP_BASE + PART_CD_OFFSET),
                "Resources must not overlap reserved crash data");
 
 // Retained in ROM so host tools can reject mismatched firmware/resource layouts.
@@ -22,10 +24,11 @@ const struct {
 } t5ai_image_layout PBL_USED = {
   .magic = "PBLT5LY2",
   .version = T5AI_IMAGE_LAYOUT_VERSION,
-  .firmware_base = FLASH_REGION_FIRMWARE_SLOT_0_BEGIN,
+  .firmware_base = (T5AI_FLASH_XIP_BASE + PART_FIRMWARE_SLOT_0_OFFSET),
   .firmware_size = CONFIG_FW_FLASH_SIZE,
-  .resource_offset =
-      FLASH_REGION_SYSTEM_RESOURCES_BANK_0_BEGIN - FLASH_REGION_FIRMWARE_SLOT_0_BEGIN,
-  .resource_size =
-      FLASH_REGION_SYSTEM_RESOURCES_BANK_0_END - FLASH_REGION_SYSTEM_RESOURCES_BANK_0_BEGIN,
+  .resource_offset = (T5AI_FLASH_XIP_BASE + PART_SYSTEM_RESOURCES_BANK_0_OFFSET) -
+                     (T5AI_FLASH_XIP_BASE + PART_FIRMWARE_SLOT_0_OFFSET),
+  .resource_size = (T5AI_FLASH_XIP_BASE + PART_SYSTEM_RESOURCES_BANK_0_OFFSET +
+                    PART_SYSTEM_RESOURCES_BANK_0_SIZE) -
+                   (T5AI_FLASH_XIP_BASE + PART_SYSTEM_RESOURCES_BANK_0_OFFSET),
 };

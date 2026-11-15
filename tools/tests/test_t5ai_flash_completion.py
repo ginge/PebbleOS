@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Check the real T5 flash driver's synchronous erase completion contract."""
 
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 STUB = r"""
@@ -13,41 +13,51 @@ STUB = r"""
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include <errno.h>
+#define nullptr NULL
 typedef int status_t;
-typedef uint32_t FlashAddress;
-typedef struct { int unused; } FlashSecurityRegisters;
 #define S_SUCCESS 0
 #define S_NO_ACTION_REQUIRED 1
-#define S_TRUE 2
-#define S_FALSE 3
 #define E_ERROR -1
-#define E_RANGE -2
-#define E_INVALID_ARGUMENT -3
 #define E_INVALID_OPERATION -4
-#define E_BUSY -5
 #define PASSED(s) ((s) >= 0)
 #define FAILED(s) ((s) < 0)
 #define PBL_LOG_MODULE_DECLARE(...)
 #define PBL_LOG_ERR(...)
 #define PBL_LOG_WRN(...)
-#define CONFIG_BOARD_UNHYGIENIX 1
-#define FLASH_REGION_BASE_ADDRESS 0x02000000u
-#define BOARD_NOR_FLASH_SIZE 0x800000u
-#define FLASH_REGION_FILESYSTEM_BEGIN 0x02500000u
-#define FLASH_REGION_FILESYSTEM_END 0x027c0000u
-#define FLASH_REGION_SYSTEM_RESOURCES_BANK_0_BEGIN 0x02400000u
-#define FLASH_REGION_SYSTEM_RESOURCES_BANK_0_END 0x02500000u
-#define FLASH_REGION_SHARED_PRF_STORAGE_BEGIN 0x027c0000u
-#define FLASH_REGION_SHARED_PRF_STORAGE_END 0x027d0000u
+#define PART_FILESYSTEM_OFFSET 0x500000u
+#define PART_FILESYSTEM_SIZE 0x2c0000u
+#define PART_SYSTEM_RESOURCES_BANK_0_OFFSET 0x2c0000u
+#define PART_SYSTEM_RESOURCES_BANK_0_SIZE 0x100000u
+#define PART_SHARED_PRF_STORAGE_OFFSET 0x4ea000u
+#define PART_SHARED_PRF_STORAGE_SIZE 0x10000u
+#define PART_FIRMWARE_SLOT_0_OFFSET 0x120000u
+#define PART_FIRMWARE_SLOT_0_SIZE 0x1a0000u
+#define PART_FIRMWARE_SLOT_1_OFFSET 0x460000u
+#define PART_CD_OFFSET 0x450000u
+#define PART_DEBUG_DB_OFFSET 0x490000u
+#define T5AI_FLASH_XIP_BASE 0x02000000u
+#define T5AI_FLASH_SIZE 0x800000u
 #define PAGE_SIZE_BYTES 256u
 #define SUBSECTOR_SIZE_BYTES 4096u
 #define SECTOR_SIZE_BYTES 65536u
-#define SECTOR_ADDR_MASK (~(SECTOR_SIZE_BYTES-1u))
-#define SUBSECTOR_ADDR_MASK (~(SUBSECTOR_SIZE_BYTES-1u))
+struct pbl_flash;
+struct pbl_flash_ops {
+ int (*init)(const struct pbl_flash *);
+ int (*read)(const struct pbl_flash *,uint32_t,void *,size_t);
+ int (*write)(const struct pbl_flash *,uint32_t,const void *,size_t);
+ int (*erase)(const struct pbl_flash *,uint32_t,uint32_t);
+};
+struct pbl_flash_geometry {uint32_t size,page_size,sector_size,subsector_size;};
+struct pbl_flash {const struct pbl_flash_ops *ops;const struct pbl_flash_geometry *geometry;bool coredump;};
+static bool pbl_flash_in_coredump(const struct pbl_flash *f){return f->coredump;}
+#define PBL_FLASH_STATE_DEFINE(name)
+#define PBL_FLASH_INIT(n,l,p,e,o,g,t,a) {.ops=o,.geometry=g}
+#define PBL_DEVICE_REGISTER(...)
 status_t t5ai_flash_ipc_init(void);
 bool t5ai_flash_ipc_is_available(void);
-status_t t5ai_flash_ipc_read(uint32_t, void *, size_t);
-status_t t5ai_flash_ipc_write(uint32_t, const void *, size_t);
+status_t t5ai_flash_ipc_read(uint32_t,void *,size_t);
+status_t t5ai_flash_ipc_write(uint32_t,const void *,size_t);
 status_t t5ai_flash_ipc_erase_4k(uint32_t);
 """
 HARNESS = r"""
@@ -70,25 +80,21 @@ status_t t5ai_flash_ipc_erase_4k(uint32_t a) {
  ++erases; return fail ? E_ERROR : S_SUCCESS;
 }
 int main(void) {
- assert(flash_impl_init(false) == S_SUCCESS);
- // Stock flash_api computes the first poll delay as duration * 7 / 8.
- // Zero skips completion handling entirely; legacy values add 43/700 ms.
- assert(flash_impl_get_typical_sector_erase_duration_ms() * 7 / 8 == 1);
- assert(flash_impl_get_typical_subsector_erase_duration_ms() * 7 / 8 == 1);
- assert(flash_impl_erase_sector_begin(FLASH_REGION_FILESYSTEM_BEGIN) == S_SUCCESS);
- assert(erases == 16); // Every CP erase completed before begin returned.
- assert(flash_impl_erase_subsector_begin(FLASH_REGION_FILESYSTEM_BEGIN) == E_BUSY);
- assert(flash_impl_get_erase_status() == S_SUCCESS);
- assert(flash_impl_get_erase_status() == S_NO_ACTION_REQUIRED);
- assert(flash_impl_erase_subsector_begin(FLASH_REGION_FILESYSTEM_BEGIN) == S_SUCCESS);
- assert(erases == 17 && flash_impl_get_erase_status() == S_SUCCESS);
+ assert(T5AI_FLASH.ops->init(&T5AI_FLASH) == 0);
+ assert(T5AI_FLASH.ops->erase(&T5AI_FLASH,PART_FILESYSTEM_OFFSET,SECTOR_SIZE_BYTES) == 1);
+ assert(erases == 16);
+ assert(T5AI_FLASH.ops->erase(&T5AI_FLASH,PART_FILESYSTEM_OFFSET,SUBSECTOR_SIZE_BYTES) == 1);
+ assert(erases == 17);
  fail = true;
- assert(flash_impl_erase_subsector_begin(FLASH_REGION_FILESYSTEM_BEGIN) == E_ERROR);
- assert(erases == 18); // An ambiguous mutation is never retried here.
- assert(flash_impl_get_erase_status() == S_NO_ACTION_REQUIRED);
+ assert(T5AI_FLASH.ops->erase(&T5AI_FLASH,PART_FILESYSTEM_OFFSET,SUBSECTOR_SIZE_BYTES) == -EIO);
+ assert(erases == 18); // Ambiguous mutations are never retried.
  fail = false;
- assert(flash_impl_erase_subsector_begin(FLASH_REGION_FILESYSTEM_BEGIN) == S_SUCCESS);
- assert(flash_impl_get_erase_status() == S_SUCCESS);
+ assert(T5AI_FLASH.ops->erase(&T5AI_FLASH,PART_FILESYSTEM_OFFSET,SUBSECTOR_SIZE_BYTES) == 1);
+ assert(T5AI_FLASH.ops->erase(&T5AI_FLASH,PART_FILESYSTEM_OFFSET+1,SUBSECTOR_SIZE_BYTES) == -EINVAL);
+ assert(T5AI_FLASH.ops->erase(&T5AI_FLASH,PART_FILESYSTEM_OFFSET,1) == -EINVAL);
+ assert(erases == 19);
+ struct pbl_flash crash = T5AI_FLASH;crash.coredump=true;
+ assert(crash.ops->init(&crash) == -ENOTSUP);
  return 0;
 }
 """
@@ -100,7 +106,10 @@ class FlashCompletionTest(unittest.TestCase):
             directory = Path(temp)
             (directory / "stub.h").write_text(STUB)
             for name in [
-                "pbl/drivers/flash/flash_impl.h",
+                "pbl/drivers/flash.h",
+                "pbl/board/partitions.h",
+                "pbl/soc/t5ai/image_layout.h",
+                "pbl/soc/t5ai/devices.h",
                 "pbl/logging/logging.h",
                 "pbl/soc/t5ai/flash_ipc.h",
                 "flash_region/flash_region.h",
@@ -119,6 +128,7 @@ class FlashCompletionTest(unittest.TestCase):
                     "-std=c11",
                     "-Wall",
                     "-Wextra",
+                    "-Wno-unused-parameter",
                     "-Werror",
                     "-I",
                     str(directory),

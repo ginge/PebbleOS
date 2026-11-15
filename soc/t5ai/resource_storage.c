@@ -1,7 +1,6 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "flash_region/flash_region.h"
 #include "pbl/services/process_management/app_storage.h"
 #include "resource/resource_storage_flash.h"
 #include "resource/resource_storage_impl.h"
@@ -12,10 +11,12 @@
 
 #include <pbl/drivers/flash.h>
 #include <pbl/logging/logging.h>
+#include <pbl/soc/t5ai/image_layout.h>
 
 static const SystemResourceBank s_bank = {
-  .begin = FLASH_REGION_SYSTEM_RESOURCES_BANK_0_BEGIN,
-  .end = FLASH_REGION_SYSTEM_RESOURCES_BANK_0_END,
+  .begin = (T5AI_FLASH_XIP_BASE + PART_SYSTEM_RESOURCES_BANK_0_OFFSET),
+  .end = (T5AI_FLASH_XIP_BASE + PART_SYSTEM_RESOURCES_BANK_0_OFFSET +
+          PART_SYSTEM_RESOURCES_BANK_0_SIZE),
 };
 
 static bool s_valid_resources_found;
@@ -91,8 +92,8 @@ static uint32_t prv_get_crc(ResourceStoreEntry *entry, uint32_t num_bytes, uint3
       num_bytes > capacity - metadata - entry_offset) {
     return UINT32_MAX;
   }
-  return pbl_flash_crc32_legacy(
-      FLASH, s_bank.begin - FLASH_REGION_BASE_ADDRESS + metadata + entry_offset, num_bytes);
+  return pbl_flash_crc32_legacy(FLASH, s_bank.begin - T5AI_FLASH_XIP_BASE + metadata + entry_offset,
+                                num_bytes);
 }
 
 static uint32_t prv_read(ResourceStoreEntry *entry, uint32_t offset, void *data, size_t num_bytes) {
@@ -100,8 +101,7 @@ static uint32_t prv_read(ResourceStoreEntry *entry, uint32_t offset, void *data,
   if (offset > capacity || num_bytes > capacity - offset) {
     return 0;
   }
-  return pbl_flash_read(FLASH, s_bank.begin - FLASH_REGION_BASE_ADDRESS + offset, data,
-                        num_bytes) == 0
+  return pbl_flash_read(FLASH, s_bank.begin - T5AI_FLASH_XIP_BASE + offset, data, num_bytes) == 0
              ? num_bytes
              : 0;
 }

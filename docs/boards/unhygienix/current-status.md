@@ -3,12 +3,51 @@
 The latest installation checkpoint below is the current installed state. Dated entries preserve
 the state and evidence at their recorded checkpoint.
 
+## Native driver completion — 15 November
+
+Flash and microphone no longer adapt the removed `flash_impl_*` and `mic_*`
+interfaces. The NOR driver implements `pbl_flash_ops` directly, uses partition
+offsets throughout, splits complete writes into pages and returns synchronous
+erase completion. It retains CP transaction quarantine, partition policy and
+cache invalidation/verification. The upstream flash class owns serialization
+and range protection. Coredump initialization rejects CP-backed access because
+that transport requires kernel services.
+
+The ADC implements the native audio DAI directly. It converts completed DMA
+halves into the client's period ring and reports completion from the interrupt,
+with no legacy microphone callbacks, KernelBG dispatch or intermediate mono
+ring. Settling, DMA cache maintenance and power votes remain; lost blocks report
+an audio xrun. Native start/stop paths release allocations on failures and reject
+a faulted restart. The RTC class reads/writes the retained/external clock directly;
+legacy RTC entry points and the old board/configuration headers are removed.
+
+The `soc/t5ai/compat` include tree is retired. Firmware layout and resource storage
+use native partition metadata. Optional deadline observation uses native one-shot
+timers; IMU self-test scheduling uses delayed work. Watchdog storage diagnostics
+intercept the native filesystem, settings and flash interfaces. Drawing and
+storage profilers that own the same mutex wrapper cannot be selected together.
+The unregistered pre-upstream C resource fixture was retired; executable native
+resource regression tests remain in `tools/tests/test_t5ai_resources.py`.
+
+Validation: normal firmware and the tick/state/reboot/heap/reminder diagnostic
+configuration link and package with partition-map checks. Eleven optional sources,
+including the IMU self-test and watchdog/deadline diagnostics, compile with ARM
+firmware flags. All 432 upstream host tests pass. The tooling suite discovers
+465 tests: 450 pass and 15 optional CP qualification tests skip. Formatting and
+commit lint checks pass. Logs use the `native-` prefix under `build-tuya-upstream/`.
+
+Gabbro application ABI support, the pinned CP wire protocol, SD PFS integration
+and board-specific safety hooks remain. Those implement hardware/application
+contracts rather than emulating removed upstream driver APIs. No hardware has
+been flashed or exercised for this change.
+
 ## Upstream main migration — 15 November
 
 The Tuya branch incorporates Core Devices main through `f4926c952` (717 upstream
 commits). The production application now lives under `pebble/`; Unhygienix board
 implementation and device roles live under `boards/unhygienix/`. Scoped legacy
-hardware declarations remain under `soc/t5ai/compat/`.
+hardware declarations initially remained under `soc/t5ai/compat/`; the native
+driver completion above removes that tree.
 
 The T5AI port uses upstream device classes for RTC, NOR flash, microphone audio
 and CP console UART. AON clock-source and one-shot SysTick clock-event drivers

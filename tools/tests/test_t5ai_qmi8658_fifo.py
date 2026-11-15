@@ -10,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 HEADERS = [
-    "board/board.h",
+    "pbl/soc/t5ai/devices.h",
     "pbl/drivers/accel.h",
     "pbl/drivers/gpio.h",
     "pbl/drivers/intc.h",

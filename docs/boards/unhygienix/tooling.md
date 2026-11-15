@@ -37,11 +37,14 @@ SPI/DMA, MPU, storage and diagnostic guard tests cover the corresponding
 supported paths. The retired diagnostic models are not runtime validation of
 the migrated optional trace modules; those still need hardware exercise.
 
-The full suite passes with 463 tests discovered, including the CMake Bluetooth
+After the native driver completion, the full suite passes with 465 tests
+discovered, including the CMake Bluetooth
 backend matrix. Fifteen optional CP tests remain skipped: they require Unicorn
 and/or explicitly supplied reviewed CP binaries and linked artifact profiles.
 These qualification tests remain available and were not converted into passing
-stubs. Results are in `build-tuya-upstream/legacy-tests-final.log` locally.
+stubs. Results are in `build-tuya-upstream/native-full-tests-final.log` locally.
+The native audio and timer-profiler regressions also cover allocation/cleanup,
+interrupt period delivery, expired timer lifetimes and diagnostic capacity.
 
 ## Production diagnostic cleanup — 14 November
 

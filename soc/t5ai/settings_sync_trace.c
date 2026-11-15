@@ -1,13 +1,16 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
-#include <pbl/kernel/time.h>
+#include "raw_iter.h"
+
 #include <inttypes.h>
 #include <string.h>
+
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/sched.h>
 #include <pbl/kernel/thread.h>
+#include <pbl/kernel/time.h>
 #include <pbl/logging/logging.h>
-#include <pbl/services/settings/settings_file.h>
+#include <pbl/settings/settings.h>
 #include <pbl/soc/t5ai/io_trace.h>
 
 PBL_LOG_MODULE_DEFINE(t5ai_settings_sync_trace, LOG_LEVEL_DEBUG);
@@ -78,15 +81,17 @@ void t5ai_io_trace_dump(void) {
   }
 }
 
-static bool prv_ours(void) { return s_owner != 0 && pbl_thread_current()->id == s_owner; }
+static bool prv_ours(void) {
+  return s_owner != 0 && pbl_thread_current()->id == s_owner;
+}
 
-status_t __real_settings_file_mark_all_dirty(SettingsFile *);
-status_t __wrap_settings_file_mark_all_dirty(SettingsFile *file) {
+int __real_pbl_settings_mark_all_dirty(struct pbl_settings_file *);
+int __wrap_pbl_settings_mark_all_dirty(struct pbl_settings_file *file) {
   // Do not corrupt an in-flight trace if another caller enters concurrently.
   pbl_irq_lock();
   if (s_owner) {
     pbl_irq_unlock();
-    return __real_settings_file_mark_all_dirty(file);
+    return __real_pbl_settings_mark_all_dirty(file);
   }
   s_owner = pbl_thread_current()->id;
   ++s_file;
@@ -100,7 +105,7 @@ status_t __wrap_settings_file_mark_all_dirty(SettingsFile *file) {
     strncpy(s_name, file->name, sizeof(s_name) - 1);
   }
   pbl_irq_unlock();
-  status_t result = __real_settings_file_mark_all_dirty(file);
+  int result = __real_pbl_settings_mark_all_dirty(file);
   t5ai_io_trace_dump();
   t5ai_flash_phase_trace_dump();
   PBL_LOG_SYNC_WRN("T5SYNC done file=%" PRIu32 " elapsed_ticks=%" PRIu32 " status=%ld", s_file,
@@ -111,26 +116,28 @@ status_t __wrap_settings_file_mark_all_dirty(SettingsFile *file) {
   return result;
 }
 
-#define WRAP_WRITE(name, type, index)                         \
-  void __real_##name(SettingsRawIter *, type);                \
-  void __wrap_##name(SettingsRawIter *iter, type data) {      \
-    if (!prv_ours()) {                                        \
-      __real_##name(iter, data);                              \
-      return;                                                 \
-    }                                                         \
-    uint32_t start = pbl_uptime_ticks();                      \
-    uint32_t old_stage = s_stage, old_start = s_stage_start;  \
-    s_stage = index + 1;                                      \
-    s_stage_start = start;                                    \
-    __real_##name(iter, data);                                \
-    prv_sample(&s_record[index], pbl_uptime_ticks() - start); \
-    s_stage = old_stage;                                      \
-    s_stage_start = old_start;                                \
+#define WRAP_WRITE(name, type, index)                                 \
+  void __real_##name(struct pbl_settings_raw_iter *, type);           \
+  void __wrap_##name(struct pbl_settings_raw_iter *iter, type data) { \
+    if (!prv_ours()) {                                                \
+      __real_##name(iter, data);                                      \
+      return;                                                         \
+    }                                                                 \
+    uint32_t start = pbl_uptime_ticks();                              \
+    uint32_t old_stage = s_stage, old_start = s_stage_start;          \
+    s_stage = index + 1;                                              \
+    s_stage_start = start;                                            \
+    __real_##name(iter, data);                                        \
+    prv_sample(&s_record[index], pbl_uptime_ticks() - start);         \
+    s_stage = old_stage;                                              \
+    s_stage_start = old_start;                                        \
   }
-void __real_settings_raw_iter_write_header(SettingsRawIter *, SettingsRecordHeader *);
-void __wrap_settings_raw_iter_write_header(SettingsRawIter *iter, SettingsRecordHeader *hdr) {
+void __real_pbl_settings__raw_iter_write_header(struct pbl_settings_raw_iter *,
+                                                struct pbl_settings_record_hdr *);
+void __wrap_pbl_settings__raw_iter_write_header(struct pbl_settings_raw_iter *iter,
+                                                struct pbl_settings_record_hdr *hdr) {
   if (!prv_ours()) {
-    __real_settings_raw_iter_write_header(iter, hdr);
+    __real_pbl_settings__raw_iter_write_header(iter, hdr);
     return;
   }
   uint32_t start = pbl_uptime_ticks();
@@ -142,7 +149,7 @@ void __wrap_settings_raw_iter_write_header(SettingsRawIter *iter, SettingsRecord
   }
   s_stage = 2;
   s_stage_start = start;
-  __real_settings_raw_iter_write_header(iter, hdr);
+  __real_pbl_settings__raw_iter_write_header(iter, hdr);
   uint32_t end = pbl_uptime_ticks();
   prv_sample(&s_record[1], end - start);
   if (!begins && s_in_record) {
@@ -155,5 +162,5 @@ void __wrap_settings_raw_iter_write_header(SettingsRawIter *iter, SettingsRecord
   s_stage = s_in_record ? 1 : 0;
   s_stage_start = s_in_record ? s_record_start : end;
 }
-WRAP_WRITE(settings_raw_iter_write_key, const uint8_t *, 2)
-WRAP_WRITE(settings_raw_iter_write_val, const uint8_t *, 3)
+WRAP_WRITE(pbl_settings__raw_iter_write_key, const uint8_t *, 2)
+WRAP_WRITE(pbl_settings__raw_iter_write_val, const uint8_t *, 3)

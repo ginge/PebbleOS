@@ -9,8 +9,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 STUBS = {
-    "flash_region/flash_region.h": "#include <pbl/drivers/flash.h>\n#define FLASH_REGION_BASE_ADDRESS 0x02000000u\n",
-    "pbl/board/partitions.h": "#include <pbl/drivers/flash.h>\n#define PART_SYSTEM_RESOURCES_BANK_0_OFFSET FLASH_REGION_SYSTEM_RESOURCES_BANK_0_BEGIN\n#define PART_SYSTEM_RESOURCES_BANK_0_SIZE TEST_BANK_SIZE\n#define PART_SYSTEM_RESOURCES_BANK_1_OFFSET FLASH_REGION_SYSTEM_RESOURCES_BANK_1_BEGIN\n#define PART_SYSTEM_RESOURCES_BANK_1_SIZE TEST_BANK_SIZE\n",
+    "pbl/soc/t5ai/image_layout.h": "#include <pbl/drivers/flash.h>\n#define T5AI_FLASH_XIP_BASE 0x02000000u\n#include <pbl/board/partitions.h>\n",
+    "pbl/board/partitions.h": "#include <pbl/drivers/flash.h>\n#define PART_SYSTEM_RESOURCES_BANK_0_OFFSET (FLASH_REGION_SYSTEM_RESOURCES_BANK_0_BEGIN - 0x02000000u)\n#define PART_SYSTEM_RESOURCES_BANK_0_SIZE TEST_BANK_SIZE\n#define PART_SYSTEM_RESOURCES_BANK_1_OFFSET (FLASH_REGION_SYSTEM_RESOURCES_BANK_1_BEGIN - 0x02000000u)\n#define PART_SYSTEM_RESOURCES_BANK_1_SIZE TEST_BANK_SIZE\n",
     "applib/applib_resource.h": "",
     "pbl/kernel/compiler.h": "#define PBL_PACKED __attribute__((packed))\n",
     "pbl/logging/logging.h": """
@@ -66,6 +66,7 @@ HARNESS = r"""
 #include "resource/resource_storage_flash.h"
 #include "resource/resource_version.auto.h"
 #include "pbl/drivers/flash.h"
+#include <pbl/board/partitions.h>
 #include <pbl/crc/crc.h>
 
 ResourceVersion test_resource_version;
@@ -243,8 +244,8 @@ int main(void) {
   assert(resource_storage_check(SYSTEM_APP, 0, &SYSTEM_RESOURCE_VERSION));
   assert(crcs == 1 && crc_length == 8);
   const SystemResourceBank *unused = resource_storage_flash_get_unused_bank();
-  assert(unused && unused->begin == FLASH_REGION_SYSTEM_RESOURCES_BANK_1_BEGIN);
-  assert(unused->end == FLASH_REGION_SYSTEM_RESOURCES_BANK_1_END);
+  assert(unused && unused->begin == PART_SYSTEM_RESOURCES_BANK_1_OFFSET);
+  assert(unused->end == PART_SYSTEM_RESOURCES_BANK_1_OFFSET + PART_SYSTEM_RESOURCES_BANK_1_SIZE);
   ResourceStoreEntry entry;
   resource_storage_get_resource(SYSTEM_APP, 1, &entry);
   char out[4];

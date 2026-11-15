@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <pbl/kernel/cache.h>
-
-#include <cmsis_core.h>
+#include <pbl/soc/t5ai/core.h>
 
 // The boot stages may leave STAR-MC1 D-cache enabled. Preserve that policy;
 // DMA still needs real maintenance even though generic ARM D-cache is disabled.

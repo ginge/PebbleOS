@@ -380,7 +380,7 @@ class SDTests(unittest.TestCase):
                 "pbl/kernel/cache.h",
                 "pbl/soc/t5ai/cp_mailbox.h",
                 "pbl/soc/t5ai/delay.h",
-                "cmsis_core.h",
+                "pbl/soc/t5ai/core.h",
                 "pbl/logging/logging.h",
                 "pfs.h",
                 "pbl/system/status_codes.h",

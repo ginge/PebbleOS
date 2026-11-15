@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Fault-injection tests for the production T5 flash caches."""
 
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 from tools.tests.test_t5ai_flash_completion import STUB
 
@@ -16,11 +16,11 @@ HARNESS = r"""
 #include <string.h>
 #include "drivers/flash/t5ai.c"
 
-static uint8_t storage[BOARD_NOR_FLASH_SIZE];
+static uint8_t storage[T5AI_FLASH_SIZE];
 static unsigned reads, writes, erases;
 static bool fail_mutation, apply_mutation, fail_read, corrupt_write;
 static unsigned fail_erase_at;
-static const uint32_t base = FLASH_REGION_BASE_ADDRESS;
+static const uint32_t base = 0u;
 status_t t5ai_flash_ipc_init(void) { return S_SUCCESS; }
 bool t5ai_flash_ipc_is_available(void) { return !fail_read; }
 status_t t5ai_flash_ipc_read(uint32_t offset, void *out, size_t n) {
@@ -50,7 +50,7 @@ status_t t5ai_flash_ipc_erase_4k(uint32_t offset) {
 }
 static uint8_t read_byte(uint32_t address) {
   uint8_t out = 0;
-  assert(flash_impl_read_sync(&out, address, 1) == S_SUCCESS);
+  assert(T5AI_FLASH.ops->read(&T5AI_FLASH, address, &out, 1) == S_SUCCESS);
   return out;
 }
 static void reset(void) {
@@ -58,25 +58,25 @@ static void reset(void) {
   reads = writes = erases = 0;
   fail_mutation = apply_mutation = fail_read = corrupt_write = false;
   fail_erase_at = 0;
-  assert(flash_impl_init(false) == S_SUCCESS);
+  assert(T5AI_FLASH.ops->init(&T5AI_FLASH) == S_SUCCESS);
 }
 static void failed_write(uint32_t address, bool applied, bool unavailable) {
   reset();
   storage[address - base] = 0xff;
   assert(read_byte(address) == 0xff);
-  const uint32_t unrelated = FLASH_REGION_FILESYSTEM_BEGIN + 0x8000 + 64;
+  const uint32_t unrelated = PART_FILESYSTEM_OFFSET + 0x8000 + 64;
   storage[unrelated - base] = 0x42;
   assert(read_byte(unrelated) == 0x42);
   const unsigned before = reads;
   const uint8_t programmed = 0x50;
   fail_mutation = true; apply_mutation = applied;
-  assert(flash_impl_write_page_begin(&programmed, address, 1) == E_ERROR);
-  assert(writes == 1 && flash_impl_get_write_status() == S_NO_ACTION_REQUIRED);
+  assert(T5AI_FLASH.ops->write(&T5AI_FLASH, address, &programmed, 1) == -EIO);
+  assert(writes == 1);
   assert(read_byte(unrelated) == 0x42 && reads == before); // Keep unrelated lines.
   fail_read = unavailable;
   if (unavailable) {
     uint8_t out = 0;
-    assert(flash_impl_read_sync(&out, address, 1) == E_INVALID_OPERATION);
+    assert(T5AI_FLASH.ops->read(&T5AI_FLASH, address, &out, 1) == -EIO);
     assert(reads == before + 1); // Stop after a quarantined read failure.
   } else {
     assert(read_byte(address) == (applied ? programmed : 0xff));
@@ -85,20 +85,20 @@ static void failed_write(uint32_t address, bool applied, bool unavailable) {
 }
 static void failed_erase(bool applied, bool unavailable) {
   reset();
-  const uint32_t address = FLASH_REGION_FILESYSTEM_BEGIN;
+  const uint32_t address = PART_FILESYSTEM_OFFSET;
   storage[address - base + 3] = 0x12;
   storage[address - base + 64] = 0x34;
   assert(read_byte(address + 3) == 0x12);
   assert(read_byte(address + 64) == 0x34);
   fail_erase_at = 1; apply_mutation = applied;
-  assert(flash_impl_erase_subsector_begin(address) == E_ERROR);
-  assert(erases == 1 && flash_impl_get_erase_status() == S_NO_ACTION_REQUIRED);
+  assert(T5AI_FLASH.ops->erase(&T5AI_FLASH, address, SUBSECTOR_SIZE_BYTES) == -EIO);
+  assert(erases == 1);
   const unsigned before = reads;
   fail_read = unavailable;
   if (unavailable) {
     uint8_t out;
-    assert(flash_impl_read_sync(&out, address + 3, 1) == E_INVALID_OPERATION);
-    assert(flash_impl_read_sync(&out, address + 64, 1) == E_INVALID_OPERATION);
+    assert(T5AI_FLASH.ops->read(&T5AI_FLASH, address + 3, &out, 1) == -EIO);
+    assert(T5AI_FLASH.ops->read(&T5AI_FLASH, address + 64, &out, 1) == -EIO);
   } else {
     assert(read_byte(address + 3) == (applied ? 0xff : 0x12));
     assert(read_byte(address + 64) == (applied ? 0xff : 0x34));
@@ -107,30 +107,30 @@ static void failed_erase(bool applied, bool unavailable) {
 }
 static void verification_failure(void) {
   reset();
-  const uint32_t address = FLASH_REGION_FILESYSTEM_BEGIN;
+  const uint32_t address = PART_FILESYSTEM_OFFSET;
   assert(read_byte(address) == 0xff);
   assert(read_byte(address + 64) == 0xff); // Also cache the line containing the header.
   const uint8_t version[] = {0x01, 0x50};
   corrupt_write = true;
-  assert(flash_impl_write_page_begin(version, address, sizeof(version)) == E_ERROR);
-  assert(writes == 1 && flash_impl_get_write_status() == S_NO_ACTION_REQUIRED);
+  assert(T5AI_FLASH.ops->write(&T5AI_FLASH, address, version, sizeof(version)) == -EIO);
+  assert(writes == 1);
   const unsigned before = reads;
   assert(read_byte(address) == 0x09);
   assert(reads == before + 1); // The version mismatch must leave the header invalid.
 }
 static void successful_write_and_rejection(void) {
   reset();
-  const uint32_t address = FLASH_REGION_FILESYSTEM_BEGIN + 3;
+  const uint32_t address = PART_FILESYSTEM_OFFSET + 3;
   storage[address - base] = 0xfa;
   assert(read_byte(address) == 0xfa);
   unsigned before = reads;
-  assert(flash_impl_write_protect(address, address) == S_SUCCESS);
+
   const uint8_t mask = 0xfd;
-  assert(flash_impl_write_page_begin(&mask, address, 1) == E_INVALID_OPERATION);
+  assert(T5AI_FLASH.ops->write(&T5AI_FLASH, PART_CD_OFFSET, &mask, 1) == -EACCES);
   assert(writes == 0 && read_byte(address) == 0xfa && reads == before);
-  assert(flash_impl_unprotect() == S_SUCCESS);
-  assert(flash_impl_write_page_begin(&mask, address, 1) == 1);
-  assert(flash_impl_get_write_status() == S_SUCCESS);
+
+  assert(T5AI_FLASH.ops->write(&T5AI_FLASH, address, &mask, 1) == 0);
+
   assert(read_byte(address) == 0xf8);
 #ifdef CONFIG_T5AI_PFS_HEADER_CACHE
   assert(reads == before); // Preserve successful header write-through/NOR semantics.
@@ -138,22 +138,22 @@ static void successful_write_and_rejection(void) {
   assert(reads == before + 1);
 #endif
   // Uncached headers must not become valid from an incomplete cached baseline.
-  const uint32_t uncached = FLASH_REGION_FILESYSTEM_BEGIN + 0x1000;
+  const uint32_t uncached = PART_FILESYSTEM_OFFSET + 0x1000;
   storage[uncached - base + 2] = 0x13;
-  assert(flash_impl_write_page_begin(&mask, uncached + 3, 1) == 1);
-  assert(flash_impl_get_write_status() == S_SUCCESS);
+  assert(T5AI_FLASH.ops->write(&T5AI_FLASH, uncached + 3, &mask, 1) == 0);
+
   assert(read_byte(uncached + 2) == 0x13);
 }
 static void sector_partial_failure(void) {
   reset();
-  const uint32_t address = FLASH_REGION_FILESYSTEM_BEGIN;
+  const uint32_t address = PART_FILESYSTEM_OFFSET;
   for (unsigned page = 0; page < 4; page++) {
     storage[address - base + page * 4096 + 3] = 0x12;
     assert(read_byte(address + page * 4096 + 3) == 0x12);
   }
   fail_erase_at = 3; apply_mutation = true;
-  assert(flash_impl_erase_sector_begin(address) == E_ERROR);
-  assert(erases == 3 && flash_impl_get_erase_status() == S_NO_ACTION_REQUIRED);
+  assert(T5AI_FLASH.ops->erase(&T5AI_FLASH, address, SECTOR_SIZE_BYTES) == -EIO);
+  assert(erases == 3);
   unsigned before = reads;
   assert(read_byte(address + 3 * 4096 + 3) == 0x12);
   assert(reads == before); // A page that was never attempted stays cached.
@@ -168,10 +168,10 @@ static void sector_partial_failure(void) {
 }
 int main(void) {
   const uint32_t addresses[] = {
-    FLASH_REGION_FILESYSTEM_BEGIN + 3,
-    FLASH_REGION_FILESYSTEM_BEGIN + 64,
-    FLASH_REGION_FILESYSTEM_BEGIN + 0x100000 + 3, // Beyond bounded header cache.
-    FLASH_REGION_SHARED_PRF_STORAGE_BEGIN + 16,
+    PART_FILESYSTEM_OFFSET + 3,
+    PART_FILESYSTEM_OFFSET + 64,
+    PART_FILESYSTEM_OFFSET + 0x100000 + 3, // Beyond bounded header cache.
+    PART_SHARED_PRF_STORAGE_OFFSET + 16,
   };
   for (unsigned i = 0; i < sizeof(addresses) / sizeof(addresses[0]); i++) {
     failed_write(addresses[i], false, false);
@@ -195,7 +195,10 @@ class FlashCacheTest(unittest.TestCase):
             directory = Path(temp)
             (directory / "stub.h").write_text(STUB)
             for name in [
-                "pbl/drivers/flash/flash_impl.h",
+                "pbl/drivers/flash.h",
+                "pbl/board/partitions.h",
+                "pbl/soc/t5ai/image_layout.h",
+                "pbl/soc/t5ai/devices.h",
                 "pbl/logging/logging.h",
                 "pbl/soc/t5ai/flash_ipc.h",
                 "flash_region/flash_region.h",
@@ -215,6 +218,7 @@ class FlashCacheTest(unittest.TestCase):
                     "-std=c11",
                     "-Wall",
                     "-Wextra",
+                    "-Wno-unused-parameter",
                     "-Werror",
                     *defines,
                     "-I",

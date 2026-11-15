@@ -1,6 +1,6 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "board/board.h"
+#include "applib/platform.h"
 
 #include <pbl/device.h>
 #include <pbl/drivers/backlight/t5ai.h>
@@ -11,21 +11,24 @@
 #include <pbl/drivers/pinctrl/t5ai.h>
 #include <pbl/drivers/spi/t5ai.h>
 #include <pbl/drivers/touch/cst92xx_t5ai.h>
+#include <pbl/drivers/uart/t5ai.h>
 #include <pbl/input/input.h>
 #include <pbl/kernel/assert.h>
 #include <pbl/services/boot_splash/t5ai.h>
+#include <pbl/soc/t5ai/devices.h>
 #ifdef CONFIG_T5AI_SD_PFS
 #include <pbl/drivers/t5ai/sd.h>
 #endif
+#include <pbl/drivers/audio/t5ai.h>
 #include <pbl/drivers/battery/t5ai.h>
 #include <pbl/drivers/gpio/t5ai.h>
 #include <pbl/drivers/i2c/t5ai.h>
 #include <pbl/drivers/imu/qmi8658.h>
-#include <pbl/drivers/mic/t5ai/definitions.h>
 #include <pbl/drivers/watchdog.h>
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/mpu.h>
 #include <pbl/logging/logging.h>
+#include <pbl/soc/t5ai/core.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/interrupt_profile.h>
 #include <pbl/soc/t5ai/memory.h>
@@ -34,8 +37,6 @@
 #include <pbl/soc/t5ai/reset.h>
 #include <pbl/soc/t5ai/state_trace.h>
 #include <pbl/soc/t5ai/tick.h>
-
-#include <cmsis_core.h>
 
 PBL_LOG_MODULE_DEFINE(board_unhygienix, LOG_LEVEL_DEBUG);
 #ifdef CONFIG_T5AI_SD_PFS
@@ -125,15 +126,16 @@ static void prv_assert_power_latch(void) {
 static const struct pbl_gpio s_amplifier_enable = PBL_GPIO(&T5AI_GPIO, 28, PBL_GPIO_ACTIVE_LOW);
 
 #ifdef CONFIG_MIC
-static MicDeviceState s_mic_state;
-static const MicDevice s_mic_device = {
+static struct pbl_audio_t5ai_state s_mic_state;
+PBL_AUDIO_DAI_STATE_DEFINE(s_mic);
+static const struct pbl_audio_t5ai s_mic = {
+  .dai = PBL_AUDIO_DAI_INIT(s_mic, "t5ai-adc", PBL_AUDIO_CAPTURE, &pbl_audio_t5ai_ops, nullptr),
   .state = &s_mic_state,
   .base = 0x47800000u,
-  .irq = GDMA_IRQn,
-  .irq_priority = 6u,
   .analog_gain = 8u,
 };
-MicDevice *const T5AI_NATIVE_MIC = &s_mic_device;
+PBL_DEVICE_REGISTER(s_mic, &s_mic.dai.dev);
+PBL_AUDIO_CARD_DEFINE(T5AI_MIC, "t5ai-mic", &s_mic.dai, nullptr, nullptr, 0, 0);
 #endif
 PBL_IRQ_CONNECT(GDMA, 6, pbl_dma_t5ai_irq_handler, , 0);
 PBL_IRQ_CONNECT(QSPI0, 6, pbl_spi_t5ai_irq_handler, , 0);
@@ -161,7 +163,6 @@ const struct pbl_gpio T5AI_SD_DETECT =
 const struct pbl_pinctrl T5AI_SD_PINCTRL = PBL_PINCTRL(&s_sd_pins, nullptr, 0);
 #endif
 PBL_UART_T5AI_DEFINE(s_dbg_uart, 0x44820000u, UART0_IRQn, 5, UART0_PINS, 26000000u, 460800u);
-const struct pbl_uart *const DBG_UART = &s_dbg_uart.uart;
 #ifdef CONFIG_T5AI_DRAW_PROFILE
 static void prv_profile_uart_irq(void) {
   const uint32_t start = t5ai_interrupt_profile_irq_enter();
@@ -189,7 +190,6 @@ static const struct pbl_i2c_dev s_cst92xx = PBL_I2C_DEV(&T5AI_I2C0.bus, 0x5a);
 const struct pbl_i2c_dev *const I2C_PCF85063 = &s_pcf85063;
 const struct pbl_i2c_dev *const I2C_CST92XX = &s_cst92xx;
 
-const BoardConfig BOARD_CONFIG = {.backlight_on_percent = 100};
 PBL_GPIO_KEYS_DEFINE(
     s_buttons, "buttons",
     PBL_GPIO_KEYS_KEY("Back", PBL_GPIO(&T5AI_GPIO, 18, PBL_GPIO_ACTIVE_LOW | PBL_GPIO_PULL_UP),
@@ -243,9 +243,7 @@ const T5AIBatteryConfig T5AI_BATTERY_CONFIG = {
   .divider_numerator = 2510,
   .divider_denominator = 510,
 };
-const BoardConfigPower BOARD_CONFIG_POWER = {.low_power_threshold = 5};
-const BoardConfigActuator BOARD_CONFIG_VIBE = {};
-void board_early_init(void) {
+static void prv_early_init(void) {
   // CP supervision starts before the scheduler; service it before storage startup.
   t5ai_reboot_trace_start();
   t5ai_cp_mailbox_enable_rx_interrupt();
@@ -266,7 +264,7 @@ void board_early_init(void) {
 #ifdef CONFIG_T5AI_RETAINED_SLEEP
 #include <pbl/soc/t5ai/sleep.h>
 #endif
-void board_init(void) {
+static void prv_init(void) {
   // Keep CP awake until the AP implements the low-voltage suspend/resume contract.
   const status_t status = t5ai_cp_mailbox_vote_app_sleep(false);
   if (FAILED(status)) {
@@ -288,7 +286,7 @@ void board_init(void) {
   PBL_ASSERTN(prv_validate_psram_range(__t5ai_display_dma_start__, __t5ai_display_dma_end__));
   // Device initialization precedes PSRAM validation; render only after it is ready.
   t5ai_boot_splash_render();
-  PBL_ASSERTN(pbl_backlight_set_brightness(BACKLIGHT, BOARD_CONFIG.backlight_on_percent) == 0);
+  PBL_ASSERTN(pbl_backlight_set_brightness(BACKLIGHT, 100) == 0);
 #ifdef CONFIG_T5AI_SLEEP_GUARD_TEST
   t5ai_sleep_guard_test_start();
 #endif
@@ -298,8 +296,8 @@ void board_init(void) {
 }
 
 static int prv_board_init(const struct pbl_device *dev) {
-  board_early_init();
-  board_init();
+  prv_early_init();
+  prv_init();
 #if defined(CONFIG_T5AI_BG_PICK_TRACE) || defined(CONFIG_T5AI_BG_TRACE) || \
     defined(CONFIG_T5AI_DRAW_PROFILE) || defined(CONFIG_T5AI_TASK_CPU_METRICS)
   extern void t5ai_diagnostics_start(void);

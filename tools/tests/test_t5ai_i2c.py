@@ -31,7 +31,7 @@ def write_headers(path):
         "pbl/kernel/irq.h": "void pbl_irq_lock(void);\nvoid pbl_irq_unlock(void);\n",
         "pbl/kernel/assert.h": "#include <assert.h>\n#define PBL_ASSERTN(x) assert(x)\n",
         "pbl/soc/t5ai/delay.h": "void delay_us(unsigned);\n",
-        "cmsis_core.h": '#include "api.h"\n',
+        "pbl/soc/t5ai/core.h": '#include "api.h"\n',
     }
     (path / "api.h").write_text(API)
     for name, content in headers.items():

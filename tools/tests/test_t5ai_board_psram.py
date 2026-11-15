@@ -35,11 +35,11 @@ static int pbl_backlight_set_brightness(int device,unsigned value){assert(render
         main = r"""
 int main(void){
  for(stage=1;stage<=3;++stage){checks=0;
-  if(!setjmp(failure)){board_init();assert(false);}
+  if(!setjmp(failure)){prv_init();assert(false);}
   assert(!render && !brightness && !sleep);
   if(stage==1)assert(!checks);
  }
- stage=0;checks=0;board_init();assert(checks==2 && render==1 && brightness==1 && sleep==1);
+ stage=0;checks=0;prv_init();assert(checks==2 && render==1 && brightness==1 && sleep==1);
  return 0;}
 """
         run(
@@ -47,7 +47,7 @@ int main(void){
             prefix,
             main,
             defines=("CONFIG_T5AI_RETAINED_SLEEP",),
-            transform=lambda source: body(source, "board_init"),
+            transform=lambda source: body(source, "prv_init"),
         )
 
 

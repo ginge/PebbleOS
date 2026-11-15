@@ -7,9 +7,8 @@
 #include <errno.h>
 
 #include <pbl/drivers/uart/t5ai.h>
+#include <pbl/soc/t5ai/core.h>
 #include <pbl/util/misc.h>
-
-#include <cmsis_core.h>
 #if defined(CONFIG_T5AI_UART_IDLE_GATING) || defined(CONFIG_T5AI_RETAINED_SLEEP) || \
     defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
 #include <pbl/soc/t5ai/delay.h>

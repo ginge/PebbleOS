@@ -19,8 +19,8 @@
   SoC and driver locations. The optional Tuya application is reference
   material, not the production PebbleOS kernel.
 - Board implementation and declarations use `boards/unhygienix/unhygienix.c`
-  and `unhygienix.h`; legacy T5AI types remain in
-  `soc/t5ai/compat/board/board_t5ai.h`.
+  and `unhygienix.h`; native device declarations live in
+  `include/pbl/soc/t5ai/devices.h`.
   Board tooling uses `tools/unhygienix_*`, `flash_unhygienix_*`,
   `patch_unhygienix_cp_rf.py` and `check_unhygienix_image_map.py`.
   Generic protected-block encoding stays in `tools/t5ai_image.py`; board

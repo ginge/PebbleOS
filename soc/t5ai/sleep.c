@@ -24,7 +24,7 @@
 #include <pbl/soc/t5ai/sleep_deadline_profile.h>
 #endif
 
-#include <cmsis_core.h>
+#include <pbl/soc/t5ai/core.h>
 
 #if !defined(CONFIG_T5AI_RETAINED_SLEEP_TEST) && !defined(CONFIG_T5AI_RETAINED_SLEEP_WAKE_ONLY)
 #error "Production retained idle requires CP-awake AP-only sleep"

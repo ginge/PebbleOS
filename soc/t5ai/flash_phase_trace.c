@@ -1,14 +1,16 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
-#include <pbl/kernel/time.h>
 #include <inttypes.h>
 #include <string.h>
+
+#include <pbl/drivers/flash.h>
+#include <pbl/fs/fs.h>
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/mutex.h>
 #include <pbl/kernel/sched.h>
 #include <pbl/kernel/thread.h>
+#include <pbl/kernel/time.h>
 #include <pbl/logging/logging.h>
-#include <pbl/services/filesystem/pfs.h>
 #include <pbl/soc/t5ai/io_trace.h>
 #include <pbl/soc/t5ai/rtc.h>
 
@@ -82,17 +84,17 @@ void t5ai_flash_phase_trace_end(void) {
   s_owner = 0;
 }
 
-int __real_pfs_open(const char *, uint8_t, uint8_t, size_t);
-int __wrap_pfs_open(const char *name, uint8_t flags, uint8_t type, size_t size) {
+int __real_pbl_fs_open(struct pbl_fs_file *, const char *, uint32_t);
+int __wrap_pbl_fs_open(struct pbl_fs_file *file, const char *name, uint32_t flags) {
   uint32_t ticks = pbl_uptime_ticks(), aon = T5AI_AON_RTC_COUNT_LOW;
-  int result = __real_pfs_open(name, flags, type, size);
-  prv_record(flags & OP_FLAG_OVERWRITE ? TEMP_OPEN : OPEN, ticks, aon);
+  int result = __real_pbl_fs_open(file, name, flags);
+  prv_record(flags & PBL_FS_O_REPLACE ? TEMP_OPEN : OPEN, ticks, aon);
   return result;
 }
-status_t __real_pfs_close(int);
-status_t __wrap_pfs_close(int fd) {
+int __real_pbl_fs_close(struct pbl_fs_file *);
+int __wrap_pbl_fs_close(struct pbl_fs_file *file) {
   uint32_t ticks = pbl_uptime_ticks(), aon = T5AI_AON_RTC_COUNT_LOW;
-  status_t result = __real_pfs_close(fd);
+  int result = __real_pbl_fs_close(file);
   prv_record(CLOSE, ticks, aon);
   return result;
 }
@@ -130,18 +132,21 @@ void __wrap_pbl_mutex_unlock(struct pbl_mutex *mutex) {
   __real_pbl_mutex_unlock(mutex);
   prv_record(MUTEX_UNLOCK, ticks, aon);
 }
-#define WRAP_FLASH(name, qualifier, stage)                                         \
-  void __real_##name(qualifier uint8_t *, uint32_t, uint32_t);                     \
-  void __wrap_##name(qualifier uint8_t *buffer, uint32_t address, uint32_t size) { \
-    uint32_t ticks = pbl_uptime_ticks(), aon = T5AI_AON_RTC_COUNT_LOW;             \
-    __real_##name(buffer, address, size);                                          \
-    prv_record(stage, ticks, aon);                                                 \
+#define WRAP_FLASH(name, qualifier, stage)                                                   \
+  int __real_##name(const struct pbl_flash *, uint32_t, qualifier void *, size_t);           \
+  int __wrap_##name(const struct pbl_flash *flash, uint32_t address, qualifier void *buffer, \
+                    size_t size) {                                                           \
+    uint32_t ticks = pbl_uptime_ticks(), aon = T5AI_AON_RTC_COUNT_LOW;                       \
+    int result = __real_##name(flash, address, buffer, size);                                \
+    prv_record(stage, ticks, aon);                                                           \
+    return result;                                                                           \
   }
-WRAP_FLASH(flash_read_bytes, , FLASH_READ)
-WRAP_FLASH(flash_write_bytes, const, FLASH_WRITE)
-void __real_flash_erase_sector_blocking(uint32_t);
-void __wrap_flash_erase_sector_blocking(uint32_t address) {
+WRAP_FLASH(pbl_flash_read, , FLASH_READ)
+WRAP_FLASH(pbl_flash_write, const, FLASH_WRITE)
+int __real_pbl_flash_erase(const struct pbl_flash *, uint32_t, size_t);
+int __wrap_pbl_flash_erase(const struct pbl_flash *flash, uint32_t address, size_t size) {
   uint32_t ticks = pbl_uptime_ticks(), aon = T5AI_AON_RTC_COUNT_LOW;
-  __real_flash_erase_sector_blocking(address);
+  int result = __real_pbl_flash_erase(flash, address, size);
   prv_record(FLASH_ERASE, ticks, aon);
+  return result;
 }

@@ -126,6 +126,7 @@ config T5AI_DISPLAY_MEMORY_BENCH
 config T5AI_DRAW_PROFILE
     bool "Buffer drawing function and scheduler timing until UI idle"
     depends on BOARD_UNHYGIENIX && !T5AI_APP_TRACE && !T5AI_BG_TRACE && !T5AI_INTERRUPT_PROFILE && !T5AI_TASK_CPU_METRICS
+    depends on !T5AI_REMINDER_PROFILE && !T5AI_WDT_RECOVERY_TRACE
     default n
     help
       Instrument launcher/menu/text-node functions and window rendering only.

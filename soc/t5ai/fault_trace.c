@@ -5,8 +5,7 @@
 #include <stdint.h>
 
 #include <pbl/kernel/cache.h>
-
-#include <cmsis_core.h>
+#include <pbl/soc/t5ai/core.h>
 
 #define FAULT_STACK_BYTES       512u
 #define POLL_LIMIT              200000u

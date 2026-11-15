@@ -3,6 +3,7 @@
 
 import unittest
 from pathlib import Path
+
 from tools.tests.test_t5ai_timing import run_c
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -64,7 +65,7 @@ class UpstreamTimerTest(unittest.TestCase):
                 "pbl/soc/t5ai/power.h",
                 "pbl/soc/t5ai/rtc.h",
                 "pbl/soc/t5ai/tick.h",
-                "cmsis_core.h",
+                "pbl/soc/t5ai/core.h",
             )
         }
         run_c(

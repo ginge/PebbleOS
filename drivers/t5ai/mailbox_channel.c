@@ -23,7 +23,7 @@
 #include <pbl/soc/t5ai/sleep.h>
 #endif
 
-#include <cmsis_core.h>
+#include <pbl/soc/t5ai/core.h>
 
 #ifdef CONFIG_T5AI_RETAINED_SLEEP_TEST
 #include <pbl/logging/logging.h>

@@ -7,6 +7,8 @@ import unittest
 from itertools import pairwise
 from pathlib import Path
 
+from tools.tests.test_t5ai_flash_completion import STUB
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -58,6 +60,7 @@ int main(void) {
                     "-std=c11",
                     "-Wall",
                     "-Wextra",
+                    "-Wno-unused-parameter",
                     "-Werror",
                     str(c_file),
                     "-o",
@@ -80,10 +83,10 @@ int main(void) {
             read.index("prv_restore_client_priority(previous_priority)"),
         )
         flash = (ROOT / "drivers/flash/t5ai.c").read_text()
-        verification = flash.split("static status_t prv_verify_pfs_header_write", 1)[
+        verification = flash.split("static int prv_verify_pfs_header_write", 1)[
             1
-        ].split("FlashAddress flash_impl_get_sector_base_address", 1)[0]
-        self.assertIn("return E_ERROR", verification)
+        ].split("static int prv_init", 1)[0]
+        self.assertIn("return -EIO", verification)
         self.assertNotIn("prv_confirm_pfs_read", verification)
         self.assertNotIn("t5ai_flash_ipc_write", verification)
 
@@ -189,6 +192,7 @@ int main(void) {
                     "-std=c11",
                     "-Wall",
                     "-Wextra",
+                    "-Wno-unused-parameter",
                     "-Werror",
                     "-I",
                     str(ROOT / "include"),
@@ -282,60 +286,60 @@ status_t t5ai_flash_ipc_erase_4k(uint32_t offset) {
 #include "drivers/flash/t5ai.c"
 
 int main(void) {
-  const uint32_t base = FLASH_REGION_BASE_ADDRESS;
+  const uint32_t base = 0u;
   uint8_t input[600], output[600];
   memset(input, 0x5a, sizeof(input));
-  assert(flash_impl_init(false) == S_SUCCESS);
-  assert(flash_impl_read_sync(output, base, sizeof(output)) == S_SUCCESS && reads == 2);
+  assert(T5AI_FLASH.ops->init(&T5AI_FLASH) == S_SUCCESS);
+  assert(T5AI_FLASH.ops->read(&T5AI_FLASH, base, output, sizeof(output)) == S_SUCCESS && reads == 2);
   fail_next_read = true;
-      assert(flash_impl_read_sync(output, base + 0x1000, 1) == S_SUCCESS && reads == 4);
-  assert(flash_impl_write_page_begin(input, FLASH_REGION_FIRMWARE_SLOT_0_BEGIN - 1, 1) == E_INVALID_OPERATION);
-  assert(flash_impl_write_page_begin(input, FLASH_REGION_FIRMWARE_SLOT_0_BEGIN, 1) == E_INVALID_OPERATION);
-  assert(flash_impl_write_page_begin(input, FLASH_REGION_FILESYSTEM_BEGIN - 1, 1) == E_INVALID_OPERATION);
-  assert(flash_impl_write_page_begin(input, FLASH_REGION_CD_BEGIN, 1) == E_INVALID_OPERATION);
-  assert(flash_impl_write_page_begin(input, FLASH_REGION_FIRMWARE_SLOT_1_BEGIN, 1) == E_INVALID_OPERATION);
-  assert(flash_impl_write_page_begin(input, FLASH_REGION_DEBUG_DB_BEGIN, 1) == E_INVALID_OPERATION);
-  assert(flash_impl_write_page_begin(input, FLASH_REGION_SHARED_PRF_STORAGE_BEGIN - 1, 1) == E_INVALID_OPERATION);
+      assert(T5AI_FLASH.ops->read(&T5AI_FLASH, base + 0x1000, output, 1) == S_SUCCESS && reads == 4);
+  assert(T5AI_FLASH.ops->write(&T5AI_FLASH, PART_FIRMWARE_SLOT_0_OFFSET - 1, input, 1) == -EACCES);
+  assert(T5AI_FLASH.ops->write(&T5AI_FLASH, PART_FIRMWARE_SLOT_0_OFFSET, input, 1) == -EACCES);
+  assert(T5AI_FLASH.ops->write(&T5AI_FLASH, PART_FILESYSTEM_OFFSET - 1, input, 1) == -EACCES);
+  assert(T5AI_FLASH.ops->write(&T5AI_FLASH, PART_CD_OFFSET, input, 1) == -EACCES);
+  assert(T5AI_FLASH.ops->write(&T5AI_FLASH, PART_FIRMWARE_SLOT_1_OFFSET, input, 1) == -EACCES);
+  assert(T5AI_FLASH.ops->write(&T5AI_FLASH, PART_DEBUG_DB_OFFSET, input, 1) == -EACCES);
+  assert(T5AI_FLASH.ops->write(&T5AI_FLASH, PART_SHARED_PRF_STORAGE_OFFSET - 1, input, 1) == -EACCES);
   fail_next_write = true;
-      assert(flash_impl_write_page_begin(input, FLASH_REGION_SHARED_PRF_STORAGE_BEGIN, 1) == E_ERROR);
-      assert(writes == 1 && flash_impl_get_write_status() == S_NO_ACTION_REQUIRED);
-  assert(flash_impl_write_page_begin(input, FLASH_REGION_SHARED_PRF_STORAGE_END, 1) == E_INVALID_OPERATION);
-  assert(flash_impl_write_page_begin(input, FLASH_REGION_FILESYSTEM_BEGIN + 250, sizeof(input)) == 6);
-      assert(writes == 2 && flash_impl_get_write_status() == S_SUCCESS);
-  assert(flash_impl_write_protect(FLASH_REGION_FILESYSTEM_BEGIN, FLASH_REGION_FILESYSTEM_BEGIN + 0xfff) == S_SUCCESS);
-  assert(flash_impl_write_page_begin(input, FLASH_REGION_FILESYSTEM_BEGIN, 1) == E_INVALID_OPERATION);
-  assert(flash_impl_unprotect() == S_SUCCESS);
-  assert(flash_impl_write_page_begin(input, FLASH_REGION_FILESYSTEM_END - 1, 2) == 1);
-      assert(writes == 3 && flash_impl_get_write_status() == S_SUCCESS);
-  assert(flash_impl_write_page_begin(input, FLASH_REGION_FILESYSTEM_END, 1) == E_INVALID_OPERATION);
-  assert(flash_impl_erase_subsector_begin(FLASH_REGION_FIRMWARE_SLOT_0_BEGIN) == E_INVALID_OPERATION);
-  assert(flash_impl_erase_subsector_begin(FLASH_REGION_CD_BEGIN) == E_INVALID_OPERATION);
-  assert(flash_impl_erase_subsector_begin(FLASH_REGION_FIRMWARE_SLOT_1_BEGIN) == E_INVALID_OPERATION);
-  assert(flash_impl_erase_subsector_begin(FLASH_REGION_DEBUG_DB_BEGIN) == E_INVALID_OPERATION);
-  fail_next_erase = true;
-      assert(flash_impl_erase_subsector_begin(FLASH_REGION_SHARED_PRF_STORAGE_BEGIN) == E_ERROR);
-      assert(erases == 1 && flash_impl_get_erase_status() == S_NO_ACTION_REQUIRED);
-  assert(flash_impl_erase_subsector_begin(FLASH_REGION_SHARED_PRF_STORAGE_END) == E_INVALID_OPERATION);
-      assert(flash_impl_erase_subsector_begin(FLASH_REGION_FILESYSTEM_BEGIN + 1) == S_SUCCESS && erases == 2);
-  assert(flash_impl_erase_suspend(FLASH_REGION_FILESYSTEM_BEGIN) == S_NO_ACTION_REQUIRED);
-      assert(flash_impl_erase_sector_begin(FLASH_REGION_FILESYSTEM_BEGIN) == S_SUCCESS && erases == 18);
-  assert(flash_impl_get_erase_status() == S_SUCCESS);
-  assert(flash_impl_erase_subsector_begin(FLASH_REGION_FILESYSTEM_END) == E_INVALID_OPERATION);
-  assert(flash_impl_read_sync(output, base - 1, 1) == E_INVALID_ARGUMENT);
-  assert(flash_impl_read_sync(output, base + BOARD_NOR_FLASH_SIZE, 1) == E_INVALID_ARGUMENT);
+      assert(T5AI_FLASH.ops->write(&T5AI_FLASH, PART_SHARED_PRF_STORAGE_OFFSET, input, 1) == -EIO);
+      assert(writes == 1);
+  assert(T5AI_FLASH.ops->write(&T5AI_FLASH, (PART_SHARED_PRF_STORAGE_OFFSET + PART_SHARED_PRF_STORAGE_SIZE), input, 1) == -EACCES);
+  assert(T5AI_FLASH.ops->write(&T5AI_FLASH, PART_FILESYSTEM_OFFSET + 250, input, sizeof(input)) == 0);
+      assert(writes == 5);
 
-  const uint32_t cached_page = FLASH_REGION_FILESYSTEM_BEGIN + 0x20000;
-  const uint32_t cached_offset = cached_page - FLASH_REGION_BASE_ADDRESS;
+  assert(T5AI_FLASH.ops->write(&T5AI_FLASH, PART_CD_OFFSET, input, 1) == -EACCES);
+
+  assert(T5AI_FLASH.ops->write(&T5AI_FLASH, (PART_FILESYSTEM_OFFSET + PART_FILESYSTEM_SIZE) - 1, input, 2) == -EACCES);
+      assert(writes == 5);
+  assert(T5AI_FLASH.ops->write(&T5AI_FLASH, (PART_FILESYSTEM_OFFSET + PART_FILESYSTEM_SIZE), input, 1) == -EACCES);
+  assert(T5AI_FLASH.ops->erase(&T5AI_FLASH, PART_FIRMWARE_SLOT_0_OFFSET, SUBSECTOR_SIZE_BYTES) == -EACCES);
+  assert(T5AI_FLASH.ops->erase(&T5AI_FLASH, PART_CD_OFFSET, SUBSECTOR_SIZE_BYTES) == -EACCES);
+  assert(T5AI_FLASH.ops->erase(&T5AI_FLASH, PART_FIRMWARE_SLOT_1_OFFSET, SUBSECTOR_SIZE_BYTES) == -EACCES);
+  assert(T5AI_FLASH.ops->erase(&T5AI_FLASH, PART_DEBUG_DB_OFFSET, SUBSECTOR_SIZE_BYTES) == -EACCES);
+  fail_next_erase = true;
+      assert(T5AI_FLASH.ops->erase(&T5AI_FLASH, PART_SHARED_PRF_STORAGE_OFFSET, SUBSECTOR_SIZE_BYTES) == -EIO);
+      assert(erases == 1);
+  assert(T5AI_FLASH.ops->erase(&T5AI_FLASH, (PART_SHARED_PRF_STORAGE_OFFSET + PART_SHARED_PRF_STORAGE_SIZE), SUBSECTOR_SIZE_BYTES) == -EACCES);
+      assert(T5AI_FLASH.ops->erase(&T5AI_FLASH, PART_FILESYSTEM_OFFSET + 1, SUBSECTOR_SIZE_BYTES) == -EINVAL && erases == 1);
+
+      assert(T5AI_FLASH.ops->erase(&T5AI_FLASH, PART_FILESYSTEM_OFFSET, SECTOR_SIZE_BYTES) == 1 && erases == 17);
+
+  assert(T5AI_FLASH.ops->erase(&T5AI_FLASH, (PART_FILESYSTEM_OFFSET + PART_FILESYSTEM_SIZE), SUBSECTOR_SIZE_BYTES) == -EACCES);
+  assert(T5AI_FLASH.ops->read(&T5AI_FLASH, base - 1, output, 1) == -EINVAL);
+  assert(T5AI_FLASH.ops->read(&T5AI_FLASH, base + T5AI_FLASH_SIZE, output, 1) == -EINVAL);
+
+  const uint32_t cached_page = PART_FILESYSTEM_OFFSET + 0x20000;
+  const uint32_t cached_offset = cached_page - 0u;
   storage[cached_offset] = 0x01;
   storage[cached_offset + 1] = 0x50;
   storage[cached_offset + 3] = 0xfa;
   unsigned reads_before_cache = reads;
-  assert(flash_impl_read_sync(output, cached_page + 3, 1) == S_SUCCESS);
+  assert(T5AI_FLASH.ops->read(&T5AI_FLASH, cached_page + 3, output, 1) == S_SUCCESS);
   assert(output[0] == 0xfa && reads == reads_before_cache + 1);
   uint8_t delete_mask = 0xfd;
-  assert(flash_impl_write_page_begin(&delete_mask, cached_page + 3, 1) == 1);
-  assert(flash_impl_get_write_status() == S_SUCCESS);
-  assert(flash_impl_read_sync(output, cached_page + 3, 1) == S_SUCCESS);
+  assert(T5AI_FLASH.ops->write(&T5AI_FLASH, cached_page + 3, &delete_mask, 1) == 0);
+
+  assert(T5AI_FLASH.ops->read(&T5AI_FLASH, cached_page + 3, output, 1) == S_SUCCESS);
   assert(output[0] == 0xf8 && storage[cached_offset + 3] == 0xf8);
   assert(reads == reads_before_cache + 1);
 
@@ -343,36 +347,36 @@ int main(void) {
   storage[cached_offset + 0x1000] = 0x01;
   storage[cached_offset + 0x1001] = 0x50;
   storage[cached_offset + 0x1003] = 0xf6;
-  assert(flash_impl_read_sync(output, continuation + 3, 1) == S_SUCCESS);
+  assert(T5AI_FLASH.ops->read(&T5AI_FLASH, continuation + 3, output, 1) == S_SUCCESS);
   assert(output[0] == 0xf6);
-  assert(flash_impl_write_page_begin(&delete_mask, continuation + 3, 1) == 1);
-  assert(flash_impl_get_write_status() == S_SUCCESS);
-  assert(flash_impl_read_sync(output, continuation + 3, 1) == S_SUCCESS);
+  assert(T5AI_FLASH.ops->write(&T5AI_FLASH, continuation + 3, &delete_mask, 1) == 0);
+
+  assert(T5AI_FLASH.ops->read(&T5AI_FLASH, continuation + 3, output, 1) == S_SUCCESS);
   assert(output[0] == 0xf4 && storage[cached_offset + 0x1003] == 0xf4);
 
-  assert(flash_impl_erase_subsector_begin(cached_page) == S_SUCCESS);
-  assert(flash_impl_get_erase_status() == S_SUCCESS);
+  assert(T5AI_FLASH.ops->erase(&T5AI_FLASH, cached_page, SUBSECTOR_SIZE_BYTES) == 1);
+
   reads_before_cache = reads;
-  assert(flash_impl_read_sync(output, cached_page, 1) == S_SUCCESS);
+  assert(T5AI_FLASH.ops->read(&T5AI_FLASH, cached_page, output, 1) == S_SUCCESS);
   assert(reads == reads_before_cache && output[0] == 0xff);
   const uint8_t erased_header[] = {0x01, 0x50, 0xff, 0xfe};
-  assert(flash_impl_write_page_begin(erased_header, cached_page, 4) == 4);
-  assert(flash_impl_get_write_status() == S_SUCCESS);
-  assert(flash_impl_read_sync(output, cached_page, 4) == S_SUCCESS);
+  assert(T5AI_FLASH.ops->write(&T5AI_FLASH, cached_page, erased_header, 4) == 0);
+
+  assert(T5AI_FLASH.ops->read(&T5AI_FLASH, cached_page, output, 4) == S_SUCCESS);
   assert(memcmp(output, erased_header, 4) == 0);
-  assert(FLASH_REGION_FILESYSTEM_END == 0x027c0000);
+  assert((PART_FILESYSTEM_OFFSET + PART_FILESYSTEM_SIZE) == 0x7c0000);
   // The last expanded page bypasses the bounded header cache and retains NOR semantics.
-  const uint32_t expanded_page = FLASH_REGION_FILESYSTEM_END - 0x1000;
-  assert(flash_impl_erase_subsector_begin(expanded_page) == S_SUCCESS);
-  assert(flash_impl_get_erase_status() == S_SUCCESS);
+  const uint32_t expanded_page = (PART_FILESYSTEM_OFFSET + PART_FILESYSTEM_SIZE) - 0x1000;
+  assert(T5AI_FLASH.ops->erase(&T5AI_FLASH, expanded_page, SUBSECTOR_SIZE_BYTES) == 1);
+
   const uint8_t expanded_header[] = {0x01, 0x50, 0xff, 0xfa};
-  assert(flash_impl_write_page_begin(expanded_header, expanded_page, 4) == 4);
-  assert(flash_impl_get_write_status() == S_SUCCESS);
-  assert(flash_impl_read_sync(output, expanded_page, 4) == S_SUCCESS);
+  assert(T5AI_FLASH.ops->write(&T5AI_FLASH, expanded_page, expanded_header, 4) == 0);
+
+  assert(T5AI_FLASH.ops->read(&T5AI_FLASH, expanded_page, output, 4) == S_SUCCESS);
   assert(memcmp(output, expanded_header, 4) == 0);
-  assert(flash_impl_write_page_begin(&delete_mask, expanded_page + 3, 1) == 1);
-  assert(flash_impl_get_write_status() == S_SUCCESS);
-  assert(flash_impl_read_sync(output, expanded_page + 3, 1) == S_SUCCESS);
+  assert(T5AI_FLASH.ops->write(&T5AI_FLASH, expanded_page + 3, &delete_mask, 1) == 0);
+
+  assert(T5AI_FLASH.ops->read(&T5AI_FLASH, expanded_page + 3, output, 1) == S_SUCCESS);
   assert(output[0] == 0xf8);
 
   return 0;
@@ -383,16 +387,19 @@ int main(void) {
             test_source = directory / "test.c"
             test_source.write_text(source)
             binary = directory / "test"
-            fake = directory / "pbl/drivers/flash.h"
-            fake.parent.mkdir(parents=True)
-            fake.write_text(
-                "#pragma once\n#include <stdint.h>\n#include <stdbool.h>\n#define PAGE_SIZE_BYTES 256u\n#define SECTOR_SIZE_BYTES 65536u\n#define SECTOR_ADDR_MASK (~(SECTOR_SIZE_BYTES-1u))\n#define SUBSECTOR_SIZE_BYTES 4096u\n#define SUBSECTOR_ADDR_MASK (~(SUBSECTOR_SIZE_BYTES-1u))\n"
-            )
-            log = directory / "pbl/logging/logging.h"
-            log.parent.mkdir(parents=True)
-            log.write_text(
-                "#pragma once\n#define PBL_LOG_MODULE_DECLARE(...)\n#define PBL_LOG_ERR(...)\n#define PBL_LOG_WRN(...)\n"
-            )
+            (directory / "stub.h").write_text(STUB)
+            for name in (
+                "pbl/drivers/flash.h",
+                "pbl/board/partitions.h",
+                "pbl/soc/t5ai/image_layout.h",
+                "pbl/soc/t5ai/devices.h",
+                "pbl/soc/t5ai/flash_ipc.h",
+                "pbl/logging/logging.h",
+                "system/status_codes.h",
+            ):
+                header = directory / name
+                header.parent.mkdir(parents=True, exist_ok=True)
+                header.write_text('#include "stub.h"\n')
             for header_cache in (True, False):
                 mode_source = source
                 if not header_cache:
@@ -412,13 +419,12 @@ int main(void) {
                         "-std=c11",
                         "-Wall",
                         "-Wextra",
+                        "-Wno-unused-parameter",
                         "-Werror",
                         "-DCONFIG_SOC_T5AI=1",
                         "-DCONFIG_BOARD_UNHYGIENIX=1",
                         "-I",
                         str(directory),
-                        "-I",
-                        str(ROOT / "soc/t5ai/compat"),
                         "-I",
                         str(ROOT / "include/pbl"),
                         *defines,
@@ -476,6 +482,7 @@ int main(void) {
                     "-std=c11",
                     "-Wall",
                     "-Wextra",
+                    "-Wno-unused-parameter",
                     "-Werror",
                     "-I",
                     str(ROOT / "include"),
@@ -489,7 +496,7 @@ int main(void) {
             subprocess.run([str(binary)], check=True)
 
     def test_board_regions_do_not_overlap(self):
-        header = (ROOT / "soc/t5ai/compat/flash_region/flash_region.h").read_text()
+        header = (ROOT / "include/pbl/soc/t5ai/partitions.h").read_text()
         values = {}
         for line in header.splitlines():
             fields = line.split()
@@ -498,7 +505,7 @@ int main(void) {
                 and fields[0] == "#define"
                 and fields[2].startswith("0x")
             ):
-                values[fields[1]] = int(fields[2], 16)
+                values[fields[1]] = int(fields[2].rstrip("uU"), 16)
 
         regions = [
             "FIRMWARE_SLOT_0",
@@ -511,8 +518,8 @@ int main(void) {
         ]
         spans = []
         for region in regions:
-            begin = values[f"FLASH_REGION_{region}_BEGIN"]
-            end = values[f"FLASH_REGION_{region}_END"]
+            begin = values[f"PART_{region}_OFFSET"]
+            end = begin + values[f"PART_{region}_SIZE"]
             self.assertLess(begin, end, region)
             self.assertEqual(begin % 0x1000, 0, region)
             self.assertEqual(end % 0x1000, 0, region)

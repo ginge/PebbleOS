@@ -48,6 +48,8 @@ class DiagnosticConfigTest(unittest.TestCase):
             ("T5AI_REMINDER_PROFILE", "T5AI_WDT_RECOVERY_TRACE"),
             ("T5AI_TASK_CPU_METRICS", "T5AI_BG_PICK_TRACE"),
             ("T5AI_APP_TRACE", "T5AI_REMINDER_PROFILE"),
+            ("T5AI_DRAW_PROFILE", "T5AI_REMINDER_PROFILE"),
+            ("T5AI_DRAW_PROFILE", "T5AI_WDT_RECOVERY_TRACE"),
             ("T5AI_APP_TRACE", "T5AI_WDT_RECOVERY_TRACE"),
         )
         for pair in pairs:

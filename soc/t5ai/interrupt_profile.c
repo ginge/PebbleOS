@@ -1,14 +1,15 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/soc/t5ai/interrupt_profile.h>
-#include <pbl/soc/t5ai/rtc.h>
-#include <pbl/kernel/irq.h>
-#include <pbl/logging/logging.h>
-#include <cmsis_core.h>
+#include <inttypes.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <inttypes.h>
+
+#include <pbl/kernel/irq.h>
+#include <pbl/logging/logging.h>
+#include <pbl/soc/t5ai/core.h>
+#include <pbl/soc/t5ai/interrupt_profile.h>
+#include <pbl/soc/t5ai/rtc.h>
 
 PBL_LOG_MODULE_DEFINE(t5ai_interrupt_profile, LOG_LEVEL_DEBUG);
 
@@ -118,8 +119,8 @@ void t5ai_interrupt_profile_dump(void) {
   const uint32_t now = prv_now();
   pbl_irq_unlock();
   for (unsigned id = 0; id < 4; ++id) {
-    PBL_LOG_DBG("T5IRQ source=%u count=%" PRIu32 " total=%" PRIu32 " max=%" PRIu32, id, irqs[id].count,
-                irqs[id].total, irqs[id].maximum);
+    PBL_LOG_DBG("T5IRQ source=%u count=%" PRIu32 " total=%" PRIu32 " max=%" PRIu32, id,
+                irqs[id].count, irqs[id].total, irqs[id].maximum);
   }
   // Durations are raw 32 kHz ticks; totals are cumulative modulo 2^32.
   PBL_LOG_DBG("T5IRQ rtc=%" PRIu32 " tick=%" PRIu32 " gap_max=%" PRIu32 " gap_gt1p5=%" PRIu32

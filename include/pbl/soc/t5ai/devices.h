@@ -13,3 +13,9 @@ extern const struct pbl_flash T5AI_FLASH;
 extern const struct pbl_rtc T5AI_RTC;
 extern const struct pbl_uart T5AI_CONSOLE_UART;
 extern const struct pbl_audio T5AI_MIC;
+
+struct pbl_i2c_dev;
+extern const struct pbl_i2c_dev *const I2C_PCF85063;
+extern const struct pbl_i2c_dev *const I2C_CST92XX;
+struct pbl_i2c_t5ai;
+extern const struct pbl_i2c_t5ai T5AI_I2C0;

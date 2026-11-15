@@ -19,18 +19,18 @@ class TuyaKernelCheckTest(unittest.TestCase):
     def test_t5ai_flash_writes_are_limited_to_data_partitions(self):
         flash = (ROOT / "drivers/flash/t5ai.c").read_text()
         for region in (
-            "FLASH_REGION_FILESYSTEM_BEGIN",
-            "FLASH_REGION_SYSTEM_RESOURCES_BANK_0_BEGIN",
-            "FLASH_REGION_SHARED_PRF_STORAGE_BEGIN",
+            "PART_FILESYSTEM_OFFSET",
+            "PART_SYSTEM_RESOURCES_BANK_0_OFFSET",
+            "PART_SHARED_PRF_STORAGE_OFFSET",
         ):
             self.assertIn(region, flash)
         for region in (
-            "FLASH_REGION_CD_BEGIN",
-            "FLASH_REGION_DEBUG_DB_BEGIN",
+            "PART_CD_OFFSET",
+            "PART_DEBUG_DB_OFFSET",
         ):
             self.assertNotIn(region, flash)
-        self.assertNotIn("FLASH_REGION_FIRMWARE_SLOT_0_BEGIN", flash)
-        self.assertNotIn("FLASH_REGION_FIRMWARE_SLOT_1_BEGIN", flash)
+        self.assertNotIn("PART_FIRMWARE_SLOT_0_OFFSET", flash)
+        self.assertNotIn("PART_FIRMWARE_SLOT_1_OFFSET", flash)
 
     def test_t5ai_shared_i2c_bus_uses_cst92xx_qualified_standard_mode(self):
         board = (ROOT / "boards/unhygienix/unhygienix.c").read_text()
@@ -407,7 +407,7 @@ int main(void) {
 
     def test_t5ai_holds_psram_power_before_board_validation(self):
         board = (ROOT / "boards/unhygienix/unhygienix.c").read_text()
-        init = board.split("void board_init(void)", 1)[1]
+        init = board.split("void prv_init(void)", 1)[1]
         for region in ("framebuffer", "display_dma"):
             validation = init.index(f"prv_validate_psram_range(__t5ai_{region}_start__")
             self.assertLess(init.index("t5ai_cp_mailbox_enable_psram()"), validation)
@@ -420,7 +420,7 @@ int main(void) {
         board = (ROOT / "boards/unhygienix/unhygienix.c").read_text()
         self.assertRegex(mailbox, r"CP_PM_SLEEP_COMMAND\s+3u")
         self.assertRegex(mailbox, r"CP_PM_SLEEP_APP_MODULE\s+12u")
-        init = board.split("void board_init(void)", 1)[1]
+        init = board.split("void prv_init(void)", 1)[1]
         self.assertLess(
             init.index("t5ai_cp_mailbox_vote_app_sleep(false)"),
             init.index("t5ai_power_init();"),
@@ -443,8 +443,8 @@ int main(void) {
 
     def test_t5ai_leaves_cp_owned_watchdog_disabled(self):
         board = (ROOT / "boards/unhygienix/unhygienix.c").read_text()
-        early_init = board.split("void board_early_init(void)", 1)[1]
-        early_init = early_init.split("void board_init(void)", 1)[0]
+        early_init = board.split("void prv_early_init(void)", 1)[1]
+        early_init = early_init.split("void prv_init(void)", 1)[0]
         self.assertIn("watchdog_init();", early_init)
         self.assertNotIn("watchdog_start();", early_init)
 

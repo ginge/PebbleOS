@@ -7,10 +7,9 @@
 
 #include <pbl/drivers/dma/t5ai.h>
 #include <pbl/kernel/irq.h>
+#include <pbl/soc/t5ai/core.h>
 #include <pbl/soc/t5ai/delay.h>
 #include <pbl/soc/t5ai/memory.h>
-
-#include <cmsis_core.h>
 
 #define DMA_BASE           0x45020000u
 #define DMA_REG(offset)    (*(volatile uint32_t *)(DMA_BASE + (offset)))

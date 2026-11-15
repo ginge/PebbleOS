@@ -6,11 +6,10 @@
 #include <pbl/kernel/cache.h>
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/timer.h>
+#include <pbl/soc/t5ai/core.h>
 #include <pbl/soc/t5ai/cp_mailbox.h>
 #include <pbl/soc/t5ai/delay.h>
 #include <pbl/util/misc.h>
-
-#include <cmsis_core.h>
 
 // Byte offsets and fields from the pinned BK7258 AP qspi_struct.h/sys_struct.h.
 #define QSPI_BASE            0x46040000u

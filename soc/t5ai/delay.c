@@ -1,9 +1,9 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/soc/t5ai/delay.h>
 #include <pbl/kernel/compiler.h>
-#include <cmsis_core.h>
+#include <pbl/soc/t5ai/core.h>
+#include <pbl/soc/t5ai/delay.h>
 
 /* BK7258 timer0 free-running counter setup from the pinned T5AI BSP. */
 #define T5AI_TIMER0_BASE         0x44810000u

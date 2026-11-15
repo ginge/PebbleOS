@@ -6,7 +6,7 @@
 #ifdef QMI8658_FIFO_SELF_TEST
 static struct {
   bool precheck;
-  TimerID timer;
+  struct pbl_delayed_work timer;
   unsigned phase;
   uint32_t interval;
   uint32_t count;
@@ -14,7 +14,7 @@ static struct {
   bool rotated;
   bool pending;
 } s_test;
-static void prv_self_test_schedule(void *context);
+static void prv_self_test_schedule(struct pbl_work *work);
 static void prv_self_test_step(void) {
   PBL_LOG_DBG("QMITEST phase=%u", s_test.phase);
   PBL_LOG_DBG("QMITEST previous valid=%u x=%d y=%d z=%d", s_dev->state->last_sample_valid,
@@ -55,7 +55,7 @@ static void prv_self_test_step(void) {
       pbl_accel_set_shake_detection(&s_dev->accel, s_test.shake);
       (void)pbl_accel_set_sampling_interval(&s_dev->accel, s_test.interval, nullptr);
       pbl_accel_set_num_samples(&s_dev->accel, s_test.count);
-      (void)new_timer_stop(s_test.timer);
+      (void)pbl_delayed_work_cancel(&s_test.timer);
       PBL_LOG_DBG("QMITEST restored");
       s_test.pending = false;
       return;
@@ -63,12 +63,11 @@ static void prv_self_test_step(void) {
   PBL_LOG_DBG("QMITEST state interval=%lu batch=%lu shake=%u rotated=%u active=%u",
               (unsigned long)s_dev->state->interval_us, (unsigned long)s_dev->state->num_samples,
               s_dev->state->shake_enabled, s_dev->state->rotated, s_dev->state->active);
-  (void)new_timer_start(s_test.timer, 15000u, prv_self_test_schedule, NULL,
-                        TIMER_START_FLAG_REPEATING);
   s_test.pending = false;
 }
-static void prv_self_test_schedule(void *context) {
-  (void)context;
+static void prv_self_test_schedule(struct pbl_work *work) {
+  (void)work;
+  (void)pbl_delayed_work_schedule_next(&s_test.timer, pbl_ms_to_ticks(15000));
   if (!s_test.pending) {
     s_test.pending = true;
     if (!prv_queue_work(prv_self_test_step)) {
@@ -77,9 +76,7 @@ static void prv_self_test_schedule(void *context) {
   }
 }
 static void prv_self_test_start(void) {
-  s_test.timer = new_timer_create();
-  if (s_test.timer != TIMER_INVALID_ID) {
-    (void)new_timer_start(s_test.timer, 45000u, prv_self_test_schedule, NULL, 0);
-  }
+  pbl_delayed_work_init(&s_test.timer, prv_self_test_schedule);
+  (void)pbl_delayed_work_reschedule(&pbl_sys_workq_high, &s_test.timer, PBL_MSEC(45000));
 }
 #endif

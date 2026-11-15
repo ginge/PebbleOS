@@ -109,7 +109,7 @@ class T5AIUartTest(unittest.TestCase):
                 path = Path(temporary)
                 write_headers(path)
                 # UART needs only the NVIC declarations from the hardware stub.
-                (path / "cmsis_core.h").write_text(
+                (path / "pbl/soc/t5ai/core.h").write_text(
                     "void NVIC_DisableIRQ(int);\nvoid NVIC_ClearPendingIRQ(int);\n"
                     "void NVIC_SetPriority(int,unsigned);\nvoid NVIC_EnableIRQ(int);\n"
                 )

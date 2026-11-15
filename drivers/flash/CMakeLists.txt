@@ -12,4 +12,4 @@ pbl_library_sources_ifdef(CONFIG_FLASH_QEMU qemu.c)
 pbl_library_sources_ifdef(CONFIG_FLASH_POSIX posix.c)
 pbl_library_sources_ifdef(CONFIG_FLASH_SHELL shell.c)
 
-pbl_library_sources_ifdef(CONFIG_SOC_T5AI t5ai.c t5ai_class.c t5ai_flash_ipc.c)
+pbl_library_sources_ifdef(CONFIG_SOC_T5AI t5ai.c t5ai_flash_ipc.c)

@@ -1,6 +1,8 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
+#include "kernel/pebble_tasks.h"
+
 #include <inttypes.h>
 
 #include <pbl/kernel/irq.h>
@@ -16,7 +18,6 @@
 
 PBL_LOG_MODULE_DEFINE(t5ai_wdt_recovery_trace, LOG_LEVEL_DEBUG);
 
-extern struct pbl_thread *g_task_threads[NumPebbleTask];
 extern struct pbl_thread *pbl_cur;
 static pbl_task_wdt_callback_t s_callback;
 static void *s_data;
@@ -73,7 +74,7 @@ static Snapshot prv_snapshot(struct pbl_thread *thread) {
 
 static void prv_dump(unsigned phase) {
   pbl_irq_lock();
-  Snapshot app = prv_snapshot(g_task_threads[PebbleTask_App]);
+  Snapshot app = prv_snapshot(pebble_task_get_thread(PebbleTask_App));
   Snapshot bg = prv_snapshot(pbl_sys_workq.thread);
   pbl_tick_t ticks = pbl_uptime_ticks();
   pbl_irq_unlock();

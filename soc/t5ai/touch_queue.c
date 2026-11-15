@@ -15,9 +15,8 @@
 #include <pbl/kernel/irq.h>
 #include <pbl/kernel/msgq.h>
 #include <pbl/kernel/thread.h>
+#include <pbl/soc/t5ai/core.h>
 #include <pbl/soc/t5ai/rtc.h>
-
-#include <cmsis_core.h>
 
 #ifdef CONFIG_T5AI_IO_PROFILE
 #include <pbl/soc/t5ai/io_profile.h>

@@ -2,17 +2,15 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include <pbl/kernel/assert.h>
-
 #include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
 
 #include <pbl/drivers/gpio/t5ai.h>
+#include <pbl/kernel/assert.h>
 #include <pbl/kernel/irq.h>
+#include <pbl/soc/t5ai/core.h>
 #include <pbl/soc/t5ai/interrupt_profile.h>
-
-#include <cmsis_core.h>
 
 #define T5AI_GPIO_INPUT                (1u << 0)
 #define T5AI_GPIO_INTERRUPT_TYPE_SHIFT 10u

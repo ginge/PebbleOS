@@ -7,14 +7,13 @@
 #include <pbl/kernel/time.h>
 #include <pbl/kernel/work.h>
 #include <pbl/logging/logging.h>
+#include <pbl/soc/t5ai/core.h>
 #include <pbl/soc/t5ai/hci_ipc.h>
 #include <pbl/soc/t5ai/mailbox_channel.h>
 #include <pbl/soc/t5ai/mb_ipc.h>
 #include <pbl/soc/t5ai/native_alarm.h>
 #include <pbl/soc/t5ai/reset.h>
 #include <pbl/soc/t5ai/sleep.h>
-
-#include <cmsis_core.h>
 
 #define GUARD_TEST_SLOT_SECONDS       2u
 #define GUARD_TEST_WAIT_STEPS         180u

@@ -12,10 +12,9 @@
 #include <pbl/drivers/i2c/t5ai.h>
 #include <pbl/kernel/assert.h>
 #include <pbl/kernel/irq.h>
+#include <pbl/soc/t5ai/core.h>
 #include <pbl/soc/t5ai/delay.h>
 #include <pbl/util/misc.h>
-
-#include <cmsis_core.h>
 
 typedef volatile struct {
   uint32_t device_id;

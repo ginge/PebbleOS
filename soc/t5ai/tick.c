@@ -1,11 +1,10 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <pbl/drivers/timer.h>
 #include <pbl/kernel/irq.h>
+#include <pbl/soc/t5ai/core.h>
 #include <pbl/soc/t5ai/power.h>
 #include <pbl/soc/t5ai/rtc.h>
 #include <pbl/soc/t5ai/tick.h>
-
-#include <cmsis_core.h>
 
 #ifdef CONFIG_T5AI_TICK_PROFILE
 T5AITickProfile t5ai_tick_profile;

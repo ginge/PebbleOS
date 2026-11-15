@@ -70,7 +70,7 @@ class UARTIdleClockTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary)
             uart_model.write_headers(path)
-            (path / "cmsis_core.h").write_text(
+            (path / "pbl/soc/t5ai/core.h").write_text(
                 "#define __DSB() ((void)0)\nvoid NVIC_DisableIRQ(int);\n"
                 "void NVIC_ClearPendingIRQ(int);\nvoid NVIC_SetPriority(int,unsigned);\n"
                 "void NVIC_EnableIRQ(int);\n"

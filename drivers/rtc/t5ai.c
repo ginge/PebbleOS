@@ -1,26 +1,22 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "board/board.h"
 #include "pbl/system/rtc_registers.h"
 
 #include <errno.h>
 #include <stddef.h>
 #include <string.h>
 
-#include <pbl/drivers/i2c.h>
+#include <pbl/drivers/i2c/t5ai.h>
 #include <pbl/drivers/rtc.h>
 #include <pbl/kernel/time.h>
+#include <pbl/soc/t5ai/devices.h>
 #include <pbl/util/time.h>
 
-typedef uint64_t RtcTicks;
-#define RTC_TICKS_HZ 1000u
-static time_t rtc_get_time(void);
-static void rtc_get_time_ms(time_t *, uint16_t *);
+static time_t prv_get_retained_time(void);
+#include <pbl/soc/t5ai/core.h>
 #include <pbl/soc/t5ai/retained.h>
 #include <pbl/soc/t5ai/rtc.h>
-
-#include <cmsis_core.h>
 
 // External RTC stores years 00..37 relative to 2000; struct pbl_tm counts from 1900.
 #define PCF85063_TM_YEAR_BASE        100
@@ -50,9 +46,6 @@ static void rtc_get_time_ms(time_t *, uint16_t *);
 #define T5AI_RTC_MIN_VALID_TIME 1577836800u
 #define T5AI_RTC_MAX_VALID_TIME 2145916799u
 
-_Static_assert(T5AI_AON_RTC_HZ % RTC_TICKS_HZ == 0u,
-               "AON RTC must divide exactly into Pebble ticks");
-
 #define PCF85063_REG_CONTROL1   0x00u
 #define PCF85063_REG_SECONDS    0x04u
 #define PCF85063_CONTROL1_STOP  (1u << 5)
@@ -64,7 +57,7 @@ static bool s_external_rtc_present;
 // First failing operation from the most recent persistence attempt (zero is healthy).
 static int s_external_rtc_error;
 
-static RtcTicks prv_raw_ticks(void) {
+static uint64_t prv_raw_ticks(void) {
   uint32_t low;
   uint32_t high;
   do {
@@ -74,7 +67,7 @@ static RtcTicks prv_raw_ticks(void) {
   return ((uint64_t)high << 32) | low;
 }
 
-static RtcTicks prv_base_ticks(void) {
+static uint64_t prv_base_ticks(void) {
   return ((uint64_t)t5ai_retained_read(T5AI_RTC_BASE_TICKS_HIGH) << 32) |
          t5ai_retained_read(T5AI_RTC_BASE_TICKS_LOW);
 }
@@ -82,7 +75,7 @@ static RtcTicks prv_base_ticks(void) {
 static void prv_set_retained_time(time_t time) {
   const uint32_t mask = __get_PRIMASK();
   __disable_irq();
-  const RtcTicks ticks = prv_raw_ticks();
+  const uint64_t ticks = prv_raw_ticks();
   t5ai_retained_write_clock((uint32_t)time, ticks);
   __set_PRIMASK(mask);
 }
@@ -216,11 +209,11 @@ static bool prv_external_rtc_write(time_t time) {
   return s_external_rtc_ready;
 }
 
-static void rtc_init(void) {
+static void prv_restore_retained_time(void) {
   t5ai_retained_init();
 
-  const RtcTicks ticks = prv_raw_ticks();
-  const RtcTicks base_ticks = prv_base_ticks();
+  const uint64_t ticks = prv_raw_ticks();
+  const uint64_t base_ticks = prv_base_ticks();
   uint32_t saved_time = t5ai_retained_read(CURRENT_TIME_REGISTER);
   if (saved_time < T5AI_RTC_MIN_VALID_TIME || saved_time > T5AI_RTC_MAX_VALID_TIME) {
     saved_time = T5AI_RTC_MIN_VALID_TIME;
@@ -230,7 +223,7 @@ static void rtc_init(void) {
   }
 }
 
-static void rtc_init_timers(void) {
+static void prv_restore_external_time(void) {
   s_external_rtc_ready = false;
   s_external_rtc_present = false;
   uint8_t control;
@@ -250,40 +243,18 @@ static void rtc_init_timers(void) {
   /* A responding RTC with stopped/invalid contents is safe to initialize from
    * the retained fallback. Do not attempt writes when the bus/device itself
    * did not answer. Read back before trusting it for future time updates. */
-  const time_t fallback_time = rtc_get_time();
+  const time_t fallback_time = prv_get_retained_time();
   (void)prv_external_rtc_write(fallback_time);
 }
 
-static void rtc_set_time(time_t time) {
-  prv_set_retained_time(time);
-  // A responding device gets one bounded retry on the next wall-time update.
-  if (s_external_rtc_present) {
-    (void)prv_external_rtc_write(time);
-  }
-}
-
-static void rtc_get_time_ms(time_t *out_seconds, uint16_t *out_ms) {
-  // Mask all configurable ISRs; a reader must never spin on a preempted writer.
+static time_t prv_get_retained_time(void) {
+  // A reader must never spin on a preempted retained-register writer.
   const uint32_t mask = __get_PRIMASK();
   __disable_irq();
-  const RtcTicks ticks = prv_raw_ticks();
-  const RtcTicks base = prv_base_ticks();
+  const uint64_t elapsed = prv_raw_ticks() - prv_base_ticks();
   const uint32_t epoch = t5ai_retained_read(CURRENT_TIME_REGISTER);
   __set_PRIMASK(mask);
-  const RtcTicks elapsed = ticks - base;
-  *out_seconds = (time_t)epoch + (time_t)(elapsed / T5AI_AON_RTC_HZ);
-  *out_ms = (uint16_t)(((elapsed % T5AI_AON_RTC_HZ) * 1000u) / T5AI_AON_RTC_HZ);
-}
-
-static time_t rtc_get_time(void) {
-  time_t seconds;
-  uint16_t milliseconds;
-  rtc_get_time_ms(&seconds, &milliseconds);
-  return seconds;
-}
-
-RtcTicks rtc_get_ticks(void) {
-  return prv_raw_ticks() / (T5AI_AON_RTC_HZ / RTC_TICKS_HZ);
+  return (time_t)epoch + (time_t)(elapsed / T5AI_AON_RTC_HZ);
 }
 
 uint64_t t5ai_rtc_get_raw_ticks(void) {
@@ -292,20 +263,22 @@ uint64_t t5ai_rtc_get_raw_ticks(void) {
 
 static int prv_init(const struct pbl_device *dev) {
   (void)dev;
-  rtc_init();
-  rtc_init_timers();
+  prv_restore_retained_time();
+  prv_restore_external_time();
   return 0;
 }
 static int prv_get_time(const struct pbl_rtc *rtc, time_t *t) {
   (void)rtc;
-  *t = rtc_get_time();
+  *t = prv_get_retained_time();
   return 0;
 }
 static int prv_set_time(const struct pbl_rtc *rtc, time_t t) {
   (void)rtc;
   if (t < (time_t)T5AI_RTC_MIN_VALID_TIME || t > (time_t)T5AI_RTC_MAX_VALID_TIME)
     return -EINVAL;
-  rtc_set_time(t);
+  prv_set_retained_time(t);
+  if (s_external_rtc_present)
+    (void)prv_external_rtc_write(t);
   return s_external_rtc_present && !s_external_rtc_ready ? -EIO : 0;
 }
 static const struct pbl_rtc_ops s_ops = {.get_time = prv_get_time, .set_time = prv_set_time};
