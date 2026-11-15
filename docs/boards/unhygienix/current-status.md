@@ -22,8 +22,18 @@ programming preserved CP, resources, filesystem and bond data. The CH342 adapter
 required a physical reconnect after repeated serial protocol errors before the
 successful write. Evidence, matching ELF files and dictionaries are retained in
 `build-tuya-upstream/native-bootfix-20261115/`; attempt 9 contains the stub image
-startup. Earlier failures are retained separately. A final normal configuration
-flash and longer functional qualification remain pending at this checkpoint.
+startup. Earlier failures are retained separately.
+
+The final normal image from `2fce502f6` is now installed, version
+`v4.41.2-1639-g2fce502f6`, GNU build ID
+`cf0058fc5e5fb7ce87c5764dc092d29f6609c071`. Fault tracing is disabled.
+The AP-only write took 32.4 seconds over physical range
+`0x132000..0x2e05aa` (end exclusive). A 210-second capture, approximately
+175 seconds after reboot, contains one boot, launcher startup, restored bonding
+and an encrypted phone protocol session, with no new fault or reboot observed.
+Matching images, ELF, config, dictionary, hashes, raw UART and `result.json` are
+frozen in `build-tuya-upstream/native-bootfix-20261115/final-normal/`.
+UI/watchface regression, disconnect-cycle testing and overnight soak remain open.
 
 Validation: all 468 tooling tests complete successfully (15 optional tests skip),
 including native class tests for the fake peripherals, compositor startup, and
