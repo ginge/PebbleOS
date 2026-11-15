@@ -42,8 +42,9 @@ Restore patch SHA256:
 
 ## Reuse later
 
-From production `/home/baz/coredevices/pebbleos`, inspect the archive and use a
-separate reviewable checkout if production has evolved. Verify the hash, then:
+The exact patch targets the cleaned source at commit `0ecd64222`, before the
+subsequent SPI/DMA readability refactor. In a separate reviewable checkout of
+that baseline, verify the hash, then:
 
 ```sh
 git apply --check /home/baz/Documents/ChatGPT/pebble/artifacts/diagnostics-retirement-20261114/restore-diagnostics.patch
@@ -51,7 +52,8 @@ git apply /home/baz/Documents/ChatGPT/pebble/artifacts/diagnostics-retirement-20
 ```
 
 The patch restores code and integration; it does not enable test workloads.
-Review any newer production safety changes before applying an older snapshot.
+Port the required hooks to current production after reviewing its newer safety
+changes; the historical patch is not expected to apply directly after refactors.
 Enable `T5AI_QSPI_DMA_PROFILE` for bounded boot/32-return reports. Select at most
 one of `T5AI_IO_QUALIFICATION` or `T5AI_DISPLAY_ENERGY_TEST`, deliberately, for a
 prepared hardware trial. The exact prior method and limits remain documented in

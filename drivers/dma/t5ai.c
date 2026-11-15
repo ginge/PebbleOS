@@ -16,8 +16,8 @@
 #define DMA_REG(offset)    (*(volatile uint32_t *)(DMA_BASE + (offset)))
 #define DMA_CHANNEL_BASE   0x40u
 #define DMA_CHANNEL_STRIDE 0x40u
-#define DMA_CHANNEL_REG(channel, offset) \
-  DMA_REG(DMA_CHANNEL_BASE + (channel) * DMA_CHANNEL_STRIDE + (offset))
+#define DMA_CHANNEL_REG(channel_index, offset) \
+  DMA_REG(DMA_CHANNEL_BASE + (channel_index) * DMA_CHANNEL_STRIDE + (offset))
 
 #define DMA_GLOBAL_CONTROL           0x08u
 #define DMA_SECURE_ATTRIBUTE         0x10u
@@ -85,36 +85,36 @@
 #define SYSTEM_DMA0_MEMORY_POWER_DOWN     (1u << 30)
 #define SYSTEM_CPU1_GDMA_INTERRUPT_ENABLE (1u << 11)
 
-struct channel {
+struct dma_channel_state {
   uint32_t request, options;
   uintptr_t memory;
-  size_t len;
-  enum pbl_dma_dir dir;
+  size_t length;
+  enum pbl_dma_dir direction;
   bool cyclic, active;
 };
-static struct channel s_channels[DMA_AP_CHANNEL_COUNT];
+static struct dma_channel_state s_channels[DMA_AP_CHANNEL_COUNT];
 
-static int prv_terminate(const struct pbl_dma_controller *ctrl, uint8_t c) {
-  (void)ctrl;
+static int prv_terminate(const struct pbl_dma_controller *controller, uint8_t channel_index) {
+  (void)controller;
   pbl_irq_lock();
-  DMA_CHANNEL_REG(c, DMA_CHANNEL_CONTROL) = 0;
+  DMA_CHANNEL_REG(channel_index, DMA_CHANNEL_CONTROL) = 0;
   __DSB();
-  (void)DMA_CHANNEL_REG(c, DMA_CHANNEL_CONTROL);
-  DMA_CHANNEL_REG(c, DMA_CHANNEL_STATUS) = DMA_STATUS_INTERRUPTS;
+  (void)DMA_CHANNEL_REG(channel_index, DMA_CHANNEL_CONTROL);
+  DMA_CHANNEL_REG(channel_index, DMA_CHANNEL_STATUS) = DMA_STATUS_INTERRUPTS;
 #if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
-  if (s_channels[c].active)
+  if (s_channels[channel_index].active)
     t5ai_sleep_unblock(T5AISleepOwner_DMA);
 #endif
-  s_channels[c].active = false;
+  s_channels[channel_index].active = false;
   pbl_irq_unlock();
   return 0;
 }
 
-static int prv_config(const struct pbl_dma_controller *ctrl, const struct pbl_dma_chan *chan,
-                      const struct pbl_dma_slave_config *cfg) {
-  (void)ctrl;
-  (void)cfg;
-  struct channel *state = &s_channels[chan->channel];
+static int prv_config(const struct pbl_dma_controller *controller, const struct pbl_dma_chan *chan,
+                      const struct pbl_dma_slave_config *config) {
+  (void)controller;
+  (void)config;
+  struct dma_channel_state *state = &s_channels[chan->channel];
   if (state->active)
     return -EBUSY;
   if (chan->request > DMA_REQUEST_SELECT_MASK ||
@@ -125,128 +125,142 @@ static int prv_config(const struct pbl_dma_controller *ctrl, const struct pbl_dm
   return 0;
 }
 
-static int prv_start(const struct pbl_dma_controller *ctrl, uint8_t c, void *buf, size_t len,
-                     size_t period, enum pbl_dma_dir dir) {
-  struct channel *s = &s_channels[c];
-  const struct pbl_dma_slave_config *cfg = &ctrl->chans[c].cfg;
-  const bool write = dir == PBL_DMA_MEM_TO_DEV;
-  const unsigned width = write ? cfg->dst_addr_width : cfg->src_addr_width;
-  const uintptr_t peripheral = write ? cfg->dst_addr : cfg->src_addr;
-  const uintptr_t memory = (uintptr_t)buf;
-  if (s->active)
+static int prv_start(const struct pbl_dma_controller *controller, uint8_t channel_index,
+                     void *buffer, size_t length, size_t period_bytes, enum pbl_dma_dir direction) {
+  struct dma_channel_state *state = &s_channels[channel_index];
+  const struct pbl_dma_slave_config *config = &controller->chans[channel_index].cfg;
+  const bool to_peripheral = direction == PBL_DMA_MEM_TO_DEV;
+  const unsigned width_bytes = to_peripheral ? config->dst_addr_width : config->src_addr_width;
+  const uintptr_t peripheral = to_peripheral ? config->dst_addr : config->src_addr;
+  const uintptr_t memory = (uintptr_t)buffer;
+  if (state->active)
     return -EBUSY;
   const bool reachable =
-      (memory >= DMA_AP_SRAM_BASE && memory < DMA_AP_SRAM_END && len <= DMA_AP_SRAM_END - memory) ||
+      (memory >= DMA_AP_SRAM_BASE && memory < DMA_AP_SRAM_END &&
+       length <= DMA_AP_SRAM_END - memory) ||
       (memory >= T5AI_DISPLAY_PSRAM_BASE &&
        memory < T5AI_DISPLAY_PSRAM_BASE + T5AI_DISPLAY_PSRAM_SIZE &&
-       len <= T5AI_DISPLAY_PSRAM_BASE + T5AI_DISPLAY_PSRAM_SIZE - memory) ||
+       length <= T5AI_DISPLAY_PSRAM_BASE + T5AI_DISPLAY_PSRAM_SIZE - memory) ||
       (memory >= T5AI_DISPLAY_DMA_PSRAM_BASE &&
        memory < T5AI_DISPLAY_DMA_PSRAM_BASE + T5AI_DISPLAY_DMA_PSRAM_SIZE &&
-       len <= T5AI_DISPLAY_DMA_PSRAM_BASE + T5AI_DISPLAY_DMA_PSRAM_SIZE - memory);
-  if (!reachable || (dir != PBL_DMA_MEM_TO_DEV && dir != PBL_DMA_DEV_TO_MEM) ||
-      (width != 1u && width != 2u && width != 4u) || !buf || !peripheral || !len ||
-      len > DMA_MAX_TRANSFER_BYTES || len % width || memory % width || peripheral % width ||
-      (period && (period != len / 2u || len % 2u || period % width)))
+       length <= T5AI_DISPLAY_DMA_PSRAM_BASE + T5AI_DISPLAY_DMA_PSRAM_SIZE - memory);
+  if (!reachable || (direction != PBL_DMA_MEM_TO_DEV && direction != PBL_DMA_DEV_TO_MEM) ||
+      (width_bytes != 1u && width_bytes != 2u && width_bytes != 4u) || !buffer || !peripheral ||
+      !length || length > DMA_MAX_TRANSFER_BYTES || length % width_bytes || memory % width_bytes ||
+      peripheral % width_bytes ||
+      (period_bytes && (period_bytes != length / 2u || length % 2u || period_bytes % width_bytes)))
     return -EINVAL;
-  const unsigned encoding = width == 4u   ? DMA_WIDTH_WORD
-                            : width == 2u ? DMA_WIDTH_HALFWORD
-                                          : DMA_WIDTH_BYTE;
-  const bool increment = (s->options & T5AI_DMA_PERIPHERAL_INCREMENT) != 0;
-  const uintptr_t source = write ? memory : peripheral;
-  const uintptr_t destination = write ? peripheral : memory;
-  const size_t source_len = write || increment ? len : width;
-  const size_t destination_len = !write || increment ? len : width;
+  const unsigned width_encoding = width_bytes == 4u   ? DMA_WIDTH_WORD
+                                  : width_bytes == 2u ? DMA_WIDTH_HALFWORD
+                                                      : DMA_WIDTH_BYTE;
+  const bool increment_peripheral = (state->options & T5AI_DMA_PERIPHERAL_INCREMENT) != 0;
+  const uintptr_t source = to_peripheral ? memory : peripheral;
+  const uintptr_t destination = to_peripheral ? peripheral : memory;
+  const size_t source_len = to_peripheral || increment_peripheral ? length : width_bytes;
+  const size_t destination_len = !to_peripheral || increment_peripheral ? length : width_bytes;
   pbl_irq_lock();
-  DMA_CHANNEL_REG(c, DMA_CHANNEL_CONTROL) = 0;
-  DMA_CHANNEL_REG(c, DMA_DESTINATION_ADDRESS) = destination;
-  DMA_CHANNEL_REG(c, DMA_SOURCE_ADDRESS) = source;
-  DMA_CHANNEL_REG(c, DMA_DESTINATION_LOOP_END) =
-      destination + destination_len + (increment && !period ? width : 0u);
-  DMA_CHANNEL_REG(c, DMA_DESTINATION_LOOP_START) = destination;
-  DMA_CHANNEL_REG(c, DMA_SOURCE_LOOP_END) =
-      source + source_len + (increment && !period ? width : 0u);
-  DMA_CHANNEL_REG(c, DMA_SOURCE_LOOP_START) = source;
-  DMA_CHANNEL_REG(c, DMA_REQUEST_MUX) =
-      (s->request << (write ? DMA_REQUEST_DESTINATION_SHIFT : DMA_REQUEST_SOURCE_SHIFT)) |
+  DMA_CHANNEL_REG(channel_index, DMA_CHANNEL_CONTROL) = 0;
+  DMA_CHANNEL_REG(channel_index, DMA_DESTINATION_ADDRESS) = destination;
+  DMA_CHANNEL_REG(channel_index, DMA_SOURCE_ADDRESS) = source;
+  DMA_CHANNEL_REG(channel_index, DMA_DESTINATION_LOOP_END) =
+      destination + destination_len + (increment_peripheral && !period_bytes ? width_bytes : 0u);
+  DMA_CHANNEL_REG(channel_index, DMA_DESTINATION_LOOP_START) = destination;
+  DMA_CHANNEL_REG(channel_index, DMA_SOURCE_LOOP_END) =
+      source + source_len + (increment_peripheral && !period_bytes ? width_bytes : 0u);
+  DMA_CHANNEL_REG(channel_index, DMA_SOURCE_LOOP_START) = source;
+  DMA_CHANNEL_REG(channel_index, DMA_REQUEST_MUX) =
+      (state->request << (to_peripheral ? DMA_REQUEST_DESTINATION_SHIFT
+                                        : DMA_REQUEST_SOURCE_SHIFT)) |
       DMA_REQUEST_SOURCE_SECURE | DMA_REQUEST_DESTINATION_SECURE |
       DMA_REQUEST_BUS_ERROR_INTERRUPT_ENABLE |
-      ((s->options & T5AI_DMA_BURST_INC16)
+      ((state->options & T5AI_DMA_BURST_INC16)
            ? (DMA_BURST_LENGTH_INC16 << DMA_REQUEST_SOURCE_BURST_SHIFT) |
                  (DMA_BURST_LENGTH_INC16 << DMA_REQUEST_DESTINATION_BURST_SHIFT)
            : 0u);
-  DMA_CHANNEL_REG(c, DMA_CHANNEL_STATUS) = DMA_STATUS_INTERRUPTS;
-  s->memory = memory;
-  s->len = len;
-  s->dir = dir;
-  s->cyclic = period != 0;
-  s->active = true;
+  DMA_CHANNEL_REG(channel_index, DMA_CHANNEL_STATUS) = DMA_STATUS_INTERRUPTS;
+  state->memory = memory;
+  state->length = length;
+  state->direction = direction;
+  state->cyclic = period_bytes != 0;
+  state->active = true;
 #if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
   t5ai_sleep_block(T5AISleepOwner_DMA);
 #endif
   __DSB();
-  DMA_CHANNEL_REG(c, DMA_CHANNEL_CONTROL) =
-      ((len - 1u) << DMA_CONTROL_LENGTH_SHIFT) | (encoding << DMA_CONTROL_SOURCE_WIDTH_SHIFT) |
-      (encoding << DMA_CONTROL_DESTINATION_WIDTH_SHIFT) |
-      ((write || increment) ? DMA_CONTROL_SOURCE_INCREMENT : 0u) |
-      ((!write || increment) ? DMA_CONTROL_DESTINATION_INCREMENT : 0u) |
+  DMA_CHANNEL_REG(channel_index, DMA_CHANNEL_CONTROL) =
+      ((length - 1u) << DMA_CONTROL_LENGTH_SHIFT) |
+      (width_encoding << DMA_CONTROL_SOURCE_WIDTH_SHIFT) |
+      (width_encoding << DMA_CONTROL_DESTINATION_WIDTH_SHIFT) |
+      ((to_peripheral || increment_peripheral) ? DMA_CONTROL_SOURCE_INCREMENT : 0u) |
+      ((!to_peripheral || increment_peripheral) ? DMA_CONTROL_DESTINATION_INCREMENT : 0u) |
       DMA_CONTROL_SOURCE_LOOP_ENABLE | DMA_CONTROL_DESTINATION_LOOP_ENABLE |
       DMA_CONTROL_FINISH_INTERRUPT_ENABLE |
-      (period ? DMA_CONTROL_HALF_INTERRUPT_ENABLE | DMA_CONTROL_REPEAT_MODE : 0u) |
+      (period_bytes ? DMA_CONTROL_HALF_INTERRUPT_ENABLE | DMA_CONTROL_REPEAT_MODE : 0u) |
       DMA_CONTROL_ENABLE;
   pbl_irq_unlock();
   return 0;
 }
-static int prv_single(const struct pbl_dma_controller *ctrl, uint8_t c, void *buf, size_t len,
-                      enum pbl_dma_dir dir) {
-  return prv_start(ctrl, c, buf, len, 0, dir);
+
+static int prv_single(const struct pbl_dma_controller *controller, uint8_t channel_index,
+                      void *buffer, size_t length, enum pbl_dma_dir direction) {
+  return prv_start(controller, channel_index, buffer, length, 0, direction);
 }
-static int prv_cyclic(const struct pbl_dma_controller *ctrl, uint8_t c, void *buf, size_t len,
-                      size_t period, enum pbl_dma_dir dir) {
-  return prv_start(ctrl, c, buf, len, period, dir);
+
+static int prv_cyclic(const struct pbl_dma_controller *controller, uint8_t channel_index,
+                      void *buffer, size_t length, size_t period_bytes,
+                      enum pbl_dma_dir direction) {
+  return prv_start(controller, channel_index, buffer, length, period_bytes, direction);
 }
-static int prv_status(const struct pbl_dma_controller *ctrl, uint8_t c, size_t *residue) {
-  (void)ctrl;
-  const struct channel *s = &s_channels[c];
-  if (DMA_CHANNEL_REG(c, DMA_CHANNEL_STATUS) & DMA_STATUS_BUS_ERROR)
+
+static int prv_status(const struct pbl_dma_controller *controller, uint8_t channel_index,
+                      size_t *residue) {
+  (void)controller;
+  const struct dma_channel_state *state = &s_channels[channel_index];
+  if (DMA_CHANNEL_REG(channel_index, DMA_CHANNEL_STATUS) & DMA_STATUS_BUS_ERROR)
     return -EIO;
-  if (!s->active || (!s->cyclic && (DMA_CHANNEL_REG(c, DMA_CHANNEL_STATUS) & DMA_STATUS_FINISH))) {
+  if (!state->active || (!state->cyclic && (DMA_CHANNEL_REG(channel_index, DMA_CHANNEL_STATUS) &
+                                            DMA_STATUS_FINISH))) {
     *residue = 0;
   } else {
-    const uintptr_t position = DMA_CHANNEL_REG(
-        c, s->dir == PBL_DMA_MEM_TO_DEV ? DMA_SOURCE_READ_ADDRESS : DMA_DESTINATION_WRITE_ADDRESS);
-    *residue = position >= s->memory && position <= s->memory + s->len
-                   ? s->len - (position - s->memory)
-                   : s->len;
+    const uintptr_t position = DMA_CHANNEL_REG(channel_index, state->direction == PBL_DMA_MEM_TO_DEV
+                                                                  ? DMA_SOURCE_READ_ADDRESS
+                                                                  : DMA_DESTINATION_WRITE_ADDRESS);
+    *residue = position >= state->memory && position <= state->memory + state->length
+                   ? state->length - (position - state->memory)
+                   : state->length;
   }
   return 0;
 }
+
 void pbl_dma_t5ai_irq_handler(void) {
   pbl_irq_lock();
-  for (uint8_t c = 0; c < DMA_AP_CHANNEL_COUNT; ++c) {
-    const uint32_t status = DMA_CHANNEL_REG(c, DMA_CHANNEL_STATUS) & DMA_STATUS_INTERRUPTS;
+  for (uint8_t channel_index = 0; channel_index < DMA_AP_CHANNEL_COUNT; ++channel_index) {
+    const uint32_t status =
+        DMA_CHANNEL_REG(channel_index, DMA_CHANNEL_STATUS) & DMA_STATUS_INTERRUPTS;
     if (!status)
       continue;
-    DMA_CHANNEL_REG(c, DMA_CHANNEL_STATUS) = status;
-    struct channel *s = &s_channels[c];
-    if (!s->active)
+    DMA_CHANNEL_REG(channel_index, DMA_CHANNEL_STATUS) = status;
+    struct dma_channel_state *state = &s_channels[channel_index];
+    if (!state->active)
       continue;
     // Coalesced cyclic events mean the consumer has already lost a period.
     if ((status & DMA_STATUS_BUS_ERROR) ||
-        (s->cyclic && (status & (DMA_STATUS_HALF | DMA_STATUS_FINISH)) ==
-                          (DMA_STATUS_HALF | DMA_STATUS_FINISH))) {
+        (state->cyclic && (status & (DMA_STATUS_HALF | DMA_STATUS_FINISH)) ==
+                              (DMA_STATUS_HALF | DMA_STATUS_FINISH))) {
 #if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
       t5ai_sleep_fault();
 #endif
-      prv_terminate(&T5AI_DMA, c);
-      pbl_dma_complete(&T5AI_DMA, c, -EIO);
-    } else if (status & (s->cyclic ? DMA_STATUS_HALF | DMA_STATUS_FINISH : DMA_STATUS_FINISH)) {
-      if (!s->cyclic)
-        prv_terminate(&T5AI_DMA, c);
-      pbl_dma_complete(&T5AI_DMA, c, 0);
+      prv_terminate(&T5AI_DMA, channel_index);
+      pbl_dma_complete(&T5AI_DMA, channel_index, -EIO);
+    } else if (status & (state->cyclic ? DMA_STATUS_HALF | DMA_STATUS_FINISH : DMA_STATUS_FINISH)) {
+      if (!state->cyclic)
+        prv_terminate(&T5AI_DMA, channel_index);
+      pbl_dma_complete(&T5AI_DMA, channel_index, 0);
     }
   }
   pbl_irq_unlock();
 }
+
 static int prv_init(const struct pbl_device *dev) {
   (void)dev;
   SYSTEM_REG(SYSTEM_POWER_SLEEP_WAKEUP) &= ~SYSTEM_BACKUP_POWER_DOWN;
@@ -265,13 +279,14 @@ static int prv_init(const struct pbl_device *dev) {
   DMA_REG(DMA_SECURE_ATTRIBUTE) |= DMA_AP_CHANNEL_MASK;
   DMA_REG(DMA_PRIVILEGED_ATTRIBUTE) |= DMA_AP_CHANNEL_MASK;
   DMA_REG(DMA_INTERRUPT_ALLOCATION) &= ~DMA_AP_CHANNEL_MASK;
-  for (uint8_t c = 0; c < DMA_AP_CHANNEL_COUNT; ++c)
-    prv_terminate(&T5AI_DMA, c);
+  for (uint8_t channel_index = 0; channel_index < DMA_AP_CHANNEL_COUNT; ++channel_index)
+    prv_terminate(&T5AI_DMA, channel_index);
   SYSTEM_REG(SYSTEM_CPU1_INTERRUPT_ENABLE) |= SYSTEM_CPU1_GDMA_INTERRUPT_ENABLE;
   NVIC_SetPriority(GDMA_IRQn, DMA_IRQ_PRIORITY);
   NVIC_EnableIRQ(GDMA_IRQn);
   return 0;
 }
+
 static const struct pbl_dma_controller_ops s_ops = {
   .slave_config = prv_config,
   .prep_slave_single = prv_single,

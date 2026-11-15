@@ -3,6 +3,26 @@
 The latest installation checkpoint below is the current installed state. Dated entries preserve
 the state and evidence at their recorded checkpoint.
 
+## Native QSPI/DMA readability — 14 November
+
+The native SPI driver now names register offsets, bit fields, clock/divider
+settings, framing/FIFO limits and timeouts against the pinned BK7258 AP register
+reference. Transfer state and DMA callbacks have descriptive names; native DMA
+channel state, direction, widths and indices are also expanded. Register access
+order, deadlines, DMA inheritance default and visible display behavior are unchanged.
+
+All 57 actual-source ASan/UBSan regressions pass. Before/after optimized host
+assembly is identical in the existing endpoint models for SPI and both DMA
+policy paths. Normal release `b6a1ca163edd307b0bc11b7a0480a540e72c971a` passes
+CRC/map/config/resources, 28,960-byte heap and linked SRAM-WFI checks. The linked
+DMA initializer retains its reset guard with no shared-global store. Evidence:
+reference `artifacts/driver-readability-20261114/`.
+
+This build is not flashed; installed AP remains `4865f074` with the previously
+recorded boot limitations. No new hardware observation or electrical savings
+claim follows from this refactor. The diagnostic recovery guide now pins its
+historical patch baseline before this refactor.
+
 ## QSPI/DMA diagnostic code retired — 14 November
 
 The recorder, mixed-I/O and fixed-display-energy harnesses are removed from
@@ -21,6 +41,15 @@ This is source cleanup, not a flash. Installed AP remains 4865f074 with its olde
 profiling and DMA inheritance enabled, and its last AP=0x4f / retained rejection 4
 capture remains the latest observed boot state. No new hardware, power, shutdown
 or overnight claim is made. Startup/BT diagnosis remains deferred.
+
+Validation: the 54-test retained suite passed; three additional functional SPI
+regressions were then retained from the retired module and passed in the ordinary
+four-test SPI suite (57 unique tests total). Clean normal release
+0d3f28ddb4efba67367c1d848b2313ace4eb22ef passes CRC/map/config/resources,
+28,960-byte heap and actual SRAM-WFI checks. Source/config and linked-ELF audits
+confirm diagnostic files/options/hooks/symbols are absent and DMA inheritance is
+on. No firmware was flashed for this source cleanup.
+
 
 ## DMA inheritance enabled by default — 14 November
 

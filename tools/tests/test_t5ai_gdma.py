@@ -107,12 +107,12 @@ def model(source):
         source,
     )
     source = source.replace(
-        "DMA_CHANNEL_REG(c, DMA_CHANNEL_STATUS) = DMA_STATUS_INTERRUPTS;",
-        "DMA_CHANNEL_REG(c, DMA_CHANNEL_STATUS) = 0;",
+        "DMA_CHANNEL_REG(channel_index, DMA_CHANNEL_STATUS) = DMA_STATUS_INTERRUPTS;",
+        "DMA_CHANNEL_REG(channel_index, DMA_CHANNEL_STATUS) = 0;",
     )
     source = source.replace(
-        "DMA_CHANNEL_REG(c, DMA_CHANNEL_STATUS) = status;",
-        "DMA_CHANNEL_REG(c, DMA_CHANNEL_STATUS) &= ~status;",
+        "DMA_CHANNEL_REG(channel_index, DMA_CHANNEL_STATUS) = status;",
+        "DMA_CHANNEL_REG(channel_index, DMA_CHANNEL_STATUS) &= ~status;",
     )
     return source
 
