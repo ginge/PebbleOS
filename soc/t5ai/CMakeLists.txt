@@ -102,10 +102,13 @@ endif()
 
 if(CONFIG_T5AI_FAULT_TRACE)
   function(t5ai_fault_trace_call_boundaries)
-    # Vector weak aliases are defined locally and cannot be intercepted by --wrap.
-    set_property(SOURCE ${PBL_BASE}/pebble/hardfault_handler.c
-      DIRECTORY ${PBL_BASE}/pebble APPEND PROPERTY COMPILE_DEFINITIONS
-      HardFault_Handler=t5ai_stock_HardFault_Handler)
+    # Keep diagnostic entry points separate from the native fault handlers.
+    set_property(SOURCE ${PBL_BASE}/kernel/arch/arm/fault.c
+      DIRECTORY ${PBL_BASE}/kernel APPEND PROPERTY COMPILE_DEFINITIONS
+      HardFault_Handler=t5ai_stock_HardFault_Handler
+      MemManage_Handler=t5ai_stock_MemManage_Handler
+      BusFault_Handler=t5ai_stock_BusFault_Handler
+      UsageFault_Handler=t5ai_stock_UsageFault_Handler)
     set_property(SOURCE ${PBL_BASE}/kernel/arch/arm/vector_table.c
       DIRECTORY ${PBL_BASE}/kernel APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
   endfunction()

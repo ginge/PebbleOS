@@ -3,6 +3,32 @@
 The latest installation checkpoint below is the current installed state. Dated entries preserve
 the state and evidence at their recorded checkpoint.
 
+## Native startup repair — 15 November
+
+Hardware startup exposed three missing native contracts: the round-platform
+compositor requires a display mask, and the light and vibration services require
+valid device roles. Unhygienix now supplies a zero-inset mask for its rectangular
+AMOLED, a board-local native ALS stub returning a fixed dark reading, and an inert
+native vibration device. Shared Pebble service sources remain unchanged.
+
+The CP console now buffers IRQ-locked UART callbacks and sends from native work
+context at the supported 460800 baud. Optional T5AI fault tracing wraps the native
+CPU fault handlers; diagnostic traces localized the missing ALS and vibration
+roles before the board stubs were added.
+
+The diagnostic image reached the launcher, restored the existing bond, enabled
+advertising and opened an encrypted reversed PPoGATT phone session. AP-only
+programming preserved CP, resources, filesystem and bond data. The CH342 adapter
+required a physical reconnect after repeated serial protocol errors before the
+successful write. Evidence, matching ELF files and dictionaries are retained in
+`build-tuya-upstream/native-bootfix-20261115/`; attempt 9 contains the stub image
+startup. Earlier failures are retained separately. A final normal configuration
+flash and longer functional qualification remain pending at this checkpoint.
+
+Validation: all 468 tooling tests complete successfully (15 optional tests skip),
+including native class tests for the fake peripherals, compositor startup, and
+console work scheduling. The ARM image links with partition and resource checks.
+
 ## Native driver completion — 15 November
 
 Flash and microphone no longer adapt the removed `flash_impl_*` and `mic_*`

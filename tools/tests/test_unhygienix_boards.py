@@ -147,11 +147,9 @@ class UnhygienixBoardsTest(unittest.TestCase):
         self.assertNotIn("PRESSURE", unhygienix)
         self.assertNotIn("TEMPERATURE", unhygienix)
 
-    def test_unavailable_hardware_roles_have_no_device(self):
+    def test_absent_temperature_role_has_no_device(self):
         roles = yaml.safe_load((ROOT / "boards/unhygienix/roles.yml").read_text())
-        for name in ("vibe", "als", "die_temp"):
-            with self.subTest(role=name):
-                self.assertEqual(roles[name]["symbol"], "nullptr")
+        self.assertEqual(roles["die_temp"]["symbol"], "nullptr")
 
     def test_independent_board_discovery(self):
         choices = available_boards(str(ROOT))

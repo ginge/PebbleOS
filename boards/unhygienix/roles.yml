@@ -23,10 +23,12 @@ mic:
   symbol: "&T5AI_MIC"
   include: pbl/soc/t5ai/devices.h
 als:
-  symbol: nullptr
+  symbol: "&T5AI_ALS"
+  include: pbl/soc/t5ai/devices.h
 die_temp:
   symbol: nullptr
 vibe:
-  symbol: nullptr
+  symbol: "&T5AI_VIBE"
+  include: pbl/soc/t5ai/devices.h
 battery:
   symbol: nullptr

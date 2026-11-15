@@ -5,6 +5,7 @@
 import re
 import unittest
 from pathlib import Path
+
 from tools.tests.test_t5ai_timing import run_c
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -40,7 +41,21 @@ struct pbl_uart {const struct pbl_uart_ops *ops;};
 #define PBL_UART_STATE_DEFINE(s)
 #define PBL_UART_INIT(s,n,o,b,d) {.ops=o}
 #define PBL_DEVICE_REGISTER(s,d)
+struct pbl_work {void (*fn)(struct pbl_work *);};
+#define PBL_WORK_DEFINE(n,f) struct pbl_work n={.fn=f}
+static int pbl_sys_workq;
+static void pbl_work_submit(int *q,struct pbl_work *w){assert(q==&pbl_sys_workq && w->fn);}
+struct pbl_log_backend {int unused;};
+struct pbl_log_msg {int unused;};
+struct pbl_log_backend_api {
+ void (*process)(const struct pbl_log_backend *,const struct pbl_log_msg *);
+ void (*panic)(const struct pbl_log_backend *);
+};
+#define LOG_LEVEL_ALWAYS 0
+#define PBL_LOG_BACKEND_DEFINE(n,a,l,e) static const void *const be_##n __attribute__((used))=&a
 static bool running=true,isr,owner,irq_locked,sched_locked;
+static void pbl_irq_lock(void){assert(!irq_locked);irq_locked=true;}
+static void pbl_irq_unlock(void){assert(irq_locked);irq_locked=false;}
 static unsigned locks,unlocks,sends;
 static char output[512];
 static size_t output_length;
@@ -70,11 +85,12 @@ int main(void){
   irq_locked=ctx==0;sched_locked=ctx==1;isr=ctx==2;owner=ctx==3;running=ctx!=4;
   prv_poll_out(uart,'x');prv_flush(uart);assert(sends==prior);
   irq_locked=sched_locked=isr=owner=false;running=true;
-  prv_flush(uart);assert(output_length==1 && output[0]=='A');
+  prv_flush(uart);prv_send(NULL);
+  assert(output_length==(ctx==3?1u:2u) && output[0]=='A');
  }
  output_length=0;
  for(unsigned i=0;i<160;++i)prv_poll_out(uart,'B');
- assert(output_length==159 && s_length==1);prv_flush(uart);assert(output_length==160);
+ assert(output_length==0 && s_length==160);prv_flush(uart);prv_send(NULL);assert(output_length==160);
  for(unsigned i=0;i<160;++i)assert(output[i]=='B');
  owner=true;__wrap_pbl_console_lock();__wrap_pbl_console_unlock();assert(!locks && !unlocks);
  owner=false;__wrap_pbl_console_lock();__wrap_pbl_console_unlock();assert(locks==1 && unlocks==1);

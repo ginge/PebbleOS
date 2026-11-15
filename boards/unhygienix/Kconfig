@@ -97,11 +97,11 @@ config T5AI_HEAP_TRACE
       No stack walks, priority changes or allocator policy changes.
 
 config T5AI_FAULT_TRACE
-    bool "Capture minimal T5 HardFault evidence"
+    bool "Capture minimal T5 CPU fault evidence"
     depends on BOARD_UNHYGIENIX
     default n
     help
-      Wrap only the fatal HardFault vector, preserving the stock handler.
+      Wrap the CPU fault vectors, preserving the stock handlers.
       Send PC/LR, exception context, SCB fault status and active MPU regions
       through bounded emergency CP logs. Recover one original exception
       frame only at MemManage entry. No heap, task locks or stack dump.

@@ -270,4 +270,82 @@ __attribute__((naked)) void HardFault_Handler(void) {
       "msr primask, r3\n"
       "b t5ai_stock_HardFault_Handler\n");
 }
+__attribute__((naked)) void MemManage_Handler(void) {
+  __asm volatile(
+      "tst lr, #4\n"
+      "ite eq\n"
+      "mrseq r0, msp\n"
+      "mrsne r0, psp\n"
+      "mov r1, lr\n"
+      "mrs r2, msp\n"
+      "mrs r3, primask\n"
+      "cpsid i\n"
+      "mrs r12, msplim\n"
+      "ldr lr, =t5ai_fault_stack\n"
+      "msr msplim, lr\n"
+      "add lr, lr, #512\n"
+      "msr msp, lr\n"
+      "push {r0, r1, r2, r3, r12, lr}\n"
+      "mov r2, r12\n"
+      "bl t5ai_fault_trace_capture\n"
+      "pop {r0, r1, r2, r3, r12, lr}\n"
+      "mov lr, r1\n"
+      "msr msp, r2\n"
+      "msr msplim, r12\n"
+      "msr primask, r3\n"
+      "b t5ai_stock_MemManage_Handler\n");
+}
+
+__attribute__((naked)) void BusFault_Handler(void) {
+  __asm volatile(
+      "tst lr, #4\n"
+      "ite eq\n"
+      "mrseq r0, msp\n"
+      "mrsne r0, psp\n"
+      "mov r1, lr\n"
+      "mrs r2, msp\n"
+      "mrs r3, primask\n"
+      "cpsid i\n"
+      "mrs r12, msplim\n"
+      "ldr lr, =t5ai_fault_stack\n"
+      "msr msplim, lr\n"
+      "add lr, lr, #512\n"
+      "msr msp, lr\n"
+      "push {r0, r1, r2, r3, r12, lr}\n"
+      "mov r2, r12\n"
+      "bl t5ai_fault_trace_capture\n"
+      "pop {r0, r1, r2, r3, r12, lr}\n"
+      "mov lr, r1\n"
+      "msr msp, r2\n"
+      "msr msplim, r12\n"
+      "msr primask, r3\n"
+      "b t5ai_stock_BusFault_Handler\n");
+}
+
+__attribute__((naked)) void UsageFault_Handler(void) {
+  __asm volatile(
+      "tst lr, #4\n"
+      "ite eq\n"
+      "mrseq r0, msp\n"
+      "mrsne r0, psp\n"
+      "mov r1, lr\n"
+      "mrs r2, msp\n"
+      "mrs r3, primask\n"
+      "cpsid i\n"
+      "mrs r12, msplim\n"
+      "ldr lr, =t5ai_fault_stack\n"
+      "msr msplim, lr\n"
+      "add lr, lr, #512\n"
+      "msr msp, lr\n"
+      "push {r0, r1, r2, r3, r12, lr}\n"
+      "mov r2, r12\n"
+      "bl t5ai_fault_trace_capture\n"
+      "pop {r0, r1, r2, r3, r12, lr}\n"
+      "mov lr, r1\n"
+      "msr msp, r2\n"
+      "msr msplim, r12\n"
+      "msr primask, r3\n"
+      "b t5ai_stock_UsageFault_Handler\n");
+}
+
 #endif

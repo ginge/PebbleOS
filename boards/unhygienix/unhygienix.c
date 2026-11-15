@@ -3,6 +3,7 @@
 #include "applib/platform.h"
 
 #include <pbl/device.h>
+#include <pbl/drivers/als.h>
 #include <pbl/drivers/backlight/t5ai.h>
 #include <pbl/drivers/display/t5ai.h>
 #include <pbl/drivers/dma/t5ai.h>
@@ -12,6 +13,7 @@
 #include <pbl/drivers/spi/t5ai.h>
 #include <pbl/drivers/touch/cst92xx_t5ai.h>
 #include <pbl/drivers/uart/t5ai.h>
+#include <pbl/drivers/vibe.h>
 #include <pbl/input/input.h>
 #include <pbl/kernel/assert.h>
 #include <pbl/services/boot_splash/t5ai.h>
@@ -174,6 +176,43 @@ PBL_IRQ_CONNECT(UART0, 5, prv_profile_uart_irq, , 0);
 PBL_IRQ_CONNECT(UART0, 5, pbl_uart_t5ai_irq_handler, &s_dbg_uart, 0);
 #endif
 
+// No ALS is fitted. Preserve the fixed dark reading through the native class.
+static int prv_als_stub_init(const struct pbl_als *als) {
+  return 0;
+}
+static int prv_als_stub_read(const struct pbl_als *als, uint32_t *level) {
+  *level = 0;
+  return 0;
+}
+static const struct pbl_als_ops s_als_stub_ops = {
+  .init = prv_als_stub_init,
+  .read = prv_als_stub_read,
+};
+PBL_ALS_STATE_DEFINE(T5AI_ALS);
+const struct pbl_als T5AI_ALS =
+    PBL_ALS_INIT(T5AI_ALS, "tuya-als-stub", nullptr, &s_als_stub_ops, nullptr);
+PBL_DEVICE_REGISTER(T5AI_ALS, &T5AI_ALS.dev);
+
+// No vibration motor is fitted; keep native pattern handling inert.
+static int prv_vibe_stub_init(const struct pbl_vibe *vibe) {
+  return 0;
+}
+static int prv_vibe_stub_start(const struct pbl_vibe *vibe, int8_t strength) {
+  return 0;
+}
+static int prv_vibe_stub_stop(const struct pbl_vibe *vibe) {
+  return 0;
+}
+static const struct pbl_vibe_ops s_vibe_stub_ops = {
+  .init = prv_vibe_stub_init,
+  .start = prv_vibe_stub_start,
+  .stop = prv_vibe_stub_stop,
+};
+PBL_VIBE_STATE_DEFINE(T5AI_VIBE);
+const struct pbl_vibe T5AI_VIBE =
+    PBL_VIBE_INIT(T5AI_VIBE, "tuya-vibe-stub", nullptr, &s_vibe_stub_ops, VIBE_STRENGTH_OFF);
+PBL_DEVICE_REGISTER(T5AI_VIBE, &T5AI_VIBE.dev);
+
 // Shared touch/RTC/IMU bus is qualified at 100 kHz.
 PBL_PINCTRL_STATE_DEFINE(s_i2c0_pins, &T5AI_PINCTRL, T5AI_PIN(20, 0, T5AI_PIN_PULL_UP),
                          T5AI_PIN(21, 0, T5AI_PIN_PULL_UP));
@@ -227,9 +266,12 @@ const struct pbl_panel_co5300 CO5300 = {
 };
 PBL_DEVICE_REGISTER(CO5300, &CO5300.panel.dev);
 PBL_DISPLAY_STATE_DEFINE(T5AI_DISPLAY);
+// The rectangular AMOLED exposes every pixel of the Gabbro logical canvas.
+static const uint8_t s_round_mask[PBL_DISPLAY_HEIGHT / 2] = {0};
 const struct pbl_display T5AI_DISPLAY = PBL_DISPLAY_INIT(
     T5AI_DISPLAY, "co5300", &pbl_display_co5300_ops, PBL_DEVICE_DEPS(&CO5300.panel.dev),
-    PBL_DISPLAY_WIDTH, PBL_DISPLAY_HEIGHT, PBL_DISPLAY_FORMAT_ARGB2222, false);
+    PBL_DISPLAY_WIDTH, PBL_DISPLAY_HEIGHT, PBL_DISPLAY_FORMAT_ARGB2222, false,
+    .round_mask = s_round_mask);
 PBL_DEVICE_REGISTER(T5AI_DISPLAY, &T5AI_DISPLAY.dev);
 
 // P13/channel 15, 2M/510K divider and meter calibration from the Waveshare board.

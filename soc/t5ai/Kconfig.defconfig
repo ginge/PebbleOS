@@ -19,6 +19,9 @@ config BOOT_SPLASH_CUSTOM_PLATFORM
 config BOOT_SPLASH_ARGB2222
     default y
 
+config CONSOLE_BAUDRATE
+    default 460800
+
 config KERNEL_TICK_HZ
     default 1000
 
