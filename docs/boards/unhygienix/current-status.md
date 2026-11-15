@@ -3,6 +3,49 @@
 The latest installation checkpoint below is the current installed state. Dated entries preserve
 the state and evidence at their recorded checkpoint.
 
+## Native I2C interrupt lifetime repair — 15 November
+
+The screen also froze before physical input. Removing the synthetic scroll,
+using the native cycle-counter delay, disabling AP retained sleep, and matching
+the vendor GPIO bank acknowledgement did not individually resolve the freeze.
+Those experimental source changes are removed from the normal image.
+
+An independent priority-zero Timer0 probe captured a stalled trace with SysTick
+and PendSV pending and I2C0 as the next pending exception (`ICSR=0x14416813`).
+The interrupted thread was rendering text; BASEPRI and PRIMASK were both zero.
+The exact probe ELF, first stall record and subsequent CP reset reason 10 are
+preserved under `build-tuya-upstream/screen-freeze-20261115/probe1/`.
+
+The T5AI I2C driver enabled NVIC delivery before publishing an active transfer.
+Its inactive ISR returned without masking that source, while native bus completion
+only wakes the caller and leaves controller shutdown to that thread. A stale
+interrupt could therefore prevent setup or cleanup and starve lower-priority
+SysTick/PendSV. Commit `340d1c03a` keeps the IRQ masked until START and transfer
+state are published, masks it before completion wakes the caller, and masks late
+inactive interrupts. STOP draining, clock ownership and deferred recovery remain
+in the driver; the common native I2C implementation is unchanged.
+
+Eight I2C tests pass, including stale-IRQ interleavings with idle gating both
+on and off, FIFO transfers, STOP draining and retained-owner recovery. The full
+tooling suite completes 468 tests with no failures and 16 optional skips. The
+fixed diagnostic processed thousands of physical touch reports and advanced for
+over five minutes with one boot banner, no stall record and no reset. That
+instrumented run does not replace normal-image UI or sleep qualification.
+
+Normal `v4.41.2-1642-g340d1c03a` was successfully AP-only flashed at 460800 baud.
+Its build ID is `0b878d2516573a3e3501a4b1fc0d0830c6837fa8`; matching ELF, images,
+configuration, hashes and UART capture are in
+`build-tuya-upstream/screen-freeze-20261115/final-i2c-normal/`. CP, resources,
+PFS and bonds are preserved. Original retained sleep and peripheral policy are
+restored; live tracing, the independent probe and synthetic input are absent.
+Startup reached the launcher with AP/CP reset sources 0/0 and contract 0x78f.
+Operator confirmation of sustained button/touch responsiveness is pending.
+
+The native SDK syscall fix from the following checkpoint is installed too.
+A 921600-baud attempt stopped partway through AP programming; its failure log is
+preserved in `gpio-ack2/`, and complete AP programming subsequently succeeded at
+460800 baud after adapter reconnection. Do not treat a partial write as installed.
+
 ## Native watchface SDK fault — 15 November
 
 The operator reported a frozen screen after the short startup check. A retained
