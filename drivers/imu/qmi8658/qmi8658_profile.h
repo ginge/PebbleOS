@@ -17,7 +17,8 @@ static struct {
 static uint32_t prv_profile_cpu(void) {
   struct pbl_thread *t = pbl_thread_current();
   pbl_irq_lock();
-  const uint32_t cpu = t->backend.run_time + pbl_uptime_ticks() - t->backend.switched_in_at;
+  // The scheduler accounts elapsed ticks directly; there is no switch-in anchor.
+  const uint32_t cpu = t->backend.run_time;
   pbl_irq_unlock();
   return cpu;
 }
@@ -100,7 +101,7 @@ static inline void qmi_profile_acquire_end(uint32_t n) {
               (unsigned long)(now - s_profile.started), (unsigned long)s_profile.passes,
               (unsigned long)s_profile.irq, (unsigned long)s_profile.watchdog,
               (unsigned long)s_profile.acquired, (unsigned long)s_profile.delivered,
-              (unsigned long)s_profile.cpu);
+              (unsigned long)((uint64_t)s_profile.cpu * 1000u / PBL_TICK_HZ));
   PBL_LOG_DBG(
       "QMIBUS transfers=%lu bytes=%lu wall_ticks=%lu errors=%lu drops=%lu gaps=%lu recovery=%lu",
       (unsigned long)s_profile.transfers, (unsigned long)s_profile.bytes,
@@ -116,9 +117,11 @@ static inline void qmi_profile_acquire_end(uint32_t n) {
       "QMISTATE interval_us=%lu batch=%lu shake=%lu age_us=%lu worker_cpu_ms=%lu fifo_max_us=%lu irq_req_max_us=%lu",
       (unsigned long)s_dev->state->interval_us, (unsigned long)s_dev->state->num_samples,
       (unsigned long)s_dev->state->shake_enabled, (unsigned long)s_profile.latency_us,
-      (unsigned long)(cpu - s_profile.previous_cpu),
+      (unsigned long)((uint64_t)(cpu - s_profile.previous_cpu) * 1000u / PBL_TICK_HZ),
       (unsigned long)((uint64_t)s_profile.fifo_max_ticks * 1000000u / T5AI_AON_RTC_HZ),
       (unsigned long)((uint64_t)s_profile.irq_latency_max * 1000000u / T5AI_AON_RTC_HZ));
+  PBL_LOG_DBG("QMIANY state active=%u failed=%u", s_dev->state->motion_active,
+              s_dev->state->motion_failed);
   PBL_LOG_DBG("QMIWOM state active=%u configured=%u failed=%u", s_dev->state->wom_active,
               s_dev->state->wom_configured, s_dev->state->wom_failed);
   PBL_LOG_DBG("QMIFIFO max_ticks prep=%lu req=%lu ack=%lu count=%lu data=%lu resume=%lu frames=%lu",

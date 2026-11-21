@@ -29,6 +29,19 @@ def load_config(board, revision="_", power_savings=None):
 
 
 class T5AIConfigTest(unittest.TestCase):
+    def test_motion_engine_defaults_on_without_diagnostics(self):
+        config = load_config("unhygienix")
+        for name in ("T5AI_QMI8658_ANY_MOTION", "T5AI_QMI8658_WOM"):
+            self.assertEqual(config.syms[name].str_value, "y")
+        for name in ("T5AI_QMI8658_PROFILE", "T5AI_I2C_PROFILE"):
+            self.assertEqual(config.syms[name].str_value, "n")
+        self.assertEqual(config.syms["DRIVER_IMU_LOG_LEVEL_DEBUG"].str_value, "n")
+        config.syms["T5AI_QMI8658_ANY_MOTION"].set_value("n")
+        self.assertEqual(config.syms["T5AI_QMI8658_ANY_MOTION"].str_value, "n")
+        config.syms["T5AI_QMI8658_ANY_MOTION"].set_value("y")
+        config.syms["T5AI_ACCEL_DISABLED"].set_value("y")
+        self.assertEqual(config.syms["T5AI_QMI8658_ANY_MOTION"].str_value, "n")
+
     def test_sd_pfs_is_board_default_with_explicit_nor_override(self):
         config = load_config("unhygienix", power_savings=False)
         self.assertEqual(config.syms["T5AI_SD_PFS"].str_value, "y")

@@ -3,6 +3,237 @@
 The latest installation checkpoint below is the current installed state. Dated entries preserve
 the state and evidence at their recorded checkpoint.
 
+## Cleanup installed — 15 November, 22:47 UTC
+
+Hardware any-motion now defaults on for Unhygienix; quiet-period WOM remains
+enabled as the fallback policy. Profiling defaults off and normal IMU logging
+is retained. Temporary per-event software/hardware, mode and peek dumps were
+removed; failures retain concise warnings. Register selection and health
+validation were simplified without changing transaction order, fallback policy,
+accepted 1069 mg sensitivity, sampling or sleep settings. Shared Pebble and SoC
+code were not changed by this cleanup.
+
+The hardware configuration-health/I2C fault remains **unresolved**, as requested.
+Prior failure images and traces remain preserved. This cleanup does not claim
+a root-cause fix or measured power qualification. The cleanup build `e7dc9a197b37f13a62ea820d6b444e3f4930108e` is now AP-only
+installed. The first post-flash boot received AP=0x4f/CP=0 and sleep-admission
+rejection reason 4. Its full stopped trace is preserved in `cleanup/first-boot/`;
+the known post-flash reset/admission issue remains a release blocker. One
+commanded same-image hardware reset then booted with sources 0/0, contract
+0x78f and launcher startup. BLE advertising succeeded; phone reconnection was
+not observed in the bounded capture. No guard was cleared or weakened. CP/resources/apps/
+bonds were not programmed. Nothing was pushed. Local verification evidence
+is in `build-tuya-upstream/imu-motion-20261115/cleanup/`. All 23 configuration,
+diagnostic-default and IMU tests pass; final ARM normal/profile compilation,
+formatting, lint, firmware build and image checks pass. The built dictionary
+contains no temporary motion diagnostic strings.
+
+## Small fallback amplitude trim installed — 15 November, 22:30 UTC
+
+The operator found the 1188 mg candidate too hard to trigger and requested a
+small adjustment. The software fallback threshold is reduced by 10%, to 1069 mg
+at the current 55% preference. The ST-code amplitude scale is now 56.25 mg/code,
+rounded up and floored at 175 mg. Hardware detection, high override, filtering,
+holdoff, sampling, timers and sleep settings remain unchanged. The hardware
+configuration-health/fallback fault remains unresolved; power is not measured.
+
+All eleven ASan/UBSan IMU regression methods, formatting, lint, firmware build
+and image checks pass. AP-only installed build:
+`6f792c680efb4041ec623f77af9bb88adcb9cfcc`. Actual UART confirms the first boot
+at 22:30:46 with reset sources 0/0, contract 0x78f and launcher startup.
+No additional hardware restart was issued. Frozen source/image/configuration,
+build/test/flash logs and capture are under
+`build-tuya-upstream/imu-motion-20261115/install-amplitude-trim/`.
+The operator reports “much better” sensitivity. CP/resources/apps/bonds were
+not programmed, and nothing was pushed.
+
+## Fallback amplitude candidate installed — 15 November, 22:24 UTC
+
+The operator still reported excessive triggering after rollback. A fresh stopped
+UART capture confirms software fallback, high override off, saved preference
+55%, no clients, and repeated peaks around -885 mg against the old 637 mg
+threshold. The opt-in motion configuration now uses the saved ST threshold code's
+62.5 mg amplitude scale in software, floored at 175 mg: code 19 at 55% gives
+1188 mg. This is an amplitude tuning choice, not equivalent ST slope filtering.
+The earlier gravity baseline and 500 ms holdoff remain; the failed sustained-
+slope detector remains reverted. No sampling, timer, bus or sleep changes were
+added. High override and builds without hardware motion retain their old curve.
+
+All eleven ASan/UBSan IMU regression methods, ARM motion/profile compilation,
+formatting, lint and the firmware build pass. The added functional test rejects
+repeated 885 mg movements, accepts an impulse and permits another after settling.
+Normal IMU logging (level 100) is enabled; routine DEBUG event records compile
+out. I2C idle gating and retained sleep remain enabled. No power measurement or
+on-wrist equivalence is claimed; the hardware health/fallback fault remains open.
+
+AP-only installation restored normal logging and installed build
+`d930079040e851864c89d743c7d5d9d8f70ac8b1`. Actual UART confirms the first boot
+at 22:24:38 with reset sources 0/0 and contract 0x78f, then launcher startup
+and encrypted/bonded phone recovery. At 22:25:06.996, CTRL7 again read 0x1d
+instead of 0x21 and forced software fallback; preserve this first failure.
+No extra hardware restart was issued. Frozen image/configuration/source snapshot,
+test/build/flash logs and UART evidence are under
+`build-tuya-upstream/imu-motion-20261115/install-fallback-amplitude/`.
+The operator reported this threshold was too hard to trigger and requested a
+small reduction. CP/resources/apps/bonds were not programmed.
+Nothing was pushed. See [fallback amplitude rationale](sensor-power-review.md#fallback-amplitude-adjustment--15-november-2220-utc-reproduction).
+
+## Previous usable IMU image restored — 15 November, 22:01 UTC
+
+The operator reported that the stricter ST software-fallback candidate stopped
+responding after a couple of shakes. That candidate (`754bc4e6a96e20f6dd4c71a00782c277196e70fc`)
+and its complete stopped UART trace are preserved under
+`build-tuya-upstream/imu-motion-20261115/install-st-fallback/`. Its trace also
+records another configuration-health mismatch at 21:55:26.850 (CTRL2/7/8 read
+1d/1d/82), which forces software fallback. The precise cause of the operator's
+lost response is not established; the failed detector trial has been reverted.
+
+AP-only rollback restored the exact frozen `install-stop-read/` image,
+`bd3b37c4416ec994a11fe675659c9d12dd5bf1c8`, which the operator described as
+“much better, marginally too sensitive.” Actual UART confirms its first boot at
+22:01:02 with reset sources 0/0, retained-sleep contract 0x78f, launcher startup,
+and encrypted/bonded phone recovery with an open PPoGATT session. No additional
+hardware restart was issued. Rollback evidence is under
+`build-tuya-upstream/imu-motion-20261115/restore-stop-read/`.
+
+Production source again uses the earlier gravity-baseline software detector and
+vendor-style STOP-separated register reads only while hardware motion mode is
+active. ST hardware mapping and burst re-arming remain. Ten ASan/UBSan IMU tests,
+formatting and lint pass after the rollback. All experimental SoC I2C changes
+are reverted. The installed image includes driver DEBUG diagnostics; it is not
+a power-qualified final image. I2C idle gating and retained sleep remain enabled.
+CP/resources/apps/bonds were not programmed, and nothing was pushed.
+
+Wake-time fallback remains unresolved. Bounded confirmation reads, short-byte
+RX, controller reset-on-enable, STOP-separated reads and STOP interrupt-mode
+trials have not eliminated configuration-health mismatches. The STOP-separated
+candidate improved reported behavior but later also fell back. Preserve those
+failures; do not describe transport reliability, ST on-wrist equivalence or
+power savings as qualified.
+
+## Motion re-arming fix installed — 15 November, 21:01 UTC
+
+The operator reported aggressive triggering once awake. Driver review and a
+regression test identified repeated eligibility from QMI's continuing motion
+interrupt pulses after each 500 ms holdoff. The driver now groups those pulses
+into one burst, re-arming after an observed clear status or a 240 ms inter-IRQ
+gap. This debounce choice is five nominal sample periods; it adds no timer,
+polling, sensor commands or sampling. ST-mapped thresholds, two-sample duration,
+21 Hz low-power mode, gyro-off and the five-second health check are unchanged.
+Shared Pebble code is unchanged. See [re-arming evidence and limits](sensor-power-review.md#motion-burst-re-arming--15-november).
+
+Ten ASan/UBSan test methods pass, including >5 seconds of continuous 48 ms
+pulses delivering one event and one XYZ read, quiet/clear re-arming and existing
+client/recovery transitions. Restoring old edge eligibility in a scratch
+mutation fails the regression. Formatting, lint, ARM motion/profile compilation,
+firmware build, CRC/payload, version, image map and resource checks pass.
+
+AP-only installation took 51.7 seconds. Installed build ID:
+`445232d6d7278ab633fe93cf37d34bbd26b3a0f3`. Actual UART data confirms the first
+boot received reset sources 0/0 and retained-sleep contract 0x78f, then launcher,
+encrypted/bonded phone recovery and an open PPoGATT session. No extra hardware
+restart was issued. No new IMU fallback/failure, hard fault/assertion or retained
+admission rejection was observed in this bounded capture. Routine boot warnings
+remain in the preserved trace. Prior first-boot admission failures remain open;
+this clean boot does not qualify power savings or on-wrist sensitivity.
+
+Frozen image/configuration, source hashes, build/test/flash logs, dictionary,
+stopped UART capture and `result.json` are in
+`build-tuya-upstream/imu-motion-20261115/install-rearm/`. CP/resources/apps/bonds
+were not programmed. No code was pushed.
+
+## Asterix/Obelix IMU mapping installed — 15 November, 20:42 UTC
+
+The operator selected Asterix/Obelix as the sensitivity reference. The driver now
+uses their ±4 g / threshold-code 1..40 percentage curve and initial default 16.
+It accounts for LSM6DSO's half-difference slope filter, QMI's full-difference
+filter, and 80 ms versus nominal 48 ms sampling. QMI code is
+`ceil(st_code * 4 * 48000 / 80000)`, rounding toward a less-sensitive threshold.
+At the default 55% preference ST code 19 maps to QMI code 46 (1437.5 mg/sample).
+The 80 ms ST duration rounds to two QMI samples (nominally 96 ms). This matches
+constant-rate acceleration ramps approximately, not arbitrary gestures or
+analog filter response. Gyro-off, low-power 21 Hz, suppressed DRDY and the
+five-second health check remain. ST shared drivers/services are unchanged.
+See [mapping derivation and comparison table](sensor-power-review.md#asterixobelix-sensitivity-mapping--15-november).
+
+Ten ASan/UBSan IMU test methods pass, including all 101 sensitivity values
+compared with the actual Asterix/Obelix configuration files, initial/default
+versus explicit percentage behavior, stationary override/restoration and hardware
+programming/fallback transitions. Formatting, Python lint, firmware build,
+metadata, protected CRC/payload, image-map and matching resource checks pass.
+AP-only flashing at 460800 baud succeeded in 51.7 seconds. New build ID:
+`c7a55db731cb738bca128c4cd896e4b6fddb5501`.
+
+The first post-programming boot received AP=0x4f / CP=0 and retained-sleep
+admission rejection reason 4. This trace is preserved in `first-boot/`; it is
+not a successful power-saving boot. One explicitly commanded host hardware
+restart of the same image then received reset sources 0/0, contract 0x78f,
+launcher startup and encrypted/bonded PPoGATT recovery, with no new IMU
+failure/fallback, hard-fault/assert or admission rejection in the final bounded
+window. No guard was cleared. The first-boot reset/admission issue remains a
+qualification concern; the restarted smoke check does not erase that evidence.
+Actual sleep-current savings and on-wrist sensitivity equivalence remain open.
+
+Frozen artifacts, source/configuration hashes, dictionary, flash/reset logs,
+first and final boot traces, stopped UART capture and `result.json` are under
+`build-tuya-upstream/imu-motion-20261115/install-st-map/`. Prior candidates remain
+preserved. CP/resources/apps/bonds were not programmed; no code was pushed.
+
+## Reduced IMU sensitivity installed — 15 November, 20:22 UTC
+
+The operator reported the first hardware-motion candidate was still far too
+sensitive. The follow-up raises slope threshold codes from 2..12 to 4..24
+(125..750 mg per sample); at 50% the threshold rises from 218.75 to 437.5 mg.
+Stationary high sensitivity uses code 4 and now requires two consecutive samples
+instead of one. Normal motion also retains two-sample qualification. Low-power
+21 Hz sampling, DRDY suppression, the five-second health check and existing
+software/WOM fallback policy are unchanged. No shared Pebble code was changed.
+
+Nine targeted IMU test methods, formatting, lint, firmware build, metadata,
+CRC/payload, map and resource-compatibility checks pass. The new build ID is
+`9aa04fc13c2f67c29a82c8a141bac9f38c76207f`; AP-only programming completed at
+460800 baud in 51.8 seconds. Live UART confirms that exact build, reset sources
+0/0, contract 0x78f, launcher startup and encrypted/bonded PPoGATT recovery.
+No IMU setup/fallback, hard-fault/assert or retained-admission failure was
+received in the bounded capture. Capture is stopped. This verifies installation
+and startup; the operator's on-wrist sensitivity assessment and electrical
+comparison remain pending. No code was pushed; CP/resources/apps/bonds were
+preserved.
+
+Artifacts, hashes, exact configuration/dictionary, flash log, stopped UART
+capture, decoded text and `result.json` are in
+`build-tuya-upstream/imu-motion-20261115/install-less-sensitive/`. The original
+sensitive candidate and its trace remain in the adjacent `install/` directory.
+
+## Hardware IMU motion candidate installed — 15 November, 20:16 UTC
+
+The operator requested installation of the new IMU candidate. Freshly built
+`v4.41.2-1643-g66488f004-dirty`, build ID
+`eb704a420f5463c05c143b0cf07709f1ef9b127e`, was AP-only flashed at 460800 baud.
+`CONFIG_T5AI_QMI8658_ANY_MOTION=y` enables the low-power 21 Hz hardware slope
+candidate; data clients and error fallback use the corrected time-based software
+filter. The board default remains off; this build has an explicit override.
+
+Programming completed successfully in 51.8 seconds, with the protected write
+bounded to physical `0x132000..0x2e080e` (end exclusive). Resource bytes match the
+installed bank; CP, resources, apps/data and bonds were not programmed. The
+initial invocation stopped at a Python module import error before device access;
+its log is retained separately. No code was pushed.
+
+Live host UART received the exact build ID, AP/CP reset sources 0/0, retained
+sleep contract 0x78f, launcher startup and encrypted/bonded phone recovery with
+an opened PPoGATT session. The bounded capture reports no QMI initialization,
+any-motion fallback, hard-fault/assert or retained-admission failure records.
+This is a boot/protocol smoke check, not proof of hardware gesture qualification,
+actual sleep-current savings or sustained UI behavior. On-wrist first/repeated
+wake, false triggers, touch/buttons and matched power checks remain pending.
+
+The frozen ELF/images, configuration, log dictionary, hashes, flash log, stopped
+UART capture, decoded text and `result.json` are preserved under
+`build-tuya-upstream/imu-motion-20261115/install/`. The previous normal and
+hardware builds remain under the adjacent `normal/` and `hardware/` directories.
+See [sensor implementation and qualification notes](sensor-power-review.md#15-november-time-based-filtering-and-opt-in-hardware-any-motion).
+
 ## Native I2C interrupt lifetime repair — 15 November
 
 The screen also froze before physical input. Removing the synthetic scroll,

@@ -31,6 +31,7 @@ struct pbl_qmi8658_state {
   bool rotated;
   bool shake_sensitivity_high;
   uint8_t shake_sensitivity_percent;
+  uint8_t motion_st_threshold;
   bool shake_baseline_valid;
   int32_t shake_baseline[3];
   uint64_t shake_previous_us;
@@ -41,6 +42,12 @@ struct pbl_qmi8658_state {
   bool poll_pending;
   bool direct_edge_pending;
   bool wom_active;
+  bool motion_active;
+  bool motion_failed;
+  bool motion_asserted;
+  bool motion_irq_seen;
+  bool motion_rearm_pending;
+  uint32_t motion_last_irq_ms;
   uint32_t generation;
   uint32_t sample_generation;
   struct pbl_thread poll_thread;

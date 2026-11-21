@@ -325,6 +325,20 @@ config T5AI_QMI8658_WOM
       continuous sampling until reboot. WOM itself produces no samples or
       shake event; first-gesture latency needs hardware qualification.
 
+config T5AI_QMI8658_ANY_MOTION
+    bool "Use QMI8658 hardware any-motion for shake-only operation"
+    depends on BOARD_UNHYGIENIX && ACCEL_QMI8658_T5AI && !T5AI_ACCEL_DISABLED
+    default y
+    help
+      Use the slope-based any-motion engine at low-power 21 Hz without data
+      clients. Disable data-ready interrupts and check health every five
+      seconds. Sensitivity controls hardware slope thresholds and duration;
+      sample clients retain their rates and software shake detection. Setup
+      or health errors disable this path until reboot and restore software
+      detection with the existing quiet-period WOM policy. Any-motion takes
+      precedence over WOM. Configuration-health mismatches remain unresolved;
+      software fallback preserves wake detection when hardware checks fail.
+
 config T5AI_QMI8658_PROFILE
     bool "Measure QMI8658 acquisition and delivery"
     depends on BOARD_UNHYGIENIX && ACCEL_QMI8658_T5AI

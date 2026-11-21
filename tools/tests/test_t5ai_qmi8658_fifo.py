@@ -3,9 +3,11 @@
 """Execute the production interrupt/FIFO driver against a modeled QMI8658 bus."""
 
 import os
+import re
 import subprocess
 import tempfile
 import unittest
+from fractions import Fraction
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -126,6 +128,7 @@ void pbl_accel_report_event(const struct pbl_accel *,const struct pbl_accel_even
 bool new_timer_add_work_callback(void (*)(void *),void *);
 void new_timer_delete(TimerID);
 int pbl_i2c_write(const struct pbl_i2c_dev *,const uint8_t *,size_t);
+int pbl_i2c_read(const struct pbl_i2c_dev *,void *,uint32_t);
 int pbl_i2c_burst_read(const struct pbl_i2c_dev *,uint8_t,uint8_t *,unsigned);
 int pbl_gpio_get_raw(const struct pbl_gpio *);
 int pbl_gpio_configure(const struct pbl_gpio *,uint32_t);
@@ -152,6 +155,8 @@ static bool request_pending;
 static bool pad_high;
 static uint8_t configured_odr, configured_ctrl2, configured_ctrl7, cal_l, cal_h, wom_status;
 static unsigned wom_entries, wom_exits, sensor_resets;
+static uint8_t configured_ctrl8, motion_status, motion_cal[8], motion_banks[2][8];
+static unsigned motion_commands, fail_motion_bank, motion_output_reads;
 static bool hardware_wom, fail_wom_once, stuck_high;
 static unsigned append_on_ack;
 static unsigned shakes;
@@ -202,12 +207,18 @@ int pbl_intc_enable(const struct pbl_irq_spec *c) { assert(c->hwirq==9); irq_ena
 int pbl_gpio_configure(const struct pbl_gpio *c,uint32_t f){assert(c->pin==9);return 0;}
 int pbl_intc_request(const struct pbl_irq_spec *c,void (*cb)(void *),void *arg){assert(c->hwirq==9 && cb==prv_int2_handler);return 0;}
 int pbl_intc_free(const struct pbl_irq_spec *c){return 0;}
+static uint8_t read_pointer;
+static unsigned stop_reads;
 int pbl_i2c_write(const struct pbl_i2c_dev *b, const uint8_t *p, size_t n) {
- (void)b; assert(sensor_state.io_lock.held && !irq_depth && n==2); ++io;
+ (void)b; assert(sensor_state.io_lock.held && !irq_depth); ++io;
+ if(n==1) {read_pointer=p[0];return fail_read?-EIO:0;}
+ assert(n==2);
  if(p[0]==QMI8658_CTRL7 && !p[1]) ++config_stops;
  if(p[0]==QMI8658_CTRL2 && fail_odr_once && (p[1]&15)==fail_odr_once) { fail_odr_once=0; return -EIO; }
  if(p[0]==QMI8658_CTRL2) { configured_odr=p[1]&15; configured_ctrl2=p[1]; }
  if(p[0]==QMI8658_CTRL7) configured_ctrl7=p[1];
+ if(p[0]==QMI8658_CTRL8) configured_ctrl8=p[1];
+ if(p[0]>=QMI8658_CAL1_L && p[0]<=QMI8658_CAL4_H) motion_cal[p[0]-QMI8658_CAL1_L]=p[1];
  if(p[0]==QMI8658_CAL1_L) cal_l=p[1];
  if(p[0]==QMI8658_CAL1_H) cal_h=p[1];
  if(p[0]==QMI8658_RESET) { ++sensor_resets; hardware_wom=false; command_pending=false; ack_reads=0; }
@@ -217,7 +228,14 @@ int pbl_i2c_write(const struct pbl_i2c_dev *b, const uint8_t *p, size_t n) {
   if(p[1]) command_pending=true;
  }
  if (p[0]==QMI8658_CTRL9 && p[1]) {
-   assert(p[1]==4 || p[1]==5 || p[1]==8); ++commands;
+   assert(p[1]==4 || p[1]==5 || p[1]==8 || p[1]==14); ++commands;
+   if(p[1]==14) {
+     assert(!configured_ctrl7 && configured_ctrl8==0x80);
+     assert(configured_ctrl2==(QMI8658_ACCEL_RANGE_4G | QMI8658_ODR_LOW_POWER_21HZ));
+     unsigned bank=motion_cal[7]; assert(bank==1 || bank==2);
+     memcpy(motion_banks[bank-1],motion_cal,8); ++motion_commands;
+     if(fail_motion_bank==bank) { fail_motion_bank=0; return -EIO; }
+   }
    if(p[1]==8) {
      assert(!configured_ctrl7 && (cal_h>>6)==1);
      hardware_wom=cal_l!=0;
@@ -254,10 +272,13 @@ int pbl_i2c_burst_read(const struct pbl_i2c_dev *b, uint8_t reg, uint8_t *p, uns
  case QMI8658_STATUS0:
    *p=ready;
    if(n==13) { stamp(p+2); raw(p+7); } break;
- case QMI8658_STATUS1: assert(n==1 && hardware_wom); p[0]=wom_status; wom_status=0; pad_high=false; break;
+ case QMI8658_STATUS1:
+   assert(n==1); p[0]=hardware_wom ? wom_status : motion_status;
+   wom_status=0; pad_high=false; break;
+ case QMI8658_CTRL8: assert(n==1); p[0]=configured_ctrl8; break;
  case QMI8658_CTRL2: assert(n==1); p[0]=configured_ctrl2; break;
  case QMI8658_CTRL7: assert(n==1); p[0]=configured_ctrl7; break;
- case QMI8658_AX_L: read_output=true; raw(p); break;
+ case QMI8658_AX_L: read_output=true; ++motion_output_reads; raw(p); break;
  case QMI8658_FIFO_COUNT:
    assert(n==2); p[0]=fifo_bytes/2; p[1]=((fifo_bytes/2)>>8)|fifo_status; break;
  case QMI8658_TIMESTAMP: assert(false); break;
@@ -268,6 +289,9 @@ int pbl_i2c_burst_read(const struct pbl_i2c_dev *b, uint8_t reg, uint8_t *p, uns
  default: assert(false);
  }
  return 0;
+}
+int pbl_i2c_read(const struct pbl_i2c_dev *b,void *p,uint32_t n) {
+ ++stop_reads;return pbl_i2c_burst_read(b,read_pointer,p,n);
 }
 void rtc_get_time_ms(time_t *s, uint16_t *ms) { *s=now_ms/1000; *ms=now_ms%1000; }
 uint64_t t5ai_rtc_get_ticks(void) { return now_ms; }
@@ -312,6 +336,187 @@ static void samples(unsigned n) {
  now_ms+=sensor_state.interval_us*n/1000; counter+=n;
  fifo_bytes=n*6; fifo_status=0x40;
 }
+#ifdef QMI8658_FILTER_TEST
+static void filter_test(void) {
+ assert(prv_baseline_retention(0)==65536);
+ assert(prv_baseline_retention(8000)==57344);
+ unsigned r32=prv_baseline_retention(32000);
+ assert(r32==38416); // (7/8)^4 in Q16.
+ assert(prv_baseline_retention(16000)==50176);
+ assert(prv_baseline_retention(500000)<20);
+ sensor_state.shake_enabled=true;
+ sensor_state.shake_sensitivity_high=false;
+ sensor_state.shake_sensitivity_percent=50;
+ // Gravity-only 90-degree rotation over 256ms, at the power-saving rate.
+ const int16_t x[]={0,195,382,555,707,831,923,980,1000};
+ const int16_t z[]={1000,980,923,831,707,555,382,195,0};
+ pbl_accel_lock(&sensor.accel);
+ for(unsigned i=0;i<9;++i) {
+   AccelDriverSample a={.x=x[i],.z=z[i],.timestamp_us=1000000u+i*32000u};
+   prv_detect_shake(&a);
+ }
+ assert(shakes==0); // The former per-sample filter falsely triggers here.
+ // Original 125Hz updates remain exact, and slower updates track elapsed time.
+ sensor_state.shake_baseline[0]=0;sensor_state.shake_previous_us=1256000;
+ AccelDriverSample step={.x=80,.timestamp_us=1264000};
+ prv_detect_shake(&step);assert(sensor_state.shake_baseline[0]==10);
+ sensor_state.shake_baseline[0]=0;step.timestamp_us+=32000;
+ prv_detect_shake(&step);assert(sensor_state.shake_baseline[0]==33);
+ // A deliberate impulse still triggers; holdoff suppresses a repeat.
+ AccelDriverSample a={.x=-1500,.timestamp_us=1320000};
+ prv_detect_shake(&a); assert(shakes==1);
+ a.x=1500;a.timestamp_us+=32000;prv_detect_shake(&a);assert(shakes==1);
+ // Missing time and backwards time re-anchor without an event.
+ a.timestamp_us+=600000;prv_detect_shake(&a);assert(shakes==1);
+ a.timestamp_us=100;prv_detect_shake(&a);assert(shakes==1);
+ pbl_accel_unlock(&sensor.accel);
+}
+#endif
+
+#ifdef QMI8658_ST_MAPPING_TEST
+static void st_mapping_test(void) {
+ const uint8_t expected[101]={@ST_MAPPING_EXPECTED@};
+ assert(sensor_state.motion_st_threshold==@ST_DEFAULT@);
+ assert(prv_motion_threshold()==@QMI_DEFAULT@);
+ assert(prv_motion_window()==@QMI_WINDOW@);
+ pbl_accel_lock(&sensor.accel);
+ unsigned previous=255;
+ for(unsigned percent=0;percent<=100;++percent) {
+   assert(pbl_qmi8658_ops.set_shake_sensitivity_percent(&sensor.accel,percent)==0);
+   unsigned actual=prv_motion_threshold();
+   assert(actual==expected[percent] && actual<=previous && actual>0);
+   previous=actual;
+ }
+ // An explicit 50% request must override the initial ST register default.
+ sensor_state.shake_sensitivity_percent=50;
+ sensor_state.motion_st_threshold=@ST_DEFAULT@;
+ assert(pbl_qmi8658_ops.set_shake_sensitivity_percent(&sensor.accel,50)==0);
+ assert(prv_motion_threshold()==expected[50]);
+ assert(pbl_qmi8658_ops.set_shake_sensitivity_percent(&sensor.accel,55)==0);
+ assert(prv_motion_threshold()==expected[55]);
+ assert(pbl_qmi8658_ops.set_shake_sensitivity_high(&sensor.accel,true)==0);
+ assert(prv_motion_threshold()==expected[100]);
+ // Saved slider updates while stationary apply after the override is removed.
+ assert(pbl_qmi8658_ops.set_shake_sensitivity_percent(&sensor.accel,25)==0);
+ assert(prv_motion_threshold()==expected[100]);
+ assert(pbl_qmi8658_ops.set_shake_sensitivity_high(&sensor.accel,false)==0);
+ assert(prv_motion_threshold()==expected[25]);
+ pbl_accel_unlock(&sensor.accel);
+}
+#endif
+
+#ifdef QMI8658_MOTION_TEST
+static void motion_test(void) {
+#if QMI8658_MOTION_TEST == 2 || QMI8658_MOTION_TEST == 3
+ fail_motion_bank=QMI8658_MOTION_TEST-1;
+ assert(set_shake(true)==0);
+ assert(sensor_state.motion_failed && !sensor_state.motion_active);
+ assert(sensor_resets==2 && !command_pending && configured_ctrl8==0x80);
+ assert(configured_ctrl7==1 && timer_ms==100 && !sensor_state.recovery_required);
+ unsigned c=motion_commands;
+ set_shake(false);set_shake(true);assert(motion_commands==c);
+ // Software fallback can still enter the established quiet-period WOM path.
+ for(unsigned i=0;i<60;++i) { samples(1); acquire(true); }
+ now_ms+=5000;samples(1);acquire(true);
+ assert(sensor_state.wom_active && timer_ms==5000);
+ return;
+#else
+ assert(set_shake(true)==0);
+ assert(sensor_state.motion_active && !sensor_state.wom_active && !sensor_state.recovery_required);
+ assert(motion_commands==2 && configured_ctrl7==0x21 && configured_ctrl8==0x82);
+ assert(motion_banks[0][0]==39 && motion_banks[0][1]==39 && motion_banks[0][2]==39);
+ assert(motion_banks[0][6]==7 && motion_banks[1][0]==2);
+ assert(timer_ms==5000 && irq_enabled && !queued && !delivered);
+ // Health checks don't read XYZ, fabricate a shake or leave low power.
+ unsigned reads=motion_output_reads, separate_before=stop_reads;
+ acquire(false);assert(!shakes && motion_output_reads==reads && sensor_state.motion_active);
+ assert(stop_reads==separate_before+4);
+ motion_status=0x04;acquire(true);assert(!shakes); // WOM status is not any-motion.
+ motion_status=0x20;acquire(true);
+ assert(sensor_state.motion_active && !sensor_state.motion_failed && !sensor_state.recovery_required);
+ assert(shakes==1 && !delivered && !queued && motion_output_reads==reads+1);
+ // Continuing 21Hz pulses must not become new shakes after each 500ms holdoff.
+ for(unsigned i=0;i<110;++i) {now_ms+=48;acquire(true);assert(shakes==1);}
+ assert(motion_output_reads==reads+1);
+ // Quiet re-arms without waiting for the five-second health poll to observe clear status.
+ now_ms+=240;acquire(true);assert(shakes==2);
+ // A real clear status also re-arms the detector.
+ motion_status=0;acquire(true);
+ now_ms+=600;motion_status=0x20;acquire(true);assert(shakes==3);
+ // A stuck-high interrupt/status is bounded and doesn't repeatedly emit events.
+ stuck_high=true;acquire(false);
+ if(sensor_state.poll_signal.count) {pbl_sem_take(&sensor_state.poll_signal,PBL_FOREVER);prv_acquire_sample();}
+ assert(shakes==3 && !sensor_state.poll_pending && !sensor_state.poll_signal.count);
+ stuck_high=false;now_ms+=600;acquire(true);assert(shakes==4);
+ motion_status=0;
+ // An event captured before a client subscribes must be discarded.
+ now_ms+=600;motion_status=0x20;reconfigure_before_delivery=1;acquire(true);
+ assert(shakes==4 && !sensor_state.motion_active && sensor_state.num_samples==1);
+ assert(configured_ctrl7==1 && configured_ctrl8==0x80 && timer_ms==100);
+ motion_status=0;set_interval(8000);assert(sensor_state.interval_us==8000);
+ set_count(0);assert(sensor_state.motion_active && timer_ms==5000);
+ // Sensitivity updates reprogram both banks; stationary mode retains two-sample qualification.
+ pbl_accel_lock(&sensor.accel);
+ assert(pbl_qmi8658_ops.set_shake_sensitivity_percent(&sensor.accel,255)==0);
+ assert(sensor_state.shake_sensitivity_percent==100);
+ assert(motion_banks[0][0]==3 && motion_banks[1][0]==2);
+ assert(pbl_qmi8658_ops.set_shake_sensitivity_percent(&sensor.accel,0)==0);
+ assert(motion_banks[0][0]==96);
+ assert(pbl_qmi8658_ops.set_shake_sensitivity_high(&sensor.accel,true)==0);
+ assert(motion_banks[0][0]==3 && motion_banks[1][0]==2);
+ assert(pbl_qmi8658_ops.set_shake_sensitivity_high(&sensor.accel,false)==0);
+ assert(motion_banks[0][0]==96 && motion_banks[1][0]==2);
+ pbl_accel_unlock(&sensor.accel);
+ // Rotation and peek preserve hardware detection without a stream or synthetic event.
+ set_rotated(true);AccelDriverSample peek;
+ assert(read_sample(&peek)==0 && sensor_state.motion_active && configured_ctrl7==0x21);
+ set_count(2);assert(!sensor_state.motion_active && sensor_state.interval_us==8000);
+ set_shake(false);assert(configured_ctrl8==0x80 && configured_ctrl7==1);
+ set_count(0);assert(!sensor_state.active && configured_ctrl7==0 && !timer_ms);
+ set_shake(true);assert(sensor_state.motion_active);
+ now_ms+=600;motion_status=0x20;reconfigure_before_delivery=2;acquire(true);
+ assert(shakes==4 && !sensor_state.active && !sensor_state.motion_active);
+ motion_status=0;set_shake(true);assert(sensor_state.motion_active);
+ // A lost engine setting switches to software recovery, rather than silent no-wake.
+ configured_ctrl8=0x80;acquire(false);
+ assert(sensor_state.motion_failed && sensor_state.recovery_required && timer_ms==100);
+ acquire(false);assert(!sensor_state.motion_active && !sensor_state.recovery_required);
+ assert(configured_ctrl7==1 && configured_ctrl8==0x80 && timer_ms==100);
+ set_shake(false);
+#endif
+}
+#endif
+
+
+#ifdef QMI8658_FALLBACK_AMPLITUDE_TEST
+static void fallback_amplitude_test(void) {
+ fail_motion_bank=1;assert(set_shake(true)==0);
+ assert(sensor_state.motion_failed && !sensor_state.motion_active);
+ pbl_accel_lock(&sensor.accel);
+ assert(pbl_qmi8658_ops.set_shake_sensitivity_percent(&sensor.accel,55)==0);
+ assert(prv_shake_threshold_mg()==1069);
+ unsigned before_io=io;
+ AccelDriverSample a={.z=1000,.timestamp_us=1000000};
+ prv_detect_shake(&a);
+ // Previously reported ~885 mg peaks must not trigger, even across holdoffs.
+ for(unsigned i=0;i<200;++i) {
+   a.x=i&1 ? 0 : 885;a.timestamp_us+=32000;prv_detect_shake(&a);
+ }
+ assert(!shakes);
+ // A single deliberate impulse qualifies; sustained slope is not required.
+ for(unsigned i=0;i<20;++i) {a.x=0;a.timestamp_us+=32000;prv_detect_shake(&a);}
+ a.x=-2000;a.timestamp_us+=32000;prv_detect_shake(&a);assert(shakes==1);
+ a.x=2000;a.timestamp_us+=32000;prv_detect_shake(&a);assert(shakes==1);
+ // Settling and a later impulse must allow another wake.
+ for(unsigned i=0;i<20;++i) {a.x=0;a.timestamp_us+=32000;prv_detect_shake(&a);}
+ a.x=-2000;a.timestamp_us+=32000;prv_detect_shake(&a);assert(shakes==2);
+ assert(io==before_io); // No added bus work, timer or sensor commands.
+ assert(pbl_qmi8658_ops.set_shake_sensitivity_high(&sensor.accel,true)==0);
+ assert(prv_shake_threshold_mg()==175);
+ pbl_accel_unlock(&sensor.accel);
+}
+#endif
+
 int main(void) {
 #ifdef CONFIG_T5AI_POWER_PROFILE
  T5AIQMIPowerStats pm;
@@ -337,6 +542,18 @@ int main(void) {
  assert(pm.id==5 && pm.revision==0x7c);
 #endif
  assert(sensor_state.initialized && created==1 && !sensor_state.active);
+#ifdef QMI8658_FALLBACK_AMPLITUDE_TEST
+ fallback_amplitude_test();return 0;
+#endif
+#ifdef QMI8658_ST_MAPPING_TEST
+ st_mapping_test();return 0;
+#endif
+#ifdef QMI8658_FILTER_TEST
+ filter_test();return 0;
+#endif
+#ifdef QMI8658_MOTION_TEST
+ motion_test();return 0;
+#endif
 #ifdef QMI8658_CONFIG_TEST
  // Shake and its clamped/restored ODR are applied in one hardware transaction.
  set_interval(333000);
@@ -629,6 +846,46 @@ class QMI8658FifoTest(unittest.TestCase):
     def test_disabled(self):
         self.run_driver(["-DCONFIG_T5AI_ACCEL_DISABLED=1"])
 
+    def test_time_normalized_gravity_filter(self):
+        self.run_driver(["-DQMI8658_FILTER_TEST=1"])
+
+    def test_hardware_motion_events_and_transitions(self):
+        self.run_driver(
+            [
+                "-DCONFIG_T5AI_QMI8658_ANY_MOTION=1",
+                "-DCONFIG_T5AI_QMI8658_WOM=1",
+                "-DQMI8658_MOTION_TEST=1",
+            ]
+        )
+
+    def test_partial_hardware_motion_setup_falls_back(self):
+        for bank in (1, 2):
+            with self.subTest(bank=bank):
+                self.run_driver(
+                    [
+                        "-DCONFIG_T5AI_QMI8658_ANY_MOTION=1",
+                        "-DCONFIG_T5AI_QMI8658_WOM=1",
+                        f"-DQMI8658_MOTION_TEST={bank + 1}",
+                    ]
+                )
+
+    def test_fallback_rejects_small_motion_and_rearms_after_impulse(self):
+        self.run_driver(
+            [
+                "-DCONFIG_T5AI_QMI8658_ANY_MOTION=1",
+                "-DCONFIG_T5AI_QMI8658_WOM=1",
+                "-DQMI8658_FALLBACK_AMPLITUDE_TEST=1",
+            ]
+        )
+
+    def test_sensitivity_matches_st_board_configuration(self):
+        self.run_driver(
+            [
+                "-DCONFIG_T5AI_QMI8658_ANY_MOTION=1",
+                "-DQMI8658_ST_MAPPING_TEST=1",
+            ]
+        )
+
     def run_driver(self, flags):
         with tempfile.TemporaryDirectory() as temp:
             d = Path(temp)
@@ -637,7 +894,44 @@ class QMI8658FifoTest(unittest.TestCase):
                 p = d / name
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text('#include "stub.h"\n')
-            (d / "test.c").write_text(HARNESS)
+
+            def st_config(board):
+                text = (ROOT / f"pebble/boards/{board}.conf").read_text()
+                return {
+                    key: int(value)
+                    for key, value in re.findall(
+                        r"^CONFIG_ACCEL_LSM6DSO_(\w+)=(\d+)$", text, re.MULTILINE
+                    )
+                }
+
+            reference = st_config("asterix")
+            self.assertEqual(reference, st_config("obelix"))
+            # LSM6DSO uses (a[n]-a[n-1])/2; QMI uses the full difference.
+            # Compare constant-rate ramps across 80 ms ST and 48 ms QMI periods.
+            scale = Fraction(reference["SCALE_MG"], 64) * 2 * Fraction(48000, 80000)
+            qmi_unit = Fraction(1000, 32)
+
+            def qmi_code(st_code):
+                exact = st_code * scale / qmi_unit
+                return (exact.numerator + exact.denominator - 1) // exact.denominator
+
+            expected = [
+                qmi_code(
+                    reference["WK_THS_MAX"]
+                    - percent
+                    * (reference["WK_THS_MAX"] - reference["WK_THS_MIN"])
+                    // 100
+                )
+                for percent in range(101)
+            ]
+            window = max(1, (reference["WK_DUR_DEFAULT"] * 80000 + 47999) // 48000)
+            harness = (
+                HARNESS.replace("@ST_MAPPING_EXPECTED@", ",".join(map(str, expected)))
+                .replace("@ST_DEFAULT@", str(reference["WK_THS_DEFAULT"]))
+                .replace("@QMI_DEFAULT@", str(qmi_code(reference["WK_THS_DEFAULT"])))
+                .replace("@QMI_WINDOW@", str(window))
+            )
+            (d / "test.c").write_text(harness)
             subprocess.run(
                 [
                     "cc",
