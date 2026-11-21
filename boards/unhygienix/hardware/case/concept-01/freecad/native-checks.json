@@ -1,0 +1,16 @@
+[
+  {
+    "file": "unhygienix-full_cell_stacked.FCStd",
+    "sketches": 80,
+    "fully_constrained": true,
+    "native_print_parts": 14,
+    "post_gui_reopen": "passed"
+  },
+  {
+    "file": "unhygienix-thin_notched.FCStd",
+    "sketches": 72,
+    "fully_constrained": true,
+    "native_print_parts": 13,
+    "post_gui_reopen": "passed"
+  }
+]

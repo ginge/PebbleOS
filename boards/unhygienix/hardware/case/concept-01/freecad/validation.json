@@ -1,0 +1,234 @@
+[
+  {
+    "mode": "full_cell_stacked",
+    "parts": [
+      {
+        "part": "PRINT_key_1",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 33.132592153667176,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 1.1794121235197963e-11
+      },
+      {
+        "part": "PRINT_key_2",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 33.13259215366715,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 8.86757334228605e-12
+      },
+      {
+        "part": "PRINT_key_3",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 33.13259215366717,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 1.0701661778966809e-11
+      },
+      {
+        "part": "PRINT_key_4",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 33.132592153667176,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 7.66320340517268e-12
+      },
+      {
+        "part": "PRINT_rear_cover",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 2253.606572571281,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 0.0
+      },
+      {
+        "part": "PRINT_host_retainer",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 223.74894117764566,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 1.7763568394002505e-15
+      },
+      {
+        "part": "PRINT_accessory_deck",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 1585.745706820206,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 1.0906830993917538e-12
+      },
+      {
+        "part": "PRINT_speaker_cup",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 164.38545388953452,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 1.2434497875801753e-12
+      },
+      {
+        "part": "PRINT_PCB_post_-6.0_-19.0",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 2.8651325000738916,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 1.7763568394002505e-15
+      },
+      {
+        "part": "PRINT_PCB_post_2.0_-13.0",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 2.8651325000738916,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 1.7763568394002505e-15
+      },
+      {
+        "part": "PRINT_ALS_blackout",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 15.035999999999975,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 1.6040502259784262e-12
+      },
+      {
+        "part": "PRINT_cell_guide_110",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 11.999999999999998,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 1.2150280781497713e-12
+      },
+      {
+        "part": "PRINT_cell_guide_290",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 11.999999999999998,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 8.206768598029157e-12
+      },
+      {
+        "part": "PRINT_upper_housing",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 4296.485925510364,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 3.552713678800501e-15
+      }
+    ],
+    "native_file": "unhygienix-full_cell_stacked.FCStd",
+    "spreadsheet_edit_restore": "passed",
+    "save_reopen": "passed"
+  },
+  {
+    "mode": "thin_notched",
+    "parts": [
+      {
+        "part": "PRINT_key_1",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 33.132592153667126,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 1.1794121235197963e-11
+      },
+      {
+        "part": "PRINT_key_2",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 33.13259215366713,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 8.86757334228605e-12
+      },
+      {
+        "part": "PRINT_key_3",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 33.13259215366713,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 1.0701661778966809e-11
+      },
+      {
+        "part": "PRINT_key_4",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 33.132592153667176,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 7.66320340517268e-12
+      },
+      {
+        "part": "PRINT_rear_cover",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 2253.606572571281,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 0.0
+      },
+      {
+        "part": "PRINT_host_retainer",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 223.74894117764566,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 0.0
+      },
+      {
+        "part": "PRINT_speaker_cup",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 164.3854538895343,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 1.2434497875801753e-12
+      },
+      {
+        "part": "PRINT_PCB_post_-6.0_-19.0",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 2.8651325000738916,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 2.220446049250313e-16
+      },
+      {
+        "part": "PRINT_PCB_post_2.0_-13.0",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 2.865132500073891,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 2.220446049250313e-16
+      },
+      {
+        "part": "PRINT_ALS_blackout",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 15.035999999999998,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 1.6040502259784262e-12
+      },
+      {
+        "part": "PRINT_cell_guide_110",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 11.999999999999998,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 1.2150280781497713e-12
+      },
+      {
+        "part": "PRINT_cell_guide_290",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 11.999999999999998,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 8.206768598029157e-12
+      },
+      {
+        "part": "PRINT_upper_housing",
+        "valid": true,
+        "solids": 1,
+        "volume_mm3": 3136.985697053596,
+        "symmetric_difference_mm3": 0.0,
+        "max_bounds_error_mm": 0.0
+      }
+    ],
+    "native_file": "unhygienix-thin_notched.FCStd",
+    "spreadsheet_edit_restore": "passed",
+    "save_reopen": "passed"
+  }
+]
