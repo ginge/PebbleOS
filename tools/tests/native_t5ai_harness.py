@@ -31,6 +31,8 @@ def run(source, prefix, main, defines=(), transform=None):
                 "-fno-sanitize-recover=all",
                 "-fno-pie",
                 "-no-pie",
+                "-I",
+                str(ROOT / "include"),
                 *["-D" + d for d in defines],
                 str(path / "test.c"),
                 "-o",
@@ -52,7 +54,7 @@ DISPLAY_PREFIX = r"""
 #define PBL_DISPLAY_WIDTH 260u
 #define PBL_DISPLAY_HEIGHT 260u
 #define T5AI_SHARED_ALIGNMENT 32u
-#define T5AI_AON_RTC_HZ 32768u
+#include <pbl/soc/t5ai/rtc.h>
 #define PBL_FOREVER 0
 #define PBL_LOG_MODULE_DEFINE(...)
 struct pbl_mutex { bool held; };
@@ -84,7 +86,7 @@ static int pbl_panel_enable(const struct pbl_panel *p){return 0;}
 static int pbl_panel_disable(const struct pbl_panel *p){return 0;}
 static void pbl_display_complete(const struct pbl_display *d,int status){assert(!co5300_lock.held);++callbacks;completed_status=status;}
 static void pbl_sleep_ms(unsigned ms){assert(ms==1000);++sleeps;}
-static uint64_t t5ai_rtc_get_raw_ticks(void){return 0;}
+uint64_t t5ai_rtc_get_raw_ticks(void){return 0;}
 static int pbl_spi_transfer(const struct pbl_spi_dev *dev,const struct pbl_spi_xfer *xfers,size_t count){
  assert(co5300_lock.held && dev==&CO5300.spi);
  if(++transfers==fail_at || fail_always)return -EIO;

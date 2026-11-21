@@ -7,36 +7,31 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tools.tests.test_t5ai_config import load_config
+
 ROOT = Path(__file__).resolve().parents[2]
 STUBS = {
-    "pbl/soc/t5ai/image_layout.h": "#include <pbl/drivers/flash.h>\n#define T5AI_FLASH_XIP_BASE 0x02000000u\n#include <pbl/board/partitions.h>\n",
-    "pbl/board/partitions.h": "#include <pbl/drivers/flash.h>\n#define PART_SYSTEM_RESOURCES_BANK_0_OFFSET (FLASH_REGION_SYSTEM_RESOURCES_BANK_0_BEGIN - 0x02000000u)\n#define PART_SYSTEM_RESOURCES_BANK_0_SIZE TEST_BANK_SIZE\n#define PART_SYSTEM_RESOURCES_BANK_1_OFFSET (FLASH_REGION_SYSTEM_RESOURCES_BANK_1_BEGIN - 0x02000000u)\n#define PART_SYSTEM_RESOURCES_BANK_1_SIZE TEST_BANK_SIZE\n",
+    # Use the real layout; override only geometry deliberately varied by a case.
+    "pbl/board/partitions.h": """
+#include_next <pbl/board/partitions.h>
+enum { TEST_MAPPING_SIZE = PART_SYSTEM_RESOURCES_BANK_0_SIZE };
+#ifdef TEST_BANK_SIZE
+#undef PART_SYSTEM_RESOURCES_BANK_0_SIZE
+#define PART_SYSTEM_RESOURCES_BANK_0_SIZE TEST_BANK_SIZE
+#endif
+#ifdef TEST_STOCK_BANKS
+// Stock backend coverage needs a spare bank, absent on the production board.
+#undef PART_SYSTEM_RESOURCES_BANK_1_SIZE
+#define PART_SYSTEM_RESOURCES_BANK_1_SIZE PART_SYSTEM_RESOURCES_BANK_0_SIZE
+#endif
+""",
     "applib/applib_resource.h": "",
-    "pbl/kernel/compiler.h": "#define PBL_PACKED __attribute__((packed))\n",
     "pbl/logging/logging.h": """
 #define PBL_LOG_INFO(...)
 #define PBL_LOG_WRN(...)
 #define PBL_LOG_ERR(...)
 #define PBL_LOG_DBG(...) test_log(__VA_ARGS__)
 static inline void test_log(const char *fmt, ...) { (void)fmt; }
-""",
-    "pbl/drivers/flash.h": """
-#include <stddef.h>
-#include <stdint.h>
-#define FLASH_REGION_SYSTEM_RESOURCES_BANK_0_BEGIN 0x02400000u
-#ifndef TEST_BANK_SIZE
-#define TEST_BANK_SIZE 0x100000u
-#endif
-#define FLASH_REGION_SYSTEM_RESOURCES_BANK_0_END (0x02400000u + TEST_BANK_SIZE)
-#define FLASH_REGION_SYSTEM_RESOURCES_BANK_1_BEGIN (0x02400000u + TEST_BANK_SIZE)
-#define FLASH_REGION_SYSTEM_RESOURCES_BANK_1_END (0x02400000u + 2 * TEST_BANK_SIZE)
-#define FLASH NULL
-int pbl_flash_read(const void *,uint32_t,void *,size_t);
-int pbl_flash_write(const void *,uint32_t,const void *,size_t);
-uint32_t pbl_flash_crc32_legacy(const void *,uint32_t,size_t);
-void flash_read_bytes(uint8_t *, uint32_t, uint32_t);
-void flash_write_bytes(const uint8_t *, uint32_t, uint32_t);
-uint32_t flash_crc32_legacy(uint32_t, uint32_t);
 """,
     "pbl/services/process_management/app_storage.h": "",
     "system/bootbits.h": """
@@ -66,19 +61,20 @@ HARNESS = r"""
 #include "resource/resource_storage_flash.h"
 #include "resource/resource_version.auto.h"
 #include "pbl/drivers/flash.h"
-#include <pbl/board/partitions.h>
+#include <pbl/soc/t5ai/image_layout.h>
 #include <pbl/crc/crc.h>
 
 ResourceVersion test_resource_version;
+const struct pbl_flash *const FLASH = NULL;
 static uint8_t *bank;
 static uint8_t app[RESOURCE_STORE_METADATA_BYTES + 8];
 static unsigned reads, read_bytes, crcs, app_queries, builtin_queries, clears;
 static uint32_t crc_address, crc_length;
-static const uint32_t base = FLASH_REGION_SYSTEM_RESOURCES_BANK_0_BEGIN;
+static const uint32_t base = T5AI_FLASH_XIP_BASE + PART_SYSTEM_RESOURCES_BANK_0_OFFSET;
 void *tracked_memcpy(void *out, const void *in, size_t n) {
   const uintptr_t address = (uintptr_t)in;
-  if (address >= base && address < base + 0x100000u) {
-    assert(address - base <= TEST_BANK_SIZE && n <= TEST_BANK_SIZE - (address - base));
+  if (address >= base && address < base + TEST_MAPPING_SIZE) {
+    assert(address - base <= PART_SYSTEM_RESOURCES_BANK_0_SIZE && n <= PART_SYSTEM_RESOURCES_BANK_0_SIZE - (address - base));
     reads++; read_bytes += n;
   }
   return memmove(out, in, n);
@@ -88,8 +84,8 @@ static ResTableEntry *table(unsigned i) {
   return (ResTableEntry *)(bank + MANIFEST_SIZE + i * TABLE_ENTRY_SIZE);
 }
 void flash_read_bytes(uint8_t *out, uint32_t address, uint32_t n) {
-  assert(address >= base && address - base <= TEST_BANK_SIZE);
-  assert(n <= TEST_BANK_SIZE - (address - base));
+  assert(address >= base && address - base <= PART_SYSTEM_RESOURCES_BANK_0_SIZE);
+  assert(n <= PART_SYSTEM_RESOURCES_BANK_0_SIZE - (address - base));
   memcpy(out, bank + address - base, n);
 }
 void flash_write_bytes(const uint8_t *p, uint32_t a, uint32_t n) {
@@ -97,8 +93,8 @@ void flash_write_bytes(const uint8_t *p, uint32_t a, uint32_t n) {
   memcpy(bank, p, n);
 }
 uint32_t flash_crc32_legacy(uint32_t address, uint32_t n) {
-  assert(address >= base && address - base <= TEST_BANK_SIZE);
-  assert(n <= TEST_BANK_SIZE - (address - base));
+  assert(address >= base && address - base <= PART_SYSTEM_RESOURCES_BANK_0_SIZE);
+  assert(n <= PART_SYSTEM_RESOURCES_BANK_0_SIZE - (address - base));
   crcs++; crc_address = address; crc_length = n;
   return pbl_crc32_legacy(bank + address - base, n);
 }
@@ -130,7 +126,7 @@ static bool file_find(ResourceStoreEntry *e, ResAppNum a, uint32_t id) {
 const ResourceStoreImplementation g_file_impl = {.find_resource = file_find};
 
 static void setup(void) {
-  memset(bank, 0xff, 0x100000);
+  memset(bank, 0xff, TEST_MAPPING_SIZE);
   test_resource_version = (ResourceVersion){pbl_crc32_legacy("abcdefgh", 8), 42};
   *manifest() = (ResourceManifest){.num_resources = 2, .version = SYSTEM_RESOURCE_VERSION};
   *table(0) = (ResTableEntry){1, 0, 4, 0xaabbccdd};
@@ -140,10 +136,10 @@ static void setup(void) {
   table(1)->crc = pbl_crc32_legacy("efgh", 4);
   reads = read_bytes = crcs = 0;
 }
-static uint32_t physical(uint32_t a){return a<0x02000000u?a+0x02000000u:a;}
-int pbl_flash_read(const void *f,uint32_t a,void *p,size_t n){flash_read_bytes(p,physical(a),n);return 0;}
-int pbl_flash_write(const void *f,uint32_t a,const void *p,size_t n){flash_write_bytes(p,physical(a),n);return 0;}
-uint32_t pbl_flash_crc32_legacy(const void *f,uint32_t a,size_t n){return flash_crc32_legacy(physical(a),n);}
+static uint32_t physical(uint32_t a){return a<T5AI_FLASH_XIP_BASE?a+T5AI_FLASH_XIP_BASE:a;}
+int pbl_flash_read(const struct pbl_flash *f,uint32_t a,void *p,size_t n){flash_read_bytes(p,physical(a),n);return 0;}
+int pbl_flash_write(const struct pbl_flash *f,uint32_t a,const void *p,size_t n){flash_write_bytes(p,physical(a),n);return 0;}
+uint32_t pbl_flash_crc32_legacy(const struct pbl_flash *f,uint32_t a,size_t n){return flash_crc32_legacy(physical(a),n);}
 static void init_expect(bool valid, unsigned expected_crcs) {
   resource_storage_init();
   assert(crcs == expected_crcs);
@@ -153,11 +149,11 @@ static void init_expect(bool valid, unsigned expected_crcs) {
   assert(resource_storage_check(SYSTEM_APP, 0, &SYSTEM_RESOURCE_VERSION) == valid);
 }
 int main(void) {
-  bank = mmap((void *)(uintptr_t)base, 0x100000, PROT_READ | PROT_WRITE,
+  bank = mmap((void *)(uintptr_t)base, TEST_MAPPING_SIZE, PROT_READ | PROT_WRITE,
               MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
   assert(bank == (void *)(uintptr_t)base);
   setup();
-  if (TEST_BANK_SIZE < SYSTEM_STORE_METADATA_BYTES) {
+  if (PART_SYSTEM_RESOURCES_BANK_0_SIZE < SYSTEM_STORE_METADATA_BYTES) {
     init_expect(false, 0); // Truncated manifest/table geometry: no mapped access.
     return 0;
   }
@@ -176,12 +172,12 @@ int main(void) {
   setup(); table(1)->resource_id = 3; init_expect(false, 0);
   setup(); table(1)->offset = UINT32_MAX - 1; table(1)->length = 8;
   init_expect(false, 0);
-  setup(); table(1)->offset = TEST_BANK_SIZE - (uint32_t)SYSTEM_STORE_METADATA_BYTES;
+  setup(); table(1)->offset = PART_SYSTEM_RESOURCES_BANK_0_SIZE - (uint32_t)SYSTEM_STORE_METADATA_BYTES;
   table(1)->length = 1; init_expect(false, 0);
-  setup(); table(1)->offset = TEST_BANK_SIZE - (uint32_t)SYSTEM_STORE_METADATA_BYTES - 4;
+  setup(); table(1)->offset = PART_SYSTEM_RESOURCES_BANK_0_SIZE - (uint32_t)SYSTEM_STORE_METADATA_BYTES - 4;
   table(1)->length = 4;
   test_resource_version.crc = pbl_crc32_legacy(bank + SYSTEM_STORE_METADATA_BYTES,
-                                            TEST_BANK_SIZE - SYSTEM_STORE_METADATA_BYTES);
+                                            PART_SYSTEM_RESOURCES_BANK_0_SIZE - SYSTEM_STORE_METADATA_BYTES);
   manifest()->version = test_resource_version;
   init_expect(true, 1); // Exact bank end is valid with the correct full CRC.
   setup(); manifest()->num_resources = MAX_RESOURCES_FOR_SYSTEM_STORE;
@@ -204,13 +200,13 @@ int main(void) {
 #ifdef CONFIG_MMAP_RESOURCES
   assert(e.impl->readonly_bytes(&e) == (const uint8_t *)(uintptr_t)(base + e.offset));
   assert(resource_storage_flash_bytes_are_readonly((const void *)(uintptr_t)base));
-  assert(resource_storage_flash_bytes_are_readonly((const void *)(uintptr_t)(base + TEST_BANK_SIZE - 1)));
+  assert(resource_storage_flash_bytes_are_readonly((const void *)(uintptr_t)(base + PART_SYSTEM_RESOURCES_BANK_0_SIZE - 1)));
 #else
   assert(e.impl->readonly_bytes(&e) == NULL);
   assert(!resource_storage_flash_bytes_are_readonly((const void *)(uintptr_t)base));
 #endif
   assert(!resource_storage_flash_bytes_are_readonly((const void *)(uintptr_t)(base - 1)));
-  assert(!resource_storage_flash_bytes_are_readonly((const void *)(uintptr_t)(base + TEST_BANK_SIZE)));
+  assert(!resource_storage_flash_bytes_are_readonly((const void *)(uintptr_t)(base + PART_SYSTEM_RESOURCES_BANK_0_SIZE)));
   assert(resource_storage_check(SYSTEM_APP, 1, &SYSTEM_RESOURCE_VERSION));
   assert(crcs == 2 && crc_address == base + SYSTEM_STORE_METADATA_BYTES && crc_length == 4);
   table(0)->crc++; assert(!resource_storage_check(SYSTEM_APP, 1, &SYSTEM_RESOURCE_VERSION));
@@ -236,7 +232,7 @@ STOCK_HARNESS = (
     HARNESS.split("static void init_expect")[0]
     + r"""
 int main(void) {
-  bank = mmap((void *)(uintptr_t)base, 0x100000, PROT_READ | PROT_WRITE,
+  bank = mmap((void *)(uintptr_t)base, TEST_MAPPING_SIZE, PROT_READ | PROT_WRITE,
               MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
   assert(bank == (void *)(uintptr_t)base);
   setup();
@@ -265,20 +261,31 @@ class T5ResourcesTest(unittest.TestCase):
                 path = directory / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("#pragma once\n" + content)
+            config = load_config("unhygienix")
+            # Only configure dependencies used by these translation units. Cases
+            # select mmap independently; no configured build directory is needed.
+            (directory / "config.h").write_text(
+                "".join(
+                    f"#define CONFIG_{name} {config.syms[name].str_value}\n"
+                    for name in ("FW_FLASH_SIZE", "KERNEL_THREAD_TLS_SLOTS")
+                )
+            )
             harness = directory / "test.c"
             harness.write_text(STOCK_HARNESS if stock else HARNESS)
             binary = directory / "test"
             subprocess.run(
                 [
-                    "cc",
-                    "-std=gnu2x",
+                    "clang-21",
+                    "-std=gnu23",
                     "-Wall",
                     "-Wextra",
                     "-Werror",
                     "-Wno-unused-parameter",
                     "-DCONFIG_SOC_T5AI=1",
                     "-Dmemcpy=tracked_memcpy",
-                    "-DTEST_BANK_SIZE=0x100000u",
+                    "-include",
+                    str(directory / "config.h"),
+                    *(["-DTEST_STOCK_BANKS=1"] if stock else []),
                     *defines,
                     "-I",
                     str(directory),
@@ -286,6 +293,8 @@ class T5ResourcesTest(unittest.TestCase):
                     str(ROOT / "pebble"),
                     "-I",
                     str(ROOT / "include"),
+                    "-I",
+                    str(ROOT / "kernel/arch/posix/include"),
                     str(harness),
                     str(
                         ROOT
