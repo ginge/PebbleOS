@@ -26,7 +26,6 @@ from tools.unhygienix_image import (
     crc16,
     encode_pebble_application,
     encode_protected_blocks,
-    firmware_layout_record,
     package_ap_qio,
     validate_pinned_ap_layout,
     verify_protected_blocks,
@@ -141,7 +140,6 @@ class UnhygienixImagePackagingTest(unittest.TestCase):
             (0x28020000).to_bytes(4, "little")
             + (PRIMARY_AP_APP_XIP_BASE + 0x101).to_bytes(4, "little")
             + b"Pebble"
-            + firmware_layout_record()
         )
         protected = encode_pebble_application(vector)
         packaged = package_ap_qio(base, protected, digest)
@@ -168,7 +166,6 @@ class UnhygienixImagePackagingTest(unittest.TestCase):
             (0x28020000).to_bytes(4, "little")
             + (PRIMARY_AP_APP_XIP_BASE + 0x101).to_bytes(4, "little")
             + b"Pebble image larger than the vendor application"
-            + firmware_layout_record()
         )
         protected = encode_pebble_application(vector)
         packaged = package_ap_qio(base, protected, digest)
@@ -182,8 +179,6 @@ class UnhygienixImagePackagingTest(unittest.TestCase):
         valid_vector = (0x28020000).to_bytes(4, "little") + (
             PRIMARY_AP_APP_XIP_BASE + 0x101
         ).to_bytes(4, "little")
-        with self.assertRaisesRegex(ValueError, "image layout"):
-            package_ap_qio(base, encode_protected_blocks(valid_vector), digest)
         with self.assertRaisesRegex(ValueError, "SHA-256 mismatch"):
             package_ap_qio(base, encode_protected_blocks(valid_vector), "0" * 64)
         with self.assertRaisesRegex(ValueError, "stack pointer"):

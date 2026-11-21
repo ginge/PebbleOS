@@ -22,7 +22,6 @@ from tools.unhygienix_image import (
     PEBBLE_AP_SLOT_PHYSICAL_SIZE,
     PEBBLE_AP_SLOT_SIZE,
     PRIMARY_AP_APP_XIP_BASE,
-    validate_firmware_layout,
     verify_protected_blocks,
 )
 
@@ -53,7 +52,6 @@ def validate_firmware(raw_path: Path, protected_path: Path) -> tuple[bytes, byte
         < PRIMARY_AP_APP_XIP_BASE + PEBBLE_AP_SLOT_SIZE
     ):
         raise ValueError(f"invalid reset vector 0x{reset_vector:08x}")
-    validate_firmware_layout(raw)
     return raw, protected
 
 

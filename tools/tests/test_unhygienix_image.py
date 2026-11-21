@@ -17,7 +17,6 @@ from tools.unhygienix_image import (
     PFS_VERSION,
     build_empty_pfs,
     build_pebble_flash_image,
-    firmware_layout_record,
     verify_protected_blocks,
 )
 
@@ -187,7 +186,7 @@ FLASH            0x02120000         0x001a0000         xr
         self.assertTrue(any("vendor/reference" in error for error in errors))
 
     def test_flash_images_contain_firmware_resources_and_formatted_pfs(self):
-        firmware = b"firmware" + firmware_layout_record()
+        firmware = b"firmware"
         resources = b"resources"
         protected = build_pebble_flash_image(firmware, resources)
         protected_prefix_size = (

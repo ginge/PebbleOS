@@ -5,8 +5,7 @@ endif()
 # SPDX-License-Identifier: Apache-2.0
 pbl_library()
 pbl_library_sources(init.c idle.c tick.c delay.c power.c retained.c reboot_reason.c flash_translation.c)
-pbl_library_sources(resource_storage.c image_layout.c)
-pbl_link_options(-Wl,--undefined=t5ai_image_layout)
+pbl_library_sources(resource_storage.c)
 # ARM syscall exit calls this native hook from inline assembly.
 pbl_link_options(-Wl,--undefined=pbl_kernel_syscall_exit)
 pbl_library_sources_ifdef(CONFIG_T5AI_RETAINED_SLEEP sleep.c)

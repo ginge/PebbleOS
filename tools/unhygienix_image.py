@@ -6,7 +6,6 @@
 
 import argparse
 import hashlib
-import struct
 import sys
 from pathlib import Path
 
@@ -62,33 +61,10 @@ PEBBLE_SHARED_PRF_PHYSICAL_OFFSET = PRIMARY_OTA_PHYSICAL_OFFSET
 PEBBLE_SHARED_PRF_SIZE = 0x00010000
 # Preserve the board's first reserved crash-data range as well as factory bounds.
 PEBBLE_CRASH_DATA_PHYSICAL_OFFSET = 0x00450000
-PEBBLE_LAYOUT_MAGIC = b"PBLT5LY2"
-PEBBLE_LAYOUT_VERSION = 2
 PFS_PAGE_SIZE = 0x1000
 PFS_VERSION = 0x5001
 PFS_ERASED_PAGE_FLAGS = 0xFE
 PFS_INITIAL_ERASE_COUNT = 1
-
-
-def firmware_layout_record() -> bytes:
-    return struct.pack(
-        "<8s5I",
-        PEBBLE_LAYOUT_MAGIC,
-        PEBBLE_LAYOUT_VERSION,
-        PRIMARY_AP_APP_XIP_BASE,
-        PEBBLE_AP_SLOT_SIZE,
-        PEBBLE_RESOURCES_LOGICAL_OFFSET,
-        PEBBLE_RESOURCES_SIZE,
-    )
-
-
-def validate_firmware_layout(firmware: bytes) -> None:
-    expected = firmware_layout_record()
-    if firmware.count(PEBBLE_LAYOUT_MAGIC) != 1 or expected not in firmware:
-        raise ValueError(
-            "firmware image layout does not match the current firmware/resource bank; "
-            "rebuild or restore a matched legacy firmware/resource pair"
-        )
 
 
 def encode_pebble_application(data: bytes) -> bytes:
@@ -131,7 +107,6 @@ def build_pebble_flash_image(firmware: bytes, resources: bytes) -> bytes:
         raise ValueError("Pebble system resources exceed the T5AI resource bank")
 
     validate_pinned_ap_layout()
-    validate_firmware_layout(firmware)
     protected_logical_size = PEBBLE_RESOURCES_LOGICAL_OFFSET + PEBBLE_RESOURCES_SIZE
     protected_logical = bytearray([PADDING_BYTE]) * protected_logical_size
     protected_logical[: len(firmware)] = firmware
@@ -211,7 +186,6 @@ def package_ap_qio(
     ):
         raise ValueError(f"invalid T5AI reset vector 0x{reset_vector:08x}")
 
-    validate_firmware_layout(logical)
     ap_end = PRIMARY_AP_APP_PHYSICAL_OFFSET + len(protected_ap)
     partition_end = PRIMARY_AP_APP_PHYSICAL_OFFSET + PRIMARY_AP_APP_PHYSICAL_SIZE
     if ap_end > partition_end:
@@ -238,7 +212,6 @@ def main() -> int:
 
     validate_pinned_ap_layout()
     firmware = args.input.read_bytes()
-    validate_firmware_layout(firmware)
     encoded = encode_pebble_application(firmware)
     args.output.write_bytes(encoded)
     verify_protected_blocks(encoded)

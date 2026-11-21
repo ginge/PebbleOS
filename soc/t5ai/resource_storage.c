@@ -13,6 +13,17 @@
 #include <pbl/logging/logging.h>
 #include <pbl/soc/t5ai/image_layout.h>
 
+_Static_assert(CONFIG_FW_FLASH_SIZE ==
+                   (T5AI_FLASH_XIP_BASE + PART_FIRMWARE_SLOT_0_OFFSET + PART_FIRMWARE_SLOT_0_SIZE) -
+                       (T5AI_FLASH_XIP_BASE + PART_FIRMWARE_SLOT_0_OFFSET),
+               "Firmware linker and flash layout must agree");
+_Static_assert((T5AI_FLASH_XIP_BASE + PART_SYSTEM_RESOURCES_BANK_0_OFFSET) ==
+                   (T5AI_FLASH_XIP_BASE + PART_FIRMWARE_SLOT_0_OFFSET + PART_FIRMWARE_SLOT_0_SIZE),
+               "Resources must follow firmware");
+_Static_assert((T5AI_FLASH_XIP_BASE + PART_SYSTEM_RESOURCES_BANK_0_OFFSET +
+                PART_SYSTEM_RESOURCES_BANK_0_SIZE) <= (T5AI_FLASH_XIP_BASE + PART_CD_OFFSET),
+               "Resources must not overlap reserved crash data");
+
 static const SystemResourceBank s_bank = {
   .begin = (T5AI_FLASH_XIP_BASE + PART_SYSTEM_RESOURCES_BANK_0_OFFSET),
   .end = (T5AI_FLASH_XIP_BASE + PART_SYSTEM_RESOURCES_BANK_0_OFFSET +
