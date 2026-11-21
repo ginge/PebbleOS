@@ -24,6 +24,9 @@ static const struct pbl_pinctrl_state s_pins={0};
 #define TEST_PINS (&s_pins)
 #endif
 PBL_UART_T5AI_DEFINE(port, 0x44820000u, 4, 5, TEST_PINS, 26000000u, 460800u);
+static unsigned wait_steps;
+static uint32_t aon_advance;
+void delay_us(uint32_t us) { assert(us == 1u); ++wait_steps; T5AI_AON_RTC_COUNT_LOW += aon_advance; }
 static unsigned pin_calls;
 int pbl_pinctrl_select_state(const struct pbl_pinctrl *pins,enum pbl_pinctrl_state_id id){assert(pins->states[id]==&s_pins);++pin_calls;return 0;}
 static unsigned irq_depth, received;
@@ -94,6 +97,14 @@ int main(void) {
  cfg.baudrate=460800;assert(pbl_uart_configure(uart,&cfg)==0);
  assert(regs->config&UART_CONFIG_RX_ENABLE);
  assert(pbl_uart_rx_disable(uart)==0 && !irq_enabled && !irq_depth);
+ // Both ready and empty waits terminate with stopped AON via the iteration bound.
+ regs->fifo_status=0;regs->fifo_port=0x55;wait_steps=0;
+ pbl_uart_poll_out(uart,0xaa);assert(regs->fifo_port==0x55 && wait_steps==UART_FIFO_TIMEOUT_US);
+ wait_steps=0;pbl_uart_flush(uart);assert(wait_steps==UART_FIFO_TIMEOUT_US);
+ // An independent running AON expires even if delay/timer progress is unreliable.
+ aon_advance=T5AI_AON_RTC_HZ;T5AI_AON_RTC_COUNT_LOW=UINT32_MAX-16u;wait_steps=0;
+ pbl_uart_poll_out(uart,0xaa);assert(regs->fifo_port==0x55 && wait_steps==1);
+ wait_steps=0;pbl_uart_flush(uart);assert(wait_steps==1);aon_advance=0;
  // A fresh device without early initialization uses the board baud rate.
  *uart->state=(struct pbl_uart_state){0};
  assert(pbl_uart_init(&uart->dev)==0 && uart->state->cfg.baudrate==460800);

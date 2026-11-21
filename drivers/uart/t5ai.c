@@ -8,11 +8,9 @@
 
 #include <pbl/drivers/uart/t5ai.h>
 #include <pbl/soc/t5ai/core.h>
-#include <pbl/util/misc.h>
-#if defined(CONFIG_T5AI_UART_IDLE_GATING) || defined(CONFIG_T5AI_RETAINED_SLEEP) || \
-    defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
 #include <pbl/soc/t5ai/delay.h>
-#endif
+#include <pbl/soc/t5ai/rtc.h>
+#include <pbl/util/misc.h>
 
 typedef volatile struct {
   uint32_t dev_id, dev_version, global_ctrl, dev_status, config, fifo_config;
@@ -38,6 +36,7 @@ enum {
 #define UART_GLOBAL_RESET_RELEASE     (1u << 0)
 #define UART_GLOBAL_CLOCK_GATE_BYPASS (1u << 1)
 #define UART_TX_DRAIN_TIMEOUT_US      100000u
+#define UART_FIFO_TIMEOUT_US          1000000u
 #define UART_ALL_INTERRUPT_FLAGS      0xffu
 #define UART_BAUD_DIVISOR_SHIFT       8u
 #define UART_BAUD_DIVISOR_MASK        (0xffffu << UART_BAUD_DIVISOR_SHIFT)
@@ -55,6 +54,34 @@ static T5AIUartRegisters *prv_regs(const struct pbl_uart_t5ai *dev) {
 
 static const struct pbl_uart_t5ai *prv_dev(const struct pbl_uart *uart) {
   return container_of(uart, const struct pbl_uart_t5ai, uart);
+}
+
+// AON bounds wall time; the iteration limit also handles a stopped AON clock.
+static bool prv_wait_tx(const struct pbl_uart_t5ai *dev, uint32_t fifo_mask, bool finish,
+                        uint32_t timeout_us) {
+  const uint32_t start = T5AI_AON_RTC_COUNT_LOW;
+  const uint32_t ticks = ((uint64_t)timeout_us * T5AI_AON_RTC_HZ + 999999u) / 1000000u;
+  for (uint32_t waited = 0; waited < timeout_us; ++waited) {
+    if ((prv_regs(dev)->fifo_status & fifo_mask) == fifo_mask &&
+        (!finish || (prv_regs(dev)->int_status & UART_INT_TX_FINISH))) {
+      return true;
+    }
+    if ((uint32_t)(T5AI_AON_RTC_COUNT_LOW - start) >= ticks) {
+      break;
+    }
+    delay_us(1u);
+  }
+  return false;
+}
+
+static void prv_wait_fault(const struct pbl_uart_t5ai *dev) {
+  (void)dev;
+#ifdef CONFIG_T5AI_UART_IDLE_GATING
+  dev->power->drain_fault = true;
+#endif
+#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
+  t5ai_sleep_fault();
+#endif
 }
 
 #ifdef CONFIG_T5AI_UART_IDLE_GATING
@@ -85,16 +112,13 @@ static void prv_clock_release(const struct pbl_uart_t5ai *dev) {
 static void prv_drain(const struct pbl_uart_t5ai *dev) {
   if (!dev->power->active)
     return;
-  for (unsigned us = 0; dev->power->tx_pending && us < UART_TX_DRAIN_TIMEOUT_US; ++us) {
-    const uint32_t fifo = prv_regs(dev)->fifo_status;
-    if ((fifo & UART_FIFO_TX_EMPTY) && (prv_regs(dev)->int_status & UART_INT_TX_FINISH)) {
+  if (dev->power->tx_pending) {
+    if (prv_wait_tx(dev, UART_FIFO_TX_EMPTY, true, UART_TX_DRAIN_TIMEOUT_US)) {
       dev->power->tx_pending = false;
-      break;
+    } else {
+      dev->power->drain_fault = true;
     }
-    delay_us(1u);
   }
-  if (dev->power->tx_pending)
-    dev->power->drain_fault = true;
 #if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
   if (dev->power->drain_fault)
     t5ai_sleep_fault();
@@ -166,7 +190,9 @@ static void prv_poll_out(const struct pbl_uart *uart, uint8_t c) {
   prv_clock_acquire(prv_dev(uart));
 #endif
   T5AIUartRegisters *regs = prv_regs(prv_dev(uart));
-  while ((regs->fifo_status & UART_FIFO_WRITE_READY) == 0U) {
+  if (!prv_wait_tx(prv_dev(uart), UART_FIFO_WRITE_READY, false, UART_FIFO_TIMEOUT_US)) {
+    prv_wait_fault(prv_dev(uart));
+    return; // The void console API cannot report failure; drop this byte.
   }
 #if defined(CONFIG_T5AI_UART_IDLE_GATING) || defined(CONFIG_T5AI_RETAINED_SLEEP) || \
     defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
@@ -179,31 +205,24 @@ static void prv_poll_out(const struct pbl_uart *uart, uint8_t c) {
 }
 
 static void prv_flush(const struct pbl_uart *uart) {
-#ifdef CONFIG_T5AI_UART_IDLE_GATING
   const struct pbl_uart_t5ai *dev = prv_dev(uart);
+#ifdef CONFIG_T5AI_UART_IDLE_GATING
   if (!dev->power->active)
     return;
-  // Preserve FIFO flush semantics before bounding the last-bit/gate check.
-  while ((prv_regs(dev)->fifo_status & UART_FIFO_TX_EMPTY) == 0u)
-    delay_us(1u);
-  prv_drain(dev);
-#else
-  while ((prv_regs(prv_dev(uart))->fifo_status & UART_FIFO_TX_EMPTY) == 0U) {
-  }
 #endif
-#if (defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)) && \
-    !defined(CONFIG_T5AI_UART_IDLE_GATING)
+  if (!prv_wait_tx(dev, UART_FIFO_TX_EMPTY, false, UART_FIFO_TIMEOUT_US)) {
+    prv_wait_fault(dev);
+    return; // Keep clocks and sleep blockers when completion is uncertain.
+  }
+#ifdef CONFIG_T5AI_UART_IDLE_GATING
+  prv_drain(dev);
+#elif defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
   // FIFO empty precedes the final stop bit. Hold the blocker until TX_FINISH.
-  const struct pbl_uart_t5ai *dev_sleep = prv_dev(uart);
-  if (dev_sleep->sleep->tx) {
-    const unsigned drain_timeout_us = UART_TX_DRAIN_TIMEOUT_US;
-    unsigned waited = 0u;
-    while (!(prv_regs(dev_sleep)->int_status & UART_INT_TX_FINISH) && waited++ < drain_timeout_us)
-      delay_us(1u);
-    if (!(prv_regs(dev_sleep)->int_status & UART_INT_TX_FINISH)) {
-      t5ai_sleep_fault();
+  if (dev->sleep->tx) {
+    if (!prv_wait_tx(dev, 0u, true, UART_TX_DRAIN_TIMEOUT_US)) {
+      prv_wait_fault(dev);
     } else {
-      dev_sleep->sleep->tx = false;
+      dev->sleep->tx = false;
       t5ai_sleep_unblock(T5AISleepOwner_UART);
     }
   }

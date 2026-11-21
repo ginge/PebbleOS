@@ -10,9 +10,10 @@ from tools.tests import test_t5ai_uart as uart_model
 
 MAIN = r"""
 static unsigned waited, finish_at, empty_at;
+static uint32_t aon_advance;
 void delay_us(uint32_t us) {
  if(us==1){
-  ++waited;
+  ++waited;T5AI_AON_RTC_COUNT_LOW+=aon_advance;
   if(waited==empty_at)prv_regs(&port)->fifo_status|=UART_FIFO_TX_EMPTY;
   if(waited==finish_at)prv_regs(&port)->int_status|=UART_INT_TX_FINISH;
  }
@@ -56,6 +57,20 @@ int main(void) {
  // Explicit reset/reconfiguration is the only way to clear uncertain-drain quarantine.
  assert(prv_early_init(uart)==0 && !port.power->drain_fault && port.power->active);
  cfg.baudrate=460800;assert(pbl_uart_configure(uart,&cfg)==0 && !port.power->active);
+ // Failed FIFO readiness/empty waits never gate the clock or release ownership.
+ finish_at=empty_at=0;regs->fifo_status=0;regs->fifo_port=0x55;waited=0;
+ pbl_uart_poll_out(uart,0xaa);
+ assert(waited==UART_FIFO_TIMEOUT_US && regs->fifo_port==0x55);
+ assert(port.power->active && port.power->drain_fault);
+ waited=0;pbl_uart_flush(uart);assert(waited==UART_FIFO_TIMEOUT_US);
+ assert(port.power->active && port.power->drain_fault);
+#ifdef CONFIG_T5AI_RETAINED_SLEEP
+ assert(sleep_owners==1 && sleep_faults);
+#endif
+ aon_advance=T5AI_AON_RTC_HZ;T5AI_AON_RTC_COUNT_LOW=UINT32_MAX-16u;waited=0;
+ pbl_uart_flush(uart);assert(waited==1 && port.power->active && port.power->drain_fault);
+ aon_advance=0;regs->fifo_status=UART_FIFO_TX_EMPTY;regs->int_status=UART_INT_TX_FINISH;
+ pbl_uart_flush(uart);assert(port.power->active && port.power->drain_fault);
  assert(!irq_depth);return 0;
 }
 """
@@ -76,7 +91,13 @@ class UARTIdleClockTest(unittest.TestCase):
                 "void NVIC_EnableIRQ(int);\n"
             )
             source = (
-                uart_model.HARNESS[: uart_model.HARNESS.index("int main(void)")] + MAIN
+                uart_model.HARNESS[
+                    : uart_model.HARNESS.index("int main(void)")
+                ].replace(
+                    "static unsigned wait_steps;\nstatic uint32_t aon_advance;\nvoid delay_us(uint32_t us) { assert(us == 1u); ++wait_steps; T5AI_AON_RTC_COUNT_LOW += aon_advance; }",
+                    "",
+                )
+                + MAIN
             )
             if retained:
                 sleep_header = uart_model.ROOT / "include/pbl/soc/t5ai/sleep.h"
