@@ -5,6 +5,7 @@
 
 #include <pbl/kernel/assert.h>
 #include <pbl/kernel/compiler.h>
+#include <pbl/kernel/mmio.h>
 #include <pbl/soc/t5ai/core.h>
 #include <pbl/soc/t5ai/delay.h>
 #include <pbl/soc/t5ai/rtc.h>
@@ -34,10 +35,13 @@ static uint32_t prv_timer_count(void) {
   T5AI_TIMER0_READ_CONTROL |= 1u;
   const uint32_t start = T5AI_AON_RTC_COUNT_LOW;
   unsigned remaining = T5AI_TIMER0_POLL_LIMIT;
-  while ((T5AI_TIMER0_READ_CONTROL & 1u) != 0 && --remaining != 0u &&
+  bool ready;
+  // Keep the completion observation: the asynchronous latch can be busy again
+  // by the next read. A later status must not invalidate a completed poll.
+  while (!(ready = (pbl_readl((uintptr_t)&T5AI_TIMER0_READ_CONTROL) & 1u) == 0u) &&
+         --remaining != 0u &&
          (uint32_t)(T5AI_AON_RTC_COUNT_LOW - start) < T5AI_TIMER0_LATCH_TIMEOUT_TICKS) {
   }
-  const bool ready = (T5AI_TIMER0_READ_CONTROL & 1u) == 0u;
   const uint32_t count = T5AI_TIMER0_READ_VALUE;
   if (primask == 0) {
     __enable_irq();

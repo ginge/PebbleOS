@@ -59,6 +59,9 @@ promotion of an unqualified image. Existing hardware release blockers remain.
   when completion is uncertain.
 - [x] Acceptance: stuck register bits terminate safely, including the
   interrupt-disabled latch path; normal wire timing remains unchanged.
+  The 21 November startup false panic was repaired by retaining the completion
+  observation, with unchanged deadlines and counter scaling; see the repair
+  record below. Wider hardware timing/soak qualification is not claimed.
 
 ### 4. Bound HCI ACL packet retries
 
@@ -418,3 +421,96 @@ fixtures duplicate public layouts and cannot establish the ABI safety of a
 replacement. No touch/PFS/shared implementation was changed in these four
 increments; findings 5–20 remain open. Any required shared extension must be
 justified and tested for stock targets before implementation.
+
+### Finding 3 repair — 21 November, 23:47 UTC
+
+The operator requested resolution of the timer-panic blocker. This is important:
+unbounded register waits can hang the AP, but a faulty failure check can also
+reset healthy hardware. The earlier guard implementation introduced the latter
+regression; the original static review did not establish this new failure.
+
+**Cause established from hardware:** a temporary failure-only assertion logged
+latch state and the existing deadline/iteration budget, without changing either
+bound. Its 140-second stopped capture contains 16 panics and 17 AP boot banners
+before eventual startup. Each latch assertion retained **65,536 polls**
+(`left=0x10000`) with age **0 or 1 AON tick**, and a clear latch in the diagnostic
+snapshot. The short-circuit polling condition therefore observed completion
+before decrementing its budget, but the new separate readiness read observed
+busy and panicked. No timeout had expired. This establishes contradictory
+successive status observations, not a deadline needing enlargement. The reason
+for the hardware's transient busy value, including any cross-core participation,
+is not established and is not assumed by the repair.
+
+`soc/t5ai/delay.c` now retains the observation that exits the poll. The single
+status load uses the real kernel MMIO API, enabling a modeled hardware endpoint
+while retaining the complete production unit and real headers. There is no
+shared/common source change. One millisecond / **32 AON ticks**, the **65,536**
+poll fallback, stalled-counter fatal path, interrupt restoration, timer setup
+writes and **26 MHz** scaling are unchanged. The temporary diagnostic message
+was removed from the corrected production image. Linked ARM disassembly confirms
+there is no additional status load on the success path.
+
+The extended `tools/tests/test_t5ai_delay.py` reproduces ready/busy/clear under
+both interrupt masks. A temporary complete-unit control restoring the second
+status read fails at `completion re-read must not panic`; the fixed unit passes.
+Existing live/stopped/wrapping AON, stuck latch, frozen counter, minimum-delay
+and interrupt-restoration cases still pass. Commands/results:
+
+```sh
+ASAN_OPTIONS=detect_leaks=0 /tmp/pebble-quality-venv/bin/python -m unittest \
+  tools.tests.test_t5ai_delay tools.tests.test_t5ai_uart \
+  tools.tests.test_t5ai_uart_idle_clock tools.tests.test_t5ai_console -v
+# 4 suites pass, ASan/UBSan.
+PYTHONPATH=. /tmp/pebble-quality-venv/bin/python \
+  /tmp/pebble-quality-timer-regression-proof.py
+# Deliberately restored duplicate-read control fails; proof command succeeds.
+/tmp/pebble-quality-venv/bin/ruff check --no-cache tools/tests/test_t5ai_delay.py
+/tmp/pebble-quality-venv/bin/ruff format --check tools/tests/test_t5ai_delay.py
+git diff --check
+# All pass; changed C formatted with clang-format 23.
+# Arm GNU 14.2 toolchain and temporary build environment:
+PATH=/tmp/pebble-quality-venv/bin:/home/baz/pebble/build/arm_gnu_toolchain/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi/bin:/usr/bin:/bin \
+  PYTHONPATH=tools/libs/pbl-cli CCACHE_DISABLE=1 \
+  /tmp/pebble-quality-venv/bin/python -m pbl -b build-quality-20261121 build
+# Full ARM/LTO link, log-hash, map, CRC, resource-size and syscall checks pass.
+```
+
+The diagnostic build initially exceeded the log format's seven-argument limit;
+the normal guard rejected it before flashing. Reducing the temporary message
+to seven arguments allowed the diagnostic build. Ruff initially could not write
+the sandboxed cache; `--no-cache` resolves this environment limitation. Neither
+failure justified a guard/source-policy change. The existing generated API LTO
+warnings remain logged and outside this SoC-local increment.
+
+**Corrected AP installed:** build ID `a967c9ad05ee7835cc8b8fe9d1ec7934a0cc97d4`, version
+`v4.41.2-1650-ga253674e7-dirty`, protected SHA-256
+`ec7831959ebce98ad4aec9369aa5b75ca345425c2e39169e05069c1205112b23`.
+Tyutool 3.2.9 at 460800 baud wrote AP-only range `0x132000..0x2e0f5c` in
+51.8 seconds, using the dedicated validated script with no version bypass.
+Normal configuration and system resource pack exactly match the previous
+installation; kernel heap remains **32,800 bytes**. CP/resources/PFS/calibration/
+identity/bond partitions were not programmed. One diagnostic AP flash and one
+corrected AP flash were performed; no separate reset, rollback or provisioning
+operation was issued.
+
+The final stopped capture received **3,788 bytes over
+150.3 seconds**, with **one AP boot and zero panics**. Exact
+build ID, launcher startup, existing SD PFS (`new=0`) and valid system resources
+are observed. Bonded encrypted phone session observed: **yes**.
+The 150-second capture spans flashing and approximately 94 seconds after the
+first boot bytes. The known post-flash reset sources `0x4f/0` and
+**sleep-admission reason 4** remain a separate release blocker. They were preserved; no reset was issued to
+clear them. This bounded first-boot result resolves the reproduced timer false
+panic, not waveform, gesture, retained-return, power or soak qualification.
+
+Exact diagnostic and corrected evidence are preserved separately under
+`build-quality-20261121/{timer-diagnostic-1,timer-fix-1}/`, including ELF,
+source snapshot/diff, configuration, raw/protected images, dictionary, hashes,
+build/test/flash logs, raw UART/chunk timestamps, decoded trace and result.
+The first failed installation at `flash-20261121/` remains intact.
+The installed working tree also contains the pending finding-5 touch increment;
+those production changes are separate from this timer repair.
+
+**Next backlog item after the pending finding-5 increment: finding 6**, the SD/PFS allocation/provider
+and FTL selection boundary. The pre-existing sleep-admission/release blockers
+remain open in the hardware/power work list and are not cleared by item 3.

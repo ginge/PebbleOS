@@ -8,6 +8,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 HEADERS = {
+    "pbl_arch_mmio.h": """
+#pragma once
+#define arch_readl test_real_arch_readl
+#include_next <pbl_arch_mmio.h>
+#undef arch_readl
+uint32_t arch_readl(uintptr_t address);
+""",
     "pbl/soc/t5ai/core.h": """
 #include <stdint.h>
 static uint32_t mask;
@@ -30,7 +37,20 @@ HARNESS = r"""
 static jmp_buf fatal;
 static unsigned expected_mask, calls;
 static uint32_t aon, aon_step, timer_step=26u;
-static bool stuck;
+static bool stuck, reassert_after_ready;
+static unsigned ready_observations;
+uint32_t arch_readl(uintptr_t address) {
+  assert(address == (uintptr_t)&T5AI_TIMER0_READ_CONTROL);
+  const uint32_t status = test_real_arch_readl(address);
+  if ((status & 1u) == 0u) {
+    ++ready_observations;
+    if (reassert_after_ready) {
+      T5AI_TIMER0_READ_CONTROL |= 1u;
+      reassert_after_ready = false;
+    }
+  }
+  return status;
+}
 static uint32_t test_aon(void) {
   ++calls;
   if (!stuck && (T5AI_TIMER0_READ_CONTROL & 1u)) {
@@ -55,6 +75,14 @@ int main(void) {
     T5AI_TIMER0_READ_VALUE=UINT32_MAX-100u;
     uint32_t start=T5AI_TIMER0_READ_VALUE;
     delay_us(20);assert(T5AI_TIMER0_READ_VALUE-start>=20u*T5AI_TIMER0_CYCLES_PER_US);
+    assert(mask==initial);
+    // Hardware trace: completion, busy again, then clear within one AON tick.
+    // Retain the first observation; a second status sample is not a timeout.
+    reassert_after_ready=true;ready_observations=0;
+    if (setjmp(fatal)) {assert(false && "completion re-read must not panic");}
+    assert(prv_timer_count() != 0u);
+    assert(ready_observations==1 && !reassert_after_ready);
+    assert(T5AI_TIMER0_READ_CONTROL&1u);
     assert(mask==initial);
     // A permanently latched request terminates with a live or stopped AON.
     for (unsigned live=0;live<2;++live) {
@@ -103,6 +131,8 @@ class DelayTests(unittest.TestCase):
                     str(ROOT),
                     "-I",
                     str(ROOT / "include"),
+                    "-I",
+                    str(ROOT / "kernel/arch/posix/include"),
                     str(path / "test.c"),
                     "-o",
                     str(path / "test"),
