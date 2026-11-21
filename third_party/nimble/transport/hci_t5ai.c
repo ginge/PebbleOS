@@ -24,6 +24,8 @@ PBL_LOG_MODULE_DEFINE(hci_t5ai, LOG_LEVEL_DEBUG);
 #define T5AI_HCI_TASK_STACK_BYTES            1024u
 #define T5AI_HCI_TASK_PRIORITY               (PBL_PRIO_IDLE + 3u)
 #define T5AI_HCI_ACL_RETRY_DELAY_MS          5u
+#define T5AI_HCI_ACL_PACKET_TIMEOUT_MS       2500u
+#define T5AI_HCI_ACL_RETRY_WARNING_MS        1000u
 #define T5AI_HCI_POLL_INTERVAL_MS            5u
 #define T5AI_HCI_LE_CONNECTION_PREFIX_SIZE   6u
 #define T5AI_HCI_LE_CONNECTION_COMPLETE_SIZE 21u
@@ -188,8 +190,16 @@ static void prv_send_queued_acl(struct os_mbuf *acl) {
     return;
   }
 
+  const uint64_t start = pbl_uptime_ticks();
+  const pbl_tick_t timeout = pbl_ms_to_ticks(T5AI_HCI_ACL_PACKET_TIMEOUT_MS);
+  uint64_t last_warning = start;
   unsigned failures = 0;
   while (prv_started()) {
+    if (pbl_uptime_ticks() - start >= timeout) {
+      PBL_LOG_ERR("T5AI HCI ACL packet deadline expired; scheduling host reset");
+      prv_schedule_reset();
+      break;
+    }
     const int status = t5ai_hci_ipc_send_acl(s_acl_tx, length);
     if (status == 0) {
       if (failures != 0u) {
@@ -198,17 +208,29 @@ static void prv_send_queued_acl(struct os_mbuf *acl) {
       os_mbuf_free_chain(acl);
       return;
     }
-    if (status == E_INVALID_OPERATION) {
-      PBL_LOG_ERR("T5AI HCI transport fault; scheduling host reset");
-      os_mbuf_free_chain(acl);
+    // E_ERROR is the CP's explicit rejection; E_BUSY has not published a
+    // packet. Timeouts and descriptor/transport faults require recovery.
+    if ((status != E_ERROR && status != E_BUSY) || t5ai_hci_ipc_faulted()) {
+      PBL_LOG_ERR("T5AI HCI transport failure (%d); scheduling host reset", status);
       prv_schedule_reset();
-      return;
+      break;
     }
     ++failures;
-    PBL_LOG_WRN("T5AI HCI ACL transmit deferred: status=%d len=%u retry=%u", status,
-                (unsigned)length, failures);
+    const uint64_t now = pbl_uptime_ticks();
+    if (failures == 1u || now - last_warning >= pbl_ms_to_ticks(T5AI_HCI_ACL_RETRY_WARNING_MS)) {
+      PBL_LOG_WRN("T5AI HCI ACL transmit deferred: status=%d len=%u retry=%u", status,
+                  (unsigned)length, failures);
+      last_warning = now;
+    }
     t5ai_hci_ipc_poll();
-    pbl_thread_sleep(PBL_MSEC(T5AI_HCI_ACL_RETRY_DELAY_MS));
+    if (!prv_started()) {
+      break;
+    }
+    const uint64_t elapsed = pbl_uptime_ticks() - start;
+    if (elapsed < timeout) {
+      const pbl_tick_t delay = pbl_ms_to_ticks(T5AI_HCI_ACL_RETRY_DELAY_MS);
+      pbl_thread_sleep(PBL_TICKS(timeout - elapsed < delay ? timeout - elapsed : delay));
+    }
   }
   os_mbuf_free_chain(acl);
 }
