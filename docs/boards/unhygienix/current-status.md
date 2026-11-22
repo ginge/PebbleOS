@@ -3,6 +3,27 @@
 The latest installation checkpoint below is the current installed state. Dated entries preserve
 the state and evidence at their recorded checkpoint.
 
+## Finding 16 committed; finding 17 recovery/board policy in source — 22 November
+
+Finding 16 is committed as **6d76a70ae**; gitlint passes. Finding 17 now uses a
+hidden recovery-boot capability for factory-reset recovery selection and keeps
+Unhygienix Select/Back pairing assignments in its board header, with stock
+Up/Down defaults. Recovery boot and recovery-image update support remain
+independent. T5AI recovery boot and all three unsupported update paths remain
+disabled. Shared edits are limited to the capability declaration and existing
+reset/UI consumers; platform policy stays in the SoC/board configuration.
+
+All **47 affected host methods** and full default ARM/LTO/image gates pass.
+Complete reset-unit tests preserve cleanup/wipe/reboot order across capability
+and variant combinations. Pairing definitions pass ten board/variant profiles.
+Configuration, FLASH/RAM usage and six reserved/retained layouts are unchanged.
+See the [TODO checkpoint](code-quality-todo.md) for exact commands and limitations.
+
+Finding 17 is **uncommitted and unflashed**, paused for review. No hardware or
+bond operation was performed. The installed finding-15/16 image below remains
+current with its recorded warnings and bench limits. Next source item is
+finding 18, retained-storage interfaces.
+
 ## Findings 15/16 installed and bench-checked — 22 November, 18:13 UTC
 
 Installed default AP build **1a26e7779b0e0bd922d3048b25b5a1f5cf2e9ecc**,

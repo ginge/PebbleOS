@@ -6,7 +6,9 @@ if SOC_T5AI
 config COREDUMP_BACKEND_FLASH
     default n
 
-# Keep protocol compatibility without enabling unsupported installation paths.
+# Keep protocol compatibility without enabling unsupported recovery/install paths.
+config RECOVERY_BOOT_SUPPORTED
+    default n
 config FIRMWARE_UPDATE_SUPPORTED
     default n
 config RECOVERY_UPDATE_SUPPORTED

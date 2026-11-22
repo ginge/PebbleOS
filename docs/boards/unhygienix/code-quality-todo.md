@@ -241,12 +241,13 @@ within the recorded bench scope. Warning/soak limits are retained below.
 
 ### 17. Replace shared SoC policy checks with precise capabilities
 
-- [ ] Use the recovery/install capability for factory-reset recovery operations
+- [x] Use a precise recovery-boot capability for factory-reset recovery operations
   instead of `SOC_T5AI`, after checking the exact semantics.
-- [ ] Move Unhygienix pairing button assignments into board configuration with
+- [x] Move Unhygienix pairing button assignments into board configuration with
   stock defaults, rather than naming the board in shared pairing UI code.
-- [ ] Acceptance: other boards retain their reset and pairing behavior; the
-  Unhygienix unsupported-install guards remain effective.
+- [x] Acceptance: other boards retain their reset and pairing behavior; the
+  Unhygienix unsupported-install guards remain effective (host capability/order
+  matrices and default ARM build; no hardware reset/pairing qualification).
 
 ## Lower priority
 
@@ -2581,3 +2582,60 @@ independent client error/retry remain host-tested, not on-watch fault-injected.
 No new source fix or commit was made in this bench. Paused for review/commit
 before finding 17. Earlier actual-cell charging, idle-energy, optional panel
 reprepare/fault timing and broader transport/soak acceptance remain open.
+
+
+### Finding 16 committed; finding 17 explicit recovery/board policy — 2026-11-22
+
+At the operator's request, committed the bench-verified finding-16 increment as
+**6d76a70ae** (`t5ai: guard kernel logging by native thread identity`). Only its
+eight reviewed files were staged after checking the 43-file hardware evidence
+seal and post-bench source snapshot; DCO/AI trailers and gitlint pass. The
+installed build remains the finding-15/16 image **1a26e7779b0e0bd922d3048b25b5a1f5cf2e9ecc**.
+Its recorded phone-restart, animation and connection-parameter warnings remain.
+
+Reinspection confirms both finding-17 policy checks: factory reset excludes
+recovery selection/invalidation by `SOC_T5AI`, and shared pairing UI assigns
+Unhygienix buttons by board name. These are policy-coupling cleanup findings,
+not proof of a current runtime regression. The complete committed factory-reset
+unit retains the expected operation order in 12 baseline profiles.
+
+Semantics matter: existing `RECOVERY_UPDATE_SUPPORTED` admits writing/installing
+a recovery image. A platform can have a bootable, read-only recovery image while
+rejecting recovery updates. Added hidden **`RECOVERY_BOOT_SUPPORTED`**, default
+**y** for stock platforms and **n** in T5AI's SoC defaults. Factory reset uses
+this precise capability to select PRF before the filesystem wipe, and still
+invalidates slots 0/1 only with PBLBOOT. Neither update support nor SoC identity
+controls that decision. The recovery-firmware erase path, non-PFS cleanup,
+worker wait, shutdown fallback and final reboot/reason order are unchanged.
+T5AI cannot enable the hidden capability by a user override; existing firmware,
+recovery-image and system-resource update capabilities remain disabled.
+
+Moved Select/Back pairing assignments into `boards/unhygienix/unhygienix.h`.
+Shared UI includes the existing board-header boundary and provides independent
+Up/Down fallbacks. Button enum values, click handlers, action-bar artwork,
+Bluetooth identity and all other board settings remain unchanged.
+
+**Why shared edits are required here:** the existing shared factory-reset
+consumer must test a generic capability, and shared UI must accept board-supplied
+controls. A hidden shared capability declaration plus the two narrow consumer
+hooks replace policy checks already present in common code. A board/SoC-local
+function replacement would duplicate the stock reset/UI implementation or need
+compile-time interception. Platform defaults and button values remain local;
+no shared implementation is copied and no broad reset/pairing rewrite is made.
+
+Validation:
+
+- Before edits: `ASAN_OPTIONS=detect_leaks=0 /tmp/pebble-quality-venv/bin/python -m unittest tools.tests.test_update_capabilities -v`: **5 methods pass**. A separate complete-unit baseline comparison passes **12 profiles**, preserving stock normal reset ordering (with/without PBLBOOT and shutdown fallback), T5AI's recovery exclusion, and the existing recovery-build erase path.
+- Four new `tools.tests.test_platform_policy` methods use real board Kconfig and production headers/constants. The complete `factory_reset.c` translation unit is compiled without extraction under ASan/UBSan. **32 combinations** cover recovery boot/update capabilities, PBLBOOT, normal/recovery builds and shutdown. Two additional non-T5AI cases prove the guard obeys the capability instead of SoC identity. Every case checks the exact ordered cleanup, two 3 ms worker-wait sleeps, recovery selection/invalidation before the wipe when permitted, format versus partition erase, shutdown fallback, reset reason and reboot. All destructive endpoints are host models; no hardware format/reset command is executed.
+- Recovery boot defaults are checked for Unhygienix, Obelix, Asterix and Getafix DVT/DVT2 in normal/PRF configurations, including rejection of a T5AI user override. The complete pairing translation unit is preprocessed for the same **ten board/variant profiles**; compiled assertions use its resulting macros and the real `ButtonId` enum to verify Select/Back or stock Up/Down and distinct buttons. Unused generated resource/font headers are empty only for this preprocessing check; no resource IDs, UI layouts or rendering are modeled. The default ARM build compiles the complete UI with actual generated resources. No on-watch pairing/decline or stock-board boot claim follows from preprocessing.
+- Initial fixture runs exposed a mock prototype mismatch, nonexistent Getafix defconfig-overlay assumption, the stock partial-initializer warning and missing generated/UI include paths. Corrected the fixture to real signatures, actual available config inputs and upstream uPNG headers. `-Wno-missing-field-initializers` matches the production build's existing treatment of stock initializers. No production initializer, guard or validity assertion was weakened. Failed and passing setup logs remain separate.
+- Final command: `PATH=/tmp/pebble-quality-venv/bin:$PATH ASAN_OPTIONS=detect_leaks=0 /tmp/pebble-quality-venv/bin/python -m unittest tools.tests.test_platform_policy tools.tests.test_update_capabilities tools.tests.test_unhygienix_boards tools.tests.test_getafix_boards tools.tests.test_t5ai_buttons tools.tests.test_t5ai_config tools.tests.test_t5ai_reset tools.tests.test_unhygienix_image tools.tests.test_t5ai_build_integration -v`: **47 methods pass**. Existing update-admission/cancellation/side-effect guards pass unchanged.
+- `PATH=ARM_TOOLCHAIN:/tmp/pebble-quality-venv/bin:$PATH cmake --build build-quality-finding9-candidate -j 8`: full default ARM/LTO, layout, protected CRC, resource-size and syscall gates pass. FLASH **1,667,232** and RAM **96,608** bytes are unchanged against finding 16; display PSRAM **126,912**, DMA **14,976** and PFS **8,192** remain unchanged. Actual map comparison confirms all six reserved/retained section addresses/sizes unchanged. `.config` is byte-identical; the new hidden false capability is omitted from it and undefined in `autoconf.h`, as are the three disabled update capabilities. Existing generated-declaration LTO warnings remain.
+- Ruff check/format, Clang Format 22, whitespace checks and finding-16 commit gitlint pass. Both unrelated planning-file hashes remain unchanged. Before/source snapshots, baseline/equivalence/setup/final test/build logs, candidate config/map/ELF/dictionary/raw/protected images, verification, review patch/state and SHA-256 seal are under `build-quality-20261121/platform-policy-finding17/`.
+
+Finding 17 is implemented and host-verified, **uncommitted and unflashed**, for
+review. No hardware flash, reset, provisioning, formatting, power or bond action
+was performed. The previous installed image and bench limitations remain current.
+Next ordered source item is **finding 18, retained-storage interfaces**; preserve
+existing word layout/checksum, transactional clock behavior and old-image
+compatibility when reassessing that finding.

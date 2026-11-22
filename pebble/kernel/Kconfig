@@ -16,3 +16,11 @@ config PROCESS_SYSCALL_STACK_SIZE
     help
       Privileged stack each process runs its syscalls on. Size it against
       the measured high-water, reported by analytics.
+
+config RECOVERY_BOOT_SUPPORTED
+    bool
+    default y
+    help
+      The platform can select and boot a recovery image. Factory reset may
+      select recovery before wiping files and invalidate normal firmware slots.
+      This is independent of whether the recovery image can be updated.

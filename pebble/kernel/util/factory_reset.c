@@ -77,7 +77,7 @@ void factory_reset(bool should_shutdown) {
   prv_factory_reset_non_pfs_data();
 
 #if !defined(CONFIG_RECOVERY_FW)
-#ifndef CONFIG_SOC_T5AI
+#ifdef CONFIG_RECOVERY_BOOT_SUPPORTED
   // Commit to booting PRF before the filesystem wipe: it can take minutes,
   // and a reset in that window (watchdog, crash, power loss) must land in
   // PRF instead of rebooting a half-wiped normal firmware.
@@ -88,7 +88,7 @@ void factory_reset(bool should_shutdown) {
   firmware_storage_invalidate_firmware_slot(0);
   firmware_storage_invalidate_firmware_slot(1);
 #endif
-#endif // !CONFIG_SOC_T5AI
+#endif // CONFIG_RECOVERY_BOOT_SUPPORTED
 
   // Formatting PFS holds its mutex across the erase, blocking concurrent
   // writes from the App task that would otherwise survive into a freshly-erased region.

@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include <pbl/bluetooth/pairing_confirm.h>
+#include <pbl/board.h>
 #include <pbl/i18n/i18n.h>
 #include <pbl/kernel/assert.h>
 #include <pbl/kernel/compiler.h>
@@ -38,13 +39,10 @@
 #define CODE_BUF_SIZE    16
 #define MAX_PAIR_STR_LEN 16
 
-// Unhygienix only has Back and Select; its Up and Down inputs are explicitly absent.
-// Keep the stock Pebble controls everywhere else.
-#ifdef CONFIG_BOARD_UNHYGIENIX
-#define BT_PAIRING_CONFIRM_BUTTON BUTTON_ID_SELECT
-#define BT_PAIRING_DECLINE_BUTTON BUTTON_ID_BACK
-#else
+#ifndef BT_PAIRING_CONFIRM_BUTTON
 #define BT_PAIRING_CONFIRM_BUTTON BUTTON_ID_UP
+#endif
+#ifndef BT_PAIRING_DECLINE_BUTTON
 #define BT_PAIRING_DECLINE_BUTTON BUTTON_ID_DOWN
 #endif
 
