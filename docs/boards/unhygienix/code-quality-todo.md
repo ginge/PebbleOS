@@ -253,11 +253,11 @@ within the recorded bench scope. Warning/soak limits are retained below.
 
 ### 18. Consolidate retained-storage interfaces
 
-- [ ] Choose one existing retained-word interface instead of overlapping
+- [x] Choose one existing retained-word interface instead of overlapping
   `retained_storage_*`, `retained_read/write`, T5AI and RTC backup adapters.
-- [ ] Implement platform behavior locally and keep transactional clock commits
+- [x] Implement platform behavior locally and keep transactional clock commits
   separate from ordinary word access.
-- [ ] Acceptance: layout, checksum, reboot reasons, interrupted commit handling
+- [x] Acceptance: layout, checksum, reboot reasons, interrupted commit handling
   and old-image compatibility remain intact.
 
 ### 19. Make CP contracts and overlays readable
@@ -2639,3 +2639,62 @@ was performed. The previous installed image and bench limitations remain current
 Next ordered source item is **finding 18, retained-storage interfaces**; preserve
 existing word layout/checksum, transactional clock behavior and old-image
 compatibility when reassessing that finding.
+
+### Finding 17 committed; finding 18 retained interfaces — 2026-11-22
+
+Committed finding 17 as **20d0df44c** (`platform: separate recovery boot and
+board pairing policy`), with DCO/AI trailers; `gitlint --commits 'HEAD^..HEAD'`
+passes. The earlier uncommitted checkpoint is historical.
+
+Reassessment confirms redundant ordinary word entry points, rather than a newly
+proven persistence defect. T5AI now implements the existing `retained_read/write`
+interface directly. Its RTC driver and the existing retained-storage compatibility
+adapter use that interface. Removed the duplicate `t5ai_retained_read/write`
+exports and forwarding functions. Initialization, boot-version metadata and the
+transactional clock commit remain separate SoC operations. The external
+PCF85063 provides calendar time, not the retained SRAM word backend.
+
+The only shared production edit is two call targets inside the existing T5AI
+branch of `pebble/system/retained_storage.h`: required to remove the redundant
+exports without duplicating or rewriting stock bootbits/reboot-reason consumers.
+Other platforms and shared consumers are unchanged. The word IDs, uint8 index
+contract, bounds assertions, interrupt protection, checksum, cache publication,
+136-byte layout and clock transaction are unchanged; no new format or migration.
+
+Validation and evidence:
+
+- Before edits, the retained-storage/RTC/reset suites pass **8 methods** against
+  committed HEAD. After call-target changes, those plus flash checks pass **16**.
+- A new harness compiles the complete production retained backend, bootbits and
+  reboot-reason translation units using actual Kconfig, headers, types, constants
+  and public cache wrappers. Only ARM intrinsics, the architecture cache endpoint
+  and external platform/logging/panic endpoints are modeled. No backend function,
+  retained struct, checksum algorithm or reboot-reason layout is copied.
+- Complete old backend from **20d0df44c** and candidate produce the same frozen
+  **136-byte** legacy vector. Tests verify legacy acceptance and byte equivalence,
+  offsets/size, all 32 words via canonical/compatibility access, IRQ-mask restoration,
+  zero boot-version behavior, corruption of every stored word/header/checksum,
+  exact fault-marker fallback, full four-word reboot reasons, already-set reason
+  ownership, safe-restart flag, clear isolation, bootbits and last-app slot.
+  Bounds 32/255 still assert. All **39** clock publication/barrier interruption
+  points produce either the complete new clock or existing invalid-store fallback.
+  Wordwise cache publication is a fault model, not silicon reset qualification.
+- Initial harness attempts exposed an inline public-cache mock conflict, a missing
+  architecture stub and invalid intermediate pointer arithmetic in the cache model.
+  Fixed the fixture boundary/arithmetic; sanitizer/setup failures remain in separate
+  logs. No production guard or existing assertion was weakened. Existing RTC tests
+  retain their older modeled RTC fixture and are supplemental to the new real-header
+  backend checks. Existing fixture edits only rename ordinary call targets.
+- Final command: `PATH=/tmp/pebble-quality-venv/bin:$PATH ASAN_OPTIONS=detect_leaks=0 /tmp/pebble-quality-venv/bin/python -m unittest tools.tests.test_t5ai_retained_interface tools.tests.test_retained_storage tools.tests.test_t5ai_rtc tools.tests.test_t5ai_reset tools.tests.test_tuya_flash tools.tests.test_t5ai_config tools.tests.test_unhygienix_image tools.tests.test_t5ai_build_integration -v`: **46 methods pass**. New native executions use ASan/UBSan.
+- `PATH=ARM_TOOLCHAIN:/tmp/pebble-quality-venv/bin:$PATH cmake --build build-quality-finding9-candidate -j 8`: full ARM/LTO, image-layout, protected CRC, resource-size and syscall gates pass. FLASH **1,667,232**, RAM **96,608**, display PSRAM **126,912**, DMA **14,976**, PFS **8,192** bytes unchanged. Configuration is byte-identical to finding 17; all six reserved sections retain addresses/sizes, including retained SRAM **0x280103a0 / 0x88**. Existing generated-declaration LTO warnings remain.
+- Ruff check/format, Clang Format **23.1.5**, whitespace and finding-17 gitlint pass.
+  Both unrelated planning-file hashes remain unchanged. Source/before snapshots,
+  legacy equivalence, failed/passing harness logs, final tests/build, candidate
+  config/ELF/map/dictionary/raw/protected images, review patch and SHA-256 manifest
+  are under `build-quality-20261121/retained-interface-finding18/`.
+
+Finding 18 is implemented and host-verified, **uncommitted and unflashed**.
+No hardware operation was performed; the installed finding-15/16 image and its
+recorded warnings/bench limitations remain current. Warm reboot/power interruption
+on silicon and cross-image bench acceptance are not claimed from these tests.
+Paused for review before the next ordered item, **19: CP contracts and overlays**.

@@ -13,10 +13,10 @@ static inline void retained_storage_init(void) {
   t5ai_retained_init();
 }
 static inline uint32_t retained_storage_read(uint32_t reg) {
-  return t5ai_retained_read(reg);
+  return retained_read(reg);
 }
 static inline void retained_storage_write(uint32_t reg, uint32_t value) {
-  t5ai_retained_write(reg, value);
+  retained_write(reg, value);
 }
 static inline uint32_t retained_storage_boot_version_read(void) {
   return t5ai_boot_version_read();

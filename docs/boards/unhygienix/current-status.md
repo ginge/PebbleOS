@@ -3,6 +3,25 @@
 The latest installation checkpoint below is the current installed state. Dated entries preserve
 the state and evidence at their recorded checkpoint.
 
+## Finding 17 committed; finding 18 retained interfaces — 22 November
+
+Finding 17 is committed as **20d0df44c**; DCO/AI trailers and gitlint pass.
+Finding 18 consolidates ordinary T5AI retained words onto `retained_read/write`,
+removing redundant SoC exports. The shared compatibility adapter changes only
+its two T5AI call targets. Clock transactions and retained format are unchanged.
+
+All **46 affected host methods** and full default ARM/LTO/image gates pass.
+The complete production backend and shared bootbits/reboot-reason units pass
+real-header sanitizer tests, including legacy byte equivalence and all 39 modeled
+clock-publication interruption points. Configuration, memory usage and all six
+reserved section layouts are unchanged. See the [TODO checkpoint](code-quality-todo.md)
+for commands, evidence and fixture limitations.
+
+Finding 18 is **uncommitted and unflashed**, paused for review. No hardware action
+was performed; the installed finding-15/16 image below and its warnings/bench
+limits remain current. Host tests do not qualify silicon reset/persistence.
+Next source item is **19: CP contracts and overlays**.
+
 ## Finding 16 committed; finding 17 recovery/board policy in source — 22 November
 
 Finding 16 is committed as **6d76a70ae**; gitlint passes. Finding 17 now uses a

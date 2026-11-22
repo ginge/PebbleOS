@@ -40,11 +40,11 @@ void t5ai_retained_init(void) {
     t5ai_cache_clean((const void *)&s_retained.magic, sizeof(s_retained.magic));
   }
 }
-uint32_t t5ai_retained_read(uint8_t index) {
+uint32_t retained_read(uint8_t index) {
   PBL_ASSERTN(index < T5AI_RETAINED_WORDS);
   return s_retained.values[index];
 }
-void t5ai_retained_write(uint8_t index, uint32_t value) {
+void retained_write(uint8_t index, uint32_t value) {
   PBL_ASSERTN(index < T5AI_RETAINED_WORDS);
   const uint32_t mask = __get_PRIMASK();
   __disable_irq();
@@ -76,11 +76,4 @@ void t5ai_retained_write_clock(uint32_t epoch, uint64_t ticks) {
   t5ai_cache_clean((const void *)&s_retained.magic, sizeof(s_retained.magic));
   __DSB();
   __set_PRIMASK(mask);
-}
-
-uint32_t retained_read(uint8_t id) {
-  return t5ai_retained_read(id);
-}
-void retained_write(uint8_t id, uint32_t value) {
-  t5ai_retained_write(id, value);
 }

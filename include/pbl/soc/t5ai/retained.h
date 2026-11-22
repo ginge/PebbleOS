@@ -7,8 +7,7 @@
 #define T5AI_RTC_EXTERNAL_UNTRUSTED_VALUE 0x52544321u
 
 void t5ai_retained_init(void);
-uint32_t t5ai_retained_read(uint8_t index);
-void t5ai_retained_write(uint8_t index, uint32_t value);
+// Ordinary words use retained_read/write from pbl/system/rtc_registers.h.
 
 uint32_t t5ai_boot_version_read(void);
 

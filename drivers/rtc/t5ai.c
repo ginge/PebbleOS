@@ -68,8 +68,8 @@ static uint64_t prv_raw_ticks(void) {
 }
 
 static uint64_t prv_base_ticks(void) {
-  return ((uint64_t)t5ai_retained_read(T5AI_RTC_BASE_TICKS_HIGH) << 32) |
-         t5ai_retained_read(T5AI_RTC_BASE_TICKS_LOW);
+  return ((uint64_t)retained_read(T5AI_RTC_BASE_TICKS_HIGH) << 32) |
+         retained_read(T5AI_RTC_BASE_TICKS_LOW);
 }
 
 static void prv_set_retained_time(time_t time) {
@@ -158,7 +158,7 @@ static bool prv_external_rtc_write(time_t time) {
   s_external_rtc_ready = false;
   s_external_rtc_error = -1;
   // Survive reset even if a failed calendar write left plausible running contents.
-  t5ai_retained_write(T5AI_RTC_EXTERNAL_UNTRUSTED, T5AI_RTC_EXTERNAL_UNTRUSTED_VALUE);
+  retained_write(T5AI_RTC_EXTERNAL_UNTRUSTED, T5AI_RTC_EXTERNAL_UNTRUSTED_VALUE);
   struct pbl_tm encoded;
   pbl_gmtime_r(&time, &encoded);
   if (encoded.tm_year < PCF85063_TM_YEAR_BASE || encoded.tm_year > PCF85063_TM_YEAR_MAX) {
@@ -204,7 +204,7 @@ static bool prv_external_rtc_write(time_t time) {
   s_external_rtc_error = result;
   s_external_rtc_ready = (result == 0);
   if (s_external_rtc_ready) {
-    t5ai_retained_write(T5AI_RTC_EXTERNAL_UNTRUSTED, 0);
+    retained_write(T5AI_RTC_EXTERNAL_UNTRUSTED, 0);
   }
   return s_external_rtc_ready;
 }
@@ -214,11 +214,11 @@ static void prv_restore_retained_time(void) {
 
   const uint64_t ticks = prv_raw_ticks();
   const uint64_t base_ticks = prv_base_ticks();
-  uint32_t saved_time = t5ai_retained_read(CURRENT_TIME_REGISTER);
+  uint32_t saved_time = retained_read(CURRENT_TIME_REGISTER);
   if (saved_time < T5AI_RTC_MIN_VALID_TIME || saved_time > T5AI_RTC_MAX_VALID_TIME) {
     saved_time = T5AI_RTC_MIN_VALID_TIME;
   }
-  if (base_ticks > ticks || t5ai_retained_read(CURRENT_TIME_REGISTER) != saved_time) {
+  if (base_ticks > ticks || retained_read(CURRENT_TIME_REGISTER) != saved_time) {
     prv_set_retained_time((time_t)saved_time);
   }
 }
@@ -233,7 +233,7 @@ static void prv_restore_external_time(void) {
   }
   s_external_rtc_present = true;
   time_t external_time;
-  if (!t5ai_retained_read(T5AI_RTC_EXTERNAL_UNTRUSTED) &&
+  if (!retained_read(T5AI_RTC_EXTERNAL_UNTRUSTED) &&
       prv_external_rtc_decode(control, registers, &external_time)) {
     prv_set_retained_time(external_time);
     s_external_rtc_ready = true;
@@ -252,7 +252,7 @@ static time_t prv_get_retained_time(void) {
   const uint32_t mask = __get_PRIMASK();
   __disable_irq();
   const uint64_t elapsed = prv_raw_ticks() - prv_base_ticks();
-  const uint32_t epoch = t5ai_retained_read(CURRENT_TIME_REGISTER);
+  const uint32_t epoch = retained_read(CURRENT_TIME_REGISTER);
   __set_PRIMASK(mask);
   return (time_t)epoch + (time_t)(elapsed / T5AI_AON_RTC_HZ);
 }

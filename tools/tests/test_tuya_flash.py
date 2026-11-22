@@ -252,7 +252,7 @@ static unsigned reads, writes, erases;
 static bool fail_next_read, fail_next_write, fail_next_erase, corrupt_next_write;
 static bool corrupt_next_successful_read;
 
-void t5ai_retained_write(uint8_t index, uint32_t value) {
+void retained_write(uint8_t index, uint32_t value) {
   (void)index;
   (void)value;
 }

@@ -182,9 +182,9 @@ int main(int argc, char **argv) {
     control = 0x20; fail_at = scenario - 11; // each boot repair operation
     prv_restore_external_time();
     assert(!s_external_rtc_ready && s_external_rtc_present);
-    assert(t5ai_retained_read(T5AI_RTC_EXTERNAL_UNTRUSTED));
+    assert(retained_read(T5AI_RTC_EXTERNAL_UNTRUSTED));
     fail_at = 0; calls = 0; T5AI_RTC.ops->set_time(&T5AI_RTC, epoch);
-    assert(s_external_rtc_ready && !t5ai_retained_read(T5AI_RTC_EXTERNAL_UNTRUSTED));
+    assert(s_external_rtc_ready && !retained_read(T5AI_RTC_EXTERNAL_UNTRUSTED));
   } else if (scenario == 20) {
     T5AI_RTC.ops->set_time(&T5AI_RTC, epoch);
     fail_at = 3; assert(!prv_external_rtc_write(epoch + 100));
@@ -199,7 +199,7 @@ int main(int argc, char **argv) {
     s_retained.magic = 0;
     test_clean(&s_retained, sizeof(s_retained));
     prv_restore_retained_time();
-    assert(t5ai_retained_read(T5AI_RTC_EXTERNAL_UNTRUSTED) ==
+    assert(retained_read(T5AI_RTC_EXTERNAL_UNTRUSTED) ==
            T5AI_RTC_EXTERNAL_UNTRUSTED_VALUE);
     fail_at = 0; calls = 0; prv_restore_external_time();
     assert(s_external_rtc_ready && read_time() == T5AI_RTC_MIN_VALID_TIME);
@@ -280,8 +280,8 @@ int main(int argc, char **argv) {
   raw = 0x1fffffff0ULL;
   prv_restore_retained_time(); T5AI_RTC.ops->set_time(&T5AI_RTC, 1700000000);
   assert(sizeof(s_retained) == 136);
-  t5ai_retained_write(RTC_TIMEZONE_GMTOFFSET, 1234);
-  t5ai_retained_write(REBOOT_REASON_REGISTER_1, 5678);
+  retained_write(RTC_TIMEZONE_GMTOFFSET, 1234);
+  retained_write(REBOOT_REASON_REGISTER_1, 5678);
   if (mode < 20) {
     // Reader ISR requested at every raw/tuple publication access waits for commit.
     raw += 32000000;
@@ -326,8 +326,8 @@ int main(int argc, char **argv) {
     raw += 32000; assert((t5ai_rtc_get_raw_ticks() / 32u) == before + 1000);
     irq_mask = 1; read_time(); T5AI_RTC.ops->set_time(&T5AI_RTC, 1700000000);
     assert(irq_mask == 1); // nested/ISR caller's mask is preserved
-    assert(t5ai_retained_read(RTC_TIMEZONE_GMTOFFSET) == 1234);
-    assert(t5ai_retained_read(REBOOT_REASON_REGISTER_1) == 5678);
+    assert(retained_read(RTC_TIMEZONE_GMTOFFSET) == 1234);
+    assert(retained_read(REBOOT_REASON_REGISTER_1) == 5678);
   } else if (mode == 50) {
     raw = 0; prv_restore_retained_time(); // counter reset rebases existing saved epoch
     assert(read_time() == 1700000000);

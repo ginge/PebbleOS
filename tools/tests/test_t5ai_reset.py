@@ -81,8 +81,8 @@ void t5ai_reboot_trace_event(T5RebootTraceEvent event, uint32_t value) {
 #include RETAINED_SOURCE
 #else
 static uint32_t retained[32];
-uint32_t t5ai_retained_read(uint8_t index) { return retained[index]; }
-void t5ai_retained_write(uint8_t index, uint32_t value) { retained[index] = value; }
+uint32_t retained_read(uint8_t index) { return retained[index]; }
+void retained_write(uint8_t index, uint32_t value) { retained[index] = value; }
 #endif
 static void boot(uint8_t ap, uint8_t cp) {
 #ifdef RETAINED_SOURCE

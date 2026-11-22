@@ -55,7 +55,7 @@ int main(void) {
   boot_bit_init();
   assert(boot_bits_get() == BOOT_BIT_INITIALIZED);
   assert(boot_version_read() == 0);
-  t5ai_retained_write(BOOTLOADER_VERSION_REGISTER, 0x12345678);
+  retained_write(BOOTLOADER_VERSION_REGISTER, 0x12345678);
   assert(boot_version_read() == 0);
   for (unsigned i = 1; i < 20; ++i) {
     BootBitValue bit = 1u << i;
@@ -67,15 +67,15 @@ int main(void) {
     assert(boot_bits_get() == BOOT_BIT_INITIALIZED);
   }
   boot_bit_set(BOOT_BIT_FW_STABLE | BOOT_BIT_RESET_LOOP_DETECT_ONE);
-  t5ai_retained_write(SLOT_OF_LAST_LAUNCHED_APP, 42);
+  retained_write(SLOT_OF_LAST_LAUNCHED_APP, 42);
   boot_bit_init(); // Valid warm state survives initialization.
   assert(boot_bit_test(BOOT_BIT_FW_STABLE));
   assert(boot_bit_test(BOOT_BIT_RESET_LOOP_DETECT_ONE));
-  assert(t5ai_retained_read(SLOT_OF_LAST_LAUNCHED_APP) == 42);
+  assert(retained_read(SLOT_OF_LAST_LAUNCHED_APP) == 42);
   s_retained.values[SLOT_OF_LAST_LAUNCHED_APP] ^= 1;
   boot_bit_init(); // Payload corruption invalidates the complete store.
   assert(boot_bits_get() == BOOT_BIT_INITIALIZED);
-  assert(t5ai_retained_read(SLOT_OF_LAST_LAUNCHED_APP) == 0);
+  assert(retained_read(SLOT_OF_LAST_LAUNCHED_APP) == 0);
   boot_bit_set(BOOT_BIT_FW_STABLE);
   s_retained.checksum ^= 1;
   boot_bit_init();
