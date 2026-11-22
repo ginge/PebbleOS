@@ -53,11 +53,118 @@ static volatile bool s_native_faulted;
 volatile bool unhygienix_native_sleep_prepared;
 volatile uint32_t unhygienix_native_lowvol_count;
 static volatile bool s_native_permit;
-static bool s_native_wake_only, s_native_resources_only, s_native_clocks_only;
-static bool s_native_domain_bypass, s_native_shallow_wfi, s_native_mask_barrier;
+
+// Internal policy bits; these are not wire ABI values or resource ownership.
+typedef enum {
+  NativeSleep_WakeOnly = 1u << 0,
+  NativeSleep_ResourcesOnly = 1u << 1,
+  NativeSleep_RetainModules = 1u << 2,
+  NativeSleep_MaskOnly = 1u << 3,
+  NativeSleep_MaskBarrier = 1u << 4,
+  NativeSleep_ShallowWfi = 1u << 5,
+  NativeSleep_DomainBypass = 1u << 6,
+  NativeSleep_BspRestore = 1u << 7,
+  NativeSleep_FlashRestore = 1u << 8,
+  NativeSleep_CoreOnly = 1u << 9,
+  NativeSleep_AnalogWake = 1u << 10,
+  NativeSleep_PersistentTrace = 1u << 11,
+  NativeSleep_VendorLpoHalt = 1u << 12,
+  NativeSleep_VendorMasked = 1u << 13,
+  NativeSleep_VendorSubcoresOn = 1u << 14,
+  NativeSleep_VendorCpuIdle = 1u << 15,
+  NativeSleep_VendorFlashIdle = 1u << 16,
+  NativeSleep_NoHwMask = 1u << 17,
+  NativeSleep_KeepHf = 1u << 18,
+  NativeSleep_ClocksOnly = 1u << 19,
+  NativeSleep_Valid = 1u << 31,
+} NativeSleepPolicy;
+
+static uint32_t s_native_policy;
+
+// Callers can be in ITCM while flash is suspended.
+__attribute__((always_inline)) static inline bool prv_policy_has(NativeSleepPolicy feature) {
+  return (s_native_policy & feature) != 0u;
+}
+
+static uint32_t prv_sleep_policy(T5AIAlarmOperation operation) {
+  switch (operation) {
+    case T5AIAlarm_ArmSleep:
+      return NativeSleep_Valid;
+    case T5AIAlarm_ArmSleepWakeOnly:
+      return NativeSleep_Valid | NativeSleep_WakeOnly;
+    case T5AIAlarm_ArmSleepResourcesOnly:
+      return NativeSleep_Valid | NativeSleep_ResourcesOnly;
+    case T5AIAlarm_ArmSleepClocksOnly:
+      return NativeSleep_Valid | NativeSleep_ClocksOnly;
+    case T5AIAlarm_ArmSleepClocksLive:
+      return NativeSleep_Valid | NativeSleep_KeepHf | NativeSleep_ClocksOnly;
+    case T5AIAlarm_ArmSleepCoreOnly:
+      return NativeSleep_Valid | NativeSleep_CoreOnly | NativeSleep_KeepHf | NativeSleep_ClocksOnly;
+    case T5AIAlarm_ArmSleepFlashRestore:
+      return NativeSleep_Valid | NativeSleep_FlashRestore | NativeSleep_CoreOnly |
+             NativeSleep_KeepHf | NativeSleep_ClocksOnly;
+    case T5AIAlarm_ArmSleepBspRestore:
+      return NativeSleep_Valid | NativeSleep_BspRestore | NativeSleep_CoreOnly |
+             NativeSleep_KeepHf | NativeSleep_ClocksOnly;
+    case T5AIAlarm_ArmSleepDomainBypass:
+      return NativeSleep_Valid | NativeSleep_DomainBypass | NativeSleep_KeepHf |
+             NativeSleep_ClocksOnly;
+    case T5AIAlarm_ArmSleepRetainModules:
+      return NativeSleep_Valid | NativeSleep_RetainModules | NativeSleep_DomainBypass |
+             NativeSleep_KeepHf | NativeSleep_ClocksOnly;
+    case T5AIAlarm_ArmSleepKeepHF:
+      return NativeSleep_Valid | NativeSleep_KeepHf;
+    case T5AIAlarm_ArmSleepNoHardwareMask:
+      return NativeSleep_Valid | NativeSleep_NoHwMask | NativeSleep_KeepHf;
+    case T5AIAlarm_ArmSleepNoHardwareMaskClocksOff:
+      return NativeSleep_Valid | NativeSleep_NoHwMask;
+    case T5AIAlarm_ArmSleepVendorFlashIdle:
+      return NativeSleep_Valid | NativeSleep_VendorFlashIdle | NativeSleep_NoHwMask;
+    case T5AIAlarm_ArmSleepVendorCPUIdle:
+      return NativeSleep_Valid | NativeSleep_VendorCpuIdle | NativeSleep_VendorFlashIdle |
+             NativeSleep_NoHwMask;
+    case T5AIAlarm_ArmSleepVendorSubcoresOn:
+      return NativeSleep_Valid | NativeSleep_VendorSubcoresOn | NativeSleep_VendorCpuIdle |
+             NativeSleep_VendorFlashIdle | NativeSleep_NoHwMask;
+    case T5AIAlarm_ArmSleepVendorMasked:
+      return NativeSleep_Valid | NativeSleep_VendorMasked | NativeSleep_VendorSubcoresOn |
+             NativeSleep_VendorCpuIdle | NativeSleep_VendorFlashIdle;
+    case T5AIAlarm_ArmSleepVendorSubcoresOnKeepHF:
+      return NativeSleep_Valid | NativeSleep_VendorSubcoresOn | NativeSleep_VendorCpuIdle |
+             NativeSleep_VendorFlashIdle | NativeSleep_NoHwMask | NativeSleep_KeepHf;
+    case T5AIAlarm_ArmSleepVendorMaskedKeepHF:
+      return NativeSleep_Valid | NativeSleep_VendorMasked | NativeSleep_VendorSubcoresOn |
+             NativeSleep_VendorCpuIdle | NativeSleep_VendorFlashIdle | NativeSleep_KeepHf;
+    case T5AIAlarm_ArmSleepMaskedCPWFIKeepHF:
+      return NativeSleep_Valid | NativeSleep_VendorMasked | NativeSleep_VendorSubcoresOn |
+             NativeSleep_VendorFlashIdle | NativeSleep_KeepHf;
+    case T5AIAlarm_ArmSleepVendorLPOHalt:
+      return NativeSleep_Valid | NativeSleep_VendorLpoHalt;
+    case T5AIAlarm_ArmSleepPersistentTrace:
+      return NativeSleep_Valid | NativeSleep_PersistentTrace | NativeSleep_VendorLpoHalt;
+    case T5AIAlarm_ArmSleepAnalogWake:
+      return NativeSleep_Valid | NativeSleep_AnalogWake | NativeSleep_PersistentTrace |
+             NativeSleep_VendorLpoHalt;
+    case T5AIAlarm_ArmSleepAnalogRetainDomains:
+      return NativeSleep_Valid | NativeSleep_DomainBypass | NativeSleep_AnalogWake |
+             NativeSleep_PersistentTrace | NativeSleep_VendorLpoHalt;
+    case T5AIAlarm_ArmSleepAnalogShallowWFI:
+      return NativeSleep_Valid | NativeSleep_ShallowWfi | NativeSleep_DomainBypass |
+             NativeSleep_AnalogWake | NativeSleep_PersistentTrace | NativeSleep_VendorLpoHalt;
+    case T5AIAlarm_ArmSleepMaskBarrier:
+      return NativeSleep_Valid | NativeSleep_MaskBarrier | NativeSleep_ShallowWfi |
+             NativeSleep_DomainBypass | NativeSleep_AnalogWake | NativeSleep_PersistentTrace |
+             NativeSleep_VendorLpoHalt;
+    case T5AIAlarm_ArmSleepMaskOnly:
+      return NativeSleep_Valid | NativeSleep_MaskOnly | NativeSleep_MaskBarrier |
+             NativeSleep_ShallowWfi | NativeSleep_DomainBypass | NativeSleep_KeepHf;
+    default:
+      return 0u; // Queries, plain alarms and unknown wire values are not sleep policies.
+  }
+}
+
 static uint32_t s_mask_barrier_count;
 static bool s_mask_barrier_returned;
-static bool s_native_no_hw_mask;
 static bool s_native_system_mask_used;
 static volatile uint32_t s_native_normal_sleep_skips;
 
@@ -69,7 +176,6 @@ bool unhygienix_native_normal_sleep_allowed(void) {
     ++s_native_normal_sleep_skips;
   return false;
 }
-static bool s_native_persistent_trace, s_native_analog_wake;
 static bool s_analog_owned;
 static uint32_t s_analog_prepare_lead, s_analog_prepare_reject;
 static uint32_t s_analog_period_before, s_analog_clock_before, s_analog_start;
@@ -81,14 +187,6 @@ static uint32_t s_analog_period_before, s_analog_clock_before, s_analog_start;
   ((T5AI_SLEEP_ANALOG_WAKE_PERIOD_MS - T5AI_SLEEP_ANALOG_WAKE_MARGIN_MS) * NATIVE_AON_TICKS_PER_MS)
 static bool s_persistent_saved, s_persistent_recording;
 static uint32_t s_persistent_reason_before, s_persistent_reason_last;
-static bool s_native_vendor_flash_idle;
-static bool s_native_vendor_cpu_idle;
-static bool s_native_vendor_subcores_on;
-static bool s_native_vendor_masked;
-static bool s_native_vendor_lpo_halt;
-static bool s_native_retain_modules;
-static bool s_native_mask_only;
-static bool s_native_keep_hf, s_native_core_only, s_native_flash_restore, s_native_bsp_restore;
 static uint32_t s_native_deadline;
 static uint32_t s_clock_count, s_final_lead, s_sleep_config, s_wake_config;
 static uint32_t s_clock_mode_low, s_hf_low, s_final_pending_low, s_final_pending_high;
@@ -171,7 +269,7 @@ __attribute__((section(".itcm_sec_code"))) static uint32_t prv_persistent_reason
 }
 
 __attribute__((section(".itcm_sec_code"))) static void prv_persistent_stage(uint32_t stage) {
-  if (!s_native_persistent_trace || stage > T5AI_SLEEP_CP_TRACE_STAGE_MASK)
+  if (!prv_policy_has(NativeSleep_PersistentTrace) || stage > T5AI_SLEEP_CP_TRACE_STAGE_MASK)
     return;
   const uint32_t word = NATIVE_RESET_REASON_WORD;
   if (stage == T5AISleepStage_CP_Resources) {
@@ -355,7 +453,7 @@ bool unhygienix_native_sleep_hal_ready(uint64_t pending, uint32_t low, uint32_t 
       (high ? T5AI_SLEEP_HAL_REJECT_HIGH : 0u) | (tick ? T5AI_SLEEP_HAL_REJECT_TICK : 0u);
   if (!rejected && unhygienix_native_sleep_prepared && !unhygienix_native_sleep_subcores_ready())
     rejected |= T5AI_SLEEP_HAL_REJECT_PERMIT;
-  if (!rejected && unhygienix_native_sleep_prepared && s_native_resources_only)
+  if (!rejected && unhygienix_native_sleep_prepared && prv_policy_has(NativeSleep_ResourcesOnly))
     rejected |= T5AI_SLEEP_HAL_REJECT_PROBE;
   if (unhygienix_native_sleep_prepared) {
     s_prepare_ticks = NATIVE_AON_COUNT_LOW - s_resource_tick;
@@ -375,7 +473,7 @@ unhygienix_native_sleep_halt_config(uint32_t value) {
     s_lpo_halt = aon_pmu_ll_get_r41() & T5AI_SLEEP_LPO_HALT_MASK;
     s_lpo_saved = true;
   }
-  return s_native_vendor_lpo_halt ? value : value & ~T5AI_SLEEP_LPO_HALT_MASK;
+  return prv_policy_has(NativeSleep_VendorLpoHalt) ? value : value & ~T5AI_SLEEP_LPO_HALT_MASK;
 }
 
 #define NATIVE_TRACE_UART_BASE           0x45830000u
@@ -398,7 +496,8 @@ __attribute__((section(".itcm_sec_code"))) bool unhygienix_native_sleep_uart_tra
   const uint32_t console_uart = 1u;
   if (!__get_PRIMASK() || uart_id != console_uart ||
       !sys_ll_get_cpu_device_clk_enable_uart1_cken() || !unhygienix_native_sleep_prepared ||
-      !s_native_keep_hf || s_native_core_only || !aon_pmu_ll_get_r3_cp1_enter_wfi_state() ||
+      !prv_policy_has(NativeSleep_KeepHf) || prv_policy_has(NativeSleep_CoreOnly) ||
+      !aon_pmu_ll_get_r3_cp1_enter_wfi_state() ||
       !(NATIVE_TRACE_UART_REGISTER(NATIVE_TRACE_UART_GLOBAL_OFFSET) &
         NATIVE_TRACE_UART_RESET_RELEASED) ||
       !(NATIVE_TRACE_UART_REGISTER(NATIVE_TRACE_UART_CONFIG_OFFSET) &
@@ -417,7 +516,8 @@ __attribute__((section(".itcm_sec_code"))) bool unhygienix_native_sleep_uart_tra
 __attribute__((section(".itcm_sec_code"))) static void prv_native_trace_bytes(const uint8_t *bytes,
                                                                               uint32_t length) {
   if (length > NATIVE_TRACE_MAX_FRAME_BYTES || !__get_PRIMASK() || !s_trace_uart_owned ||
-      !sys_ll_get_cpu_device_clk_enable_uart1_cken() || !s_native_keep_hf || s_native_core_only ||
+      !sys_ll_get_cpu_device_clk_enable_uart1_cken() || !prv_policy_has(NativeSleep_KeepHf) ||
+      prv_policy_has(NativeSleep_CoreOnly) ||
       (s_resources_active && !aon_pmu_ll_get_r3_cp1_enter_wfi_state()) ||
       !(NATIVE_TRACE_UART_REGISTER(NATIVE_TRACE_UART_GLOBAL_OFFSET) &
         NATIVE_TRACE_UART_RESET_RELEASED) ||
@@ -538,7 +638,7 @@ __attribute__((section(".itcm_sec_code"))) void unhygienix_native_sleep_stage(ui
 
 // Flash-safe resource preparation only; AP is published and CP IRQs are masked.
 void unhygienix_native_analog_wake_prepare(void) {
-  if (!s_native_analog_wake || !unhygienix_native_sleep_prepared)
+  if (!prv_policy_has(NativeSleep_AnalogWake) || !unhygienix_native_sleep_prepared)
     return;
   s_analog_prepare_reject = 0u;
   if (!__get_PRIMASK() || !aon_pmu_ll_get_r3_cp1_enter_wfi_state() || s_analog_owned ||
@@ -602,9 +702,12 @@ __attribute__((section(".itcm_sec_code"))) uint32_t
 unhygienix_native_sleep_condition(uint32_t value) {
   if (!unhygienix_native_sleep_prepared)
     return value;
-  const uint32_t flash_condition = s_native_vendor_flash_idle ? 0u : NATIVE_SLEEP_NEEDS_FLASH_IDLE;
-  const uint32_t cp_condition = s_native_vendor_cpu_idle ? 0u : NATIVE_SLEEP_NEEDS_CP_WFI;
-  const uint32_t ap_condition = s_native_vendor_subcores_on ? 0u : NATIVE_SLEEP_NEEDS_AP_WFI;
+  const uint32_t flash_condition =
+      prv_policy_has(NativeSleep_VendorFlashIdle) ? 0u : NATIVE_SLEEP_NEEDS_FLASH_IDLE;
+  const uint32_t cp_condition =
+      prv_policy_has(NativeSleep_VendorCpuIdle) ? 0u : NATIVE_SLEEP_NEEDS_CP_WFI;
+  const uint32_t ap_condition =
+      prv_policy_has(NativeSleep_VendorSubcoresOn) ? 0u : NATIVE_SLEEP_NEEDS_AP_WFI;
   return (value & ~NATIVE_SLEEP_CONDITION_MASK) | flash_condition | cp_condition | ap_condition |
          NATIVE_SLEEP_GLOBAL_ENABLE;
 }
@@ -659,31 +762,31 @@ __attribute__((section(".itcm_sec_code"))) void unhygienix_native_sleep_mask_exi
 }
 
 __attribute__((section(".itcm_sec_code"))) bool unhygienix_native_sleep_retain_modules(void) {
-  return unhygienix_native_sleep_prepared && s_native_retain_modules;
+  return unhygienix_native_sleep_prepared && prv_policy_has(NativeSleep_RetainModules);
 }
 
 __attribute__((section(".itcm_sec_code"))) bool unhygienix_native_sleep_domain_bypass(void) {
-  return unhygienix_native_sleep_prepared && s_native_domain_bypass;
+  return unhygienix_native_sleep_prepared && prv_policy_has(NativeSleep_DomainBypass);
 }
 
 __attribute__((section(".itcm_sec_code"))) bool unhygienix_native_sleep_bsp_restore(void) {
-  return unhygienix_native_sleep_prepared && s_native_bsp_restore;
+  return unhygienix_native_sleep_prepared && prv_policy_has(NativeSleep_BspRestore);
 }
 
 __attribute__((section(".itcm_sec_code"))) bool unhygienix_native_sleep_flash_restore(void) {
-  return unhygienix_native_sleep_prepared && s_native_flash_restore;
+  return unhygienix_native_sleep_prepared && prv_policy_has(NativeSleep_FlashRestore);
 }
 
 __attribute__((section(".itcm_sec_code"))) bool unhygienix_native_sleep_core_only(void) {
-  return unhygienix_native_sleep_prepared && s_native_core_only;
+  return unhygienix_native_sleep_prepared && prv_policy_has(NativeSleep_CoreOnly);
 }
 
 __attribute__((section(".itcm_sec_code"))) bool unhygienix_native_sleep_mask_only(void) {
-  return unhygienix_native_sleep_prepared && s_native_mask_only;
+  return unhygienix_native_sleep_prepared && prv_policy_has(NativeSleep_MaskOnly);
 }
 
 __attribute__((section(".itcm_sec_code"))) bool unhygienix_native_sleep_keep_hf(void) {
-  return unhygienix_native_sleep_prepared && s_native_keep_hf;
+  return unhygienix_native_sleep_prepared && prv_policy_has(NativeSleep_KeepHf);
 }
 
 #define NATIVE_RTC_CONTROL (*(volatile uint32_t *)0x44000200u)
@@ -698,7 +801,8 @@ __attribute__((section(".itcm_sec_code"))) static uint32_t prv_native_sleep_cont
 
 // The trace must leave the UART before the final IRQ/deadline checks and mask.
 __attribute__((section(".itcm_sec_code"))) static bool prv_native_trace_admission(void) {
-  if (!s_trace_uart_owned || !s_native_vendor_subcores_on || !s_native_keep_hf)
+  if (!s_trace_uart_owned || !prv_policy_has(NativeSleep_VendorSubcoresOn) ||
+      !prv_policy_has(NativeSleep_KeepHf))
     return true;
   prv_native_trace_word(T5AISleepSnapshot_SleepConfig, sys_ll_get_cpu_power_sleep_wakeup_value());
   prv_native_trace_word(T5AISleepSnapshot_WakeConfig, aon_pmu_ll_get_r41());
@@ -724,7 +828,7 @@ __attribute__((section(".itcm_sec_code"))) void unhygienix_native_sleep_wait(voi
   uint32_t sleep_control_before = 0u;
   if (unhygienix_native_sleep_prepared) {
     sleep_control_before = SCB->SCR;
-    const uint32_t expected_sleep_control = s_native_shallow_wfi
+    const uint32_t expected_sleep_control = prv_policy_has(NativeSleep_ShallowWfi)
                                                 ? sleep_control_before & ~SCB_SCR_SLEEPDEEP_Msk
                                                 : sleep_control_before | SCB_SCR_SLEEPDEEP_Msk;
     SCB->SCR = expected_sleep_control;
@@ -751,13 +855,13 @@ __attribute__((section(".itcm_sec_code"))) void unhygienix_native_sleep_wait(voi
     s_final_gpio_status_low = NATIVE_GPIO_STATUS_LOW;
     s_final_gpio_status_high = NATIVE_GPIO_STATUS_HIGH;
     ++s_clock_count;
-    if (s_native_clocks_only) {
+    if (prv_policy_has(NativeSleep_ClocksOnly)) {
       SCB->SCR = sleep_control_before;
       __DSB();
       return;
     }
     const bool analog_ready =
-        !s_native_analog_wake ||
+        !prv_policy_has(NativeSleep_AnalogWake) ||
         (s_analog_owned && sys_ll_get_ana_reg10_spi_timerwken() &&
          sys_ll_get_ana_reg10_timer_sel() == NATIVE_ANALOG_WAKE_PERIOD_SELECT &&
          sys_ll_get_ana_reg12_clk_sel() == s_analog_clock_before &&
@@ -797,15 +901,16 @@ __attribute__((section(".itcm_sec_code"))) void unhygienix_native_sleep_wait(voi
     if (s_wake_clear_before & NATIVE_PMU_WAKE_CLEAR_ASSERTED)
       ++s_pmu_clear_held_count;
     // Finish the cache-cleaning breadcrumb before the hardware can admit sleep.
-    if (!s_native_mask_barrier)
+    if (!prv_policy_has(NativeSleep_MaskBarrier))
       ++unhygienix_native_lowvol_count;
-    unhygienix_native_sleep_stage(s_native_mask_barrier ? T5AISleepStage_CP_MaskBarrierEnter
-                                                        : T5AISleepStage_CP_WFI);
+    unhygienix_native_sleep_stage(prv_policy_has(NativeSleep_MaskBarrier)
+                                      ? T5AISleepStage_CP_MaskBarrierEnter
+                                      : T5AISleepStage_CP_WFI);
   }
-  if (unhygienix_native_sleep_prepared && !s_native_no_hw_mask) {
+  if (unhygienix_native_sleep_prepared && !prv_policy_has(NativeSleep_NoHwMask)) {
     unhygienix_native_sleep_mask_enter();
     const uint32_t control = sys_ll_get_cpu0_int_halt_clk_op_value();
-    if (s_native_persistent_trace) {
+    if (prv_policy_has(NativeSleep_PersistentTrace)) {
       const uint32_t word = NATIVE_RESET_REASON_WORD;
       if (!s_persistent_recording || prv_persistent_reason(word) != s_persistent_reason_last ||
           s_native_faulted) {
@@ -817,12 +922,12 @@ __attribute__((section(".itcm_sec_code"))) void unhygienix_native_sleep_wait(voi
       }
     }
     s_native_system_mask_used = true;
-    if (s_native_mask_barrier) {
+    if (prv_policy_has(NativeSleep_MaskBarrier)) {
       unhygienix_cp_mask_barrier((volatile uint32_t *)NATIVE_CP_CONTROL_ADDRESS,
                                  control | NATIVE_CP_INTERRUPT_MASK, control);
       ++s_mask_barrier_count;
       s_mask_barrier_returned = true;
-    } else if (s_native_persistent_trace) {
+    } else if (prv_policy_has(NativeSleep_PersistentTrace)) {
       s_persistent_reason_last = (T5AI_SLEEP_CP_TRACE_REASON_BASE | T5AISleepStage_CP_Woke)
                                  << NATIVE_CP_REASON_SHIFT;
       unhygienix_cp_masked_wfi_trace((volatile uint32_t *)NATIVE_CP_CONTROL_ADDRESS,
@@ -841,8 +946,9 @@ __attribute__((section(".itcm_sec_code"))) void unhygienix_native_sleep_wait(voi
   }
   s_wake_status_after = aon_pmu_ll_get_r71();
   s_wake_clear_after = aon_pmu_ll_get_r43();
-  unhygienix_native_sleep_stage(s_native_mask_barrier ? T5AISleepStage_CP_MaskBarrierReturned
-                                                      : T5AISleepStage_CP_Woke);
+  unhygienix_native_sleep_stage(prv_policy_has(NativeSleep_MaskBarrier)
+                                    ? T5AISleepStage_CP_MaskBarrierReturned
+                                    : T5AISleepStage_CP_Woke);
   if (unhygienix_native_sleep_prepared) {
     if (!unhygienix_native_flash_resume()) {
       s_native_faulted = true;
@@ -914,7 +1020,7 @@ static bool prv_native_wait_ap_publication(void) {
   if (aon_pmu_ll_get_r3_cp1_enter_wfi_state())
     return true;
   if (!unhygienix_native_sleep_prepared || !s_native_armed || !s_native_permit ||
-      s_native_faulted || s_native_wake_only)
+      s_native_faulted || prv_policy_has(NativeSleep_WakeOnly))
     return false;
   const uint32_t start = prv_native_admission_tick();
   while (!aon_pmu_ll_get_r3_cp1_enter_wfi_state()) {
@@ -943,7 +1049,7 @@ bool unhygienix_native_sleep_subcores_ready(void) {
   if (!unhygienix_native_mailbox_sleep_ready())
     return false;
   // Bounded AP wake control: retain the ready lease without allowing CP low voltage.
-  if (s_native_wake_only)
+  if (prv_policy_has(NativeSleep_WakeOnly))
     return false;
   prv_native_vote(true);
   if (!s_native_faulted) {
@@ -1080,28 +1186,9 @@ static void unhygienix_alarm_request(const low_pwr_core_msg_t *message) {
     s_cleanup_cancel_progress = T5AICancelProgress_Received;
     unhygienix_native_sleep_mailbox_progress(T5AIMailboxProgress_NativeRequest);
   }
-  const bool analog_request = operation == T5AIAlarm_ArmSleepAnalogWake ||
-                              operation == T5AIAlarm_ArmSleepAnalogRetainDomains ||
-                              operation == T5AIAlarm_ArmSleepAnalogShallowWFI ||
-                              operation == T5AIAlarm_ArmSleepMaskBarrier;
-  const bool sleep_request =
-      operation == T5AIAlarm_ArmSleep || operation == T5AIAlarm_ArmSleepWakeOnly ||
-      operation == T5AIAlarm_ArmSleepResourcesOnly || operation == T5AIAlarm_ArmSleepClocksOnly ||
-      operation == T5AIAlarm_ArmSleepClocksLive || operation == T5AIAlarm_ArmSleepCoreOnly ||
-      operation == T5AIAlarm_ArmSleepFlashRestore || operation == T5AIAlarm_ArmSleepBspRestore ||
-      operation == T5AIAlarm_ArmSleepDomainBypass || operation == T5AIAlarm_ArmSleepRetainModules ||
-      operation == T5AIAlarm_ArmSleepKeepHF || operation == T5AIAlarm_ArmSleepNoHardwareMask ||
-      operation == T5AIAlarm_ArmSleepNoHardwareMaskClocksOff ||
-      operation == T5AIAlarm_ArmSleepVendorFlashIdle ||
-      operation == T5AIAlarm_ArmSleepVendorCPUIdle ||
-      operation == T5AIAlarm_ArmSleepVendorSubcoresOn ||
-      operation == T5AIAlarm_ArmSleepVendorMasked ||
-      operation == T5AIAlarm_ArmSleepVendorSubcoresOnKeepHF ||
-      operation == T5AIAlarm_ArmSleepVendorMaskedKeepHF ||
-      operation == T5AIAlarm_ArmSleepMaskedCPWFIKeepHF ||
-      operation == T5AIAlarm_ArmSleepVendorLPOHalt ||
-      operation == T5AIAlarm_ArmSleepPersistentTrace || operation == T5AIAlarm_ArmSleepMaskOnly ||
-      analog_request;
+  const uint32_t policy = prv_sleep_policy(operation);
+  const bool sleep_request = policy != 0u;
+  const bool analog_request = (policy & NativeSleep_AnalogWake) != 0u;
   bk_err_t status = BK_FAIL;
   if (!s_trace_captured) {
     if (s_native_trace.magic == T5AI_SLEEP_TRACE_MAGIC &&
@@ -1286,54 +1373,8 @@ static void unhygienix_alarm_request(const low_pwr_core_msg_t *message) {
       if (status != BK_OK)
         s_native_armed = false;
       if (status == BK_OK && sleep_request) {
-        s_native_wake_only = operation == T5AIAlarm_ArmSleepWakeOnly;
-        s_native_resources_only = operation == T5AIAlarm_ArmSleepResourcesOnly;
-        s_native_retain_modules = operation == T5AIAlarm_ArmSleepRetainModules;
-        s_native_mask_only = operation == T5AIAlarm_ArmSleepMaskOnly;
-        s_native_mask_barrier = operation == T5AIAlarm_ArmSleepMaskBarrier || s_native_mask_only;
-        s_native_shallow_wfi =
-            operation == T5AIAlarm_ArmSleepAnalogShallowWFI || s_native_mask_barrier;
-        s_native_domain_bypass =
-            operation == T5AIAlarm_ArmSleepDomainBypass || s_native_retain_modules ||
-            operation == T5AIAlarm_ArmSleepAnalogRetainDomains || s_native_shallow_wfi;
-        s_native_bsp_restore = operation == T5AIAlarm_ArmSleepBspRestore;
-        s_native_flash_restore = operation == T5AIAlarm_ArmSleepFlashRestore;
-        s_native_core_only = operation == T5AIAlarm_ArmSleepCoreOnly || s_native_flash_restore ||
-                             s_native_bsp_restore;
-        s_native_analog_wake = analog_request;
+        s_native_policy = policy;
         s_analog_prepare_lead = s_analog_prepare_reject = 0u;
-        s_native_persistent_trace =
-            operation == T5AIAlarm_ArmSleepPersistentTrace || s_native_analog_wake;
-        s_native_vendor_lpo_halt =
-            operation == T5AIAlarm_ArmSleepVendorLPOHalt || s_native_persistent_trace;
-        s_native_vendor_masked = operation == T5AIAlarm_ArmSleepVendorMasked ||
-                                 operation == T5AIAlarm_ArmSleepVendorMaskedKeepHF ||
-                                 operation == T5AIAlarm_ArmSleepMaskedCPWFIKeepHF;
-        s_native_vendor_subcores_on = operation == T5AIAlarm_ArmSleepVendorSubcoresOn ||
-                                      operation == T5AIAlarm_ArmSleepVendorSubcoresOnKeepHF ||
-                                      s_native_vendor_masked;
-        s_native_vendor_cpu_idle =
-            operation == T5AIAlarm_ArmSleepVendorCPUIdle || s_native_vendor_subcores_on;
-        s_native_vendor_flash_idle =
-            operation == T5AIAlarm_ArmSleepVendorFlashIdle || s_native_vendor_cpu_idle;
-        // Admit PMU sleep only after CPU0 reaches WFI, while AP remains published.
-        if (operation == T5AIAlarm_ArmSleepMaskedCPWFIKeepHF) {
-          s_native_vendor_cpu_idle = false;
-          s_native_vendor_flash_idle = true;
-        }
-        s_native_no_hw_mask =
-            !s_native_vendor_masked &&
-            (operation == T5AIAlarm_ArmSleepNoHardwareMask ||
-             operation == T5AIAlarm_ArmSleepNoHardwareMaskClocksOff || s_native_vendor_flash_idle);
-        const bool real_wfi_keep_hf = operation == T5AIAlarm_ArmSleepKeepHF ||
-                                      operation == T5AIAlarm_ArmSleepNoHardwareMask ||
-                                      operation == T5AIAlarm_ArmSleepVendorSubcoresOnKeepHF ||
-                                      operation == T5AIAlarm_ArmSleepVendorMaskedKeepHF ||
-                                      operation == T5AIAlarm_ArmSleepMaskedCPWFIKeepHF;
-        s_native_keep_hf = operation == T5AIAlarm_ArmSleepClocksLive || s_native_core_only ||
-                           (s_native_domain_bypass && !analog_request) || real_wfi_keep_hf;
-        s_native_clocks_only = operation == T5AIAlarm_ArmSleepClocksOnly ||
-                               (s_native_keep_hf && !real_wfi_keep_hf && !s_native_mask_only);
         status = bk_pm_module_vote_sleep_ctrl(PM_SLEEP_MODULE_NAME_APP, NATIVE_APP_AWAKE, 0u);
         s_native_app_released = false;
         if (status == BK_OK) {

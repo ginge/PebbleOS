@@ -137,12 +137,12 @@ on-watch format or storage qualification.
 
 ### 8. Separate qualified sleep from experimental modes
 
-- [ ] Isolate the qualified CP-awake production path in `soc/t5ai/sleep.c`,
+- [x] Isolate the qualified CP-awake production path in `soc/t5ai/sleep.c`,
   `boards/unhygienix/tuya/cp/native_alarm.c` and `sleep_protocol.h` from the
   accumulated CP transition investigations.
-- [ ] Replace interdependent experimental mode booleans with named policies and
+- [x] Replace interdependent experimental mode booleans with named policies and
   explicit transitions. Preserve numeric ABI values; reject unsupported modes.
-- [ ] Acceptance: cancellation, late replies, cleanup and production state
+- [x] Acceptance: cancellation, late replies, cleanup and production state
   transitions pass; no CP low-voltage behavior is enabled by cleanup.
 
 ### 9. Make HCI wakeups event-driven
@@ -1241,3 +1241,99 @@ The installed sleep-retry image remains `31b50d165281fa78016a880573b910fefe8c69c
 Per the operator's section-by-section instruction, commit this increment and
 pause. **Next unresolved item: finding 8**, separating production CP-awake sleep
 from experimental modes while preserving the pinned protocol and transitions.
+
+
+### Finding 8 progress — 2026-11-22
+
+Reassessment: the existing production coordinator already enforced CP-awake
+returns and retained its cancellation, cleanup and reset guards. No new claim
+that production had entered CP low voltage follows from the original audit.
+The maintenance problem was the cascading diagnostic decoder and bounded test
+termination mixed into the cleanup worker. A non-test alarm client also had an
+implicit CP-transition fallback when its production policy was absent.
+
+Changes:
+
+- CP now selects one complete named feature policy for each of the 27 existing
+  sleep operations, under the existing successful-arm IRQ lock. It replaces 20
+  interdependent mutable mode booleans; resource ownership, saved registers,
+  cancellation and cleanup leases remain independent and unchanged. Unknown
+  operations select no policy and cannot arm. No CP mode was removed or enabled.
+- The qualified AP operation retains precedence over every diagnostic flag.
+  Without that policy, CP-transition selection now requires the explicit TEST
+  gate; otherwise preparation returns E_INVALID_OPERATION before sending a
+  mailbox request. Protocol comments identify production operation 19 and
+  experimental operation 3; all 102 numeric operation values and ABI are intact.
+- Bounded diagnostic reporting, validation and termination now have a separate
+  TEST-only coordinator helper. Its nine handled exits return to the worker at
+  exactly the prior boundaries; ordinary production cleanup, counter guards,
+  evidence/retry policy, timeouts, reset behavior and timing constants stay put.
+- Policy reads always inline into CP ITCM callers; suspended-flash paths gain no
+  out-of-line helper call. No shared/common production source changed.
+
+Validation:
+
+- Before edits, the existing four sleep suites passed **44 methods in 70.939 s**
+  on the host with ASan/UBSan. After edits, the same suites passed **46 methods
+  in 97.423 s**, including all 98 CP endpoint cases, 39 AP endpoint cases,
+  cancellation, stale/future events, late replies, retained evidence, production
+  state transitions and fail-closed cleanup. The final CP inlining and expanded
+  AP guard cases passed focused reruns.
+- New full-translation-unit coverage prepares/cancels every diagnostic, then
+  enters CP-awake policy and proves zero CP resource, clock, mask and low-voltage
+  transitions. Unknown wire values 102..255 and UINT32_MAX fail without arming.
+  AP selection tests now compile the complete client instead of extracted
+  functions; production precedence and absent-policy rejection are covered both
+  with and without all diagnostic flags.
+- An independent capture of the pre-refactor decoder matches **all 27 policies**,
+  including analog and masked-CP-WFI exceptions. No test expectation was relaxed.
+- Both old and new CP implementations compile in the complete vendor
+  low_pwr_core.c translation unit, with hash-checked current overlay contexts,
+  real SDK headers/configuration and Arm GNU 10.3. Candidate object text is
+  **9390 vs 9638 bytes**, BSS **394 vs 409 bytes**, data **16 bytes unchanged**.
+  Symbol/relocation inspection confirms no out-of-line policy helper.
+- The complete diagnostic AP coordinator compiles with real Kconfig-generated
+  headers and Arm GNU 14.2, -Werror and -fno-lto. Its temporary configuration
+  explicitly disables the power-profile selector before selecting CP-transition
+  diagnostics; the normal profile continues forcing CP awake. This is object
+  coverage, not a complete diagnostic firmware link.
+- The normal ARM/LTO firmware build and map/partition/heap, image integration,
+  CRC, log-hash, resource and syscall checks pass. Build ID:
+  `b51ab78563af81dfcb115117e17bc85ad6545b33`. Production .text size is unchanged
+  at 1638080 bytes. The 928-byte SRAM .ramfunc section is byte-identical to the
+  finding-7 baseline; retained data stays 136 bytes at 0x280103a0 and the AP
+  trace stays 16 bytes at 0x28010440. Ruff and git diff --check pass.
+
+Commands used the existing temporary Python/tool environment:
+
+```
+python -m unittest tools.tests.test_t5ai_native_alarm \
+  tools.tests.test_t5ai_retained_sleep tools.tests.test_t5ai_sleep_guard \
+  tools.tests.test_t5ai_diagnostic_config
+PATH=/tmp/pebble-quality-venv/bin:/home/baz/pebble/build/arm_gnu_toolchain/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi/bin:/usr/bin:/bin \
+  PYTHONPATH=tools/libs/pbl-cli CCACHE_DISABLE=1 \
+  /tmp/pebble-quality-venv/bin/python -m pbl -b build-quality-20261121 build
+```
+
+Exact CP/AP object command arrays, configs, baseline policy capture, scripts,
+logs, source snapshots and normal firmware outputs are preserved under
+`build-quality-20261121/sleep-policy-finding8/`.
+
+Tooling distinctions: LeakSanitizer failed inside the sandbox; the unchanged
+baseline and final suites passed outside it with sanitizers still enabled.
+The system clang-format could not parse the repository's newer style options;
+23.1.5 was used. The first out-of-tree CP compile omitted its original source
+header directory; restoring that include search path fixed the fixture without
+changing production headers. The first diagnostic configuration correctly kept
+WAKE_ONLY selected through T5AI_POWER_SAVINGS; explicitly choosing a diagnostic
+profile resolved the configuration assertion without weakening that selector.
+
+Finding 8 is complete at host/build scope. The CP candidate was compiled as an
+object, **not fully linked, packaged, flashed or hardware-qualified**; the normal
+AP build uses the existing pinned CP inputs. No new electrical, reconnect or
+soak claim is made. No hardware was flashed, reset, provisioned or formatted;
+installed image remains `31b50d165281fa78016a880573b910fefe8c69cf`. Layouts,
+calibration, Bluetooth/Gabbro identity, storage contents and quarantine/ownership
+guards are unchanged. The operator requested this increment be committed before proceeding to finding 9.
+**Next unresolved item: finding 9**, mapping HCI work producers and evaluating
+notification/deadline waits before changing qualified polling defaults.

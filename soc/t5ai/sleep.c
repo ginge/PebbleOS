@@ -569,6 +569,115 @@ static void prv_preflight_worker(void *context) {
 }
 #endif
 
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_TEST
+static bool prv_diagnostic_cleanup(void) {
+  // Avoid mailbox traffic from per-entry logs before the next CP idle attempt.
+  const bool report = prv_test_returns_complete() ||
+                      s_stats.requests >= SLEEP_TEST_REQUEST_LIMIT || s_stats.fault;
+  const bool report_hal =
+      prv_test_returns_complete() || s_stats.requests >= SLEEP_TEST_REQUEST_LIMIT;
+  uint32_t reject = 0u, pending_low = 0u, pending_high = 0u;
+  uint32_t status_low = 0u, status_high = 0u, preparation = 0u, cp_ticks = 0u, stage = 0u;
+  if (report) {
+    uint32_t samples;
+    if (t5ai_native_alarm_cp_query(T5AIAlarm_ReadySamples, &samples) != S_SUCCESS ||
+        t5ai_native_alarm_cp_query(T5AIAlarm_MissingVotesLow, &s_stats.missing_low) !=
+            S_SUCCESS ||
+        t5ai_native_alarm_cp_query(T5AIAlarm_MissingVotesHigh, &s_stats.missing_high) !=
+            S_SUCCESS) {
+      prv_fail(T5AISleepFault_Controller);
+      return true;
+    }
+    s_stats.cp_samples = samples - s_cp_samples_start;
+    if (report_hal) {
+      (void)t5ai_native_alarm_cp_query(T5AIAlarm_HalReject, &reject);
+      (void)t5ai_native_alarm_cp_query(T5AIAlarm_HalPendingLow, &pending_low);
+      (void)t5ai_native_alarm_cp_query(T5AIAlarm_HalPendingHigh, &pending_high);
+      (void)t5ai_native_alarm_cp_query(T5AIAlarm_HalStatusLow, &status_low);
+      (void)t5ai_native_alarm_cp_query(T5AIAlarm_HalStatusHigh, &status_high);
+      (void)t5ai_native_alarm_cp_query(T5AIAlarm_PrepareTicks, &preparation);
+      (void)t5ai_native_alarm_cp_query(T5AIAlarm_LowVoltageTicks, &cp_ticks);
+      (void)t5ai_native_alarm_cp_query(T5AIAlarm_Stage, &stage);
+    }
+  }
+  if (prv_test_returns_complete()) {
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_WAKE_ONLY
+    if (s_stats.cp_entries || s_stats.cp_resources || s_stats.cp_clock_cycles ||
+        s_stats.cp_mask_barriers) {
+      prv_fail(T5AISleepFault_Contract);
+      return true;
+    }
+#elif defined(CONFIG_T5AI_RETAINED_SLEEP_RESOURCES_ONLY)
+    if (s_stats.cp_entries || !s_stats.cp_resources) {
+      prv_fail(T5AISleepFault_Contract);
+      return true;
+    }
+#elif defined(CONFIG_T5AI_RETAINED_SLEEP_MASK_BARRIER_CONTROL)
+    uint32_t mask_before = 0u, mask_after = 0u;
+    if (s_stats.cp_entries || s_stats.cp_mask_barriers != 1u || !s_stats.cp_clock_cycles ||
+        t5ai_native_alarm_cp_query(T5AIAlarm_MaskBefore, &mask_before) != S_SUCCESS ||
+        t5ai_native_alarm_cp_query(T5AIAlarm_MaskAfter, &mask_after) != S_SUCCESS ||
+        mask_before != mask_after) {
+      prv_fail(T5AISleepFault_Contract);
+      return true;
+    }
+#elif defined(CONFIG_T5AI_RETAINED_SLEEP_CLOCKS_ONLY)
+    uint32_t mode_low = 0u, hf_low = 0u, mask_before = 0u, mask_after = 0u;
+    bool expected_dpll_on = false;
+#ifdef CONFIG_T5AI_RETAINED_SLEEP_KEEP_HF
+    expected_dpll_on = true;
+#endif
+    if (s_stats.cp_entries || !s_stats.cp_clock_cycles ||
+        t5ai_native_alarm_cp_query(T5AIAlarm_ClockModeLow, &mode_low) != S_SUCCESS ||
+        t5ai_native_alarm_cp_query(T5AIAlarm_HighFrequencyLow, &hf_low) != S_SUCCESS ||
+        t5ai_native_alarm_cp_query(T5AIAlarm_MaskBefore, &mask_before) != S_SUCCESS ||
+        t5ai_native_alarm_cp_query(T5AIAlarm_MaskAfter, &mask_after) != S_SUCCESS ||
+        mask_before != mask_after || (mode_low & SLEEP_CORE_BUS_CLOCK_MASK) ||
+        ((hf_low & SLEEP_DPLL_ENABLE) != 0u) != expected_dpll_on) {
+      prv_fail(T5AISleepFault_Contract);
+      return true;
+    }
+#else
+    if (!s_stats.cp_entries) {
+      prv_fail(T5AISleepFault_NoControllerSleep);
+      return true;
+    }
+#endif
+    if (t5ai_native_alarm_finish_cleanup(s_generation) != S_SUCCESS) {
+      prv_fail(T5AISleepFault_Cleanup);
+      return true;
+    }
+    // Routine logging uses the same CP transport; finish the service lease first.
+    PBL_LOG_DBG("T5SLEEP votes samples=%lu missing=%lx:%lx", (unsigned long)s_stats.cp_samples,
+                (unsigned long)s_stats.missing_high, (unsigned long)s_stats.missing_low);
+    PBL_LOG_DBG("T5SLEEP check entries=%lu cp=%lu aborted=%lu late=%lu fault=%lu reject=%lx",
+                (unsigned long)s_stats.entries, (unsigned long)s_stats.cp_entries,
+                (unsigned long)s_stats.aborted, (unsigned long)s_stats.late_aon,
+                (unsigned long)s_stats.fault, (unsigned long)s_stats.rejected);
+    if (report_hal) {
+      PBL_LOG_DBG("T5SLEEP HAL reject=%lx pending=%lx:%lx status=%lx:%lx", (unsigned long)reject,
+                  (unsigned long)pending_high, (unsigned long)pending_low,
+                  (unsigned long)status_high, (unsigned long)status_low);
+      PBL_LOG_DBG("T5SLEEP CP preparation=%lu ticks=%lu stage=%lu APticks=%lu",
+                  (unsigned long)preparation, (unsigned long)cp_ticks, (unsigned long)stage,
+                  (unsigned long)s_stats.aon_ticks);
+    }
+    PBL_LOG_DBG("T5SLEEP validated clocks=%lu masks=%lu resources=%lu",
+                (unsigned long)s_stats.cp_clock_cycles, (unsigned long)s_stats.cp_mask_barriers,
+                (unsigned long)s_stats.cp_resources);
+    SLEEP_MARK_STAGE(SLEEP_TRACE_COMPLETE);
+    s_phase = SleepTestComplete;
+    PBL_LOG_DBG("T5SLEEP bounded test complete");
+    return true;
+  }
+  if (s_stats.requests >= SLEEP_TEST_REQUEST_LIMIT) {
+    prv_fail(T5AISleepFault_AdmissionBudget);
+    return true;
+  }
+  return false;
+}
+#endif
+
 static void prv_worker(void *context) {
   (void)context;
   pbl_irq_lock();
@@ -625,109 +734,8 @@ static void prv_worker(void *context) {
     }
 #endif
 #ifdef CONFIG_T5AI_RETAINED_SLEEP_TEST
-    // Avoid mailbox traffic from per-entry logs before the next CP idle attempt.
-    const bool report = prv_test_returns_complete() ||
-                        s_stats.requests >= SLEEP_TEST_REQUEST_LIMIT || s_stats.fault;
-    const bool report_hal =
-        prv_test_returns_complete() || s_stats.requests >= SLEEP_TEST_REQUEST_LIMIT;
-    uint32_t reject = 0u, pending_low = 0u, pending_high = 0u;
-    uint32_t status_low = 0u, status_high = 0u, preparation = 0u, cp_ticks = 0u, stage = 0u;
-    if (report) {
-      uint32_t samples;
-      if (t5ai_native_alarm_cp_query(T5AIAlarm_ReadySamples, &samples) != S_SUCCESS ||
-          t5ai_native_alarm_cp_query(T5AIAlarm_MissingVotesLow, &s_stats.missing_low) !=
-              S_SUCCESS ||
-          t5ai_native_alarm_cp_query(T5AIAlarm_MissingVotesHigh, &s_stats.missing_high) !=
-              S_SUCCESS) {
-        prv_fail(T5AISleepFault_Controller);
-        return;
-      }
-      s_stats.cp_samples = samples - s_cp_samples_start;
-      if (report_hal) {
-        (void)t5ai_native_alarm_cp_query(T5AIAlarm_HalReject, &reject);
-        (void)t5ai_native_alarm_cp_query(T5AIAlarm_HalPendingLow, &pending_low);
-        (void)t5ai_native_alarm_cp_query(T5AIAlarm_HalPendingHigh, &pending_high);
-        (void)t5ai_native_alarm_cp_query(T5AIAlarm_HalStatusLow, &status_low);
-        (void)t5ai_native_alarm_cp_query(T5AIAlarm_HalStatusHigh, &status_high);
-        (void)t5ai_native_alarm_cp_query(T5AIAlarm_PrepareTicks, &preparation);
-        (void)t5ai_native_alarm_cp_query(T5AIAlarm_LowVoltageTicks, &cp_ticks);
-        (void)t5ai_native_alarm_cp_query(T5AIAlarm_Stage, &stage);
-      }
-    }
-    if (prv_test_returns_complete()) {
-#ifdef CONFIG_T5AI_RETAINED_SLEEP_WAKE_ONLY
-      if (s_stats.cp_entries || s_stats.cp_resources || s_stats.cp_clock_cycles ||
-          s_stats.cp_mask_barriers) {
-        prv_fail(T5AISleepFault_Contract);
-        return;
-      }
-#elif defined(CONFIG_T5AI_RETAINED_SLEEP_RESOURCES_ONLY)
-      if (s_stats.cp_entries || !s_stats.cp_resources) {
-        prv_fail(T5AISleepFault_Contract);
-        return;
-      }
-#elif defined(CONFIG_T5AI_RETAINED_SLEEP_MASK_BARRIER_CONTROL)
-      uint32_t mask_before = 0u, mask_after = 0u;
-      if (s_stats.cp_entries || s_stats.cp_mask_barriers != 1u || !s_stats.cp_clock_cycles ||
-          t5ai_native_alarm_cp_query(T5AIAlarm_MaskBefore, &mask_before) != S_SUCCESS ||
-          t5ai_native_alarm_cp_query(T5AIAlarm_MaskAfter, &mask_after) != S_SUCCESS ||
-          mask_before != mask_after) {
-        prv_fail(T5AISleepFault_Contract);
-        return;
-      }
-#elif defined(CONFIG_T5AI_RETAINED_SLEEP_CLOCKS_ONLY)
-      uint32_t mode_low = 0u, hf_low = 0u, mask_before = 0u, mask_after = 0u;
-      bool expected_dpll_on = false;
-#ifdef CONFIG_T5AI_RETAINED_SLEEP_KEEP_HF
-      expected_dpll_on = true;
-#endif
-      if (s_stats.cp_entries || !s_stats.cp_clock_cycles ||
-          t5ai_native_alarm_cp_query(T5AIAlarm_ClockModeLow, &mode_low) != S_SUCCESS ||
-          t5ai_native_alarm_cp_query(T5AIAlarm_HighFrequencyLow, &hf_low) != S_SUCCESS ||
-          t5ai_native_alarm_cp_query(T5AIAlarm_MaskBefore, &mask_before) != S_SUCCESS ||
-          t5ai_native_alarm_cp_query(T5AIAlarm_MaskAfter, &mask_after) != S_SUCCESS ||
-          mask_before != mask_after || (mode_low & SLEEP_CORE_BUS_CLOCK_MASK) ||
-          ((hf_low & SLEEP_DPLL_ENABLE) != 0u) != expected_dpll_on) {
-        prv_fail(T5AISleepFault_Contract);
-        return;
-      }
-#else
-      if (!s_stats.cp_entries) {
-        prv_fail(T5AISleepFault_NoControllerSleep);
-        return;
-      }
-#endif
-      if (t5ai_native_alarm_finish_cleanup(s_generation) != S_SUCCESS) {
-        prv_fail(T5AISleepFault_Cleanup);
-        return;
-      }
-      // Routine logging uses the same CP transport; finish the service lease first.
-      PBL_LOG_DBG("T5SLEEP votes samples=%lu missing=%lx:%lx", (unsigned long)s_stats.cp_samples,
-                  (unsigned long)s_stats.missing_high, (unsigned long)s_stats.missing_low);
-      PBL_LOG_DBG("T5SLEEP check entries=%lu cp=%lu aborted=%lu late=%lu fault=%lu reject=%lx",
-                  (unsigned long)s_stats.entries, (unsigned long)s_stats.cp_entries,
-                  (unsigned long)s_stats.aborted, (unsigned long)s_stats.late_aon,
-                  (unsigned long)s_stats.fault, (unsigned long)s_stats.rejected);
-      if (report_hal) {
-        PBL_LOG_DBG("T5SLEEP HAL reject=%lx pending=%lx:%lx status=%lx:%lx", (unsigned long)reject,
-                    (unsigned long)pending_high, (unsigned long)pending_low,
-                    (unsigned long)status_high, (unsigned long)status_low);
-        PBL_LOG_DBG("T5SLEEP CP preparation=%lu ticks=%lu stage=%lu APticks=%lu",
-                    (unsigned long)preparation, (unsigned long)cp_ticks, (unsigned long)stage,
-                    (unsigned long)s_stats.aon_ticks);
-      }
-      PBL_LOG_DBG("T5SLEEP validated clocks=%lu masks=%lu resources=%lu",
-                  (unsigned long)s_stats.cp_clock_cycles, (unsigned long)s_stats.cp_mask_barriers,
-                  (unsigned long)s_stats.cp_resources);
-      SLEEP_MARK_STAGE(SLEEP_TRACE_COMPLETE);
-      s_phase = SleepTestComplete;
-      PBL_LOG_DBG("T5SLEEP bounded test complete");
+    if (prv_diagnostic_cleanup())
       return;
-    }
-    if (s_stats.requests >= SLEEP_TEST_REQUEST_LIMIT) {
-      prv_fail(T5AISleepFault_AdmissionBudget);
-      return;
-    }
 #endif
     if (t5ai_native_alarm_finish_cleanup(s_generation) != S_SUCCESS) {
       prv_fail(T5AISleepFault_Cleanup);

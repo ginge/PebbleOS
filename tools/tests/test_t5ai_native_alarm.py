@@ -441,8 +441,8 @@ int main(void){
 #elif CASE == 75 || CASE == 76
  fake_scb.SCR=SCB_SCR_SLEEPDEEP_Msk;
  request(T5AIAlarm_ArmSleepMaskBarrier,1,NATIVE_ANALOG_WAKE_MIN_TICKS+64);
- assert(!reply_status && s_native_mask_barrier && s_native_domain_bypass && s_native_shallow_wfi);
- assert(!s_native_no_hw_mask && !s_native_clocks_only);
+ assert(!reply_status && prv_policy_has(NativeSleep_MaskBarrier) && prv_policy_has(NativeSleep_DomainBypass) && prv_policy_has(NativeSleep_ShallowWfi));
+ assert(!prv_policy_has(NativeSleep_NoHwMask) && !prv_policy_has(NativeSleep_ClocksOnly));
  coordination|=2;unhygienix_native_sleep_stage(T5AISleepStage_CP_Resources);
  unhygienix_native_analog_wake_prepare();
  if(CASE==76)fake_reset_word=(fake_reset_word&~NATIVE_CP_REASON_MASK)|(0x11u<<NATIVE_CP_REASON_SHIFT);
@@ -468,8 +468,8 @@ int main(void){
 #elif CASE == 73 || CASE == 74
  fake_expect_shallow=true;fake_scb.SCR=SCB_SCR_SLEEPDEEP_Msk;
  request(T5AIAlarm_ArmSleepAnalogShallowWFI,1,NATIVE_ANALOG_WAKE_MIN_TICKS+64);
- assert(!reply_status && s_native_analog_wake && s_native_domain_bypass && s_native_shallow_wfi);
- assert(!s_native_keep_hf && !s_native_clocks_only && !s_native_no_hw_mask);
+ assert(!reply_status && prv_policy_has(NativeSleep_AnalogWake) && prv_policy_has(NativeSleep_DomainBypass) && prv_policy_has(NativeSleep_ShallowWfi));
+ assert(!prv_policy_has(NativeSleep_KeepHf) && !prv_policy_has(NativeSleep_ClocksOnly) && !prv_policy_has(NativeSleep_NoHwMask));
  coordination|=2;unhygienix_native_sleep_stage(T5AISleepStage_CP_Resources);
  unhygienix_native_analog_wake_prepare();assert(s_analog_owned);
  fake_force_deep=CASE==74;
@@ -482,9 +482,9 @@ int main(void){
  cancel_and_finish(1,0);assert(!reply_status && !s_analog_owned && !fake_analog_enabled);
 #elif CASE == 72
  request(T5AIAlarm_ArmSleepAnalogRetainDomains,1,NATIVE_ANALOG_WAKE_MIN_TICKS+64);
- assert(!reply_status && s_native_analog_wake && s_native_domain_bypass);
- assert(!s_native_keep_hf && !s_native_clocks_only && !s_native_no_hw_mask);
- assert(s_native_persistent_trace && s_native_vendor_lpo_halt);
+ assert(!reply_status && prv_policy_has(NativeSleep_AnalogWake) && prv_policy_has(NativeSleep_DomainBypass));
+ assert(!prv_policy_has(NativeSleep_KeepHf) && !prv_policy_has(NativeSleep_ClocksOnly) && !prv_policy_has(NativeSleep_NoHwMask));
+ assert(prv_policy_has(NativeSleep_PersistentTrace) && prv_policy_has(NativeSleep_VendorLpoHalt));
  coordination|=2;unhygienix_native_sleep_stage(T5AISleepStage_CP_Resources);
  unhygienix_native_analog_wake_prepare();assert(s_analog_owned);
  unhygienix_native_sleep_wait();assert(arch_wfis==1 && !s_native_faulted);
@@ -493,7 +493,7 @@ int main(void){
 #elif CASE == 64
  request(T5AIAlarm_AnalogWakeState,0,0);assert(!reply_status && reply_generation==0x150u);
  request(T5AIAlarm_ArmSleepAnalogWake,1,NATIVE_ANALOG_WAKE_MIN_TICKS);assert(!reply_status);
- assert(s_native_analog_wake && s_native_persistent_trace && s_native_vendor_lpo_halt);
+ assert(prv_policy_has(NativeSleep_AnalogWake) && prv_policy_has(NativeSleep_PersistentTrace) && prv_policy_has(NativeSleep_VendorLpoHalt));
  coordination|=2;unhygienix_native_sleep_stage(T5AISleepStage_CP_Resources);
  unhygienix_native_analog_wake_prepare();assert(s_analog_owned && fake_analog_enabled);
  assert(fake_analog_period==0 && fake_analog_clock==1 && !fake_analog_latch);
@@ -548,7 +548,7 @@ int main(void){
 #elif CASE == 60
  fake_reset_word=0x4f000023u;
  request(T5AIAlarm_ArmSleepPersistentTrace,1,100);assert(!reply_status);
- assert(s_native_persistent_trace && s_native_vendor_lpo_halt && !s_native_no_hw_mask);
+ assert(prv_policy_has(NativeSleep_PersistentTrace) && prv_policy_has(NativeSleep_VendorLpoHalt) && !prv_policy_has(NativeSleep_NoHwMask));
  coordination|=2;unhygienix_native_sleep_stage(T5AISleepStage_CP_Resources);
  assert(s_persistent_saved && fake_reset_latched==fake_reset_word);
  unhygienix_native_sleep_wait();assert(arch_wfis==1 && !s_native_faulted);
@@ -795,9 +795,9 @@ int main(void){
  prv_native_trace_uart(T5AISleepStage_CP_HAL);assert(!fake_uart[7]); // Never wait for room.
  fake_uart[6]|=1u<<20;fake_uart[2]=0;
  prv_native_trace_uart(T5AISleepStage_CP_HAL);assert(!fake_uart[7]); // Never ungate.
- fake_uart[2]=1;s_native_keep_hf=false;
+ fake_uart[2]=1;s_native_policy=prv_sleep_policy(T5AIAlarm_ArmSleep);
  prv_native_trace_uart(T5AISleepStage_CP_HAL);assert(!fake_uart[7]);
- s_native_keep_hf=true;fake_trace_count=0;
+ s_native_policy=prv_sleep_policy(T5AIAlarm_ArmSleepClocksLive);fake_trace_count=0;
  prv_native_trace_word(T5AISleepSnapshot_APControl,0x12345678u);
  assert(fake_trace_count==8 && fake_trace[0]==T5AI_SLEEP_SNAPSHOT_MARKER && fake_trace[1]==0);
  assert(fake_trace[2]==0x78 && fake_trace[3]==0x56 && fake_trace[4]==0x34 && fake_trace[5]==0x12);
@@ -815,7 +815,7 @@ int main(void){
 #elif CASE == 59
  lpo=0;
  request(T5AIAlarm_ArmSleepVendorLPOHalt,1,200);assert(!reply_status);coordination|=2;
- assert(s_native_vendor_lpo_halt && !s_native_keep_hf && !s_native_clocks_only && !s_native_no_hw_mask);
+ assert(prv_policy_has(NativeSleep_VendorLpoHalt) && !prv_policy_has(NativeSleep_KeepHf) && !prv_policy_has(NativeSleep_ClocksOnly) && !prv_policy_has(NativeSleep_NoHwMask));
  assert((unhygienix_native_sleep_condition(0)&NATIVE_SLEEP_CONDITION_MASK)==
         (NATIVE_SLEEP_NEEDS_FLASH_IDLE|NATIVE_SLEEP_NEEDS_AP_WFI|NATIVE_SLEEP_NEEDS_CP_WFI|NATIVE_SLEEP_GLOBAL_ENABLE));
  const uint32_t other_lpo_bits=1u<<11;
@@ -824,7 +824,7 @@ int main(void){
  unhygienix_native_sleep_wait();assert(arch_wfis==1 && fake_cpu_mask && s_lowvol_ticks==7);
  unhygienix_native_sleep_mask_exit();test_resume_complete();coordination&=~2u;
  cancel_and_finish(1,0);assert(!reply_status && lpo==other_lpo_bits && !s_lpo_saved);
- request(T5AIAlarm_ArmSleep,2,200);assert(!reply_status && !s_native_vendor_lpo_halt);
+ request(T5AIAlarm_ArmSleep,2,200);assert(!reply_status && !prv_policy_has(NativeSleep_VendorLpoHalt));
  assert(!(unhygienix_native_sleep_halt_config(T5AI_SLEEP_LPO_HALT_MASK)&T5AI_SLEEP_LPO_HALT_MASK));
 #elif CASE == 56 || CASE == 57
  request(T5AIAlarm_ArmSleepMaskedCPWFIKeepHF,1,200);assert(!reply_status);coordination|=2;
@@ -867,7 +867,7 @@ int main(void){
  fake_mask_observer=NULL;unhygienix_native_sleep_mask_exit();assert(!fake_cpu_mask);
 #elif CASE == 48
  request(T5AIAlarm_ArmSleepMaskedCPWFIKeepHF,1,200);assert(!reply_status);coordination|=2;
- assert(s_native_keep_hf && !s_native_clocks_only && !s_native_no_hw_mask);
+ assert(prv_policy_has(NativeSleep_KeepHf) && !prv_policy_has(NativeSleep_ClocksOnly) && !prv_policy_has(NativeSleep_NoHwMask));
  assert((unhygienix_native_sleep_condition(0)&NATIVE_SLEEP_CONDITION_MASK)==
         (NATIVE_SLEEP_GLOBAL_ENABLE|NATIVE_SLEEP_NEEDS_CP_WFI));
  fake_pending_high=1;unhygienix_native_sleep_wait();assert(!arch_wfis && !fake_cpu_mask);
@@ -875,12 +875,12 @@ int main(void){
  unhygienix_native_sleep_mask_exit();assert(!fake_cpu_mask);
 #elif CASE == 47
  request(T5AIAlarm_ArmSleepVendorSubcoresOnKeepHF,1,200);assert(!reply_status);coordination|=2;
- assert(s_native_keep_hf && !s_native_clocks_only && s_native_no_hw_mask);
+ assert(prv_policy_has(NativeSleep_KeepHf) && !prv_policy_has(NativeSleep_ClocksOnly) && prv_policy_has(NativeSleep_NoHwMask));
  assert((unhygienix_native_sleep_condition(0)&NATIVE_SLEEP_CONDITION_MASK)==NATIVE_SLEEP_GLOBAL_ENABLE);
  unhygienix_native_sleep_wait();assert(arch_wfis==1 && !fake_cpu_mask);
  unhygienix_native_sleep_mask_exit();test_resume_complete();coordination&=~2u;
  cancel_and_finish(1,0);request(T5AIAlarm_ArmSleepVendorMaskedKeepHF,2,200);coordination|=2;
- assert(s_native_keep_hf && !s_native_clocks_only && !s_native_no_hw_mask);
+ assert(prv_policy_has(NativeSleep_KeepHf) && !prv_policy_has(NativeSleep_ClocksOnly) && !prv_policy_has(NativeSleep_NoHwMask));
  assert((unhygienix_native_sleep_condition(0)&NATIVE_SLEEP_CONDITION_MASK)==NATIVE_SLEEP_GLOBAL_ENABLE);
  unhygienix_native_sleep_wait();assert(arch_wfis==2 && fake_cpu_mask==NATIVE_CP_IRQ_MASKED);
  unhygienix_native_sleep_mask_exit();assert(!fake_cpu_mask);
@@ -913,7 +913,7 @@ int main(void){
  request(T5AIAlarm_PMUWakeTicks,0,0);assert(reply_generation==7);
  unhygienix_native_sleep_mask_exit();test_resume_complete();coordination&=~2u;
  cancel_and_finish(1,0);request(T5AIAlarm_ArmSleepVendorMasked,2,200);coordination|=2;
- assert(s_native_vendor_masked && !s_native_no_hw_mask);
+ assert(prv_policy_has(NativeSleep_VendorMasked) && !prv_policy_has(NativeSleep_NoHwMask));
  fake_pending_high=1;unhygienix_native_sleep_wait();assert(arch_wfis==3 && !fake_cpu_mask);
  fake_pending_high=0;fake_wake_status=0;unhygienix_native_sleep_wait();
  assert(arch_wfis==4 && s_mask_saved && fake_cpu_mask==NATIVE_CP_IRQ_MASKED);
@@ -922,7 +922,7 @@ int main(void){
  request(T5AIAlarm_ArmSleepVendorSubcoresOn,1,200);assert(!reply_status);
  assert(!unhygienix_native_sleep_subcores_ready() && !app_allowed);
  coordination|=2;assert(unhygienix_native_sleep_subcores_ready() && app_allowed);
- assert(s_native_no_hw_mask && !s_native_keep_hf && !s_native_clocks_only);
+ assert(prv_policy_has(NativeSleep_NoHwMask) && !prv_policy_has(NativeSleep_KeepHf) && !prv_policy_has(NativeSleep_ClocksOnly));
  uint32_t condition=unhygienix_native_sleep_condition(UINT32_MAX);
  assert((condition & NATIVE_SLEEP_CONDITION_MASK)==NATIVE_SLEEP_GLOBAL_ENABLE);
  fake_pending_high=1;unhygienix_native_sleep_wait();assert(!arch_wfis);
@@ -933,7 +933,7 @@ int main(void){
  assert(unhygienix_native_sleep_condition(0) & NATIVE_SLEEP_NEEDS_AP_WFI);
 #elif CASE == 42
  request(T5AIAlarm_ArmSleepVendorCPUIdle,1,200);assert(!reply_status);coordination|=2;
- assert(s_native_no_hw_mask && !s_native_keep_hf && !s_native_clocks_only);
+ assert(prv_policy_has(NativeSleep_NoHwMask) && !prv_policy_has(NativeSleep_KeepHf) && !prv_policy_has(NativeSleep_ClocksOnly));
  uint32_t condition=unhygienix_native_sleep_condition(UINT32_MAX);
  assert(!(condition & (NATIVE_SLEEP_NEEDS_FLASH_IDLE|NATIVE_SLEEP_NEEDS_CP_WFI|NATIVE_SLEEP_BUS_IDLE_BYPASS|NATIVE_SLEEP_NEEDS_CPU2_WFI)));
  assert((condition & (NATIVE_SLEEP_NEEDS_AP_WFI|NATIVE_SLEEP_GLOBAL_ENABLE)) ==
@@ -947,7 +947,7 @@ int main(void){
  assert(unhygienix_native_sleep_condition(0) & NATIVE_SLEEP_NEEDS_CP_WFI);
 #elif CASE == 41
  request(T5AIAlarm_ArmSleepVendorFlashIdle,1,200);assert(!reply_status);coordination|=2;
- assert(s_native_no_hw_mask && !s_native_keep_hf && !s_native_clocks_only);
+ assert(prv_policy_has(NativeSleep_NoHwMask) && !prv_policy_has(NativeSleep_KeepHf) && !prv_policy_has(NativeSleep_ClocksOnly));
  uint32_t condition=unhygienix_native_sleep_condition(UINT32_MAX);
  assert(!(condition & (NATIVE_SLEEP_NEEDS_FLASH_IDLE|NATIVE_SLEEP_BUS_IDLE_BYPASS|NATIVE_SLEEP_NEEDS_CPU2_WFI)));
  assert((condition & (NATIVE_SLEEP_NEEDS_AP_WFI|NATIVE_SLEEP_NEEDS_CP_WFI|NATIVE_SLEEP_GLOBAL_ENABLE)) ==
@@ -960,7 +960,7 @@ int main(void){
  assert(unhygienix_native_sleep_condition(0) & NATIVE_SLEEP_NEEDS_FLASH_IDLE);
 #elif CASE == 40
  request(T5AIAlarm_ArmSleepNoHardwareMaskClocksOff,1,200);assert(!reply_status);coordination|=2;
- assert(s_native_no_hw_mask && !s_native_keep_hf && !s_native_clocks_only);
+ assert(prv_policy_has(NativeSleep_NoHwMask) && !prv_policy_has(NativeSleep_KeepHf) && !prv_policy_has(NativeSleep_ClocksOnly));
  fake_wake_status=0x456;unhygienix_native_sleep_wait();
  assert(arch_wfis==1 && !s_mask_saved && !fake_cpu_mask && fake_primask==1);
  request(T5AIAlarm_PowerParameter,0,0);assert(!reply_status && reply_generation==0x1234);
@@ -970,7 +970,7 @@ int main(void){
  cancel_and_finish(1,0);assert(!reply_status);
 #elif CASE == 39
  request(T5AIAlarm_ArmSleepNoHardwareMask,1,200);assert(!reply_status);coordination|=2;
- assert(s_native_no_hw_mask && s_native_keep_hf && !s_native_clocks_only);
+ assert(prv_policy_has(NativeSleep_NoHwMask) && prv_policy_has(NativeSleep_KeepHf) && !prv_policy_has(NativeSleep_ClocksOnly));
  fake_pending_high=1;unhygienix_native_sleep_wait();
  assert(!arch_wfis && s_final_reject==T5AI_SLEEP_FINAL_REJECT_IRQ);
  fake_pending_high=0;fake_cpu_mask=1;unhygienix_native_sleep_wait();
@@ -981,7 +981,7 @@ int main(void){
  unhygienix_native_sleep_mask_exit();test_resume_complete();coordination&=~2u;
  cancel_and_finish(1,0);assert(!reply_status);
  request(T5AIAlarm_ArmSleepKeepHF,2,200);assert(!reply_status);coordination|=2;
- assert(!s_native_no_hw_mask);unhygienix_native_sleep_wait();
+ assert(!prv_policy_has(NativeSleep_NoHwMask));unhygienix_native_sleep_wait();
  assert(arch_wfis==2 && s_mask_saved && fake_cpu_mask==NATIVE_CP_IRQ_MASKED);
  unhygienix_native_sleep_mask_exit();assert(!fake_cpu_mask);
 #elif CASE == 38
@@ -995,7 +995,7 @@ int main(void){
  assert(arch_wfis==1 && s_mask_saved);unhygienix_native_sleep_mask_exit();
 #elif CASE == 37
  request(T5AIAlarm_ArmSleepKeepHF,1,200);assert(!reply_status);coordination|=2;
- assert(unhygienix_native_sleep_keep_hf() && !s_native_clocks_only);
+ assert(unhygienix_native_sleep_keep_hf() && !prv_policy_has(NativeSleep_ClocksOnly));
  fake_uart[2]=1;fake_uart[4]=1;fake_uart[6]=(1u<<17)|(1u<<20);
  assert(unhygienix_native_sleep_uart_trace_claim(1));
  unhygienix_native_sleep_wait();
@@ -1096,9 +1096,9 @@ int main(void){
 #elif CASE == 97
  assert(!unhygienix_native_sleep_mask_only());
  request(T5AIAlarm_ArmSleepMaskOnly,1,200);assert(!reply_status);
- assert(unhygienix_native_sleep_mask_only() && s_native_mask_barrier);
- assert(s_native_keep_hf && !s_native_clocks_only && !s_native_analog_wake);
- assert(!s_native_persistent_trace && !s_native_vendor_lpo_halt);
+ assert(unhygienix_native_sleep_mask_only() && prv_policy_has(NativeSleep_MaskBarrier));
+ assert(prv_policy_has(NativeSleep_KeepHf) && !prv_policy_has(NativeSleep_ClocksOnly) && !prv_policy_has(NativeSleep_AnalogWake));
+ assert(!prv_policy_has(NativeSleep_PersistentTrace) && !prv_policy_has(NativeSleep_VendorLpoHalt));
  coordination|=2u;unhygienix_native_sleep_stage(T5AISleepStage_CP_Resources);
  fake_pending_low=1;unhygienix_native_sleep_wait();
  assert(!mask_barriers && !arch_wfis && !s_native_system_mask_used);
@@ -1107,7 +1107,7 @@ int main(void){
  assert(!unhygienix_native_lowvol_count && !fake_cpu_mask && !s_native_faulted);
  unhygienix_native_sleep_mask_exit();test_resume_complete();coordination&=~2u;
  cancel_and_finish(1,0);assert(!reply_status && !unhygienix_native_sleep_mask_only());
- request(T5AIAlarm_ArmSleep,2,200);assert(!reply_status && !s_native_mask_only);
+ request(T5AIAlarm_ArmSleep,2,200);assert(!reply_status && !prv_policy_has(NativeSleep_MaskOnly));
 #elif CASE == 96
  request(T5AIAlarm_ArmSleepClocksOnly,1,200);assert(!reply_status);coordination|=2u;
  const uint32_t power_before=0x3a214356u, irq_low_before=0x1234u;
@@ -1416,6 +1416,58 @@ def cp_hardware_endpoints(source):
 
 
 class NativeAlarmTest(unittest.TestCase):
+    def test_every_diagnostic_retires_before_cp_awake_policy(self):
+        header = (ROOT / "include/pbl/soc/t5ai/sleep_protocol.h").read_text()
+        modes = re.findall(r"(T5AIAlarm_ArmSleep\w*)\s*=\s*\d+", header)
+        helpers = CP_MAIN[: CP_MAIN.index("int main(void)")]
+        main = (
+            helpers
+            + "int main(void){const T5AIAlarmOperation modes[]={"
+            + ",".join(modes)
+            + "};\n"
+        )
+        main += r"""
+ ack_during_response=true;
+ for(unsigned i=0;i<sizeof(modes)/sizeof(*modes);++i){
+  unsigned generation=i*2+1;
+  request(modes[i],generation,2500);assert(!reply_status && s_native_armed);
+  request(T5AIAlarm_Cancel,generation,0);assert(!reply_status);
+  request(T5AIAlarm_FinishCleanup,generation,0);assert(!reply_status);
+  request(T5AIAlarm_ArmSleepWakeOnly,generation+1,2500);
+  assert(!reply_status && unhygienix_native_sleep_prepared && s_native_permit);
+  assert(s_native_policy==(NativeSleep_Valid|NativeSleep_WakeOnly));
+  const unsigned resources=s_resources_count, clocks=s_clock_count;
+  const unsigned entries=unhygienix_native_lowvol_count, masks=s_mask_barrier_count;
+  assert(!unhygienix_native_sleep_subcores_ready()); // AP has not published.
+  coordination|=2u;
+  assert(!unhygienix_native_sleep_subcores_ready()); // CP must remain awake.
+  coordination&=~2u;
+  request(T5AIAlarm_Cancel,generation+1,0);assert(!reply_status);
+  request(T5AIAlarm_FinishCleanup,generation+1,0);assert(!reply_status);
+  assert(!unhygienix_native_sleep_prepared && !s_native_permit);
+  assert(!s_resources_active && !s_analog_owned && !s_native_app_released);
+  assert(s_resources_count==resources && s_clock_count==clocks);
+  assert(unhygienix_native_lowvol_count==entries && s_mask_barrier_count==masks);
+  assert(!s_native_faulted);
+ }
+ for(unsigned operation=102;operation<256;++operation){
+  const unsigned generation=s_native_generation, policy=s_native_policy, armed=registers;
+  assert(!prv_sleep_policy(operation));request(operation,generation+1,2500);
+  assert(reply_status && s_native_generation==generation && s_native_policy==policy);
+  assert(registers==armed && !s_native_armed && !unhygienix_native_sleep_prepared);
+ }
+ request(UINT32_MAX,s_native_generation+1,2500);assert(reply_status);
+ return 0;
+}
+"""
+        run(
+            "boards/unhygienix/tuya/cp/native_alarm.c",
+            PROTOCOL + CP_PREFIX,
+            main,
+            defines=["CASE=0"],
+            transform=cp_hardware_endpoints,
+        )
+
     def test_warm_restart_requires_acknowledged_owner_cleanup(self):
         prefix = AP_PREFIX.replace(
             "return timeout?-1:0;",
@@ -1733,16 +1785,6 @@ int main(void){
         )
 
     def test_explicit_persistent_and_analog_operation_selection(self):
-        prefix = (
-            PROTOCOL
-            + r"""
-#include <assert.h>
-typedef int status_t;
-static status_t prv_arm(T5AIAlarmOperation op,uint32_t ticks,uint32_t *generation){
- assert(op==EXPECTED_OP && ticks==2500);*generation=9;return 73;
-}
-"""
-        )
         for flag, operation in [
             (
                 "CONFIG_T5AI_RETAINED_SLEEP_PERSISTENT_TRACE",
@@ -1772,41 +1814,54 @@ static status_t prv_arm(T5AIAlarmOperation op,uint32_t ticks,uint32_t *generatio
             with self.subTest(flag=flag):
                 run(
                     "soc/t5ai/native_alarm.c",
-                    prefix,
-                    "int main(void){uint32_t gen=0;assert(t5ai_native_alarm_prepare_sleep(2500,&gen)==73 && gen==9);return 0;}",
-                    defines=[flag + "=1", "EXPECTED_OP=" + operation],
-                    transform=lambda source: body(
-                        source, "t5ai_native_alarm_prepare_sleep"
-                    ),
+                    PROTOCOL + AP_PREFIX,
+                    "int main(void){uint32_t gen=0;assert(!t5ai_native_alarm_init());"
+                    "assert(!t5ai_native_alarm_prepare_sleep(2500,&gen));"
+                    "assert(last_op==EXPECTED_OP && gen==18);return 0;}",
+                    defines=[
+                        "CONFIG_T5AI_RETAINED_SLEEP_TEST=1",
+                        flag + "=1",
+                        "EXPECTED_OP=" + operation,
+                    ],
                 )
 
     def test_ap_only_overrides_all_cp_transition_diagnostics(self):
-        prefix = (
-            PROTOCOL
-            + r"""
-#include <assert.h>
-typedef int status_t;
-static status_t prv_arm(T5AIAlarmOperation op,uint32_t ticks,uint32_t *generation){
- assert(op==T5AIAlarm_ArmSleepWakeOnly && ticks==2500);*generation=9;return 73;
-}
-"""
-        )
         source = (ROOT / "soc/t5ai/native_alarm.c").read_text()
-        flags = sorted(
-            set(
-                re.findall(
-                    r"CONFIG_T5AI_RETAINED_SLEEP_\w+",
-                    body(source, "t5ai_native_alarm_prepare_sleep"),
+        flags = sorted(set(re.findall(r"CONFIG_T5AI_RETAINED_SLEEP_\w+", source)))
+        for diagnostic in (False, True):
+            with self.subTest(diagnostic=diagnostic):
+                run(
+                    "soc/t5ai/native_alarm.c",
+                    PROTOCOL + AP_PREFIX,
+                    "int main(void){uint32_t gen=0;assert(!t5ai_native_alarm_init());"
+                    "assert(!t5ai_native_alarm_prepare_sleep(2500,&gen));"
+                    "assert(last_op==T5AIAlarm_ArmSleepWakeOnly && gen==18);return 0;}",
+                    defines=[
+                        flag + "=1"
+                        for flag in flags
+                        if diagnostic or flag != "CONFIG_T5AI_RETAINED_SLEEP_TEST"
+                    ],
                 )
-            )
+
+    def test_unselected_sleep_policy_does_not_send_a_request(self):
+        source = (ROOT / "soc/t5ai/native_alarm.c").read_text()
+        diagnostic_flags = sorted(
+            set(re.findall(r"CONFIG_T5AI_RETAINED_SLEEP_\w+", source))
+            - {
+                "CONFIG_T5AI_RETAINED_SLEEP_TEST",
+                "CONFIG_T5AI_RETAINED_SLEEP_WAKE_ONLY",
+            }
         )
-        run(
-            "soc/t5ai/native_alarm.c",
-            prefix,
-            "int main(void){uint32_t gen=0;assert(t5ai_native_alarm_prepare_sleep(2500,&gen)==73 && gen==9);return 0;}",
-            defines=[flag + "=1" for flag in flags],
-            transform=lambda source: body(source, "t5ai_native_alarm_prepare_sleep"),
-        )
+        for flags in ([], diagnostic_flags):
+            with self.subTest(flags=flags):
+                run(
+                    "soc/t5ai/native_alarm.c",
+                    PROTOCOL + AP_PREFIX,
+                    "int main(void){uint32_t gen=0;assert(!t5ai_native_alarm_init());"
+                    "unsigned before=requests;assert(t5ai_native_alarm_prepare_sleep(100,&gen)==E_INVALID_OPERATION);"
+                    "assert(requests==before && !gen && !s_active);return 0;}",
+                    defines=[flag + "=1" for flag in flags],
+                )
 
     def test_real_ap_query_whitelist_covers_every_read_only_operation(self):
         header = (ROOT / "include/pbl/soc/t5ai/sleep_protocol.h").read_text()
@@ -2159,7 +2214,7 @@ int main(void) {
                     "soc/t5ai/native_alarm.c",
                     PROTOCOL + AP_PREFIX,
                     AP_MAIN,
-                    defines=[f"CASE={case}"]
+                    defines=[f"CASE={case}", "CONFIG_T5AI_RETAINED_SLEEP_TEST=1"]
                     + (
                         [
                             "CONFIG_T5AI_RETAINED_SLEEP_VENDOR_MASKED=1",

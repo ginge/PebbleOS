@@ -24,7 +24,7 @@ typedef enum {
   T5AIAlarm_Query = 0,
   T5AIAlarm_Arm = 1,
   T5AIAlarm_Cancel = 2,
-  T5AIAlarm_ArmSleep = 3,
+  T5AIAlarm_ArmSleep = 3, // CP low-voltage experiment; never the production default.
   T5AIAlarm_State = 4,
   T5AIAlarm_LowVoltageCount = 5,
   T5AIAlarm_MissingVotesLow = 6,
@@ -40,7 +40,7 @@ typedef enum {
   T5AIAlarm_HalStatusHigh = 16,
   T5AIAlarm_PrepareTicks = 17,
   T5AIAlarm_LowVoltageTicks = 18,
-  T5AIAlarm_ArmSleepWakeOnly = 19,
+  T5AIAlarm_ArmSleepWakeOnly = 19, // Qualified AP-only policy: CP stays awake.
   T5AIAlarm_ArmSleepResourcesOnly = 20,
   T5AIAlarm_ResourceCount = 21,
   T5AIAlarm_ArmSleepClocksOnly = 22,

@@ -89,6 +89,9 @@ status_t t5ai_native_alarm_prepare_sleep(uint32_t ticks, uint32_t *generation) {
 #ifdef CONFIG_T5AI_RETAINED_SLEEP_WAKE_ONLY
   // AP-only policy takes precedence over every CP transition diagnostic.
   return prv_arm(T5AIAlarm_ArmSleepWakeOnly, ticks, generation);
+#elif !defined(CONFIG_T5AI_RETAINED_SLEEP_TEST)
+  // A missing production policy must never select a CP low-voltage experiment.
+  return E_INVALID_OPERATION;
 #elif defined(CONFIG_T5AI_RETAINED_SLEEP_MASK_ONLY_CONTROL)
   return prv_arm(T5AIAlarm_ArmSleepMaskOnly, ticks, generation);
 #elif defined(CONFIG_T5AI_RETAINED_SLEEP_MASK_BARRIER_CONTROL)
