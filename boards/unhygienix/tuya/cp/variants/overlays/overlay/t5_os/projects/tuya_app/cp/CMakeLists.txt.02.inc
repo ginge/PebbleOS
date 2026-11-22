@@ -1,0 +1,7 @@
+set(prev_req bt)
+if("$ENV{UNHYGIENIX_CP_WIFI}" STREQUAL "on")
+    list(APPEND prev_req controller_if)
+endif()
+if("$ENV{UNHYGIENIX_CP_WIFI}" STREQUAL "on")
+    list(APPEND prev_req lwip_intf_v2_1)
+endif()

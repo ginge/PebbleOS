@@ -1,0 +1,3 @@
+	extern void unhygienix_native_sleep_mailbox_progress(uint32_t progress);
+	unhygienix_native_sleep_mailbox_progress(T5AIMailboxProgress_ISREnter);
+	unhygienix_native_sleep_mailbox_irq_observed(int_status);

@@ -1,0 +1,5 @@
+	bk_pm_module_vote_power_ctrl(POWER_SUB_MODULE_NAME_BAKP_PM, PM_POWER_MODULE_STATE_ON);
+#endif
+	unhygienix_native_sleep_stage(T5AISleepStage_CP_BakpRestored);
+
+#if CONFIG_GPIO_WAKEUP_SUPPORT

@@ -2,10 +2,10 @@
 """Preserve pointed-to CP payloads across FIFO and AP snapshot lifetimes."""
 
 import hashlib
-import json
 import unittest
 from pathlib import Path
 
+from tools import unhygienix_cp_build as build
 from tools.tests.native_t5ai_harness import run
 from tools.tests.test_t5ai_native_objects import body
 
@@ -54,9 +54,7 @@ int main(void){
 
 class CPMailboxLifetimeTest(unittest.TestCase):
     def test_actual_adapter_preserves_queued_and_popped_payloads(self):
-        overlay = json.loads(
-            (ROOT / "boards/unhygienix/tuya/cp/variants/sleep-overlay.json").read_text()
-        )
+        overlay = build.load_overlay("sleep-overlay.json")
         recipe = next(
             item for item in overlay if item["path"].endswith("/mbox0_adapter.c")
         )

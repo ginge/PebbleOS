@@ -269,13 +269,13 @@ def verify_sleep_link_hashes(image, config, wifi):
     sources = {
         "native_alarm_sha256": ROOT / "boards/unhygienix/tuya/cp/native_alarm.c",
         "sleep_protocol_sha256": ROOT / "include/pbl/soc/t5ai/sleep_protocol.h",
-        "sleep_overlay_sha256": ROOT
-        / "boards/unhygienix/tuya/cp/variants/sleep-overlay.json",
     }
     if (
         pins.get("schema") != 1
         or pins.get("board") != "unhygienix"
         or pins.get("alarm_abi") != recipe.NATIVE_ALARM_ABI
+        or pins.get("sleep_overlay_sha256")
+        != recipe.overlay_digest("sleep-overlay.json")
         or pins.get("stock_sha256") != STOCK_SHA256
         or pins.get("controller_sha256") != CONTROLLER_SHA256
         or pins.get("latency_source_sha256") != recipe.digest(SOURCE.read_bytes())

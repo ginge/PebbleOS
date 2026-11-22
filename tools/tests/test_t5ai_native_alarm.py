@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """Execute native AP and board-owned CP alarm code with modeled endpoints."""
 
-import json
 import re
 import unittest
 from pathlib import Path
 
+from tools import unhygienix_cp_build as build
 from tools.tests.native_t5ai_harness import run
 from tools.tests.test_t5ai_native_objects import body
 
@@ -1501,9 +1501,7 @@ int main(void){
                     )
 
     def test_mask_only_hal_balances_irq_and_tick_without_clock_calls(self):
-        overlay = json.loads(
-            (ROOT / "boards/unhygienix/tuya/cp/variants/sleep-overlay.json").read_text()
-        )
+        overlay = build.load_overlay("sleep-overlay.json")
         hal = next(item for item in overlay if item["path"].endswith("/sys_pm_hal.c"))
         replacement = next(
             item["new"]
@@ -1542,9 +1540,7 @@ int main(void){
         )
 
     def test_cleanup_irq_observer_preserves_vendor_isr_ownership(self):
-        overlay = json.loads(
-            (ROOT / "boards/unhygienix/tuya/cp/variants/sleep-overlay.json").read_text()
-        )
+        overlay = build.load_overlay("sleep-overlay.json")
         recipe = next(
             item
             for item in overlay
@@ -1607,9 +1603,7 @@ int main(void){
         )
 
     def test_ap_release_follows_cp_outer_critical_exit(self):
-        overlay = json.loads(
-            (ROOT / "boards/unhygienix/tuya/cp/variants/sleep-overlay.json").read_text()
-        )
+        overlay = build.load_overlay("sleep-overlay.json")
         recipe = next(
             item for item in overlay if item["path"] == "t5_os/cp/components/bk_pm/pm.c"
         )
@@ -1654,9 +1648,7 @@ void unhygienix_native_sleep_resumed(void){assert(!nesting && restored);++releas
         )
 
     def test_tickless_wrapper_releases_ap_after_tick_and_interrupt_restore(self):
-        overlay = json.loads(
-            (ROOT / "boards/unhygienix/tuya/cp/variants/sleep-overlay.json").read_text()
-        )
+        overlay = build.load_overlay("sleep-overlay.json")
         recipe = next(
             item for item in overlay if item["path"].endswith("/port_tick_impl.h")
         )
@@ -1742,9 +1734,7 @@ int main(void){
         )
 
     def test_actual_resume_sender_never_queues_or_retries(self):
-        overlay = json.loads(
-            (ROOT / "boards/unhygienix/tuya/cp/variants/sleep-overlay.json").read_text()
-        )
+        overlay = build.load_overlay("sleep-overlay.json")
         replacement = next(
             r["new"]
             for file in overlay
@@ -1923,9 +1913,7 @@ int main(void){
         run("soc/t5ai/native_alarm.c", PROTOCOL + AP_PREFIX, main)
 
     def test_actual_cp_mailbox_drain(self):
-        overlay = json.loads(
-            (ROOT / "boards/unhygienix/tuya/cp/variants/sleep-overlay.json").read_text()
-        )
+        overlay = build.load_overlay("sleep-overlay.json")
         mailbox = next(
             item
             for item in overlay
@@ -1968,9 +1956,7 @@ int main(void){
         )
 
     def test_actual_cp_peripheral_ownership(self):
-        overlay = json.loads(
-            (ROOT / "boards/unhygienix/tuya/cp/variants/sleep-overlay.json").read_text()
-        )
+        overlay = build.load_overlay("sleep-overlay.json")
         pm = next(item for item in overlay if item["path"].endswith("/bk_pm/pm.c"))
         code = next(
             item["new"]
@@ -2008,9 +1994,7 @@ int main(void){
         )
 
     def test_actual_hal_preserves_native_ap_gpio_route(self):
-        overlay = json.loads(
-            (ROOT / "boards/unhygienix/tuya/cp/variants/sleep-overlay.json").read_text()
-        )
+        overlay = build.load_overlay("sleep-overlay.json")
         hal = next(
             item
             for item in overlay
@@ -2058,9 +2042,7 @@ int main(void){
             )
 
     def test_actual_normal_hal_skips_only_post_native_system_mask_shallow_wfi(self):
-        overlay = json.loads(
-            (ROOT / "boards/unhygienix/tuya/cp/variants/sleep-overlay.json").read_text()
-        )
+        overlay = build.load_overlay("sleep-overlay.json")
         recipe = next(
             item for item in overlay if item["path"].endswith("/hal/sys_pm_hal.c")
         )

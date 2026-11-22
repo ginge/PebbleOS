@@ -122,10 +122,48 @@ def profile(wifi):
     return values
 
 
+def load_overlay(name):
+    """Expand readable replacement fragments, preserving the pinned recipe order."""
+    entries = json.loads((BOARD / name).read_text())
+    for entry in entries:
+        for i, change in enumerate(entry["replacements"]):
+            if "new_file" not in change:
+                continue
+            if "new" in change:
+                raise ValueError("Ambiguous overlay replacement")
+            relative = Path(change["new_file"])
+            path = BOARD / relative
+            if (
+                relative.is_absolute()
+                or ".." in relative.parts
+                or not path.resolve().is_relative_to(BOARD.resolve())
+            ):
+                raise ValueError("Invalid overlay fragment path")
+            replacement = path.read_bytes().decode("utf-8")
+            entry["replacements"][i] = dict(
+                ("new", replacement) if key == "new_file" else (key, value)
+                for key, value in change.items()
+            )
+    return entries
+
+
+def overlay_digest(name):
+    # Keep existing reviewed pins over the original, fully expanded recipe.
+    return digest((json.dumps(load_overlay(name), indent=2) + "\n").encode())
+
+
+def board_inputs():
+    return {
+        str(path.relative_to(ROOT)): digest(path.read_bytes())
+        for path in sorted(BOARD.rglob("*"))
+        if path.is_file()
+    }
+
+
 def overlay(stage, sleep_contract=False):
-    entries = json.loads((BOARD / "overlay.json").read_text())
+    entries = load_overlay("overlay.json")
     if sleep_contract:
-        entries += json.loads((BOARD / "sleep-overlay.json").read_text())
+        entries += load_overlay("sleep-overlay.json")
     for entry in entries:
         relative = Path(entry["path"])
         if relative.is_absolute() or ".." in relative.parts:
@@ -588,11 +626,7 @@ def build(work, wifi, compiler_root, python, cmake, sleep_contract=False):
         "BUILD_DIR=" + str(work / "build"),
         "APP_VERSION=1.0.0",
     ]
-    inputs = {
-        str(p.relative_to(ROOT)): digest(p.read_bytes())
-        for p in sorted(BOARD.iterdir())
-        if p.is_file()
-    }
+    inputs = board_inputs()
     inputs[str((BOARD.parent / "ble_rf_init.c").relative_to(ROOT))] = digest(
         (BOARD.parent / "ble_rf_init.c").read_bytes()
     )

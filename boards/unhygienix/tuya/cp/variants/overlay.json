@@ -27,12 +27,12 @@
     "replacements": [
       {
         "old": "set(srcs cp_main.c customer_msg.c)",
-        "new": "set(srcs cp_main.c unhygienix_cp_contract.c unhygienix_ble_rf_init.c unhygienix_flash_contract.S)\nif(CONFIG_WIFI_VNET_CONTROLLER)\n    list(APPEND srcs customer_msg.c)\nendif()",
+        "new_file": "overlays/overlay/t5_os/projects/tuya_app/cp/CMakeLists.txt.01.inc",
         "count": 1
       },
       {
         "old": "set(prev_req controller_if lwip_intf_v2_1 bt)",
-        "new": "set(prev_req bt)\nif(\"$ENV{UNHYGIENIX_CP_WIFI}\" STREQUAL \"on\")\n    list(APPEND prev_req controller_if)\nendif()\nif(\"$ENV{UNHYGIENIX_CP_WIFI}\" STREQUAL \"on\")\n    list(APPEND prev_req lwip_intf_v2_1)\nendif()",
+        "new_file": "overlays/overlay/t5_os/projects/tuya_app/cp/CMakeLists.txt.02.inc",
         "count": 1
       }
     ]
@@ -80,12 +80,12 @@
       },
       {
         "old": "if (\"${CONFIG_CPU_INDEX}\" STREQUAL \"0\")",
-        "new": "if(CONFIG_LWIP)\n    list(APPEND srcs src/system/tkl_network.c)\nendif()\n\nif (\"${CONFIG_CPU_INDEX}\" STREQUAL \"0\")",
+        "new_file": "overlays/overlay/tuyaos/tuyaos_adapter/CMakeLists.txt.02.inc",
         "count": 1
       },
       {
         "old": "set(priv_requires_list bk_common bk_log bk_cli lwip_intf_v2_1 os_source)",
-        "new": "set(priv_requires_list bk_common bk_log bk_cli os_source)\n    if(\"$ENV{UNHYGIENIX_CP_WIFI}\" STREQUAL \"on\")\n        list(APPEND priv_requires_list lwip_intf_v2_1)\n    endif()",
+        "new_file": "overlays/overlay/tuyaos/tuyaos_adapter/CMakeLists.txt.03.inc",
         "count": 1
       }
     ]
@@ -112,7 +112,7 @@
       },
       {
         "old": "    ._save_info_item = save_info_item,\n    ._get_info_item  = get_info_item ,\n#endif",
-        "new": "#endif\n\n    ._save_info_item = save_info_item,\n    ._get_info_item  = get_info_item ,",
+        "new_file": "overlays/overlay/t5_os/cp/components/bk_phy/src/bk_phy_adapter.c.02.inc",
         "count": 1
       }
     ]
@@ -134,7 +134,7 @@
     "replacements": [
       {
         "old": "list (JOIN blacklist_elem | blacklist_elem_regax)",
-        "new": "if(NOT CONFIG_WIFI_ENABLE)\n    list(APPEND blacklist_elem libble_wifi_exchange[^.]*\\.a)\nendif()\n\nlist (JOIN blacklist_elem | blacklist_elem_regax)",
+        "new_file": "overlays/overlay/t5_os/cp/components/bk_libs/CMakeLists.txt.01.inc",
         "count": 1
       }
     ]
@@ -145,7 +145,7 @@
     "replacements": [
       {
         "old": "static inline void flash_ll_soft_reset",
-        "new": "extern uint32_t unhygienix_cp_flash_wait(void *hw);\nextern void unhygienix_cp_flash_launch(void *hw);\n\nstatic inline void flash_ll_soft_reset",
+        "new_file": "overlays/overlay/t5_os/cp/middleware/soc/bk7258/hal/flash_ll.h.01.inc",
         "count": 1
       },
       {
@@ -181,7 +181,7 @@
       },
       {
         "old": "\t}\n\n\treturn BK_OK;\n}\n\nbk_err_t mb_flash_op_prepare",
-        "new": "\t}\n\n\tif(flash_erase_ipc_state != IPC_FLASH_OP_ACK)\n\t\tunhygienix_cp_flash_fatal();\n\n\treturn BK_OK;\n}\n\nbk_err_t mb_flash_op_prepare",
+        "new_file": "overlays/overlay/t5_os/cp/middleware/driver/flash/flash_notify.c.04.inc",
         "count": 1
       }
     ]

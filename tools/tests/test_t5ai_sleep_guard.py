@@ -2,22 +2,23 @@
 """Execute the real sleep safety lease and isolated memory ownership helpers."""
 
 import hashlib
-import json
 import re
 import unittest
 from pathlib import Path
 
+from tools import unhygienix_cp_build as build
 from tools.tests.native_t5ai_harness import run
 from tools.tests.test_t5ai_native_objects import body
 
 ROOT = Path(__file__).resolve().parents[2]
 VENDOR = ROOT / "third_party/hal_tuya/TuyaOpen-T5AI"
-OVERLAY = ROOT / "boards/unhygienix/tuya/cp/variants/sleep-overlay.json"
 
 
 def patched(suffix):
     entry = next(
-        e for e in json.loads(OVERLAY.read_text()) if e["path"].endswith(suffix)
+        e
+        for e in build.load_overlay("sleep-overlay.json")
+        if e["path"].endswith(suffix)
     )
     raw = (VENDOR / entry["path"]).read_bytes()
     assert hashlib.sha256(raw).hexdigest() == entry["vendor_sha256"]

@@ -264,9 +264,9 @@ within the recorded bench scope. Warning/soak limits are retained below.
 
 - [x] Give `tools/unhygienix_cp_build.py`'s positional contract named fields
   and generate duplicated protocol constants from one definition.
-- [ ] Store substantial overlay additions as readable source or reviewable
+- [x] Store substantial overlay additions as readable source or reviewable
   patches instead of escaped replacement strings.
-- [ ] Acceptance: input hashes, replacement-count checks, relocation audits and
+- [x] Acceptance: input hashes, replacement-count checks, relocation audits and
   exact ABI verification remain; tooling refactors do not change CP behavior.
 
 ### 20. Clarify checksum and reference-source boundaries
@@ -2762,3 +2762,75 @@ was performed. The installed finding-15/16 image and all earlier bench limits
 remain current. Finding 19 is **not complete**: next is the escaped overlay-source
 cleanup, with exact staged-output equivalence, vendor hashes, replacement counts,
 relocation and ABI checks retained. Finding 20 has not started.
+
+### Finding 19a committed; finding 19b readable CP overlays — 2026-11-22
+
+Committed finding 19a as **c0c742356** (`unhygienix: name the CP ABI contract
+fields`) after verifying all 27 sealed evidence files and six live review-file
+hashes. Only those six files were staged; DCO/AI trailers and gitlint pass.
+
+Moved **67 substantial additions** (8 base, 59 sleep) verbatim from escaped JSON
+strings into readable board-local `.inc` fragments. Paths mirror the vendor
+source path and identify the replacement position. Small substitutions remain
+inline. The JSON retains each pinned vendor SHA-256, exact old context and count;
+`load_overlay()` resolves `new_file` before the existing application checks.
+Absolute paths, parent traversal, symlink escapes and ambiguous inline/file
+replacements are rejected. Fragments preserve every byte, including indentation,
+missing final newlines and one inherited trailing space; they must not be
+reformatted as standalone C units. The fragment README explains this contract.
+
+Preserved the existing reviewed sleep-overlay pin **692bc308...17bb** without
+editing `sleep-variant-links.json` or relabeling any package. Its verifier now
+hashes the canonical fully expanded recipe, exactly reproducing the committed
+inline JSON bytes. That digest covers target paths, vendor hashes, old/new code,
+replacement counts and order. A fragment content edit changes it and is rejected.
+Physical build provenance additionally hashes the recipe files and every nested
+fragment through `board_inputs()`. Existing image/config/controller/latency/native
+alarm/protocol pins and ITCM/relocation/ABI checks remain in place. No stock/common
+production code, vendor tree, instruction, protocol value, timing, calibration,
+identity, partition, storage or hardware ownership rule is changed.
+
+Validation:
+
+- Baseline affected CP checks complete **46 methods: 33 pass, 13 skipped**.
+  Missing linked off/on artifacts and Unicorn account for 12 skips; the optional
+  vendor-header ARM probe is not configured in that initial baseline command.
+  The additional existing sleep-guard/native-alarm suites pass **25 methods**
+  against the committed inline recipe before their readers are updated.
+- The complete committed build tool and candidate stage actual pinned vendor
+  files in separate temporary trees. **All 18 base-profile and all 37
+  sleep-profile files are byte-identical**, including copied/generated build
+  inputs. Both expanded recipe objects equal their committed JSON objects;
+  their original full recipe hashes match exactly. Frozen output SHA-256 maps
+  become a regression fixture. Initial baseline-fixture setup omitted its
+  parent-directory RF source; supplied the actual source and reran. The failed
+  setup log is retained separately; no guard was relaxed.
+- Six new methods check complete staging against those frozen maps, both recipe
+  pins, all 67 fragments' provenance coverage, mutation changing provenance,
+  vendor-hash/context-count rejection without writing the failed target,
+  absolute/parent/symlink escape and ambiguous-content rejection, and package
+  admission with a changed fragment. Package-admission metadata in that last
+  test is explicitly synthetic; it exercises the real verifier, not hardware
+  or acceptance of an unreviewed physical CP image.
+- Four existing test modules now obtain expanded recipes through the real loader;
+  their validity assertions, ownership checks and modeled behavior are unchanged.
+  The existing extracted-function sleep/flash fixtures remain supplemental
+  regression checks; this increment does not claim new complete-unit hardware
+  fidelity from them. The new staging comparison exercises complete production
+  tooling and full vendor file contents without extracting code.
+- Final CP command: `/tmp/pebble-quality-venv/bin/python -m unittest tools.tests.test_unhygienix_cp_overlays tools.tests.test_unhygienix_cp_contract_fields tools.tests.test_unhygienix_cp_variants tools.tests.test_unhygienix_cp_flash_contract tools.tests.test_unhygienix_cp_manifest tools.tests.test_unhygienix_cp_wake_audit tools.tests.test_unhygienix_cp_phy_contract tools.tests.test_unhygienix_cp_rf tools.tests.test_unhygienix_cp_mailbox_lifetime tools.tests.test_t5ai_cp_flash_resume -v`: **52 methods: 40 pass, 12 skipped**, with `ASAN_OPTIONS=detect_leaks=0`, the existing test venv/ARM PATH and finding-19a's `UNHYGIENIX_CP_CONTRACT_FLAGS`/`UNHYGIENIX_CP_CONTRACT_CC`. The complete vendor-header ARM probe passes. Skips still require linked off/on packages or Unicorn; no fresh full CP link is claimed.
+- Final sleep command: `ASAN_OPTIONS=detect_leaks=0 /tmp/pebble-quality-venv/bin/python -m unittest tools.tests.test_t5ai_sleep_guard tools.tests.test_t5ai_native_alarm -v`: **25 methods pass**, identical to the committed-inline baseline. Across the two final commands: **77 methods, 65 pass, 12 skipped**.
+- Ruff check/format and finding-19a commit gitlint pass. Tracked-edit whitespace
+  checks pass. New exact-byte fragment `overlays/sleep-overlay/t5_os/cp/middleware/driver/mailbox/mbox0_drv.c.07.inc`, line 3, deliberately retains one trailing space from the committed JSON replacement; stripping it would break the staged-byte/hash proof. No fragment formatter or whitespace-normalization bypass was added. Both unrelated planning-file hashes remain unchanged.
+- Evidence: `build-quality-20261121/cp-overlay-finding19b/` contains before/source
+  snapshots, failed/passing staging proof, frozen staged maps, baseline/final
+  logs, review patch/state, proof script and SHA-256 manifest. No AP rebuild is
+  needed for this tooling/source-representation change; staged CP inputs are
+  exactly unchanged, and a fresh CP link/hardware run was not performed.
+
+Finding 19's source cleanup is complete and host-verified. Finding 19b remains
+**uncommitted and unflashed**, paused for review. No watch/phone, flash/reset,
+provisioning or formatting action was performed. The installed finding-15/16
+image and all recorded bench warnings/limits remain current. The next ordered
+source item is **20: checksum and reference-source boundaries**; evaluate vendor
+vectors/performance before considering removal of any duplicate CRC implementation.

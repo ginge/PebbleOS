@@ -2,19 +2,17 @@
 """Verify the CP flash transition does not read XIP data while disconnected."""
 
 import hashlib
-import json
 import re
 import unittest
 
+from tools import unhygienix_cp_build as build
 from tools.tests.native_t5ai_harness import ROOT, run
 from tools.tests.test_t5ai_native_objects import body
 
 
 class CPFlashResume(unittest.TestCase):
     def test_quad_parameters_are_loaded_before_flash_disconnect(self):
-        recipe = json.loads(
-            (ROOT / "boards/unhygienix/tuya/cp/variants/sleep-overlay.json").read_text()
-        )
+        recipe = build.load_overlay("sleep-overlay.json")
         entry = next(
             item for item in recipe if item["path"].endswith("/flash_driver.c")
         )
@@ -83,9 +81,7 @@ int main(void){
         )
 
     def test_native_resume_uses_retained_parameters_until_xip_probe(self):
-        recipe = json.loads(
-            (ROOT / "boards/unhygienix/tuya/cp/variants/sleep-overlay.json").read_text()
-        )
+        recipe = build.load_overlay("sleep-overlay.json")
         entry = next(
             item for item in recipe if item["path"].endswith("/flash_driver.c")
         )

@@ -1,0 +1,4 @@
+	portNVIC_SYSTICK_CTRL_REG = systick_ctrl_value;
+	unhygienix_native_sleep_stage(T5AISleepStage_CP_TickRestored);
+
+#if CONFIG_PM_LV_SUBCORES_ON

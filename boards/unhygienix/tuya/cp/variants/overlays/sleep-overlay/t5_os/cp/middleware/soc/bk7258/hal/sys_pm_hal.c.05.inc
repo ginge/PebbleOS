@@ -1,0 +1,1 @@
+if(!unhygienix_native_sleep_hal_ready(check_IRQ_pending(), sys_ll_get_cpu0_int_0_31_status_value(), sys_ll_get_cpu0_int_32_63_status_value(), portNVIC_INT_CTRL_REG & portNVIC_SYSTICKSET_BIT))

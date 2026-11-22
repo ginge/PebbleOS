@@ -1,0 +1,4 @@
+static void mb_phy_chnl_rx_cmd_isr(mb_phy_chnl_cmd_t *cmd_ptr)
+{
+	extern void unhygienix_native_sleep_mailbox_progress(uint32_t progress);
+	unhygienix_native_sleep_mailbox_progress(T5AIMailboxProgress_RxCommand);

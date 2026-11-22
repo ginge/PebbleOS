@@ -1,0 +1,3 @@
+	unhygienix_native_sleep_stage(T5AISleepStage_CP_DomainsPrepared);
+	sys_hal_set_low_voltage(&v_ana_r8, &core_low_voltage);
+	unhygienix_native_sleep_stage(T5AISleepStage_CP_VoltagePrepared);

@@ -3,6 +3,24 @@
 The latest installation checkpoint below is the current installed state. Dated entries preserve
 the state and evidence at their recorded checkpoint.
 
+## Finding 19a committed; finding 19b readable overlays — 22 November
+
+Finding 19a is committed as **c0c742356**; DCO/AI trailers and gitlint pass.
+Finding 19b moves 67 substantial escaped additions into readable board-local
+fragments. Expanded recipes preserve their original hash pins. Build provenance
+includes every fragment; path, vendor-input and replacement-count guards remain.
+No CP code bytes, protocol values or hardware policy change.
+
+All **18 base and 37 sleep staged files are byte-identical** to the committed
+recipe. Final checks complete **77 methods: 65 pass, 12 skipped** for unavailable
+linked off/on artifacts or Unicorn. Fragment mutations are rejected by package
+admission. No fresh full CP link or hardware qualification is claimed. See the
+[TODO checkpoint](code-quality-todo.md) for commands, evidence and limitations.
+
+Finding 19b is **uncommitted and unflashed**, paused for review. No hardware action
+was performed; the installed finding-15/16 image and bench limitations remain
+current. Next is **20: checksum and reference-source boundaries**.
+
 ## Finding 18 committed; finding 19a named CP contract — 22 November
 
 Finding 18 is committed as **271ee99fd**; DCO/AI trailers and gitlint pass.
