@@ -3,6 +3,20 @@
 The latest installation checkpoint below is the current installed state. Dated entries preserve
 the state and evidence at their recorded checkpoint.
 
+## Finding 11 placement guards in source — 22 November 2026
+
+Finding 10 is committed as `e0985d9a5`; its performance/reconnect limits remain
+open. Finding 11 now has an uncommitted guard increment: linker assertions and
+final-map validation reject missing/renamed, resized, duplicate or misplaced
+NimBLE backing arrays. The actual ARM map retains both pool addresses/sizes,
+framebuffer/cache/PFS/DMA regions, heap boundaries and configuration.
+
+All 15 affected tests and the ARM build/image gates pass. Upstream/shared source
+and runtime allocation remain unchanged. Replacing the private-name selectors
+with supported backing-storage hooks remains open; current upstream does not
+expose both hooks. See the [TODO progress record](code-quality-todo.md).
+No new firmware has been flashed; the installed checkpoint below still applies.
+
 ## Finding 10 ARM bench installed — 22 November, 15:35 UTC
 
 Installed AP-only diagnostic build **ada42d32395354471f04da81ad21c9a5f0df53b3**,

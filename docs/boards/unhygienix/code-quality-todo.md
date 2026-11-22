@@ -178,9 +178,12 @@ incomplete. Original failures and measurement limits remain recorded below. See 
 
 - [ ] Replace `soc/t5ai/framebuffer.ld`'s capture of NimBLE private `.bss`
   symbol names with explicit storage sections or supported pool backing storage.
-- [ ] Until then, make map validation assert expected objects, sizes and ranges.
-- [ ] Acceptance: upstream symbol/size drift fails visibly instead of silently
-  moving pool capacity into scarce internal SRAM.
+- [x] Until then, make map validation assert expected objects, sizes and ranges.
+- [x] Acceptance for current placement: upstream symbol/size drift fails visibly
+  instead of silently moving pool capacity into scarce internal SRAM.
+
+The private-name replacement remains open. The guarded current-placement
+increment below does not claim a supported storage-hook migration.
 
 ### 12. Move singleton driver configuration into native devices
 
@@ -1901,3 +1904,57 @@ app and Bluetooth remain enabled. No capture or soak is left running.
 
 Operator requested committing this checkpoint and moving to finding 11.
 The open finding-10 performance/qualification limits above remain open.
+
+
+### Finding 11, guarded NimBLE placement — 22 November 2026
+
+Finding 10 was committed as `e0985d9a5` at the operator's request; gitlint passed.
+Its open performance and hardware limitations remain recorded above. This next
+increment is uncommitted for review; no additional flash or hardware operation
+was performed, and the installed finding-10 image remains unchanged.
+
+Reassessed the actual upstream units, current ARM map and packaging gate:
+`porting/nimble/src/os_msys.c` and `nimble/transport/src/transport.c` declare
+private static backing arrays without a section/backing-storage hook for both
+pools. `soc/t5ai/framebuffer.ld` still selects `.bss.os_msys_1_data` and
+`.bss.pool_acl_buf`. The previous map checker accepted both renamed input
+sections and an MSYS size change from 0x27ec to 0x27f0 on the actual ARM map.
+This reproduces missing validation; it is not evidence of a current misplaced
+pool or a Bluetooth regression. A rename could otherwise escape the selectors
+and consume internal RAM, subject only to unrelated aggregate capacity guards.
+
+Preserved upstream/shared code and existing runtime allocation. The SoC linker
+fragment now brackets each pool contribution with boundary symbols and asserts
+its pinned backing capacity: MSYS 10,220 bytes (35 x 292), transport ACL 9,600
+bytes (32 existing blocks). These are capacity contracts, not duplicate runtime
+structure definitions. Counts, block sizes, initialization, AP/CP copy boundary
+and placement order are unchanged. A reviewed capacity/configuration change
+must explicitly update the contract; it cannot silently move backing storage.
+
+The board-specific image validator additionally requires exactly one allocated
+input-object contribution per pool, exact size, matching linker boundaries,
+ordered contiguous ranges in `.t5ai_board_cache`, no framebuffer overlap and
+containment in the unchanged AP display-PSRAM reservation. GNU ld single-line
+and wrapped entries, LTO objects and archive members are supported. A KEEP
+selector or linker symbol without an allocated input contribution is insufficient.
+Existing image/ownership/partition guards remain active. An adjacent stack-range
+check uses equivalent `itertools.pairwise` traversal to satisfy current Ruff.
+
+Validation completed:
+
+- `PATH=/tmp/pebble-quality-venv/bin:$PATH python -m unittest tools.tests.test_t5ai_nimble_pools tools.tests.test_unhygienix_image tools.tests.test_t5ai_build_integration`: 15 methods pass. New tests preprocess/link the complete actual linker fragment with GNU ld and reject individually renamed, grown/shrunken or duplicate pools. Map fault injection also covers internal-RAM placement, overlaps, missing/mismatched boundaries and reservation overflow. Synthetic byte-array link fixtures test linker contracts; they do not model NimBLE runtime structures or qualify Bluetooth.
+- Initial integration-test subprocesses could not execute the default PATH's `cmake` (PermissionError). The 12 map/linker/packaging methods passed; using the configured venv CMake resolved the tooling failure and all 15 passed. No firmware guard or test was weakened.
+- `cmake --build build-quality-finding9-candidate -j 8` and explicit `python tools/check_unhygienix_image_map.py build-quality-finding9-candidate/pebbleos.map` pass. ARM/LTO, layout/CRC/resource/syscall checks remain active; existing generated-declaration LTO warnings remain. FLASH 1,666,608 bytes; RAM 96,544; display PSRAM 126,912/131,072; DMA 14,976. No memory limit changed.
+- Before/after actual ARM map comparison confirms MSYS at `0x60010820`, size `0x27ec`, ACL at `0x6001300c`, size `0x2580`. Framebuffer/cache/PFS/DMA boundaries, heap start/end and the entire `.config` are unchanged. Linker boundary symbols/assertions add no backing bytes. Build metadata may differ; byte-identical firmware is not claimed.
+- Ruff check/format and `git diff --check` pass. Evidence, pre/post maps/configs, ELF/protected image, source, test/build logs and hashes are under `build-quality-20261121/nimble-pools-finding11/`. Unrelated `REMAINING_TASKS.md` and `power-todo.md` remain untouched.
+
+**Next unresolved finding-11 work:** replacing both private-name selectors with
+an explicit supported upstream storage contract. Neither current unit exposes
+that hook. Duplicating either complete upstream unit, intercepting generic pool
+initialization, or injecting identifier/attribute substitutions would add a
+larger private dependency. This increment uses the TODO's explicit interim
+validation route; the first checkbox remains open. Review this independently
+before any shared/upstream API change. No finding-12 work or automatic commit.
+
+Operator requested committing the verified finding-11 guard increment and moving
+to finding 12. The supported-storage-hook migration above remains open.

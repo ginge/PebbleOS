@@ -17,8 +17,12 @@
          * internal RAM and os_mempool_init() initializes every backing block
          * before Bluetooth starts using it. Keep the proven pool counts while
          * moving their 19,820-byte capacity out of the kernel heap region. */
+        __t5ai_msys_pool_start__ = .;
         KEEP(*(.bss.os_msys_1_data))
+        __t5ai_msys_pool_end__ = .;
+        __t5ai_acl_pool_start__ = .;
         KEEP(*(.bss.pool_acl_buf))
+        __t5ai_acl_pool_end__ = .;
         KEEP(*(.t5ai_board_cache))
         __t5ai_board_cache_end__ = .;
     } >T5AI_DISPLAY_RAM
@@ -36,3 +40,10 @@
         KEEP(*(.t5ai_display_dma))
         __t5ai_display_dma_end__ = .;
     } >T5AI_DISPLAY_DMA_RAM
+
+    /* Private upstream names remain a reviewed contract until NimBLE exposes
+     * backing-storage hooks. Fail on renames, removal or capacity drift. */
+    ASSERT(__t5ai_msys_pool_end__ - __t5ai_msys_pool_start__ == 0x27ec,
+           "T5AI NimBLE MSYS pool missing or resized; review PSRAM placement")
+    ASSERT(__t5ai_acl_pool_end__ - __t5ai_acl_pool_start__ == 0x2580,
+           "T5AI NimBLE ACL pool missing or resized; review PSRAM placement")

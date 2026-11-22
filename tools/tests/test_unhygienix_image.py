@@ -43,6 +43,17 @@ T5AI_DISPLAY_RAM 0x60000000         0x00020000         rw
                 0x2802a800 _heap_end = .
                 0x60000000 __t5ai_framebuffer_start__ = .
                 0x6001081e __t5ai_framebuffer_end__ = .
+.t5ai_board_cache
+                0x60010820 0x4d80
+                0x60010820 __t5ai_board_cache_start__ = .
+                0x60010820 __t5ai_msys_pool_start__ = .
+ .bss.os_msys_1_data
+                0x60010820 0x27ec /tmp/link.ltrans0.ltrans.o
+                0x6001300c __t5ai_msys_pool_end__ = .
+                0x6001300c __t5ai_acl_pool_start__ = .
+ .bss.pool_acl_buf 0x6001300c 0x2580 nimble.a(transport.c.o)
+                0x6001558c __t5ai_acl_pool_end__ = .
+                0x600155a0 __t5ai_board_cache_end__ = .
 """
 
     def test_static_kernel_stacks_stay_below_isr_stack(self):
