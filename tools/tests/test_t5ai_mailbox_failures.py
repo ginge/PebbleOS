@@ -843,7 +843,7 @@ static bool mcu_state_is_isr(void){return false;}
 static bool t5ai_mailbox_channel_is_owner(void);
 typedef struct {int unused;} LogState;
 static LogState state;
-static LogState *t5ai_stock_get_log_state(void){
+static LogState *prv_get_log_state(void){
   assert(!pthread_mutex_lock(&state_lock));return &state;
 }
 static int t5ai_cp_mailbox_acknowledge_frame(const T5AICPMailboxFrame *f,bool ok){
@@ -863,6 +863,8 @@ static void pressure_log_values(const char *fmt,...){(void)fmt;pressure_log();}
         )
         code += body(channel, "t5ai_mailbox_channel_is_owner")
         code += body(adapter, "kernel_applib_get_log_state")
+        code += "static unsigned work_notifications;\n"
+        code += "static void t5ai_hci_notify_work(void){++work_notifications;}\n"
         code += body(hci, "prv_set_started") + body(hci, "prv_mark_faulted")
         code += body(hci, "prv_queue_pending_frame")
         if "prv_report_queue_fault" in hci:
@@ -936,6 +938,7 @@ int main(void){
   T5AICPMailboxFrame f={.address=(uintptr_t)&p,.length=sizeof(p)};
   prv_route_frame(65,&f,NULL);
   assert(s_queue_fault.count==UINT32_MAX && s_queue_fault.header==0x1234);
+  assert(work_notifications==66); // routing and fault each notify for all 33 frames
   LogState *normal=kernel_applib_get_log_state();assert(normal==&state);
   pthread_mutex_unlock(&state_lock);
 }

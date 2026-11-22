@@ -3,6 +3,52 @@
 The latest installation checkpoint below is the current installed state. Dated entries preserve
 the state and evidence at their recorded checkpoint.
 
+## Findings 15/16 installed and bench-checked — 22 November, 18:13 UTC
+
+Installed default AP build **1a26e7779b0e0bd922d3048b25b5a1f5cf2e9ecc**,
+`v4.41.2-1664-g2c16ed3c2-dirty`, protected SHA-256
+`ba584345a97edf1c7bb12b904933d5e13777d55fdffa94bafae5bb3307a03f91`.
+Finding 15 is committed as `2c16ed3c2`; finding 16 remains uncommitted.
+The AP-only flash completes in 52.1 seconds. No CP/resource/storage/calibration
+or bond programming/clearing was performed; battery remains disconnected.
+
+Normal startup, existing PFS/resources/30 apps, all 15 graphics checks and the
+operator's five dim/wake/swipe cycles pass. UART reports 32 AP-only sleep returns
+with zero recorded faults. Phone version/app queries, six pongs across two
+sessions and a complete screenshot pass. The initial missing phone connection
+requires a companion restart to restore the existing bond; automatic reconnect
+is not qualified. A connection-parameter timeout subsequently recovers, and
+animation 2/7/8/10 warnings remain preserved without causal attribution.
+
+No additional AP boot/assertion/hard fault appears in the bounded capture.
+Native logging contention and fault injection remain host-tested; this bench
+does not qualify them on the watch. Prior charging/power/panel/transport-soak
+limits remain open. Captures are stopped and ports/ADB forwarding released.
+See the [TODO bench checkpoint](code-quality-todo.md) for commands and evidence.
+Paused for review/commit before finding 17; no new commit was made.
+
+## Finding 15 committed; finding 16 native-thread logging in source — 22 November
+
+Finding 15 is committed as **2c16ed3c2**; gitlint passes. Finding 16 is now a
+SoC-local logging change: the existing T5AI boundary uses a thread-local entered
+marker instead of the stock shared `Unknown` task flag. Distinct native threads
+serialize; same-thread recursion, one-second timeout and mailbox-owner exclusion
+remain protected. Shared Pebble logging, task definitions and thread layouts
+are unchanged. The existing two-slot TLS configuration is retained; slot 0 is
+reserved for the T5AI logging guard.
+
+All **79 affected host methods** and full default ARM/LTO/image gates pass.
+The earlier HCI logging-pressure harness dependency is repaired with stronger
+notification assertions. A complete committed-unit concurrency model reproduces
+the false-recursion failure. Candidate FLASH grows **96 bytes**, RAM falls
+**32 bytes**; configuration and all six reserved/retained layouts are unchanged.
+Exact commands, evidence and scope are in the [TODO checkpoint](code-quality-todo.md).
+
+Finding 16 is **uncommitted and unflashed**, paused for review. No hardware action
+was performed. The installed default finding-13/14 image and its recorded bench
+limitations remain current. Next source item is finding 17, recovery/install
+capabilities and board-owned pairing buttons.
+
 ## Finding 14 committed; finding 15 independent IPC initialization in source — 22 November
 
 Finding 14 is committed as **77ccc46e2**; gitlint passes. Finding 15 now removes

@@ -79,13 +79,15 @@ if(CONFIG_T5AI_SD_PFS)
   pbl_link_options(-Wl,--wrap=pfs_init)
 endif()
 
-# Reject mailbox-owner logs before shared log-state/PULSE locks without changing
-# stock Pebble logging. Source renaming preserves this boundary with release LTO.
+# Keep the native-thread recursion guard and mailbox exclusion local to T5AI.
+# Rename both buffer boundaries and init so release LTO cannot bypass the adapter.
 pbl_library_sources(mailbox_logging.c)
 function(t5ai_mailbox_logging_boundary)
   set_property(SOURCE ${PBL_BASE}/pebble/kernel/kernel_applib_state.c
     DIRECTORY ${PBL_BASE}/pebble/kernel APPEND PROPERTY COMPILE_DEFINITIONS
-    kernel_applib_get_log_state=t5ai_stock_get_log_state)
+    kernel_applib_get_log_state=t5ai_stock_get_log_state
+    kernel_applib_release_log_state=t5ai_stock_release_log_state
+    kernel_applib_init=t5ai_stock_kernel_applib_init)
 endfunction()
 cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_mailbox_logging_boundary)
 

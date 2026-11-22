@@ -231,12 +231,13 @@ within the recorded bench scope. Warning/soak limits are retained below.
 
 ### 16. Track logging recursion by actual thread identity
 
-- [ ] Review unregistered native logging contexts: all currently share the
+- [x] Review unregistered native logging contexts: all currently share the
   `PebbleTask_Unknown` flag in `pebble/kernel/kernel_applib_state.c`.
-- [ ] Route ordinary port diagnostics through registered work queues where
+- [x] Route ordinary port diagnostics through registered work queues where
   appropriate; use actual thread identity if independent native logging is needed.
-- [ ] Acceptance: two distinct unknown threads do not appear to be recursive
-  logging, while same-thread recursion and mailbox-owner exclusion stay safe.
+- [x] Acceptance: two distinct unknown threads do not appear to be recursive
+  logging, while same-thread recursion and mailbox-owner exclusion stay safe
+  (complete-unit host concurrency/fault tests; no on-watch qualification).
 
 ### 17. Replace shared SoC policy checks with precise capabilities
 
@@ -2461,3 +2462,122 @@ The previously installed default finding-13/14 image remains on the watch.
 Next ordered source item is **finding 16, actual-thread logging recursion**,
 including the newly identified logging-pressure harness repair. Prior battery,
 panel and transport bench limitations remain open.
+
+
+### Finding 15 committed; finding 16 native-thread logging recursion — 2026-11-22
+
+At the operator's request, committed finding 15 as **2c16ed3c2**
+(`t5ai: separate flash and ADC initialization`), staging only its eight reviewed
+files; DCO/AI trailers and gitlint pass. No flash accompanied that commit.
+
+Reinspection confirms the stock guard indexes by `PebbleTask`; every
+unregistered native thread maps to `PebbleTask_Unknown`. A real second native
+thread therefore returns NULL before attempting the logging mutex when a first
+unknown thread is logging. The new fixture compiles the complete committed
+stock applib and SoC adapter units, then reproduces this as an executed
+assertion failure: the second unknown thread finishes without waiting for the
+mutex. No scheduling/ABI bug is inferred merely from the original audit.
+
+Ordinary system work queues are already registered as `SysWorkq` and
+`SysWorkqHigh` in `pebble/main.c`; battery service work uses those queues.
+The HCI ACK worker and optional diagnostic workers have independent native
+lifetimes and can log. Reusing an occupied PebbleTask identity would obscure
+actual task ownership. Moving blocking HCI fault reporting onto a shared work
+queue would introduce coupling without fixing other native contexts. Keep
+those independent contexts and track the actual current thread.
+
+Extended the existing **SoC-local** `mailbox_logging.c` boundary to own kernel
+log-state acquire/release and logging readiness. It reserves existing native
+TLS slot **0** for the entered marker (slot 1 remains available; repository
+inspection found no existing native TLS-slot users). A compile-time assertion
+requires the reserved slot. `pbl_thread_create()` already clears thread objects,
+so a fresh thread does not inherit the marker. The marker is claimed before
+mutex acquisition and cleared on failure or after release: same-thread
+recursion during waiting/unlocking is rejected while distinct threads wait
+normally. Identity uses `pbl_kernel_is_started()`, because a scheduler-locked
+thread still has its own identity even though `pbl_kernel_is_running()` is false.
+
+Preserved the stock one-second mutex timeout, early boot logging, ISR/critical/
+scheduler-locked nonblocking admission, pre-applib thread-mode rejection, and
+single formatting-buffer ownership. IRQ locking protects buffer admission and
+per-thread marker updates. Release remembers whether this acquisition actually
+took the mutex, avoiding an unmatched unlock if readiness/registration changes
+while an early log is in progress. The mailbox owner still returns NULL before
+log-state/PULSE locks or recursion-state mutation.
+
+CMake renames the stock acquire, release and init definitions only for T5AI;
+all callers resolve to the SoC boundary through LTO. The init wrapper retains
+the stock initialization of all other applib services. Stock logging source,
+frontend/App/Worker dispatch, task enum and native thread layout remain
+byte-identical to HEAD. No common production edit, extra thread slot, dynamic
+allocation, retained field or ABI/layout change is required. LTO removes the
+unused stock kernel buffer guard/acquire/release code.
+
+Validation:
+
+- Added eight methods compiling the **complete production SoC adapter and stock applib translation units**, plus `kernel/tick.c`, real headers, board Kconfig, `LogState`, native thread/mutex types and TLS accessors. Kernel/IRQ/CP-owner/service endpoints are modeled; two actual pthreads contend through a modeled native recursive mutex with the real one-second timeout. No new function extraction or copied wire/type layouts are used in this fixture.
+- ASan/UBSan checks cover distinct unknown-thread serialization and formatting-buffer integrity, same-thread recursion, real contention timeout followed by successful retry, recursive logging during lock failure and unlock, unused TLS-slot preservation, pre-scheduler logging without querying a current thread, the pre-applib window, ISR/critical/scheduler-locked nonblocking paths, cross-thread critical rejection, mailbox-owner early exclusion, and release after readiness changes.
+- Repaired the preexisting logging-pressure fixture dependency identified in finding 15: supply a counting endpoint for `t5ai_hci_notify_work()` and require **66 notifications** (routing and fault paths each notify for all 33 frames). Its buffer-provider stub follows the adapter's new private helper name. The original blocking-logger, 32 physical ACKs/drains/supervision, mailbox exclusion, first-descriptor preservation and saturation assertions remain intact. This older fixture still extracts helpers; the new logging fixture and existing complete HCI work/ACL suites independently cover actual units. No production guards were weakened.
+- `PATH=/tmp/pebble-quality-venv/bin:$PATH ASAN_OPTIONS=detect_leaks=0 /tmp/pebble-quality-venv/bin/python -m unittest tools.tests.test_t5ai_logging_threads tools.tests.test_t5ai_mailbox_failures tools.tests.test_t5ai_hci_work tools.tests.test_t5ai_hci_sleep tools.tests.test_t5ai_hci_acl tools.tests.test_t5ai_hci_pressure tools.tests.test_t5ai_ipc_init tools.tests.test_t5ai_saradc tools.tests.test_t5ai_battery tools.tests.test_t5ai_battery_events tools.tests.test_t5ai_build_integration tools.tests.test_t5ai_config -v`: **79 methods pass**, including the formerly failing logging-pressure method. The committed baseline's distinct-thread assertion failure is retained separately.
+- `PATH=ARM_TOOLCHAIN:/tmp/pebble-quality-venv/bin:$PATH cmake --build build-quality-finding9-candidate -j 8`: full default ARM/LTO, image-layout, protected CRC, resource-size and syscall gates pass. FLASH **1,667,232** bytes (**+96** against finding 15); RAM **96,608** (**-32**). Display PSRAM **126,912**, DMA **14,976**, PFS **8,192**, all six actual retained/reserved section addresses/sizes and `.config` remain unchanged. Existing generated-declaration LTO warnings remain.
+- Actual Ninja compile definitions contain all three renamed stock boundaries. Linked-symbol inspection confirms the old stock acquire/release functions and shared task-indexed entered array are absent. Shared logging/task/frontend/thread files and both unrelated planning-file hashes remain unchanged.
+- Ruff check/format, Clang Format 22, `git diff --check` and finding-15 commit gitlint pass. Before/source snapshots, baseline failure, thread/pressure/79-method/build logs, actual compile boundary and linked symbols, candidate config/map/ELF/dictionary/raw/protected images, review patch/state, verification and SHA-256 manifest are retained under `build-quality-20261121/logging-thread-finding16/`.
+
+Finding 16 is implemented and host-verified, **uncommitted and unflashed** for
+review. No hardware capture, reset, flash, provisioning or formatting was
+performed. Host tests do not qualify physical UART/Bluetooth/storage contention
+or fault-handler behavior on the watch. The previously installed default
+finding-13/14 image and its recorded battery/panel/transport limitations remain
+current. Next ordered source item is **finding 17, precise recovery/install
+capabilities and board-owned pairing buttons**.
+
+
+### Findings 15/16 installed and bounded bench — 2026-11-22, 18:09–18:13 UTC
+
+At the operator's request, flashed the exact sealed default AP candidate:
+**1a26e7779b0e0bd922d3048b25b5a1f5cf2e9ecc**,
+`v4.41.2-1664-g2c16ed3c2-dirty`. Protected SHA-256
+`ba584345a97edf1c7bb12b904933d5e13777d55fdffa94bafae5bb3307a03f91`;
+raw SHA-256
+`f4bb99207b1e5e7fa6c7360ad1e5c97c50f41e70f26b823cfd8bf6ed3cc253a7`.
+This is now the installed image, including committed finding 15 and uncommitted
+finding 16. The preceding unflashed statements are historical source checkpoints.
+All 32 sealed source/build evidence files and eight live review files matched
+before flash; the linked ELF build ID matches UART.
+
+`PYTHONPATH=tools/libs/pbl-cli /tmp/pebble-quality-venv/bin/python -m pbl lab --json`
+reports an empty inventory. The test venv has no `pbl` executable; invoking the
+current repository module resolves that tooling issue. Actual host enumeration
+confirms CH342 if00/if02 (ttyACM0/1) present and free. if02 capture receives 224
+bytes before flash; raw buffered old-image data is preserved and excluded from
+new-image analysis at the new boot banner/build ID. The phone is online via ADB.
+
+Command: `/tmp/pebble-quality-venv/bin/python -u tools/flash_unhygienix_firmware.py --raw CASE/pebbleos.bin --protected CASE/pebbleos.t5ai-crc.bin --tyutool /tmp/pebble-quality-tyutool --port /dev/serial/by-id/usb-1a86_USB_Dual_Serial_5C75025844-if00 --flash`.
+The guarded AP-only write completes in **52.1 seconds**, physical range
+**0x132000..0x2e27aa exclusive**. No CP/resource/PFS/calibration/bond programming
+or clearing, formatting or provisioning was performed. Battery remains
+**disconnected**, as previously requested; power was kept attached.
+
+Results:
+
+- New-image UART reaches Launcher at **18:09:51.803**, with startup RTC anchor 18:09:40.000. Existing SD PFS is `new=0`, resources validate and 30 apps are found. All **15 graphics output checks pass**. At 18:10:52.470, the AP-only sleep report records **32 returns, fault=0**; this is a report checkpoint, not an exact final sleep count or power/CP-sleep qualification.
+- Operator confirms **all five dim → wake → swipe cycles pass**, with menus responsive and normal display recovery. UART capture retains **5,613 bytes over 268.7 seconds**, including preflash data and the commanded boot. Exactly one new-image AP boot banner appears; no subsequent AP boot/assertion/hard fault is observed in this bounded capture.
+- Initial companion readiness says `no watch connected`. Restarting only `coredevices.coreapp` restores the existing bonded/encrypted session without another watch reset or clearing bonds. Do not claim automatic-reconnect qualification or attribute the initial failure solely to the phone.
+- The captured phone check passes **three pongs (186–297 ms)**, expected version/git, current app query and complete **260×260 / 67,600-byte screenshot** in **8.57 seconds**. Screenshot SHA-256 `b6d5c82dbf2981eab6d81c1423280443ffbce119c80156457f5136f9e3b3eadc` matches the previous Ping image. A later connection-only check passes **three pongs (216–369 ms)** and version without restarting the watch or companion.
+- Preserve warnings: dropped app event type 27 and two animation-2 errors also exist in the earlier default control; this capture additionally records pairs of animation-7/8/10 errors during interaction. Their cause is not established. At **18:12:43.689** a connection-parameter request times out/re-requests; parameters update at **18:12:44.270**, with no captured disconnect/AP reset. Existing CP temperature/boot diagnostics are retained. This is not a clean transport/fault qualification, and warnings were not suppressed.
+
+Evidence: `build-quality-20261121/logging-thread-finding16/device-20261122-180820/`
+contains exact images/config/ELF/map/dictionary, flash and raw/timestamped/decoded
+UART, first readiness result, phone logcat/results/screenshot, operator response,
+verification and a separate hardware SHA-256 manifest. Captures are stopped,
+both UARTs are released, and ADB forwarding is removed; the companion and
+Bluetooth are left running. The original source/build seal remains immutable;
+the case's `post-bench-source/` and `review-state.json` record the current eight
+review files after this journal update.
+
+Finding 16 passes the targeted normal-use bench and the 79 host checks already
+recorded. Forced native logging contention, logger/PULSE fault pressure and
+independent client error/retry remain host-tested, not on-watch fault-injected.
+No new source fix or commit was made in this bench. Paused for review/commit
+before finding 17. Earlier actual-cell charging, idle-energy, optional panel
+reprepare/fault timing and broader transport/soak acceptance remain open.
