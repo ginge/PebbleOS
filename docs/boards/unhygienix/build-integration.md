@@ -36,8 +36,8 @@ graphics eligibility/performance review remains backlog finding 10.
 | CP console locks | Wrap `pbl_console_lock` / `pbl_console_unlock` and keep console.c outside LTO. Exclude mailbox-owner recursion before locking. Configure these rules only when `CONSOLE` is enabled; release normally disables that directory. |
 | Shared log state | Rename `kernel_applib_get_log_state` in its stock translation unit. The local front end excludes mailbox-owner calls before shared log-state/PULSE locks. The rename preserves this boundary through LTO. |
 | Pixel fast path | When enabled, rename stock `graphics_private_plot_pixel`; retain the stock fallback alongside the local implementation. |
-| Compositor fast path | When enabled, rename stock tiled bitmap blit and redirect only compositor.c's `memset` to the local eligible-path adapter. |
-| Text-node cache | When enabled, redirect only text_node.c's text-size call and rename window.c's render entry for the cache invalidation boundary. |
+| Compositor fast path | Redirect tiled-blit calls in bitblt.c and graphics_bitmap.c to the named `t5ai_compositor_bitmap_into_bitmap_tiled` adapter. Keep the stock dispatcher definition intact for fallback. Redirect only compositor.c's `memset` to the local row-fill adapter. |
+| Text-node cache | Redirect only text_node.c's text-size call. App and round/rectangular transition callers use the named `t5ai_text_node_cache_window_render` entry for invalidation. Stock window.c and kernel modal rendering remain intact. |
 
 Boot/syscall roots (`pbl_kernel_syscall_exit`, `kernel_prep_c`, `sched_switch_in`)
 remain explicitly retained for assembly callers. Fixed memory/retained scripts,
@@ -55,6 +55,16 @@ Their wrappers, function renames, `-fno-lto`, `-mgeneral-regs-only` and GCC
 function instrumentation remain within the corresponding diagnostic gate.
 The CPU-metrics source is selected directly; it has no empty deferred hook.
 Experimental sleep state-machine separation is still backlog finding 8.
+
+`T5AI_GRAPHICS_BENCH` is a default-off one-shot diagnostic inside the privileged
+App text-cache render scope. It compares stock/local copy, clear, pixels and
+real-font layout using private four-row PSRAM scratch and the production
+32,000 Hz AON clock. It requires all three graphics options; draw/display
+profiling are independently selectable. Combined diagnostic buffers must still
+fit the unchanged display-PSRAM reservation. These timings are not frame FPS.
+The draw profiler includes the real scheduler header and forwards the scheduler
+interrupt-lock key; display profiling uses the current real profiler node API.
+
 
 ## Validation and limits
 

@@ -20,8 +20,9 @@ void __attribute__((optimize("O3"))) graphics_private_plot_pixel(GBitmap *frameb
   if (x < clip_box->origin.x || x >= right || y < clip_box->origin.y || y >= bottom) {
     return;
   }
-  if (framebuffer->info.format != GBitmapFormat8Bit &&
-      framebuffer->info.format != GBitmapFormat8BitCircular) {
+  if ((framebuffer->info.format != GBitmapFormat8Bit &&
+       framebuffer->info.format != GBitmapFormat8BitCircular) ||
+      (framebuffer->info.format == GBitmapFormat8BitCircular && !framebuffer->data_row_infos)) {
     t5ai_stock_graphics_private_plot_pixel(framebuffer, clip_box, x, y, opacity, color);
     return;
   }

@@ -38,9 +38,12 @@ endif()
 if(CONFIG_T5AI_COMPOSITOR_FAST_PATH)
   pbl_library_sources(compositor_fast.c)
   function(t5ai_compositor_fast_boundaries)
-    set_property(SOURCE ${PBL_BASE}/pebble/applib/graphics/8_bit/bitblt_private.c
-      DIRECTORY ${PBL_BASE}/pebble/applib APPEND PROPERTY COMPILE_DEFINITIONS
-      bitblt_bitmap_into_bitmap_tiled=t5ai_stock_bitblt_bitmap_into_bitmap_tiled)
+    # Redirect the two callers; keep the stock entry and translation unit intact.
+    foreach(source bitblt.c graphics_bitmap.c)
+      set_property(SOURCE ${PBL_BASE}/pebble/applib/graphics/${source}
+        DIRECTORY ${PBL_BASE}/pebble/applib APPEND PROPERTY COMPILE_DEFINITIONS
+        bitblt_bitmap_into_bitmap_tiled=t5ai_compositor_bitmap_into_bitmap_tiled)
+    endforeach()
     set_property(SOURCE ${PBL_BASE}/pebble/services/compositor/compositor.c
       DIRECTORY ${PBL_BASE}/pebble/services/compositor APPEND PROPERTY COMPILE_DEFINITIONS
       memset=t5ai_compositor_memset)
@@ -54,9 +57,12 @@ if(CONFIG_T5AI_TEXT_NODE_CACHE)
     set_property(SOURCE ${PBL_BASE}/pebble/apps/system/timeline/text_node.c
       DIRECTORY ${PBL_BASE}/pebble/apps/system APPEND PROPERTY COMPILE_DEFINITIONS
       graphics_text_layout_get_max_used_size=t5ai_text_node_cached_size)
-    set_property(SOURCE ${PBL_BASE}/pebble/applib/ui/window.c
-      DIRECTORY ${PBL_BASE}/pebble/applib APPEND PROPERTY COMPILE_DEFINITIONS
-      window_render=t5ai_cache_stock_window_render)
+    # App and transition callers opt into a render-scoped cache; stock stays intact.
+    foreach(source app.c ui/window_stack_animation_rect.c ui/window_stack_animation_round.c)
+      set_property(SOURCE ${PBL_BASE}/pebble/applib/${source}
+        DIRECTORY ${PBL_BASE}/pebble/applib APPEND PROPERTY COMPILE_DEFINITIONS
+        window_render=t5ai_text_node_cache_window_render)
+    endforeach()
   endfunction()
   cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_text_node_cache_boundaries)
 endif()

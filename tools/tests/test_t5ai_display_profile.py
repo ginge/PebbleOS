@@ -27,7 +27,6 @@ class DisplayProfileTest(unittest.TestCase):
             d = Path(tmp)
             headers = {
                 "pbl/logging/logging.h": '#include <stdio.h>\n#define LOG_LEVEL_DEBUG 0\n#define PBL_LOG_MODULE_DEFINE(...)\n#define PBL_LOG_DBG(...) do { printf(__VA_ARGS__); puts(""); } while (0)\n',
-                "system/profiler.h": "#define PROFILER_NODE_GET_COUNT(n) count_##n\n#define PROFILER_NODE_GET_TOTAL_CYCLES(n) cycles_##n\n",
             }
             for name, source in headers.items():
                 p = d / name
@@ -35,9 +34,16 @@ class DisplayProfileTest(unittest.TestCase):
                 p.write_text(source)
             (d / "test.c").write_text(r"""
 #include <stdint.h>
-static uint32_t count_render_app, cycles_render_app;
-static uint32_t count_compositor, cycles_compositor;
-static uint32_t count_text_render_flash, cycles_text_render_flash;
+#include <pbl/profiler/profiler.h>
+struct pbl_profiler_node pbl_profiler_node_render_app;
+struct pbl_profiler_node pbl_profiler_node_compositor;
+struct pbl_profiler_node pbl_profiler_node_text_render_flash;
+#define count_render_app pbl_profiler_node_render_app.count
+#define cycles_render_app pbl_profiler_node_render_app.total
+#define count_compositor pbl_profiler_node_compositor.count
+#define cycles_compositor pbl_profiler_node_compositor.total
+#define count_text_render_flash pbl_profiler_node_text_render_flash.count
+#define cycles_text_render_flash pbl_profiler_node_text_render_flash.total
 #include "soc/t5ai/display_profile.c"
 int main(void) {
   T5AITransferProfile transfer = {.rows=260, .panel_rows=466, .bytes=434312,
@@ -78,6 +84,7 @@ int main(void) {
                     "-Wextra",
                     "-Werror",
                     "-DCONFIG_T5AI_DISPLAY_PROFILE",
+                    "-DCONFIG_PROFILER",
                     "-I",
                     str(d),
                     "-I",

@@ -42,6 +42,23 @@ class T5AIConfigTest(unittest.TestCase):
                         config.syms["T5AI_RETAINED_SLEEP_WAKE_ONLY"].str_value, "y"
                     )
 
+    def test_graphics_bench_requires_all_paths_and_is_default_off(self):
+        config = load_config("unhygienix")
+        bench = config.syms["T5AI_GRAPHICS_BENCH"]
+        self.assertEqual(bench.str_value, "n")
+        bench.set_value("y")
+        self.assertEqual(bench.str_value, "n")
+        for name in (
+            "T5AI_COMPOSITOR_FAST_PATH",
+            "T5AI_PIXEL_FAST_PATH",
+            "T5AI_TEXT_NODE_CACHE",
+        ):
+            config.syms[name].set_value("y")
+        self.assertEqual(bench.str_value, "y")
+        self.assertEqual(config.syms["T5AI_DRAW_PROFILE"].str_value, "n")
+        config.syms["T5AI_TEXT_NODE_CACHE"].set_value("n")
+        self.assertEqual(bench.str_value, "n")
+
     def test_motion_engine_defaults_on_without_diagnostics(self):
         config = load_config("unhygienix")
         for name in ("T5AI_QMI8658_ANY_MOTION", "T5AI_QMI8658_WOM"):

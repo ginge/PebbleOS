@@ -1,7 +1,11 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "system/profiler.h"
+#include <pbl/profiler/profiler.h>
+
+PBL_PROFILER_NODE_DECLARE(render_app);
+PBL_PROFILER_NODE_DECLARE(compositor);
+PBL_PROFILER_NODE_DECLARE(text_render_flash);
 
 #include <pbl/logging/logging.h>
 #include <pbl/soc/t5ai/display_profile.h>
@@ -318,12 +322,12 @@ void t5ai_display_profile_frame(uint32_t start, uint32_t elapsed, uint32_t hz,
   if (update_us > s_window.update_max_us) {
     s_window.update_max_us = update_us;
   }
-  prv_phase(&s_render, PROFILER_NODE_GET_COUNT(render_app),
-            PROFILER_NODE_GET_TOTAL_CYCLES(render_app), hz);
-  prv_phase(&s_compositor, PROFILER_NODE_GET_COUNT(compositor),
-            PROFILER_NODE_GET_TOTAL_CYCLES(compositor), hz);
-  prv_phase(&s_font, PROFILER_NODE_GET_COUNT(text_render_flash),
-            PROFILER_NODE_GET_TOTAL_CYCLES(text_render_flash), hz);
+  prv_phase(&s_render, PBL_PROFILER_NODE_COUNT(render_app),
+            PBL_PROFILER_NODE_TOTAL_CYCLES(render_app), hz);
+  prv_phase(&s_compositor, PBL_PROFILER_NODE_COUNT(compositor),
+            PBL_PROFILER_NODE_TOTAL_CYCLES(compositor), hz);
+  prv_phase(&s_font, PBL_PROFILER_NODE_COUNT(text_render_flash),
+            PBL_PROFILER_NODE_TOTAL_CYCLES(text_render_flash), hz);
   if (++s_window.frames != PROFILE_FRAMES) {
     return;
   }

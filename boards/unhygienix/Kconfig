@@ -136,6 +136,15 @@ config T5AI_DRAW_PROFILE
       two seconds without rendering. Scheduler time includes IRQ execution;
       it is not exclusive drawing CPU time. No PC sampling or per-frame logs.
 
+config T5AI_GRAPHICS_BENCH
+    bool "Run one-shot stock/local graphics CPU comparisons on the watch"
+    depends on T5AI_COMPOSITOR_FAST_PATH && T5AI_PIXEL_FAST_PATH && T5AI_TEXT_NODE_CACHE
+    default n
+    help
+      Diagnostic only. Compare private four-row PSRAM copies/fills, mixed-opacity
+      plots and real-font layouts once inside privileged App rendering.
+      Reports 32 kHz AON elapsed ticks and output checks; this is not frame FPS.
+
 config T5AI_DRAW_PROFILE_DETAIL
     bool "Time individual menu, glance and text-node functions"
     depends on T5AI_DRAW_PROFILE

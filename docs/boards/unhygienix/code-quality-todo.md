@@ -168,7 +168,7 @@ incomplete. Original failures and measurement limits remain recorded below. See 
 
 - [ ] Benchmark `soc/t5ai/compositor_fast.c`, `pixel_fast.c` and
   `text_node_cache.c` independently; retain measured benefits.
-- [ ] Replace hidden stock-function renaming with explicit eligibility/entry
+- [x] Replace hidden stock-function renaming with explicit eligibility/entry
   points where feasible. Derive geometry from bitmap/board configuration and
   assess the compositor's row-extent scanning cost.
 - [ ] Acceptance: differential stock comparisons cover clipping, blending,
@@ -1637,3 +1637,267 @@ including the enabled default, host harnesses and qualification record. The
 checkpoint; final Ruff, Clang Format and diff checks pass. Unrelated existing
 `boards/unhygienix/tuya/REMAINING_TASKS.md` and `power-todo.md` edits are excluded.
 No hardware write accompanies the commit. Next backlog item: finding 10.
+
+
+### Finding 10, compositor increment — 2026-11-22
+
+The three existing graphics tests passed against `2400c75b8` before production
+changes (`python -m unittest tools.tests.test_t5ai_compositor_fast tools.tests.test_t5ai_pixel_fast tools.tests.test_t5ai_text_node_cache`). Inspection found
+duplicated bitmap/text layouts and extracted-function or stub oracles, limiting
+their fidelity. No rendering regression was demonstrated by that baseline.
+
+The compositor harness now compiles complete production color bitblt, generic
+bitblt, bitmap, geometry/color and local adapter translation units against real
+headers and board Kconfig. The allocation declarations use the real generator;
+only unused generated font IDs, host panic/log endpoints, app/legacy context and
+the physical display declaration are fixtures. ASan/UBSan remain enabled.
+Differential checks cover circular/rectangular rows, padded strides, reverse
+row offsets, board-mask circular rows, clipping, offsets, supported compositing
+modes, small geometry, sub-bitmap origins, self/partial overlap and legacy format
+selection. The unmodified compositor passed the initial full-unit comparison.
+
+The scoped implementation replaces the stock dispatcher's definition rename
+with a named T5AI adapter at its two existing call sites. Common source files
+remain unchanged and stock dispatch/fallback stays intact under LTO. Bitmap
+bounds now supply dimensions; implicit circular rows additionally require real
+board display dimensions. Regular 8-bit and board-mask row storage use a
+constant-time extent bound; arbitrary circular row tables still require a scan
+before writes to preserve non-overlap and unusual offset handling. The copy
+clips intersecting spans to the operation's width.
+
+Independent host compositor timing (Clang 21, O2, no sanitizers, 20,000 full
+rectangular copies per sample, three samples): before, local/stock elapsed ratios
+were 1.089/1.009/1.068; after, 0.966/0.950/0.933. This identifies the redundant
+extent-scan cost and a small host benefit, not ARM/display timing, frame-rate,
+power or hardware qualification. The option's existing policy is unchanged.
+
+A newly exercised wide legacy fallback triggers UBSan in unchanged stock
+`pebble/applib/graphics/8_bit/bitblt_private.c:369`: signed `1 << 31`. The real
+stock dispatcher fails before the local adapter runs. The fixture retains
+`LEGACY_WIDE` as an explicit expected-failure reproducer; ordinary differential
+coverage separately exercises narrow legacy rows. No sanitizer is disabled and
+no shared graphics code is changed to hide this dependency. Wide legacy
+sanitizer qualification remains open; do not treat the expected failure as a
+passing rendering test.
+
+Compositor validation and next increment are recorded below. Finding 10's main
+checkboxes remain open until all three optimizations and their performance and
+freshness boundaries have been assessed. Changes are uncommitted.
+
+Compositor increment validation: `python -m unittest tools.tests.test_t5ai_compositor_fast`
+passes its ordinary differential test with one explicit expected stock failure.
+`cmake --build build-quality-20261121 -j 8` passes ARM/LTO packaging, image-layout,
+CRC, resource-size and syscall checks with compositor fast path enabled. Final
+ELF `nm` contains both stock `bitblt_bitmap_into_bitmap_tiled` and the named
+`t5ai_compositor_bitmap_into_bitmap_tiled` adapter. Generated Ninja definitions
+redirect only bitblt.c/graphics_bitmap.c; stock dispatch is not renamed. Ruff,
+Clang Format and diff checks pass. Evidence is under
+`build-quality-20261121/graphics-finding10/`. Next: full-unit pixel equivalence
+and an independent pixel benchmark, then text-cache freshness and timing.
+
+
+### Finding 10, pixel increment — 2026-11-22
+
+The old extracted-function pixel comparison passed, but the replacement using
+complete production graphics_private.c, bitmap, geometry and color units
+reproduces a real local defect: circular display-backed bitmaps legitimately
+have `data_row_infos == NULL`; the fast path dereferenced that pointer at
+pixel_fast.c:37. The real stock call succeeds first, then UBSan rejects the
+local call. Original failure is preserved under `graphics-finding10/`.
+
+The local fix delegates that layout to stock rather than duplicating the board
+round-mask lookup. Existing pixel behavior, two-bit alpha truncation, clip
+fallback and native explicit-row-table path remain intact. The new fixture
+retains the previous exhaustive color-pair, opacity, format and random geometry
+cases and adds display-backed circular rows using production types. No stock
+source, display geometry, timing, ABI or memory layout is changed.
+
+`python -m unittest tools.tests.test_t5ai_compositor_fast tools.tests.test_t5ai_pixel_fast`
+passes both ordinary differential methods with the separately recorded expected
+stock legacy-shift failure. Independent pixel host timing (Clang 21 O2, no
+sanitizers, 5,000,000 mixed-opacity native plots/sample) measured local/stock
+ratios 0.842/0.835/0.826. Each timed pair also compares final output bytes.
+This is a host CPU benefit, not ARM/display qualification. Pixel option policy
+is unchanged; ARM validation explicitly enables it in the candidate build.
+
+The pixel definition rename remains necessary for the current scoped build
+adapter: callers include graphics_private.c itself. A linker wrapper would
+require removing its LTO or shared source changes. Neither is justified by this
+cleanup; the local eligibility fallback is explicit and stock remains available.
+
+Pixel increment ARM validation: configuring `build-quality-finding9-candidate`
+with pixel/compositor enabled, text cache and HCI profiling disabled, then
+`cmake --build build-quality-finding9-candidate -j 8` passed ARM/LTO and all
+packaging/image/resource/syscall guards. Ruff and diff checks pass. No flash or
+commit. Next increment: text-cache freshness against the production layout unit.
+
+
+### Finding 10, text-cache increment — 2026-11-22
+
+The replacement harness compiles the complete production cache and text-layout,
+UTF-8, bidi, Arabic shaping, codepoint, hash and iterator units. Real
+TextLayout/TextLayoutExtended/FontInfo/kernel types replace the previous
+inaccurate duplicate layouts. Glyph resources use the existing test fixture;
+font height, CPU privilege, thread/task identity, non-rendering window entry,
+allocation and panic/log endpoints are host fixtures. This exercises real
+layout/freshness logic, not real font resources, drawing or display scheduling.
+
+The unchanged cache passed its full-unit baseline. The increment changes its
+render boundary to named `t5ai_text_node_cache_window_render` entries in App and
+round/rectangular transition callers, keeping stock window_render's definition
+and kernel-modal callers untouched. No common source file changes. A local
+header documents the privileged App render scope and mandatory extended-layout
+contract for text_node.c. Per-render reset, capacity, allocation section and
+existing counter policy are unchanged.
+
+The differential checks include output/base/extended fields, cache hits proved
+by skipped real layout work, per-render invalidation, owner/privilege/task
+bypass, font/box/spacing/flow keys, paging/perimeter callbacks, overflow and
+alignment modes, mutable strings, long-string bypass, eviction, multilingual
+text and line breaks. No cache rendering defect is claimed from this review.
+Independent host measurements (Clang 21 O2, fixture glyph metrics, 20,000 fresh
+layouts/sample, three samples) show repeated-hit cache/stock ratios
+0.051/0.053/0.053 and sustained-miss ratios 1.032/1.034/1.021. Benefits therefore
+depend on reuse; misses have overhead. These host figures do not establish
+on-watch timeline hit rate, ARM speed or UI improvement. Cache remains optional.
+
+Benchmark reproduction: `python -m tools.tests.t5ai_graphics_harness compositor --benchmark`
+(and `pixel` / `text_cache` respectively). Omit `--benchmark` for ASan/UBSan
+comparison. Clang ignores GCC-only optimize attributes in host builds; ARM GCC
+builds still use their existing attributes. Evidence and limitations must be
+considered before interpreting host timing as a platform benefit.
+
+
+Finding 10 validation checkpoint:
+
+- `python -m unittest tools.tests.test_t5ai_compositor_fast tools.tests.test_t5ai_pixel_fast tools.tests.test_t5ai_text_node_cache tools.tests.test_t5ai_build_integration tools.tests.test_t5ai_config`: 17 methods, 16 pass and one expected failure preserving the stock legacy signed shift. The compositor methods were rerun after extending mode coverage through tint/luminance and retain the same outcome.
+- Candidate configured with compositor, pixel and text cache `y`, HCI profiling `n`, event waits `y`; `cmake --build build-quality-finding9-candidate -j 8` passed ARM/LTO, image-layout, CRC, resource-size and syscall guards. Existing generated-declaration LTO warnings remain. Flash usage is 1,662,120 bytes; optional text-cache display-RAM use is 124,288/131,072 bytes, within its existing reservation.
+- Final ELF contains stock `bitblt_bitmap_into_bitmap_tiled` / `window_render` and both named local adapters. Pixel stock fallback remains available. Ninja compile definitions redirect only the inventoried callers; stock compositor/window definitions are no longer renamed. The text-size adapter may inline under LTO.
+- Final Ruff check/format, Clang Format and `git diff --check` pass. The host sanitizer runs were escalated; no sanitizer was disabled. Initial missing generated-header/link-endpoint probes were harness setup failures, not firmware regressions.
+- Frozen source/tests, patch, logs, candidate config/ELF/map and hashes are under `build-quality-20261121/graphics-finding10/`. The earlier finding-9 sealed A/B evidence is unchanged. Unrelated `REMAINING_TASKS.md` and `power-todo.md` hashes remain unchanged.
+
+**Next unresolved finding-10 work:** measure each option on the ARM watch under
+representative UI/graphics traffic and real font resources, including clear/copy
+costs, cache hit/miss rate, target frame timing and visual comparisons. Host
+benchmarks alone do not qualify the platform benefit. The separate stock wide
+legacy signed-shift defect also remains a documented dependency. Main benchmark
+and acceptance checkboxes stay open; do not advance to finding 11 or claim
+hardware qualification. Pause with the source changes uncommitted for review;
+no flash, reset, provisioning or storage write was performed in this pass.
+
+
+### Finding 10, authorized flash and ARM bench — 22 November 2026
+
+This hardware pass supersedes the preceding no-flash checkpoint; no automatic
+commit is authorized. Evidence is preserved separately under
+`build-quality-20261121/graphics-finding10/device-20261122-1511/`, including
+all failed attempts. Earlier finding-9 A/B images and seals are unchanged.
+
+Added default-off `CONFIG_T5AI_GRAPHICS_BENCH`: one privileged App render runs
+stock/local comparisons on two private 260-by-4 PSRAM buffers, mixed-opacity
+pixel plots and real `GOTHIC_18_BOLD` font layouts. It uses production bitmap,
+layout, clock and AON definitions (32,000 ticks/s), never the live framebuffer
+or CP-owned storage. Copy/clear/pixel order alternates; text stock precedes
+cached layout. Text checks returned size, while complete host comparisons
+cover extended layout fields/freshness. No frame-rate claim follows from this
+microbenchmark. Scratch is initialized after CP PSRAM bring-up, inside the
+existing privileged cache scope. Diagnostic defaults and graphics defaults
+are unchanged; the installed test explicitly enables all three optimizations.
+
+Two diagnostic defects/dependencies were exposed rather than bypassed:
+
+- Display profiling included the removed `system/profiler.h` API. Its local
+  adapter now includes the real profiler header, declares real nodes and uses
+  current count/cycle macros. Host checks use the real node type. Enabling
+  display profiling together with the benchmark exceeded the existing 128 KiB
+  reservation (133,056 bytes). The guard correctly rejected that configuration;
+  display profiling was disabled for the bench, with no reservation/layout change.
+- The first draw-profile image flashed successfully but stalled at the boot
+  logo before any benchmark record (operator-confirmed). Frozen `bench/`
+  evidence retains this actual regression. The local `sched_block` wrapper
+  omitted the production scheduler's third interrupt-lock-key argument. It now
+  includes `kernel.h`, derives the real-function declaration with `__typeof__`,
+  and forwards the key in bypass and measured branches. A complete-unit host
+  test verifies key, return value, lock balance and timing counters; the frozen
+  original fails against the real signature. A draw-profile-off control
+  (`isolated/`) booted and completed all 12 then-available samples. The repaired
+  draw-profile-on firmware (`fixed/`) booted and completed all 15, including
+  the added clear benchmark. This establishes recovery from the observed stall;
+  it is not full qualification of every profiler hook.
+
+Final installed AP build **ada42d32395354471f04da81ad21c9a5f0df53b3**,
+version `v4.41.2-1657-g2400c75b8-dirty`, protected SHA-256
+`a5cc76a850c003a966f027633dfa4b77b7ba4c92eedf95f998992e7e6b045270`.
+Guarded AP-only flash completed in 52.1 s, physical range
+`0x132000..0x2e2524` (exclusive). No CP, resource, calibration or PFS image was
+flashed, no bonds were cleared, and storage was not formatted/provisioned.
+Boot found existing PFS (`new=0`), valid system resources and 30 stored apps;
+controller and stored peer identities were retained. AP reset source was 0x4f
+following the authorized programming operation, with the existing awake-contract
+revalidation; do not count that as an uncommanded run-time reboot.
+
+Final three samples per case, CPU 240 MHz at start/end, AON elapsed ticks:
+
+| Case | Calls/sample | Stock ticks (0/1/2) | Local ticks (0/1/2) | Median local/stock ratio |
+| --- | --- | --- | --- | --- |
+| Copy, 260 x 4 | 1,024 | 347 / 339 / 345 | 362 / 361 / 372 | 1.065 (6.5% more time) |
+| Clear, 1,040 bytes | 1,024 | 860 / 858 / 858 | 116 / 115 / 114 | 0.134 (86.6% less time) |
+| Mixed-opacity pixels | 100,000 | 2,196 / 2,197 / 2,191 | 1,480 / 1,485 / 1,477 | 0.674 (32.6% less time) |
+| Repeated text hits | 128 | 1,371 / 1,384 / 1,487 | 96 / 122 / 171 | 0.088 (91.2% less time) |
+| Cycling text misses | 128 | 1,608 / 1,599 / 1,607 | 1,733 / 1,643 / 1,637 | 1.028 (2.8% more time) |
+
+All 15 checks returned `ok=1`; text counters were 399 hits / 369 misses /
+0 bypasses / 2,304 bytes. Ratios are medians of paired sample ratios, not ratios
+of medians. Small warm PSRAM buffers, three samples and scheduled/interrupt
+elapsed time limit generalization. Copy has no demonstrated benefit in this
+workload. Sustained misses have overhead. Do not retain/enable every path on
+the strength of clear or text-hit results alone; representative full-frame
+copy/clear geometry and real UI hit rates remain the next decision point.
+
+Phone/UI evidence and failures are separate from CPU comparisons:
+
+- Preflight and draw-profile-off control used the existing Ping app without
+  installing/removing any app. The control confirmed Ping running, three pongs
+  (336.7 / 228.1 / 354.5 ms) and a complete 67,600-byte 260 x 260 framebuffer
+  screenshot matching preflight SHA-256
+  `b6d5c82dbf2981eab6d81c1423280443ffbce119c80156457f5136f9e3b3eadc`.
+  This is framebuffer evidence, not a physical-panel visual qualification.
+  That control also reached 32 AP-only sleep returns with zero recorded sleep
+  faults or CP/clock/resource transitions; it had existing animation-ID errors.
+- The phone was force-stopped before the final flash and restarted after boot.
+  A further phone-only restart restored encrypted bonding and PPoGATT at
+  15:37:52 UTC, but connection-parameter update timed out and disconnected at
+  15:38:12 (`0x0208`). Preserve this actual failure; phone-only causation is
+  not proven. Final socket/protocol/screenshot checks did not complete.
+  A final bounded 32-second readiness attempt found no connected watch. No
+  watch reset, bond clearing or storage repair was used to hide this outcome.
+  A later spontaneous reconnect at 15:40:31 also failed during service discovery
+  after another parameter timeout at 15:40:39; the complete UART is retained.
+- Early developer-server-not-ready attempts and the socket handshake failure
+  are preserved as harness/connection failures, not successful device checks.
+  The host Ruff cache initially hit the read-only sandbox; `--no-cache` passed.
+
+Validation commands/results:
+
+- `python -m unittest tools.tests.test_t5ai_draw_profile tools.tests.test_t5ai_config tools.tests.test_t5ai_display_profile tools.tests.test_t5ai_compositor_fast tools.tests.test_t5ai_pixel_fast tools.tests.test_t5ai_text_node_cache tools.tests.test_t5ai_build_integration`: 22 methods, 21 pass and one explicit expected stock legacy signed-shift failure; ASan/UBSan retained.
+- `cmake --build build-quality-finding9-candidate -j 8`: final ARM/LTO build and
+  existing image/resource/CRC/layout/syscall gates pass. Flash 1,666,608 bytes,
+  RAM 96,544, display PSRAM 126,912/131,072, DMA RAM 14,976; no guard weakened.
+- `tools/flash_unhygienix_firmware.py --raw .../fixed/pebbleos.bin --protected .../fixed/pebbleos.t5ai-crc.bin --tyutool /tmp/pebble-quality-tyutool --port /dev/serial/by-id/usb-1a86_USB_Dual_Serial_5C75025844-if00 --flash`: AP-only guarded success. Per-image configs, maps, ELF, dictionaries, source, raw UART/chunk timestamps and phone attempts are retained.
+- Ruff check/format (`--no-cache`), Clang Format and `git diff --check` pass.
+  Unrelated `REMAINING_TASKS.md` and `power-todo.md` hashes remain unchanged.
+
+**Next unresolved:** representative full-frame/UI stock-vs-local comparisons,
+including copy eligibility/cost and cache miss/hit rate; the final reconnect
+failure prevents a complete final-image screenshot check. Preserve the stock
+wide-legacy UB dependency. Main finding-10 benchmark/acceptance checkboxes remain
+open; do not advance to finding 11 or claim broad hardware qualification.
+Pause with all source changes uncommitted for operator review.
+
+Final capture was stopped cleanly after 418.866 seconds and 6,979 received bytes.
+There was one AP boot in the final image capture and no additional boot banner
+after the authorized flash. Task-owned ADB forwarding was removed; the phone
+app and Bluetooth remain enabled. No capture or soak is left running.
+
+Operator requested committing this checkpoint and moving to finding 11.
+The open finding-10 performance/qualification limits above remain open.

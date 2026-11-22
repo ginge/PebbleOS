@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "applib/graphics/text.h"
 #include "applib/ui/window.h"
+#include "kernel.h"
 #include "kernel/pebble_tasks.h"
 #include "pbl/kernel/malloc.h"
 
@@ -185,13 +186,12 @@ int __wrap_pbl_mutex_lock_lr(struct pbl_mutex *m, pbl_timeout_t timeout, uintptr
   prv_add(3u, T5AI_AON_RTC_COUNT_LOW - start, 0u);
   return rc;
 }
-struct pbl_waitq;
-int __real_sched_block(struct pbl_waitq *, pbl_timeout_t);
-int __wrap_sched_block(struct pbl_waitq *waitq, pbl_timeout_t timeout) {
+__typeof__(sched_block) __real_sched_block;
+int __wrap_sched_block(struct pbl_waitq *waitq, pbl_timeout_t timeout, unsigned int key) {
   if (!prv_app() || !s_render_depth)
-    return __real_sched_block(waitq, timeout);
+    return __real_sched_block(waitq, timeout, key);
   const uint32_t start = T5AI_AON_RTC_COUNT_LOW, cpu = prv_cpu();
-  const int rc = __real_sched_block(waitq, timeout);
+  const int rc = __real_sched_block(waitq, timeout, key);
   prv_add(5u, T5AI_AON_RTC_COUNT_LOW - start, prv_cpu() - cpu);
   return rc;
 }

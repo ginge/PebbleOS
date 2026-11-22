@@ -1,6 +1,4 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-#include "applib/graphics/text.h"
-#include "applib/ui/window.h"
 #include "kernel/pebble_tasks.h"
 
 #include <string.h>
@@ -8,6 +6,7 @@
 #include <pbl/kernel/thread.h>
 #include <pbl/logging/logging.h>
 #include <pbl/soc/t5ai/core.h>
+#include <pbl/soc/t5ai/text_node_cache.h>
 
 PBL_LOG_MODULE_DEFINE(t5ai_text_node_cache, LOG_LEVEL_DEBUG);
 #define CACHE_ENTRIES 16u
@@ -25,10 +24,9 @@ static bool s_active;
 static unsigned s_replace;
 static uint32_t s_hits, s_misses, s_bypass;
 extern struct pbl_thread *pbl_cur;
-void t5ai_cache_stock_window_render(Window *, GContext *);
-void window_render(Window *window, GContext *ctx) {
+void t5ai_text_node_cache_window_render(Window *window, GContext *ctx) {
   if ((__get_CONTROL() & 1u) || pebble_task_get_current() != PebbleTask_App) {
-    t5ai_cache_stock_window_render(window, ctx);
+    window_render(window, ctx);
     return;
   }
   // Only privileged App rendering owns this cache. Each render invalidates fonts/text/state.
@@ -37,7 +35,15 @@ void window_render(Window *window, GContext *ctx) {
   s_replace = 0u;
   for (unsigned i = 0; i < CACHE_ENTRIES; ++i)
     s_cache[i].valid = false;
-  t5ai_cache_stock_window_render(window, ctx);
+#ifdef CONFIG_T5AI_GRAPHICS_BENCH
+  static bool benchmarked;
+  if (!benchmarked) {
+    benchmarked = true;
+    extern void t5ai_graphics_bench(GContext * ctx);
+    t5ai_graphics_bench(ctx);
+  }
+#endif
+  window_render(window, ctx);
   s_active = false;
 }
 // Only text_node.c redirects its call here; that caller always supplies TextLayoutExtended.
@@ -80,7 +86,7 @@ GSize t5ai_text_node_cached_size(GContext *ctx, const char *text, GFont font, GR
   e->valid = true;
   return size;
 }
-#ifdef CONFIG_T5AI_DRAW_PROFILE
+#if defined(CONFIG_T5AI_DRAW_PROFILE) || defined(CONFIG_T5AI_GRAPHICS_BENCH)
 void t5ai_text_node_cache_dump(void) {
   PBL_LOG_DBG("T5LAYOUT hits=%lu misses=%lu bypass=%lu bytes=%lu", (unsigned long)s_hits,
               (unsigned long)s_misses, (unsigned long)s_bypass, (unsigned long)sizeof(s_cache));

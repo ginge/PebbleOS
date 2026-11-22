@@ -3,6 +3,50 @@
 The latest installation checkpoint below is the current installed state. Dated entries preserve
 the state and evidence at their recorded checkpoint.
 
+## Finding 10 ARM bench installed — 22 November, 15:35 UTC
+
+Installed AP-only diagnostic build **ada42d32395354471f04da81ad21c9a5f0df53b3**,
+protected SHA-256 `a5cc76a850c003a966f027633dfa4b77b7ba4c92eedf95f998992e7e6b045270`.
+Graphics copy/pixel/text cache, repaired draw profiling, retained CP-awake sleep
+and HCI event waits are enabled; display/HCI profiling are off. The one-shot
+benchmark defaults off in source. No automatic commit was made.
+
+All 15 on-watch microbenchmark checks matched stock outputs. Median paired
+elapsed-time changes were clear -86.6%, pixels -32.6%, cached text hits -91.2%,
+copy +6.5%, text misses +2.8%. These are small warm PSRAM/real-font CPU
+comparisons at 240 MHz, not FPS, current or full UI qualification. Copy benefit
+and representative UI/cache traffic remain unresolved.
+
+The initial profiling image stalled at the boot logo. Its complete failure
+capture is preserved; a local scheduler wrapper had omitted the real third
+interrupt-lock-key argument. The repaired image boots and benchmarks with draw
+profiling enabled. The draw-profile-off control also completed protocol checks,
+restored the existing Ping app and matched its preflight framebuffer screenshot.
+
+The final image reached encrypted phone/PPoGATT connection, then disconnected
+after a connection-parameter timeout (`0x0208`). Final protocol/screenshot
+verification remains incomplete; the phone-only cause assumption is unproven.
+No bond clearing, formatting, CP/resource flash or extra watch reset was used.
+See the [TODO hardware checkpoint](code-quality-todo.md) for all samples,
+first-failure evidence, validation and limitations. Finding 10 remains open.
+
+## Finding 10 graphics cleanup in source — 22 November 2026
+
+Uncommitted graphics work replaces compositor and text-cache stock-definition
+renaming with named local caller entries, derives compositor dimensions from
+bitmaps, and avoids redundant extent scans for regular rows. A full-unit pixel
+comparison reproduced and fixed a null row-table dereference: display-backed
+circular bitmaps now use the supported stock fallback. Shared graphics source
+and option policies remain unchanged.
+
+Real-header, complete-unit host comparisons and separate host benchmarks now
+cover all three paths. One explicit expected failure preserves an unchanged
+stock wide-legacy signed-shift defect. Host timing is not on-watch performance;
+text fixtures use synthetic glyph metrics and do not render fonts or panels.
+See the [finding 10 progress record](code-quality-todo.md) for measurements,
+commands and remaining target/UI qualification. Nothing has been flashed;
+the installation checkpoint below remains current.
+
 ## HCI event waits enabled by default in source — 22 November 2026
 
 At the operator's explicit request, `CONFIG_T5AI_HCI_EVENT_WAIT` now defaults

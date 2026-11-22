@@ -221,6 +221,10 @@ if(CONFIG_T5AI_TASK_CPU_METRICS)
 endif()
 
 
+if(CONFIG_T5AI_GRAPHICS_BENCH)
+  pbl_library_sources(graphics_bench.c)
+endif()
+
 if(CONFIG_T5AI_DRAW_PROFILE)
   pbl_library_sources(draw_profile.c)
   foreach(symbol window_render graphics_draw_text pbl_mutex_lock_lr SysTick_Handler sched_block)
