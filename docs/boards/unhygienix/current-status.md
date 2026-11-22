@@ -3,6 +3,61 @@
 The latest installation checkpoint below is the current installed state. Dated entries preserve
 the state and evidence at their recorded checkpoint.
 
+## Findings 13/14 installed and bench-checked — 22 November, 17:33 UTC
+
+Installed default AP build **80136932e2a39db7789df18cfc8c67f37424debd**,
+`v4.41.2-1662-gc4258ad88-dirty`, protected SHA-256
+`8db1a5ea0d18e28e78b7d0ab6e3c0b33cff58c81184280d88d9fd23735f2cdec`.
+Finding 13 is committed as `c4258ad88`; finding 14 remains uncommitted. No CP,
+resource/storage, calibration or bond programming/clearing was performed.
+
+Default startup and all five operator dim/wake/swipe cycles pass. All three
+bounded boots complete 15 graphics checks; default captures record 32 AP-only
+sleep returns with zero recorded faults. Optional AMOLED sleep-in/reprepare is
+off and actual SPI-fault recovery/minimum hardware timing is not qualified.
+
+A temporary existing battery diagnostic flag records actual ADC completions:
+raw 2180 / 4001 mV, taking 7 and 5 ms, 60.006 seconds apart. The operator kept
+the battery disconnected: these are charger-node/CHRG-proxy readings, not cell
+voltage or charge-transition qualification. Restored the exact default image
+and configuration; the rebuilt raw/protected outputs are byte-identical to the
+sealed candidate. Battery diagnostic logging is off again. Real-cell charging,
+ADC fault injection and measured idle wakeup/energy checks remain open.
+
+Phone pongs/version/app checks pass in all stages. Two framebuffer transfers
+pass, but the final restored-default screenshot fails on a send-buffer shortage
+with connection-parameter retries. First-failure UART/phone evidence is retained;
+a subsequent connection-only check passes without reset. No clean transport
+qualification or causal attribution is claimed. Early touch-transfer and
+animation errors remain recorded alongside earlier similar observations.
+
+All captures are stopped; UARTs and phone forwarding are released. See the
+[TODO bench checkpoint](code-quality-todo.md) for exact commands, stages, limits
+and evidence. Full finding-13/14 acceptance remains open; no new commit was made.
+
+## Finding 14 battery events/deadlines in source — 22 November 2026
+
+At the operator's request, finding 13 is committed as `c4258ad88`; its hardware
+startup/wake acceptance remains open. Finding 14 is a separate uncommitted
+board-local battery change: ADC completion, charge debounce and demanded
+startup/retry work use actual deadlines. Healthy-IRQ idle reconciliation is
+30 seconds; failed IRQ setup retains the original one-second fallback.
+Asynchronous requests, freshness/range guards, calibration and terminal
+quarantine remain unchanged. Logs and service events stay off the mailbox owner.
+
+All 81 affected host methods and full ARM/image gates pass. Matched idle models
+record 60 control versus two candidate callbacks per minute, zero ADC requests
+in both; this does not qualify physical wakeups or power. FLASH grows 384 bytes
+and RAM 64 bytes against finding 13; config and six retained/reserved layouts
+are unchanged. Healthy-IRQ missed-edge reconciliation can take 30 seconds plus
+400 ms; real delivered IRQs use a 400 ms debounce deadline. Queue-pressure and
+reentrant delivery checks pass with complete real-header battery code.
+
+No new flash or commit accompanies finding 14. On-watch battery delivery/idle
+checks and the finding-13 panel bench remain open; the installed finding-12
+touch image below remains current. Finding 15 is untouched. See the
+[TODO](code-quality-todo.md) for commands, evidence and limitations.
+
 ## Finding 13 panel delays in source — 22 November 2026
 
 Finding 12's verified touch increment is committed as `41ee66f80`; gitlint passes.

@@ -22,6 +22,9 @@ PBL_LOG_MODULE_DEFINE(driver_battery_t5ai, LOG_LEVEL_DEBUG);
 #define STARTUP_DELAY_MS   30000u
 #define RETRY_DELAY_MS     5000u
 #define CHARGE_DEBOUNCE_MS 400u
+#define RECONCILE_MS       30000u
+#define NO_IRQ_POLL_MS     1000u
+#define DELIVERY_RETRY_MS  50u
 #define MIN_VALID_MV       2000
 #define MAX_VALID_MV       5000
 
@@ -31,11 +34,33 @@ static T5AISaradcDiagnostics s_last_diagnostics;
 static uint16_t s_last_peak;
 static bool s_charge_dirty, s_charge_known;
 static uint64_t s_retry_at, s_charge_changed_at;
+static uint32_t s_reconcile_ms;
 static struct {
   status_t status;
   int millivolts;
   uint64_t sampled_at_ms;
 } s_sample = {.status = E_AGAIN};
+
+static struct pbl_delayed_work s_deadline, s_reconcile;
+
+// Caller holds the IRQ lock; queued service work consumes all current flags.
+static void prv_schedule_locked(uint64_t now) {
+  if (!s_initialized || s_work_queued)
+    return;
+  uint64_t at = UINT64_MAX;
+  if (s_notify)
+    at = now;
+  if (s_service_requested && s_retry && !s_pending && !s_terminal && s_retry_at < at)
+    at = s_retry_at;
+  if (s_charge_dirty && s_charge_changed_at + CHARGE_DEBOUNCE_MS < at)
+    at = s_charge_changed_at + CHARGE_DEBOUNCE_MS;
+  if (at == UINT64_MAX) {
+    pbl_delayed_work_cancel(&s_deadline);
+  } else {
+    pbl_delayed_work_reschedule(&pbl_sys_workq_high, &s_deadline,
+                                PBL_MSEC(at > now ? at - now : 0u));
+  }
+}
 
 static int prv_raw_to_millivolts(uint16_t raw) {
   const T5AIBatteryConfig *cfg = &T5AI_BATTERY_CONFIG;
@@ -62,6 +87,7 @@ static void prv_completed(status_t status, uint16_t peak, void *context) {
   s_retry = FAILED(status) && !s_terminal;
   s_retry_at = s_sample.sampled_at_ms + RETRY_DELAY_MS;
   s_notify = true;
+  prv_schedule_locked(s_sample.sampled_at_ms);
   pbl_irq_unlock();
 }
 
@@ -80,6 +106,7 @@ static status_t prv_get_sample(int *millivolts) {
     s_sample.millivolts = 0;
     status = E_AGAIN;
   }
+  prv_schedule_locked(now);
   pbl_irq_unlock();
   if (request) {
     status_t result = t5ai_saradc_request(T5AI_BATTERY_CONFIG.channel, T5AI_BATTERY_CONFIG.samples,
@@ -94,17 +121,24 @@ static status_t prv_get_sample(int *millivolts) {
 
 static void prv_service_update(void *context) {
   (void)context;
-  const uint64_t now = pbl_uptime_ms();
-  const bool charge = pbl_gpio_get(&T5AI_BATTERY_CONFIG.charge) > 0;
   pbl_irq_lock();
-  s_work_queued = false;
+  const uint64_t now = pbl_uptime_ms();
+  const int charge_level = pbl_gpio_get(&T5AI_BATTERY_CONFIG.charge);
+  const bool charge = charge_level > 0;
   bool changed = s_charge_dirty && now - s_charge_changed_at >= CHARGE_DEBOUNCE_MS;
+  if (changed && charge_level < 0) {
+    s_charge_changed_at = now;
+    changed = false;
+  }
   if (changed) {
     s_charge_dirty = false;
     changed = charge != s_charge_known;
     s_charge_known = charge;
   }
-  const bool update = s_notify || (s_service_requested && s_retry && now >= s_retry_at);
+  const bool retry_due = s_service_requested && s_retry && now >= s_retry_at;
+  const bool update = s_notify || retry_due;
+  if (retry_due)
+    s_retry = false;
 #if !defined(CONFIG_T5AI_BATTERY_QUIET_SUCCESS) || defined(CONFIG_T5AI_POWER_PROFILE) || \
     defined(CONFIG_T5AI_BATTERY_PROFILE)
   const bool sampled = s_notify && PASSED(s_sample.status);
@@ -140,6 +174,10 @@ static void prv_service_update(void *context) {
   if (update) {
     battery_state_force_update();
   }
+  pbl_irq_lock();
+  s_work_queued = false;
+  prv_schedule_locked(pbl_uptime_ms());
+  pbl_irq_unlock();
 }
 
 static void prv_charge_interrupt(void *context) {
@@ -147,35 +185,41 @@ static void prv_charge_interrupt(void *context) {
   pbl_irq_lock();
   s_charge_dirty = true;
   s_charge_changed_at = pbl_uptime_ms();
+  prv_schedule_locked(s_charge_changed_at);
   pbl_irq_unlock();
 }
 
-static void prv_regular_callback(void *context) {
-  (void)context;
-  const uint64_t now = pbl_uptime_ms();
-  const bool charge = pbl_gpio_get(&T5AI_BATTERY_CONFIG.charge) > 0;
+static void prv_deadline(struct pbl_work *work) {
+  (void)work;
   pbl_irq_lock();
-  // Reconcile a missed edge without reading the ADC or dispatching idle work.
-  if (charge != s_charge_known && !s_charge_dirty) {
-    s_charge_dirty = true;
-    s_charge_changed_at = now;
-  }
+  const uint64_t now = pbl_uptime_ms();
   const bool due = s_notify || (s_service_requested && s_retry && now >= s_retry_at) ||
                    (s_charge_dirty && now - s_charge_changed_at >= CHARGE_DEBOUNCE_MS);
   if (due && !s_work_queued) {
     s_work_queued = true;
     if (!pbl_sys_work_try_call(prv_service_update, NULL)) {
       s_work_queued = false;
+      pbl_delayed_work_reschedule(&pbl_sys_workq_high, &s_deadline, PBL_MSEC(DELIVERY_RETRY_MS));
     }
+  } else {
+    prv_schedule_locked(now);
   }
   pbl_irq_unlock();
 }
 
-static struct pbl_delayed_work s_regular;
-static void prv_battery_tick(struct pbl_work *work) {
+static void prv_reconcile(struct pbl_work *work) {
   (void)work;
-  prv_regular_callback(nullptr);
-  pbl_delayed_work_schedule_next(&s_regular, pbl_ms_to_ticks(1000));
+  pbl_irq_lock();
+  const uint64_t now = pbl_uptime_ms();
+  const int charge = pbl_gpio_get(&T5AI_BATTERY_CONFIG.charge);
+  // Slow safety net for lost IRQs; normal edges use their own debounce deadline.
+  if (charge >= 0 && (charge > 0) != s_charge_known && !s_charge_dirty) {
+    s_charge_dirty = true;
+    s_charge_changed_at = now;
+    prv_schedule_locked(now);
+  }
+  pbl_irq_unlock();
+  pbl_delayed_work_schedule_next(&s_reconcile, pbl_ms_to_ticks(s_reconcile_ms));
 }
 
 void battery_init(void) {
@@ -190,15 +234,21 @@ void battery_init(void) {
     return;
   }
   s_charge_known = pbl_gpio_get(&cfg->charge) > 0;
+  pbl_delayed_work_init(&s_deadline, prv_deadline);
+  pbl_delayed_work_init(&s_reconcile, prv_reconcile);
+  s_reconcile_ms = RECONCILE_MS;
   if (pbl_intc_request(&cfg->interrupt, prv_charge_interrupt, NULL) != 0 ||
       pbl_intc_enable(&cfg->interrupt) != 0) {
+    s_reconcile_ms = NO_IRQ_POLL_MS;
     PBL_LOG_WRN("Charge IRQ unavailable; reconciling GPIO state on regular timer");
   }
   s_retry_at = pbl_uptime_ms() + STARTUP_DELAY_MS;
   s_retry = true;
   s_initialized = true;
-  pbl_delayed_work_init(&s_regular, prv_battery_tick);
-  (void)pbl_delayed_work_schedule(&pbl_sys_workq_high, &s_regular, PBL_MSEC(1000));
+  (void)pbl_delayed_work_schedule(&pbl_sys_workq_high, &s_reconcile, PBL_MSEC(s_reconcile_ms));
+  pbl_irq_lock();
+  prv_schedule_locked(pbl_uptime_ms());
+  pbl_irq_unlock();
 }
 
 int battery_get_millivolts(void) {

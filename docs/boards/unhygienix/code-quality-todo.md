@@ -212,10 +212,10 @@ within the recorded bench scope. Warning/soak limits are retained below.
 
 ### 14. Schedule battery work from events and deadlines
 
-- [ ] Replace the permanent one-second servicing poll in
+- [x] Replace the permanent one-second servicing poll in
   `drivers/battery/t5ai.c` with charge-edge and ADC-completion work, plus delayed
   debounce/retry deadlines.
-- [ ] Retain slower missed-edge reconciliation if required, asynchronous
+- [x] Retain slower missed-edge reconciliation if required, asynchronous
   measurement semantics and invalid-reading protection.
 - [ ] Acceptance: charge bounce, missed edges, ADC errors/retries and startup
   behavior pass; idle wakeups decrease without delayed state delivery.
@@ -2253,3 +2253,159 @@ sleep conversion and sequencing, not physical timing or scheduling progress.
 No finding-13 flash or hardware operation was performed; the verified finding-12
 touch image remains installed. Finding 13 source is uncommitted for review;
 do not advance to finding 14 before completing this increment's validation.
+
+
+### Finding 13 committed; finding 14 event/deadline battery delivery — 2026-11-22
+
+At the operator's explicit request to commit and move on, committed the finding-13
+source increment as **c4258ad88** (`t5ai: sleep through CO5300 reset and power delays`).
+DCO/AI trailers and gitlint pass; only its eight reviewed files were staged.
+Its on-watch startup/wake acceptance remains open. Advancing source work to 14
+does not imply that the unflashed panel-delay candidate was hardware-qualified.
+
+Current-HEAD reinspection confirms finding 14: charge IRQ and ADC completion
+only set flags, and a permanent 1 Hz high-work callback polls them for normal
+service delivery. The existing asynchronous ADC request, 30-second startup
+holdoff after demand, 60-second sample freshness, five-second failure retry,
+400 ms charge debounce, calibration conversion/range guards and terminal
+SARADC quarantine rules remain appropriate and are preserved.
+
+The board-local battery driver now schedules the earliest actual notification,
+charge-debounce or demanded retry/startup deadline. ADC completion schedules
+immediate high work that queues normal service work; synchronous logs, event
+publication and `battery_state_force_update()` still run off the mailbox owner.
+Charge edges restart the 400 ms deadline. A 30-second GPIO-only reconciliation
+checks for missed edges without starting ADC work or idle normal callbacks.
+If IRQ request/enable fails, retain the original one-second GPIO reconciliation
+fallback. A missed edge with a working IRQ can now take up to 30 seconds plus
+400 ms to reconcile; genuine IRQ delivery uses the 400 ms deadline directly.
+This is the explicit safety-net latency tradeoff, not a claim of equal missed-edge
+latency. No default ADC sampling interval or charge/USB proxy meaning changes.
+
+Queued/running service work coalesces current flags, then reschedules flags that
+arrive during delivery. Consuming a due retry prevents an immediate high-work
+loop while the battery service schedules its own asynchronous request. If the
+normal-work call pool refuses delivery, retain the flags and retry after 50 ms;
+do not spin, drop completion or log on the mailbox owner. GPIO read errors do
+not publish a false charge transition; a pending debounce retries instead.
+GPIO sampling and edge timestamps share the IRQ lock; T5AI GPIO reads are
+nonblocking register reads. Timers are initialized before enabling IRQs, and
+an edge during enable is scheduled after initialization completes.
+
+Validation:
+
+- Committed baseline: `ASAN_OPTIONS=detect_leaks=0 /tmp/pebble-quality-venv/bin/python -m unittest tools.tests.test_t5ai_battery tools.tests.test_t5ai_saradc -v`: **14 methods pass**. The preserved complete committed battery unit also compiles with the new real-header fixture, then fails the idle servicing budget assertion during execution. A matched 60-second model records control **60 callbacks / 61 GPIO reads** versus candidate **2 callbacks / 3 GPIO reads**; both request zero ADC samples and zero service updates. These are driver/model counts, not electrical power measurements or whole-system wake counts.
+- Replaced the battery fixture's copied GPIO/IRQ/work/event/ADC layouts and synthetic event constant with real production headers, Kconfig, `PebbleEvent`, native descriptors and complete `kernel/tick.c`; the complete driver is included without source stripping or function extraction. Hardware, queue execution, service and SARADC endpoints remain modeled. Production shared/common code is untouched.
+- All six existing battery methods retain demand, freshness, range, asynchronous completion, failure/retry, terminal quarantine, coalescing, charge bounce and logging assertions. Their scheduler advances follow the new actual 50 ms delivery retry and 30-second healthy-IRQ reconciliation deadlines. The old single-periodic-registration assertion becomes a two-initialized-timer/idempotent-init check. These changes express the intended schedule; validity/error assertions were not weakened.
+- Twelve new methods cover idle servicing, exact startup/debounce/completion deadlines, late first demand, queued-service bounce, work-pool pressure, retry-loop avoidance, GPIO errors, reentrant IRQ/completion delivery, IRQ-enable initialization races, request/enable failure fallback and 64-bit uptime. Native battery fixtures run under ASan/UBSan. The existing SARADC transport suite remains unchanged and modeled; no new CP or hardware qualification is claimed.
+- Final command: `PATH=/tmp/pebble-quality-venv/bin:$PATH ASAN_OPTIONS=detect_leaks=0 /tmp/pebble-quality-venv/bin/python -m unittest tools.tests.test_t5ai_battery tools.tests.test_t5ai_battery_events tools.tests.test_t5ai_saradc tools.tests.test_t5ai_panel_delays tools.tests.test_t5ai_panel_instances tools.tests.test_t5ai_panel_init tools.tests.test_t5ai_panel_power_cache tools.tests.test_t5ai_display_power tools.tests.test_t5ai_backlight tools.tests.test_t5ai_touch tools.tests.test_t5ai_touch_instances tools.tests.test_t5ai_sensor_startup tools.tests.test_t5ai_board_psram tools.tests.test_unhygienix_image tools.tests.test_t5ai_config tools.tests.test_t5ai_build_integration -v`: **81 methods pass**.
+- `PATH=ARM_TOOLCHAIN:/tmp/pebble-quality-venv/bin:$PATH cmake --build build-quality-finding9-candidate -j 8`: full ARM/LTO, image layout, CRC, resource-size and syscall gates pass. FLASH **1,667,136** bytes (+384 against finding 13); RAM **96,640** (+64). PSRAM 126,912/131,072, DMA 14,976 and PFS 8,192 remain unchanged. Actual map comparison confirms all six retained/reserved section addresses and sizes unchanged; candidate config is byte-identical to finding 13. Existing generated-declaration LTO warnings remain.
+- Complete panel timing source stays committed; the battery profile diagnostic branch also compiles as a complete ARM unit using actual Ninja flags plus `CONFIG_T5AI_BATTERY_PROFILE=1`. This optional-path compile is not an alternate full build/runtime qualification. No AP/CP ABI, partition, calibration, Bluetooth identity, storage contents, ownership/quarantine or Gabbro changes.
+- Initial fixture logging-matrix failures exposed real Kconfig selection/dependency rules: quiet-success is selected by the savings umbrella, and power profiling requires tick profiling. The matrix now uses the documented umbrella opt-out, enables the actual dependency and asserts effective symbol values. A fixture-only IRQ-error return typo was corrected. A broader run's CMake lookup failed before configuration; adding the installed tool directory to PATH makes all tests pass. These are fixture/tool setup failures, not evidence of target regressions; failed logs remain separate.
+- Ruff check/format, Clang Format 22, `git diff --check` and gitlint pass. Unrelated planning-file hashes remain unchanged. Exact before/source snapshots, baseline and failure/passing logs, matched idle counts, default candidate config/map/ELF/dictionary/images, optional compile command and SHA-256 seal: `build-quality-20261121/battery-events-finding14/`.
+
+**Remaining finding-14 acceptance:** on-watch charge/ADC delivery and idle-wakeup
+observation with the real scheduler/IPC and charge wiring. The host model does
+not measure energy, genuine missed IRQs or physical charger bounce. Finding 13's
+panel startup/wake bench also remains open; the candidate contains both changes
+relative to the installed touch image. No new flash/reset/provision/format was
+performed. Finding 14 is uncommitted for review; finding 15 has not been started.
+The flash/SARADC initialization coupling is intentionally left for finding 15.
+
+
+### Findings 13/14 flashed and bounded bench — 2026-11-22, 17:20–17:33 UTC
+
+At the operator's request, installed the exact sealed combined default AP build
+**80136932e2a39db7789df18cfc8c67f37424debd**,
+`v4.41.2-1662-gc4258ad88-dirty`. Raw SHA-256
+`26b86f69f65ac1b60cb6a70d36c505ea8d42164c00036d6f6341c213516770f1`;
+protected SHA-256
+`8db1a5ea0d18e28e78b7d0ab6e3c0b33cff58c81184280d88d9fd23735f2cdec`.
+This is now the installed image, including committed finding 13 and uncommitted
+finding 14. All 33 original evidence hashes and eight live source/review files
+matched before flashing. `pbl lab --json` has an empty inventory; actual host
+CH342 if00/if02 enumeration and free-port checks supplied the UARTs.
+
+Three guarded AP-only flashes were performed: default (52.1 s), temporary
+battery diagnostics, and restoration of that exact default (52.2 s). Each used
+`tools/flash_unhygienix_firmware.py --raw CASE/pebbleos.bin --protected CASE/pebbleos.t5ai-crc.bin --tyutool /tmp/pebble-quality-tyutool --port /dev/serial/by-id/usb-1a86_USB_Dual_Serial_5C75025844-if00 --flash`
+with the corresponding stage's files. Default physical range is
+0x132000..0x2e2744 exclusive. No CP, resources, PFS, calibration or bond data was
+programmed/cleared, and no format/provisioning operation occurred. Only the
+commanded flash boots were seen; no additional AP boot/assert/hard fault was
+observed in the bounded captures. Buffered pre-flash UART is retained and
+excluded from new-image analysis at each boot banner/build ID.
+
+**Finding 13, default-profile panel bench:** all three boots reach Launcher and
+complete all 15 graphics output checks. Initial default trace reaches Launcher
+at 17:20:52.834 (RTC startup anchor 17:20:41.000); restored default reaches it at
+17:30:11.167 (anchor 17:29:57.000). These are coarse boot-progress observations,
+not matched panel latency or energy measurements; storage startup varies.
+The operator reports **all five dim → wake → swipe cycles pass**, including
+normal UI/navigation, without a freeze, corruption or noticeably longer pause.
+This covers the default startup/dim path. `T5AI_AMOLED_SLEEP_ON_DISABLE` remains
+off: ordinary dim/wake does not exercise optional sleep-in/reset/reprepare.
+Minimum-delay and all command/error-exit checks remain the complete-unit host
+coverage. Actual SPI-fault recovery, optional reprepare timing and timing-analyzer
+measurements are unverified, so full acceptance is not checked off from this run.
+
+**Finding 14, ADC delivery bench:** operator confirms the battery is disconnected
+and explicitly requests keeping it disconnected. Watch power stayed connected.
+A temporary full ARM build enables only existing `CONFIG_T5AI_BATTERY_PROFILE=y`;
+all other effective config lines match, and image/layout/resource/syscall gates
+pass. Diagnostic build **76f5377c89f7edaa84e0c735e395a3f48c83bff3** logs:
+
+- 17:27:13.020: raw 2180, 4001 mV, elapsed 7 ms, CHRG proxy 1.
+- 17:28:13.026: raw 2180, 4001 mV, elapsed 5 ms, CHRG proxy 1.
+
+These verify real SARADC completion and deferred normal-work logging/delivery,
+with 60.006 s between samples and continued phone responsiveness. The startup
+sample appears after the existing holdoff; no ADC failure log appears. With no
+cell, this is a charger-node reading, **not a qualified cell voltage or evidence
+of a genuine charging transition**. An absent cell can leave an in-range reading;
+the existing range guard is not cell-presence detection. Hardware charger edges,
+bounce/missed IRQs, ADC error retries/quarantine and whole-system idle wakeups/
+energy are not qualified here. Host cases still cover those error/scheduling
+contracts; the 60→2 idle-callback result remains a model result.
+
+Restored the original default configuration by removing the temporary override,
+rebuilt successfully, and verified both raw/protected outputs byte-identical to
+the original sealed candidate before final default installation. Diagnostic
+logging is off in both the installed image and restored build workspace.
+Default and restored-default traces each report 32 AP-only sleep entries with
+`fault=0`; this is bounded sleep evidence, not a power/overnight qualification.
+
+**Phone and first failure:** initial default and diagnostic images each pass
+three pongs, version/app queries and a complete 260×260 / 67,600-byte framebuffer
+read. After default restoration, three pongs and version/app queries pass, but
+the framebuffer transfer fails: 17:31:07.116 UART records send-buffer shortage
+for 1024 bytes on endpoint 8000 and early screenshot termination, followed by
+connection-parameter retries reaching their bound. The host raises a screenshot
+`TimeoutError`. This first failure, raw UART and phone logcat remain preserved.
+A subsequent connection-only check passes three pongs (about 692–1012 ms) and
+version without resetting the watch or clearing bonds. Do not claim a clean
+final screenshot/transport qualification or attribute the failure to the phone
+or these changes without further evidence.
+
+Retained ancillary observations: the initial default logs one CST92xx report
+transfer failure, as the prior touch checkpoint did; logging is rate-limited,
+so the final exact count is unknown. Animation-not-found errors also occur,
+with similar errors in previous control captures. They are not suppressed or
+used as proof that finding 13/14 introduced a regression.
+
+Evidence is under
+`build-quality-20261121/battery-events-finding14/device-20261122-171934/`, with
+separate default/diagnostic/restored-default raw captures, timestamped chunks,
+exact images/dictionaries, flash/build/config logs, phone results, operator
+record, rebuild-equivalence proof and an independent hardware SHA-256 seal.
+Captures stopped cleanly at 229.112 / 183.176 / 247.416 s with 6017 / 5103 /
+5052 received bytes respectively. Both UARTs are free, phone forwards removed,
+and companion left running. Unrelated planning-file hashes remain unchanged.
+
+**Next unresolved acceptance:** real-cell charge transitions and measured idle
+behavior for finding 14; optional panel reprepare/fault timing for finding 13;
+and preserved screenshot/connection-parameter failure investigation. Both source
+changes are now installed and the bounded passed checks above are recorded,
+but the full acceptance checkboxes remain open for those explicit limits.
+No source fix or new commit was made during this flash/bench task. Finding 15
+has not been started.
