@@ -239,6 +239,17 @@ config T5AI_DISPLAY_PROFILE
       app/compositor phase totals and DMA failures every sixteen updates.
       Disabled builds contain no frame sampling or diagnostic logs.
 
+config T5AI_HCI_EVENT_WAIT
+    bool "Use event and deadline waits for T5AI HCI workers"
+    depends on BOARD_UNHYGIENIX
+    default y
+    help
+      Wake the HCI task on queued TX, controller frames or transport faults.
+      The IPC worker retries retained host packets only while capacity is
+      unavailable, within the existing receive deadline. Profile reports retain
+      their own deadlines. Disable to use the periodic polling fallback.
+      Does not enable CP low voltage.
+
 config T5AI_HCI_PROFILE
     bool "Measure T5 HCI traffic and task state"
     depends on BOARD_UNHYGIENIX

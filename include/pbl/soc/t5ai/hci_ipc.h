@@ -17,6 +17,8 @@ typedef struct {
 
 #ifdef CONFIG_T5AI_HCI_PROFILE
 typedef struct {
+  uint32_t work_notifications;
+  uint32_t work_timeouts;
   uint32_t send_busy_retries;
   uint32_t send_timeouts;
   uint32_t exchange_timeouts;
@@ -60,6 +62,7 @@ void t5ai_hci_ipc_get_diagnostics(T5AIHCIIpcDiagnostics *diagnostics);
 // Nonblocking final idle checks include logical leases beyond physical mailbox ACK.
 bool t5ai_hci_ipc_sleep_ready(void);
 bool t5ai_hci_sleep_ready(void);
+#endif
+
 // Latched work notification; a signal before the worker waits is retained.
 void t5ai_hci_notify_work(void);
-#endif

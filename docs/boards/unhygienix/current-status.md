@@ -3,6 +3,91 @@
 The latest installation checkpoint below is the current installed state. Dated entries preserve
 the state and evidence at their recorded checkpoint.
 
+## HCI event waits enabled by default in source — 22 November 2026
+
+At the operator's explicit request, `CONFIG_T5AI_HCI_EVENT_WAIT` now defaults
+to `y` on Unhygienix, with or without the power profile. Explicit `n` restores
+the polling fallback; HCI profiling remains default off. This supersedes the
+earlier default-change hold. The incomplete connected candidate A/B comparison
+and phone-side reconnect assumption remain documented limitations.
+
+No firmware was flashed: the installed image is still fallback Af described
+below. The source, tests and qualification record are included in the
+operator-requested finding-9 commit; finding 10 is next.
+
+## Finding 9 qualified by operator acceptance — 22 November 2026
+
+The operator accepts finding 9 as qualified, assuming auto-reconnect failures
+are phone-side for now. This is an explicit acceptance decision; phone-only
+causation and candidate latency/throughput non-regression were not established
+by the tests. Original failures, the incomplete matched comparison and the
+sealed evidence remain preserved in the [TODO record](code-quality-todo.md).
+
+There is no new installation or default change: fallback Af remains installed,
+event waits remain default off, and finding 9 remains uncommitted. The matched
+device comparison is still required before changing the default. Broader power,
+cold-boot, application and soak qualification remains open. Finding 10 is the
+next backlog item; pause for review, with no automatic commit.
+
+## HCI A/B qualification blocked; fallback restored — 22 November, 12:50 UTC
+
+The installed AP-only image is fallback build
+**`4762101d711f74b2f6db465cb9c07a520502c219`**, version
+`v4.41.2-1656-g8371a1b2a-dirty`, protected SHA-256
+`f7ca5cb25dffe198455097e3567e447213a51ad6502ed9804a94b67340ae136a`.
+HCI event waits are **off**, HCI profiling is on and retained CP-awake AP sleep
+remains on. Source defaults are unchanged. CP, resources, PFS, calibration and
+identity/bonds were not programmed; the finding-8 CP source refactor remains
+uninstalled. First fallback boot verified its ID and AP/CP reasons 0/0.
+
+Baseline A completed ten minutes connected idle, 2,200 protocol echoes, three
+67,600-byte transfers and 25 Bluetooth reconnects. It measured about ten upper
+timeout wakes/s. Its reconnect trace also contains two transient GATT discovery
+errors; successful protocol return does not erase those errors. Two candidate
+starts failed the 90 s session-ready limit and a warm candidate attempt had
+GATT/session failures. A2 fallback control completed the traffic/transfer test,
+but final fallback Af also failed the startup limit. The failures therefore
+cannot be attributed solely to event waits; no candidate latency or throughput
+qualification is claimed. No uncommanded AP boot or HCI/sleep guard fault was
+observed. First failures remain preserved before recovery attempts.
+
+Restarting only the Pebble phone app, without clearing its data/bonds or
+resetting the watch, restored an encrypted session. Three echoes returned in
+138.600, 80.357 and 81.738 ms; version and launcher-state queries passed. Later
+heartbeats remained active=1, queue=0, started=1, fault=0, with no new boot in
+the continuation trace. This demonstrates a phone-client-state dependency,
+not candidate qualification or a proven root cause. All UART captures and test
+processes are stopped; the task-owned ADB forward was removed. Pause for review.
+Finding 9 stays uncommitted and default-off; broader power, cold boot,
+watchface installation, pool-pressure and overnight qualification remain open.
+See the [TODO record](code-quality-todo.md) and evidence under
+`build-quality-20261121/hci-work-finding9/ab-20261122/`.
+
+## HCI event-wait candidate installed — 22 November, 11:28 UTC
+
+Installed AP-only build **`37a2be6dcc819bbe6d55062419813135d31e577b`**, version
+`v4.41.2-1656-g8371a1b2a-dirty`. Event waits and HCI profiling are enabled in this
+candidate; qualified source defaults remain unchanged. Protected SHA-256:
+`617c02879daa36ac263c6d5ac40e0a174ae07bbe62c038da6bdc584ab2c0724e`.
+The operator requested this flash; it completed in 51.9 s without a programming
+hold or recovery reset. CP, resources, PFS, calibration and identity/bonds were
+not programmed. The CP policy source refactor is not installed on CP.
+
+The first boot verified the exact ID, reasons 0/0, awake contract 0x78f, existing
+SD PFS (`new=0`), resources, launcher and encrypted bonded PPoGATT. At firmware
+time 11:29:10.245 it reported 32 AP-only sleep returns with zero CP/clock/mask/
+resource transitions and no fault. Two healthy HCI heartbeats 30 s apart showed
+active=1, queue=0, started=1, fault=0 and advancing receive counters. The stopped
+167.221-second capture received 4053 bytes, one boot and no panic or subsequent
+transport/sleep failure. Existing vendor boot warnings remain in the trace.
+
+Evidence: `build-quality-20261121/hci-work-finding9/flash-20261122/` and the
+[code-quality progress record](code-quality-todo.md). Finding 8 is committed as
+`8371a1b2a`; finding 9 is an uncommitted candidate. Its normal/candidate ARM/LTO
+builds and host tests passed. Device wakeup/packet-latency A/B, reconnect cycles,
+power and soak qualification remain open. All captures are stopped; pause for
+operator verification with this image installed.
+
 ## Evidence-preserving sleep retry installed — 22 November, 09:57 UTC
 
 Installed AP-only build `31b50d165281fa78016a880573b910fefe8c69cf`, version

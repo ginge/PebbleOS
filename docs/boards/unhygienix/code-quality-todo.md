@@ -147,12 +147,22 @@ on-watch format or storage qualification.
 
 ### 9. Make HCI wakeups event-driven
 
-- [ ] Map every producer of HCI work, then use existing notifications as the
+- [x] Map every producer of HCI work, then use existing notifications as the
   normal wake mechanism in all configurations.
-- [ ] Replace periodic 5/100 ms polling with waits timed to actual retry,
-  receive-retention and recovery deadlines.
-- [ ] Acceptance: lost-wakeup/race tests pass; compare idle wakeups and packet
-  latency before changing qualified defaults.
+- [x] Replace periodic 5/100 ms polling in the event-wait policy with
+  waits timed to actual retry, receive-retention and recovery deadlines.
+- [x] Acceptance: lost-wakeup/race tests pass; operator accepts finding 9 as
+  qualified on 2026-11-22, assuming auto-reconnect failures are phone-side for
+  now. The incomplete matched connected-idle/latency comparison is accepted as
+  a measurement limitation, not recorded as a passing test.
+
+The event/deadline implementation is qualified by explicit operator acceptance
+and is included in the operator-requested finding-9 commit. Event waits are
+now enabled by default; an explicit `CONFIG_T5AI_HCI_EVENT_WAIT=n` retains the
+polling fallback. Phone-side causation remains an accepted working assumption,
+not a proven root cause. The connected candidate A/B measurement remains
+incomplete. Original failures and measurement limits remain recorded below. See the
+[producer/wait inventory](hci-work.md).
 
 ### 10. Give graphics optimizations explicit boundaries
 
@@ -1337,3 +1347,293 @@ calibration, Bluetooth/Gabbro identity, storage contents and quarantine/ownershi
 guards are unchanged. The operator requested this increment be committed before proceeding to finding 9.
 **Next unresolved item: finding 9**, mapping HCI work producers and evaluating
 notification/deadline waits before changing qualified polling defaults.
+
+
+### Finding 9 progress — 2026-11-22 (candidate, uncommitted)
+
+Committed finding 8 as `8371a1b2a` after the operator requested its commit.
+Its gitlint and staged/source checks pass; unrelated power and remaining-task
+edits were excluded. Finding 9 is reassessed against that HEAD.
+
+The producer map is complete in [HCI work and waits](hci-work.md). Controller
+frames already woke the independent IPC task, and retained-sleep builds had
+latched upper-task notifications. Configurations without retained sleep compiled
+those notifications out. Reliable RX retention relied on the upper task's
+periodic kick; event-pool frees have no general notification. Removing every
+retry timer would therefore strand packets under host-pool pressure.
+
+Implemented a board-local candidate:
+
+- Existing upper work notifications now exist in every T5AI HCI configuration.
+  Enqueue publishes under the TX mutex and signals after unlock. Frame routing
+  signals both workers, and a late transport fault signals the upper task again.
+  Even legacy non-retained builds now use a latched semaphore with the original
+  5 ms timeout; the normal retained fallback keeps its 5/100 ms bounds.
+- `CONFIG_T5AI_HCI_EVENT_WAIT` is **default off**, including in the qualified
+  power profile. With it enabled, the upper task waits for notification, or the
+  remaining 30 s profile deadline when profiling is enabled. The IPC worker
+  waits indefinitely only when no reliable host packet is retained. Otherwise
+  it retries after min(5 ms, remaining oldest-packet lifetime). The original
+  250 ms receive lifetime, 2500 ms ACL packet deadline, 5 ms ACL retry and bounded
+  send/recovery ownership waits remain intact.
+- Found and reproduced a real pre-existing receive timestamp defect: uptime is
+  64-bit but each received tick is 32-bit. Beyond the first 32-bit tick rollover,
+  the old subtraction could immediately expire a newly retained packet. Elapsed
+  comparisons now use the stored tick width, with no timestamp/layout change.
+  The complete committed IPC translation unit aborts the new no-premature-expiry
+  assertion; the candidate passes before, across and beyond rollover.
+- Full-unit profile compilation exposed the stale `PebbleTask_KernelBackground`
+  enum. The local profiler now samples `PebbleTask_SysWorkq`, preserving the shared
+  task enum. Its stack-size printf cast also encloses the sizeof division, so the
+  host's wider size_t does not create a format mismatch. Neither defect affects
+  the previous default profile-disabled build.
+
+Validation:
+
+- Unchanged baseline: **9 HCI/native-object methods pass in 1.188 s**.
+  Final HCI/native/configuration set: **22 methods pass in 11.273 s** with
+  sanitizers. The expanded profile selector matrix then passes separately
+  (1 method / 16 configurations, 4.549 s): retained sleep on/off, event wait
+  on/off, HCI/flash profiling off, individually on and both on.
+- New tests compile complete upper/IPC transport units, real kernel types/tick
+  conversion, NimBLE mbuf code and MIPC definitions. They cover coalesced signals,
+  publication at the blocking boundary, successful ACL enqueue ownership, actual
+  IPC worker drain, buffer-pressure retries, one-tick remaining lifetime,
+  timeout/fault wakeup and 32-bit received-tick rollover. Requested Kconfig
+  values must take effect; no guards or ownership assertions were relaxed.
+- A 60 s host wait-selector model reports **600** retained-fallback upper timer
+  wakes, **12000** without retained sleep, and **zero** candidate idle timer
+  wakes with profiling off. Signals before/at take are consumed in the same
+  modeled tick. This is not measured watch scheduling, packet latency or power.
+- Normal **ARM/LTO full build passes** all map/partition/heap, image integration,
+  CRC, log-hash, resource and syscall gates. Event wait/profile remain off.
+  Build ID `754fd0b3e9dd51d396f7e5cdb4059bb91adb8adc`.
+- Isolated candidate **ARM/LTO full build passes** the same gates, with event
+  wait and HCI profiling explicitly enabled. Build ID
+  `37a2be6dcc819bbe6d55062419813135d31e577b`. This is a compile/package check,
+  not a matched performance comparison: the normal build has profiling off.
+- Both retain the 928-byte SRAM sleep section, 136-byte retained region at
+  0x280103a0 and 16-byte AP trace at 0x28010440. Normal .text is 1638072 bytes,
+  eight bytes smaller than finding 8; no shared/common production code changed.
+  Ruff and git diff --check pass. Existing test fixtures were adapted to the
+  new function argument/notification endpoint; new work tests use real headers
+  and complete units rather than extracting functions.
+
+Reproduction commands (with the existing temporary toolchain/Python PATH):
+
+```
+python -m unittest tools.tests.test_t5ai_hci_work \
+  tools.tests.test_t5ai_hci_sleep tools.tests.test_t5ai_hci_acl \
+  tools.tests.test_t5ai_hci_pressure tools.tests.test_t5ai_native_objects \
+  tools.tests.test_t5ai_config
+python -m pbl -b build-quality-20261121 build
+python -m pbl -b build-quality-finding9-candidate configure --board unhygienix \
+  -DCONFIG_T5AI_HCI_EVENT_WAIT=y -DCONFIG_T5AI_HCI_PROFILE=y
+python -m pbl -b build-quality-finding9-candidate build
+```
+
+Logs, baseline reproduction script/assertion, source snapshots, exact command
+record, normal/candidate ELF/map/config/images and hashes are frozen under
+`build-quality-20261121/hci-work-finding9/`. Initial fixture failures (missing
+mock type/endpoint, redefined real cache inlines and missing profiling endpoint
+mocks) were host harness issues; the real enum/format and received-tick defects
+are distinguished above. All were resolved without suppressing warnings.
+
+**Finding 9 remains open** for matched on-device idle-wakeup and packet-latency
+comparison, capacity pressure and reconnect/recovery checks before switching
+qualified defaults. Do not advance to finding 10 or enable this option in the
+power profile on host evidence alone. Leave the candidate uncommitted for review.
+No hardware was flashed, reset, provisioned or formatted. No hardware, Bluetooth
+or power qualification is claimed; installed image remains
+`31b50d165281fa78016a880573b910fefe8c69cf`. AP/CP ABI, hardware timing constants,
+retained/partition layouts, calibration, identity, Gabbro compatibility, storage
+contents and ownership/quarantine guards remain intact.
+
+
+### Finding 9 candidate installation — 2026-11-22, 11:28 UTC
+
+The operator explicitly requested flashing the candidate. Rechecked host lab
+(no configured watches), free CH342 UARTs and live console reception (176 bytes).
+A fresh candidate build passed; the guarded flasher validated its current
+phone metadata, vectors, CRC blocks and exact AP range before writing. The
+candidate resources are byte-identical to the previously installed pack.
+
+AP-only programming took **51.9 s**, range **0x132000..0x2e11e2 exclusive**.
+Installed build ID **`37a2be6dcc819bbe6d55062419813135d31e577b`**, version
+`v4.41.2-1656-g8371a1b2a-dirty`, protected SHA-256
+`617c02879daa36ac263c6d5ac40e0a174ae07bbe62c038da6bdc584ab2c0724e`.
+This image enables event waits and HCI profiling; source defaults remain off.
+CP, system resources, PFS, calibration and pairing/identity storage were not
+programmed. The item-8 CP policy source refactor remains uninstalled; its
+behavior-preserving AP changes and item-9 AP candidate use the existing CP ABI.
+
+First boot verified the exact build ID, AP/CP reasons **0/0**, contract **0x78f**,
+existing SD PFS (`new=0`), valid resources and launcher. The existing bond was
+restored with encryption and PPoGATT opened (reported 548 ms). At firmware time
+11:29:10.245 the coordinator reported **32 AP-only returns**, with zero CP,
+clock, mask, resource and fault counts. Two HCI heartbeats at 11:29:17.360 and
+11:29:47.360 reported active=1, queue=0, started=1, fault=0. RX rose 480->488,
+events 84->86 and ACL/commands 78->79; the busy-retry count stayed at 58.
+No post-boot transport/sleep failure, panic or additional boot was captured.
+Vendor ROSC/event-init/temperature boot warnings match the previous image's
+record and are not evidence of a newly introduced HCI regression.
+
+The capture is **stopped**, 4053 bytes over 167.221 s including programming;
+first host-received boot bytes were at 11:28:37.174 UTC. Artifacts, sealed image,
+matching dictionary, raw capture, exact flash log and result.json:
+`build-quality-20261121/hci-work-finding9/flash-20261122/`.
+
+The watch is left running this candidate. Source changes remain uncommitted.
+This is bounded installation/startup evidence, **not** the matched device
+idle-wakeup/packet-latency A/B, reconnect-cycle, power or soak comparison needed
+to finish finding 9. Keep the remaining finding-9 checkboxes open and pause for
+operator verification; no default switch or further hardware reset was done.
+
+
+### Finding 9 phone-assisted A/B qualification — 2026-11-22
+
+**Initial measured qualification was blocked; subsequently accepted by the
+operator as recorded below. Uncommitted; event waits remain default off.** The
+operator authorized ADB phone testing and flashing. Matched AP-only images use
+identical source, retained sleep and HCI profiling; saved `.config` files differ
+only in `CONFIG_T5AI_HCI_EVENT_WAIT`. A (fallback) is build ID
+`4762101d711f74b2f6db465cb9c07a520502c219`; B (event waits) is
+`76b2ff008a6341fc4d70605fbb7d90d778d92aa5`. CP, system resources, PFS,
+calibration and identity/bonds were not programmed. The CP policy source
+refactor remains uninstalled. No watch reset beyond the guarded AP flashes
+was requested, and each captured flashed case contained one boot.
+
+Profile-only counters now record upper/IPC semaphore signal and timeout
+returns. They add no timer and no wire, retained or shared-code change. Both
+matched ARM/LTO builds and the default profiling-off build passed existing
+image/map/heap/partition/CRC/resource/syscall/integration guards. The default
+`.text` remains 1,638,072 bytes; RAM functions remain 928 bytes, retained state
+136 bytes at `0x280103a0`, sleep trace 16 bytes at `0x28010440`.
+
+Validation commands/results:
+
+- `python -m unittest tools.tests.test_t5ai_hci_work tools.tests.test_t5ai_hci_sleep tools.tests.test_t5ai_hci_acl tools.tests.test_t5ai_hci_pressure tools.tests.test_t5ai_native_objects tools.tests.test_t5ai_config`: 22 methods passed with ASan/UBSan before adding the final counter assertions.
+- `python -m unittest tools.tests.test_t5ai_hci_work`: three methods passed after upper counter assertions, including the 16-configuration profiling matrix.
+- `python -m unittest tools.tests.test_t5ai_hci_work.HciWorkTests.test_complete_ipc_profile_wake_counts`: passed for both wait policies, exercising the actual IPC worker, latched frames, retries and exact timeout counts.
+- Ruff, Clang Format 23 and `git diff --check` pass. The sanitizer runs were host-escalated; no sanitizer was disabled.
+- `pbl ... configure --board unhygienix -DCONFIG_T5AI_HCI_EVENT_WAIT=n/y -DCONFIG_T5AI_HCI_PROFILE=y`, then `pbl ... build`: both matched builds passed. Default was rebuilt with both flags `n`.
+- Every hardware write used `tools/flash_unhygienix_firmware.py --raw ... --protected ... --tyutool /tmp/pebble-quality-tyutool --port /dev/serial/by-id/usb-1a86_USB_Dual_Serial_5C75025844-if00 --flash`. No older-version bypass, provisioning, formatting or resource/CP write was used.
+
+Device evidence is under
+`build-quality-20261121/hci-work-finding9/ab-20261122/`. It contains frozen
+images/ELFs/maps/configs/dictionaries, exact source/test snapshots and hashes,
+flash logs, received UART bytes with UTC chunk boundaries, targeted phone logs,
+the original failed attempts, harnesses and per-case analyses.
+
+| Run | Result |
+| --- | --- |
+| A fallback | Completed 10-minute connected idle, 200 serial echoes, 2,000 window-16 echoes and three full 67,600-byte screenshot transfers. All 25 verified UI Bluetooth off/on cycles returned a valid protocol echo within 60 s. |
+| B event waits | First startup did not establish a phone session within 90 s. A phone adapter cycle restored an encrypted session only after the recovery harness's 60 s limit. Warm attempt recorded GATT/session failures and was stopped before claiming a matched comparison. |
+| A2 exact fallback control | Reconnected without phone recovery. Completed two-minute idle, the same 2,200 echoes and three screenshot transfers, with no session closure or GATT discovery error. |
+| B2 exact candidate repeat | Again failed the 90 s startup readiness limit; no connected latency/transfer qualification completed. |
+| Af final exact fallback | Also failed the 90 s post-flash readiness limit. Its phone-adapter recovery missed 60 s too. This reproduces the startup failure with event waits **off**; it cannot be attributed solely to finding 9. The fallback remains installed. |
+
+A's idle heartbeat samples spanned 570.267 s: 5,699 upper timeouts, 16 upper
+signals and 5,730 IPC signals, about 10 timer wakes/s. Controller traffic was
+16 frames, four events, zero ACL RX, four commands and no added send-busy
+retry. A2's 90.034 s sampled idle span showed 899 upper timeouts and 907 IPC
+signals. B/B2 disconnected samples showed the expected one profile-deadline
+wake per 30 s; these are **not** a matched connected-idle or power comparison.
+
+Performance varied even between fallback controls. A serial median/p95/max was
+251.542/473.375/698.198 ms; A2 was 294.866/566.709/1418.990 ms. Their 2,000-echo
+bursts took 37.472 and 103.250 s; screenshots took 8.459–8.787 and 26.688–31.133 s.
+These round trips include ADB/WebSocket, Android, Bluetooth and watch scheduling;
+they do not isolate internal HCI dispatch latency. No candidate throughput or
+latency non-regression claim is supported by this run.
+
+A's reconnect echo median/max was 36.785/54.121 s. Its full 25-cycle trace also
+contains two transient GATT discovery failures and 27 protocol-session closures,
+including the deliberately triggered closures. All cycles returned, but this
+is not an error-free Bluetooth qualification. B recorded two GATT discovery
+failures, three session closures, six LE disconnect records and 22 connection
+parameter-request timeouts after its boot. HCI heartbeats remained
+`started=1/fault=0`; no sleep/HCI guard fault or uncommanded AP reboot was seen.
+Existing status/history records discovery failures in normal controls before
+finding 9; no new root cause is established here.
+
+Phone logs show a direct GATT attempt while flashing was still in progress,
+Android status 133 and a pending `autoConnect` attempt. A phone-app reconnect
+request still used `autoConnect`. First-failure bytes/phone state were preserved
+before any recovery attempt. The first traffic request also started before the
+phone reconnected; Android killed `svc bluetooth disable` with exit 137 without
+disabling the adapter. Those two harness/tooling failures remain separately
+recorded. The replacement reconnect harness observes the actual Settings switch
+and adapter state before and after each toggle, without deleting bonds.
+
+Initial A reported app UUID `16183a4f-c48d-4702-8a48-1211031a8115`; B and A2 both
+reported launcher UUID `dec0424c-0625-4878-b1f2-147e57e83688`. The launcher is
+therefore a comparison confound, not proof that the candidate lost a watchface.
+No stored app was installed, removed or deliberately reselected. Screenshot
+transfers prove protocol payload completion only; they do not qualify the panel
+or watchface rendering. AppMessage/watchface-install regression, deliberate
+pool-pressure injection, cold-power-cycle, current measurement and overnight
+soak remain unperformed.
+
+Final recovery: Af's verified phone adapter off/on cycle did not restore a
+session within 60 s either. Restarting **only** `coredevices.coreapp` (force-stop,
+start MainActivity; no app-data or bond deletion) then restored the encrypted
+connection without another watch reset. The continuation `Ar/` contains zero
+boot records, three valid echoes at 138.600/80.357/81.738 ms, version/launcher
+queries and healthy connected heartbeats. The complete Ar capture received
+1,872 bytes and stopped normally. Af remains the installed fallback image,
+with event waits off, HCI profiling on and retained CP-awake AP sleep on.
+All six UART captures/test processes are stopped and the task's ADB port forward
+is removed. Source/input hashes match the measured builds; unrelated existing
+`REMAINING_TASKS.md` and `power-todo.md` edits are unchanged. The machine-readable
+`report.json` records every case, including original failures and continuations.
+This establishes that phone-client state contributed to failed readiness;
+it does not establish that every discovery/latency problem is phone-only.
+
+### Finding 9 operator acceptance — 2026-11-22
+
+The operator instructed: “auto reconnect is probably the phone. assume it is
+for now and call this qualified”. Finding 9 is therefore qualified by explicit
+operator acceptance, treating auto-reconnect as phone-side for now. This closes
+the finding without establishing a phone-only root cause or a measured candidate
+latency/throughput non-regression. The failed attempts and incomplete matched
+comparison above remain part of the record; the sealed `report.json` and evidence
+hash manifest retain their original measured results.
+
+No default, installed image or guard changes accompany this disposition. Event
+waits remain default off and the fallback Af image remains installed. The matched
+connected-idle/latency comparison remains required before changing the default;
+broader power, cold-boot, application and soak qualification is outside this
+acceptance. No automatic commit.
+
+**Next unresolved backlog item is finding 10:** graphics optimization boundaries
+and measured benefits. Pause here for operator review before further changes.
+
+
+### Finding 9 default enabled at operator request — 2026-11-22
+
+The operator explicitly requested enabling event waits by default after
+accepting finding 9. `CONFIG_T5AI_HCI_EVENT_WAIT` now defaults to `y` for
+Unhygienix in both power profiles; `n` remains an explicit polling fallback.
+HCI profiling stays default off. This supersedes the earlier hold on changing
+the default, without claiming completion of the missing connected candidate
+latency/throughput comparison. The installed Af fallback is unchanged; no flash
+or commit accompanies this change. Validation results are recorded below.
+
+Validation for the enabled default:
+
+- `PATH=/tmp/pebble-quality-venv/bin:$PATH python -m unittest tools.tests.test_t5ai_config tools.tests.test_t5ai_hci_work tools.tests.test_t5ai_hci_sleep tools.tests.test_t5ai_hci_acl tools.tests.test_t5ai_hci_pressure tools.tests.test_t5ai_native_objects`: all 23 methods passed with ASan/UBSan, host-escalated. Configuration tests verify default `y`, profiling `n` and explicit fallback `n` in both power profiles; HCI tests retain both wait policies.
+- `cmake -UCONFIG_T5AI_HCI_EVENT_WAIT -S pebble -B build-quality-20261121`: passed after removing the previous explicit `n` cache override. Generated `.config` has event waits `y` and HCI profiling unset, confirming the source default is effective.
+- `cmake --build build-quality-20261121 -j 8`: ARM/LTO build passed, including image-layout, CRC, resource-size and syscall checks. Existing generated-declaration LTO warnings and serial LTRANS warning remain; no new warning cleanup is included.
+- Ruff check/format with `--no-cache` and `git diff --check` pass. The first sandboxed Ruff invocation could not write its cache; rerunning without the cache passed. This was tooling access, not a code failure.
+- Logs and generated configuration: `build-quality-20261121/hci-work-finding9/default-on-20261122/`. Historical A/B evidence is unchanged. Unrelated `REMAINING_TASKS.md` and `power-todo.md` hashes remain unchanged.
+
+
+### Finding 9 commit checkpoint — 2026-11-22
+
+The operator requested committing the complete finding-9 implementation,
+including the enabled default, host harnesses and qualification record. The
+23-method sanitizer suite and ARM/LTO default-on build passed before this
+checkpoint; final Ruff, Clang Format and diff checks pass. Unrelated existing
+`boards/unhygienix/tuya/REMAINING_TASKS.md` and `power-todo.md` edits are excluded.
+No hardware write accompanies the commit. Next backlog item: finding 10.

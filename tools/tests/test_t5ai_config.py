@@ -29,6 +29,19 @@ def load_config(board, revision="_", power_savings=None):
 
 
 class T5AIConfigTest(unittest.TestCase):
+    def test_event_wait_defaults_on_with_explicit_fallback_in_both_power_profiles(self):
+        for power_savings in (False, True):
+            with self.subTest(power_savings=power_savings):
+                config = load_config("unhygienix", power_savings=power_savings)
+                self.assertEqual(config.syms["T5AI_HCI_EVENT_WAIT"].str_value, "y")
+                self.assertEqual(config.syms["T5AI_HCI_PROFILE"].str_value, "n")
+                config.syms["T5AI_HCI_EVENT_WAIT"].set_value("n")
+                self.assertEqual(config.syms["T5AI_HCI_EVENT_WAIT"].str_value, "n")
+                if power_savings:
+                    self.assertEqual(
+                        config.syms["T5AI_RETAINED_SLEEP_WAKE_ONLY"].str_value, "y"
+                    )
+
     def test_motion_engine_defaults_on_without_diagnostics(self):
         config = load_config("unhygienix")
         for name in ("T5AI_QMI8658_ANY_MOTION", "T5AI_QMI8658_WOM"):

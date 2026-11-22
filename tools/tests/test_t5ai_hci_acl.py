@@ -126,54 +126,65 @@ int main(void) {
 """
 
 
+def run_hci_harness(harness, config_values=None, sources=()):
+    config_values = config_values or {}
+    with tempfile.TemporaryDirectory() as temporary:
+        path = Path(temporary)
+        config = load_config("unhygienix")
+        config.syms["LOG_HASHED"].set_value("n")
+        for name, value in config_values.items():
+            config.syms[name].set_value(value)
+        for name, value in config_values.items():
+            if config.syms[name].str_value != value:
+                raise ValueError(f"HCI test configuration did not apply {name}={value}")
+        config.write_autoconf(str(path / "config.h"))
+        (path / "test.c").write_text(harness)
+        nimble = ROOT / "third_party/nimble"
+        includes = [
+            ROOT,
+            ROOT / "include",
+            ROOT / "include/pbl",
+            ROOT / "pebble",
+            ROOT / "kernel/arch/posix/include",
+            nimble / "port/include",
+            nimble / "mynewt-nimble/porting/nimble/include",
+            nimble / "mynewt-nimble/nimble/include",
+            nimble / "mynewt-nimble/nimble/host/include",
+            nimble / "mynewt-nimble/nimble/transport/include",
+        ]
+        subprocess.run(
+            [
+                "clang-21",
+                "-std=gnu23",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-Wno-unused-parameter",
+                "-fsanitize=address,undefined",
+                "-fno-sanitize-recover=all",
+                "-fno-pie",
+                "-no-pie",
+                "-ffunction-sections",
+                "-fdata-sections",
+                "-Wl,--gc-sections",
+                "-include",
+                str(path / "config.h"),
+                *[arg for include in includes for arg in ("-I", str(include))],
+                str(path / "test.c"),
+                str(nimble / "mynewt-nimble/porting/nimble/src/os_mbuf.c"),
+                str(ROOT / "kernel/tick.c"),
+                *[str(ROOT / source) for source in sources],
+                "-o",
+                str(path / "test"),
+            ],
+            check=True,
+        )
+        subprocess.run([str(path / "test")], check=True, timeout=10)
+
+
 class HciAclTests(unittest.TestCase):
     def test_deadline_statuses_fragment_ownership_and_long_uptime(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            path = Path(temporary)
-            config = load_config("unhygienix")
-            config.syms["LOG_HASHED"].set_value("n")
-            config.write_autoconf(str(path / "config.h"))
-            (path / "test.c").write_text(HARNESS)
-            nimble = ROOT / "third_party/nimble"
-            includes = [
-                ROOT,
-                ROOT / "include",
-                ROOT / "include/pbl",
-                ROOT / "pebble",
-                ROOT / "kernel/arch/posix/include",
-                nimble / "port/include",
-                nimble / "mynewt-nimble/porting/nimble/include",
-                nimble / "mynewt-nimble/nimble/include",
-                nimble / "mynewt-nimble/nimble/host/include",
-                nimble / "mynewt-nimble/nimble/transport/include",
-            ]
-            subprocess.run(
-                [
-                    "clang-21",
-                    "-std=gnu23",
-                    "-Wall",
-                    "-Wextra",
-                    "-Werror",
-                    "-Wno-unused-parameter",
-                    "-fsanitize=address,undefined",
-                    "-fno-sanitize-recover=all",
-                    "-fno-pie",
-                    "-no-pie",
-                    "-ffunction-sections",
-                    "-fdata-sections",
-                    "-Wl,--gc-sections",
-                    "-include",
-                    str(path / "config.h"),
-                    *[arg for include in includes for arg in ("-I", str(include))],
-                    str(path / "test.c"),
-                    str(nimble / "mynewt-nimble/porting/nimble/src/os_mbuf.c"),
-                    str(ROOT / "kernel/tick.c"),
-                    "-o",
-                    str(path / "test"),
-                ],
-                check=True,
-            )
-            subprocess.run([str(path / "test")], check=True, timeout=10)
+        run_hci_harness(HARNESS)
 
 
 if __name__ == "__main__":

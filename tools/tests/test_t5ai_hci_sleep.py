@@ -13,6 +13,7 @@ BASIC = r"""
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+typedef uint32_t pbl_tick_t;
 """
 
 
@@ -92,16 +93,16 @@ static int pbl_sem_take(int *sem,unsigned timeout){
         )
         main = r"""
 int main(void){
- assert(t5ai_hci_sleep_ready());prv_wait_for_work();assert(wait_ms==100 && !takes);
+ assert(t5ai_hci_sleep_ready());prv_wait_for_work(0);assert(wait_ms==100 && !takes);
  queued=1;assert(!t5ai_hci_sleep_ready());queued=0;
  s_acl_tx_active=true;assert(!t5ai_hci_sleep_ready());s_acl_tx_active=false;
  s_reset_scheduled=true;assert(!t5ai_hci_sleep_ready());s_reset_scheduled=false;
- ipc_ready=false;assert(!t5ai_hci_sleep_ready());prv_wait_for_work();assert(wait_ms==5);
+ ipc_ready=false;assert(!t5ai_hci_sleep_ready());prv_wait_for_work(0);assert(wait_ms==5);
  ipc_ready=true;t5ai_hci_notify_work();t5ai_hci_notify_work();
- prv_wait_for_work();assert(wait_ms==100 && takes==1 && !tokens);
+ prv_wait_for_work(0);assert(wait_ms==100 && takes==1 && !tokens);
  // Receive or enqueue between readiness check and blocking cannot lose its wake.
- race=true;prv_wait_for_work();assert(takes==2 && !tokens && !ipc_ready);
- prv_wait_for_work();assert(wait_ms==5 && takes==2);
+ race=true;prv_wait_for_work(0);assert(takes==2 && !tokens && !ipc_ready);
+ prv_wait_for_work(0);assert(wait_ms==5 && takes==2);
  return 0;
 }
 """
@@ -113,20 +114,21 @@ int main(void){
             transform=lambda _: code,
         )
 
-    def test_default_polling_interval_is_preserved(self):
+    def test_fallback_polling_interval_is_preserved(self):
         prefix = (
             BASIC
             + r"""
 #define PBL_MSEC(n) (n)
 #define T5AI_HCI_POLL_INTERVAL_MS 5u
 static unsigned wait_ms;
-static void pbl_thread_sleep(unsigned ms){wait_ms=ms;}
+static int s_hci_work;
+static int pbl_sem_take(int *sem,unsigned ms){assert(sem==&s_hci_work);wait_ms=ms;return -1;}
 """
         )
         run(
             UPPER,
             prefix,
-            "int main(void){prv_wait_for_work();assert(wait_ms==5);return 0;}",
+            "int main(void){prv_wait_for_work(0);assert(wait_ms==5);return 0;}",
             transform=lambda text: body(text, "prv_wait_for_work"),
         )
 

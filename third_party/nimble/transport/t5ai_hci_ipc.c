@@ -42,6 +42,7 @@ PBL_LOG_MODULE_DEFINE(t5ai_hci_ipc, LOG_LEVEL_DEBUG);
 #define T5AI_HCI_SEND_TIMEOUT_MS         2000u
 #define T5AI_HCI_RX_CAPACITY             2u
 #define T5AI_HCI_RX_TIMEOUT_MS           250u
+#define T5AI_HCI_RX_RETRY_DELAY_MS       5u
 
 // Subtype values are fixed by the pinned Tuya CP IPC ABI.
 enum {
@@ -143,9 +144,7 @@ static void prv_set_started(bool started) {
 static void prv_mark_faulted(void) {
   __atomic_store_n(&s_faulted, true, __ATOMIC_RELEASE);
   prv_set_started(false);
-#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
   t5ai_hci_notify_work();
-#endif
 }
 
 static uint8_t prv_next_sequence(void) {
@@ -365,7 +364,8 @@ static void prv_retry_receive(void) {
     return;
   }
   while (s_rx_count != 0u && !prv_faulted()) {
-    if (pbl_uptime_ticks() - s_rx[0].received >= pbl_ms_to_ticks(T5AI_HCI_RX_TIMEOUT_MS)) {
+    if ((pbl_tick_t)(pbl_uptime_ticks() - s_rx[0].received) >=
+        pbl_ms_to_ticks(T5AI_HCI_RX_TIMEOUT_MS)) {
       PBL_LOG_ERR("T5AI HCI receive capacity deadline");
       s_rx_count = 0u;
       s_rx_used = 0u;
@@ -384,10 +384,40 @@ static void prv_retry_receive(void) {
   }
 }
 
+#ifdef CONFIG_T5AI_HCI_EVENT_WAIT
+// Host pool release has no event-pool notification; retry only while a packet is retained.
+static pbl_timeout_t prv_receive_wait(void) {
+  pbl_timeout_t wait = PBL_FOREVER;
+  pbl_mutex_lock(&s_async_mutex, PBL_FOREVER);
+  if (s_rx_count != 0u) {
+    const pbl_tick_t elapsed = (pbl_tick_t)(pbl_uptime_ticks() - s_rx[0].received);
+    const pbl_tick_t lifetime = pbl_ms_to_ticks(T5AI_HCI_RX_TIMEOUT_MS);
+    const pbl_tick_t retry = pbl_ms_to_ticks(T5AI_HCI_RX_RETRY_DELAY_MS);
+    const pbl_tick_t remaining = elapsed < lifetime ? lifetime - elapsed : 0u;
+    wait = PBL_TICKS(remaining < retry ? remaining : retry);
+  }
+  pbl_mutex_unlock(&s_async_mutex);
+  return wait;
+}
+#endif
+
 static void prv_worker(void *context) {
   (void)context;
   while (true) {
-    (void)pbl_sem_take(&s_worker_wake, PBL_TICKS(PBL_TICK_FOREVER));
+#ifdef CONFIG_T5AI_HCI_EVENT_WAIT
+    const int result = pbl_sem_take(&s_worker_wake, prv_receive_wait());
+#else
+    const int result = pbl_sem_take(&s_worker_wake, PBL_FOREVER);
+#endif
+#ifdef CONFIG_T5AI_HCI_PROFILE
+    if (result == 0) {
+      ++s_diagnostics.work_notifications;
+    } else {
+      ++s_diagnostics.work_timeouts;
+    }
+#else
+    (void)result;
+#endif
     prv_report_queue_fault();
     pbl_mutex_lock(&s_async_mutex, PBL_FOREVER);
     prv_retry_receive();
@@ -449,9 +479,7 @@ static void prv_route_frame(uint8_t logical_channel, const T5AICPMailboxFrame *f
   }
   // Reporting may wait for logging/PULSE locks; only the HCI worker may do it.
   (void)pbl_sem_give(&s_worker_wake);
-#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
   t5ai_hci_notify_work();
-#endif
 }
 
 static status_t prv_decode_remote(T5AIMIPCFrame *frame, T5AIMIPCData **remote_data,

@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 """Production receive paths with real locks, bounded pools and CP buffer reuse."""
 import os
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 from tools.tests.test_t5ai_native_objects import body
 
@@ -120,6 +120,7 @@ static int t5ai_hci_ipc_stop(void){++stops;s_rx_count=0;s_rx_used=0;return 0;}
 static int t5ai_hci_ipc_start(const T5AIHCICallbacks *c){assert(c->acl && c->event);s_rx_count=0;s_rx_used=0;++starts;return 0;}
 static int t5ai_hci_ipc_send_command(const void *d,size_t n){assert(d && n);++sends;return 0;}
 static bool t5ai_hci_ipc_faulted(void){return false;}
+static void t5ai_hci_notify_work(void){}
 static struct os_mbuf *tx_items[16];
 static unsigned tx_count;
 static int pbl_msgq_get(void *q,void *p,int t){

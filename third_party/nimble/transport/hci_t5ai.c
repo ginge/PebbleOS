@@ -99,14 +99,12 @@ static void prv_log_flash_diagnostics(void) {
 #endif
 
 static PBL_MUTEX_DEFINE(s_tx_mutex);
-#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
 #define T5AI_HCI_QUIET_POLL_INTERVAL_MS 100u
 static PBL_SEM_DEFINE(s_hci_work, 0, 1);
 
 void t5ai_hci_notify_work(void) {
   (void)pbl_sem_give(&s_hci_work);
 }
-#endif
 
 static bool s_started;
 static bool s_reset_scheduled;
@@ -121,6 +119,9 @@ static struct pbl_msgq *s_acl_tx_queue;
 static PBL_MSGQ_DEFINE(s_acl_tx_messages, sizeof(struct os_mbuf *), T5AI_HCI_ACL_TX_QUEUE_CAPACITY);
 
 #ifdef CONFIG_T5AI_HCI_PROFILE
+static uint32_t s_work_notifications;
+static uint32_t s_work_timeouts;
+
 static void prv_log_task_state(PebbleTask task) {
   struct pbl_thread *handle = pebble_task_get_thread(task);
   if (handle == NULL) {
@@ -130,7 +131,7 @@ static void prv_log_task_state(PebbleTask task) {
   pbl_thread_stack_info(handle, &stack);
   PBL_LOG_DBG("T5AI task snapshot: task=%c state=%u prio=%u stack=%u", pebble_task_get_char(task),
               (unsigned)pbl_thread_state(handle), (unsigned)pbl_thread_prio_get(handle),
-              (unsigned)stack.high_water / sizeof(uint32_t));
+              (unsigned)(stack.high_water / sizeof(uint32_t)));
 }
 
 #endif
@@ -151,13 +152,35 @@ bool t5ai_hci_sleep_ready(void) {
 }
 #endif
 
-static void prv_wait_for_work(void) {
+static void prv_wait_for_work(pbl_tick_t last_trace_tick) {
+#ifdef CONFIG_T5AI_HCI_EVENT_WAIT
+  pbl_timeout_t wait = PBL_FOREVER;
+#if defined(CONFIG_T5AI_HCI_PROFILE) || defined(CONFIG_T5AI_FLASH_PROFILE)
+  const pbl_tick_t elapsed = (pbl_tick_t)pbl_uptime_ticks() - last_trace_tick;
+  const pbl_tick_t interval = pbl_ms_to_ticks(T5AI_HCI_TRACE_INTERVAL_MS);
+  wait = PBL_TICKS(elapsed < interval ? interval - elapsed : 0u);
+#else
+  (void)last_trace_tick;
+#endif
+  const int result = pbl_sem_take(&s_hci_work, wait);
+#else
+  (void)last_trace_tick;
 #if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
   const unsigned wait_ms =
       t5ai_hci_ipc_sleep_ready() ? T5AI_HCI_QUIET_POLL_INTERVAL_MS : T5AI_HCI_POLL_INTERVAL_MS;
-  (void)pbl_sem_take(&s_hci_work, PBL_MSEC(wait_ms));
 #else
-  pbl_thread_sleep(PBL_MSEC(T5AI_HCI_POLL_INTERVAL_MS));
+  const unsigned wait_ms = T5AI_HCI_POLL_INTERVAL_MS;
+#endif
+  const int result = pbl_sem_take(&s_hci_work, PBL_MSEC(wait_ms));
+#endif
+#ifdef CONFIG_T5AI_HCI_PROFILE
+  if (result == 0) {
+    ++s_work_notifications;
+  } else {
+    ++s_work_timeouts;
+  }
+#else
+  (void)result;
 #endif
 }
 
@@ -239,6 +262,8 @@ static void prv_hci_task(void *unused) {
   (void)unused;
 #if defined(CONFIG_T5AI_HCI_PROFILE) || defined(CONFIG_T5AI_FLASH_PROFILE)
   pbl_tick_t last_trace_tick = pbl_uptime_ticks();
+#else
+  const pbl_tick_t last_trace_tick = 0u;
 #endif
   for (;;) {
     if (prv_started() && t5ai_hci_ipc_faulted()) {
@@ -274,6 +299,10 @@ static void prv_hci_task(void *unused) {
           (unsigned long)diagnostics.frames_received, (unsigned long)diagnostics.events_received,
           (unsigned long)diagnostics.acl_received, (unsigned long)diagnostics.commands_received,
           (unsigned long)diagnostics.send_busy_retries);
+      PBL_LOG_DBG(
+          "T5AI HCI worker wakes: upper_signal=%lu upper_timeout=%lu ipc_signal=%lu ipc_timeout=%lu",
+          (unsigned long)s_work_notifications, (unsigned long)s_work_timeouts,
+          (unsigned long)diagnostics.work_notifications, (unsigned long)diagnostics.work_timeouts);
 #endif
 #ifdef CONFIG_T5AI_FLASH_PROFILE
       prv_log_flash_diagnostics();
@@ -281,7 +310,7 @@ static void prv_hci_task(void *unused) {
       last_trace_tick = now;
     }
 #endif
-    prv_wait_for_work();
+    prv_wait_for_work(last_trace_tick);
   }
 }
 
@@ -349,7 +378,7 @@ static bool prv_deliver_event(const uint8_t *data, size_t length) {
                 (unsigned long)diagnostics.pending_queue_exhaustions, diagnostics.started,
                 diagnostics.faulted);
     prv_log_task_state(PebbleTask_KernelMain);
-    prv_log_task_state(PebbleTask_KernelBackground);
+    prv_log_task_state(PebbleTask_SysWorkq);
     prv_log_task_state(PebbleTask_App);
     prv_log_task_state(PebbleTask_BTHost);
     prv_log_task_state(PebbleTask_BTHCI);
@@ -583,9 +612,7 @@ int ble_transport_to_ll_acl_impl(struct os_mbuf *acl) {
                       pbl_msgq_put(s_acl_tx_queue, &acl, PBL_NO_WAIT) == 0;
   pbl_mutex_unlock(&s_tx_mutex);
   if (queued) {
-#if defined(CONFIG_T5AI_RETAINED_SLEEP) || defined(CONFIG_T5AI_SLEEP_GUARD_TEST)
     t5ai_hci_notify_work();
-#endif
     return 0;
   }
   PBL_LOG_ERR("T5AI HCI ACL transmit queue full (%u bytes)", (unsigned)length);
