@@ -204,9 +204,9 @@ within the recorded bench scope. Warning/soak limits are retained below.
 
 ### 13. Use scheduler sleeps for long panel delays
 
-- [ ] Establish calling-context requirements for CO5300 reset/sleep sequences,
+- [x] Establish calling-context requirements for CO5300 reset/sleep sequences,
   then replace 120–200 ms busy waits with native thread sleeps in scheduler context.
-- [ ] Keep short timing delays and any necessary early-boot fallback.
+- [x] Keep short timing delays and any necessary early-boot fallback.
 - [ ] Acceptance: minimum timings and command/error sequences remain correct;
   startup/recovery responsiveness is measured.
 
@@ -2205,3 +2205,51 @@ is not a broad hardware or overnight-soak qualification. Source remains
 uncommitted; paused for review. Next ordered item is **finding 13, scheduler
 sleeps for long panel delays**. Historical unflashed statements above describe
 the preceding source checkpoint.
+
+
+### Finding 12 committed; finding 13 panel delays in source — 2026-11-22
+
+Committed the verified touch increment as **41ee66f80**
+(`t5ai: bind CST92xx touch to native device instances`), with DCO and
+`Assisted-by: LLM`; gitlint passes. Only its twelve reviewed files were staged.
+Unrelated `REMAINING_TASKS.md` and `power-todo.md` remain untouched.
+
+Reinspection of current HEAD confirms finding 13 still applies: CO5300 prepare
+spins for 20 + 200 + 120 + 200 ms; optional sleep-in spins for 200 ms on success.
+`kernel/init.c` runs `pbl_device_init_all()` in KernelMain after scheduler start.
+Display initialization calls prepare through the normal device/class path;
+boot splash's explicit device initialization also runs from thread context.
+The optional reprepare/unprepare calls in the local display enable/disable
+callbacks hold the native panel mutex, with IRQs/preemption enabled. SPI
+transactions return before each delay; the SPI transaction lock is not kept
+across a panel timing wait. Display transfer-error recovery retries transfer
+work after its existing one-second sleep; it does not itself reset the panel.
+
+The local CO5300 helper now uses **existing `pbl_sleep_us()`** once the scheduler
+starts. Complete production `kernel/time.c` rounds up and adds a tick for the
+partial tick in progress: direct `PBL_MSEC`/`pbl_thread_sleep` would not provide
+that minimum-delay guarantee. Existing 20/120/200 ms constants, reset levels,
+command/value order, error exits and per-panel serialization remain unchanged.
+Before scheduler start, retain the existing hardware-timer `delay_us()` path.
+After start, the native assertion enforces non-ISR, unlocked native IRQ and
+running/unlocked scheduler context; the device header documents that interrupts
+and preemption must be enabled. No microsecond bus timings, shared/common kernel
+code, board defaults, CP, partitions, retained layouts or identity were changed.
+
+Validation and evidence:
+
+- Current-HEAD baseline: `ASAN_OPTIONS=detect_leaks=0 /tmp/pebble-quality-venv/bin/python -m unittest tools.tests.test_t5ai_panel_instances tools.tests.test_t5ai_panel_init tools.tests.test_t5ai_panel_power_cache tools.tests.test_t5ai_display_power tools.tests.test_t5ai_backlight -v`: 8 methods pass. The new timing fixture also compiles the preserved complete committed unit, then fails its no-busy-wait-in-thread-context assertion as expected; this is an executed behavior reproduction, not a compile failure.
+- Final run: the same panel/display/backlight modules plus `tools.tests.test_t5ai_panel_delays`, `tools.tests.test_t5ai_touch`, `tools.tests.test_t5ai_touch_instances`, `tools.tests.test_t5ai_sensor_startup`, `tools.tests.test_t5ai_board_psram`, and `tools.tests.test_unhygienix_image`: **41 methods pass** under the existing sanitizer harnesses. Full panel and `kernel/time.c` translation units use real headers/types and board Kconfig. GPIO/SPI and scheduler execution remain modeled.
+- New cases verify exact reset/command order, minimum elapsed delays (including fractional tick phase), native sleep requests instead of busy waiting, early fallback, a held panel transaction mutex, all three reset-write and thirteen prepare-command failure exits, optional sleep-in on/off and failed-command behavior. Post-start ISR/native IRQ-lock/scheduler-lock calls enter the real always-enabled fatal guard; expected-panic checks require execution to return their unique sentinel, so compile failures cannot satisfy them. Existing instance and applied-state tests retain their assertions.
+- `PATH=ARM_TOOLCHAIN:/tmp/pebble-quality-venv/bin:$PATH cmake --build build-quality-finding9-candidate -j 8`: ARM/LTO, image-map, protected CRC, resource-size and syscall gates pass. FLASH 1,666,752 bytes (+96 against the flashed touch image); RAM 96,576 unchanged. Display PSRAM 126,912/131,072, DMA 14,976 and PFS 8,192 unchanged. Actual map comparison confirms all six retained/reserved section addresses and sizes unchanged. Candidate config is byte-identical to the touch checkpoint. Existing generated-declaration LTO warnings remain.
+- Complete panel ARM compilation with actual Ninja production flags plus `CONFIG_T5AI_AMOLED_SLEEP_ON_DISABLE=1` passes. This is optional-path compile coverage, not a full alternate-profile link or hardware qualification; the current board default leaves this flag off.
+- Ruff check/format with `--no-cache`, Clang Format 22, `git diff --check` and gitlint pass. Initial system Clang Format 18 cannot parse this repository's format settings; cached Ruff cannot write in the read-only sandbox. Using the existing compatible formatter and cache-free Ruff resolves these tooling failures without source/test guard changes.
+- Logs, original panel source, full review snapshots, exact candidate config/ELF/map/dictionary/images, layout comparison, optional compile command and SHA-256 seal: `build-quality-20261121/panel-delays-finding13/`.
+
+**Next unresolved item remains finding 13 acceptance:** measure actual on-watch
+startup and wake/reprepare responsiveness and verify panel minimum timing/
+recovery with real scheduler/power behavior. Modeled timing checks prove the
+sleep conversion and sequencing, not physical timing or scheduling progress.
+No finding-13 flash or hardware operation was performed; the verified finding-12
+touch image remains installed. Finding 13 source is uncommitted for review;
+do not advance to finding 14 before completing this increment's validation.

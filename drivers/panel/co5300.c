@@ -1,5 +1,9 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include <pbl/drivers/panel/co5300.h>
+#include <pbl/kernel/assert.h>
+#include <pbl/kernel/delay.h>
+#include <pbl/kernel/irq.h>
+#include <pbl/kernel/sched.h>
 #include <pbl/soc/t5ai/delay.h>
 #include <pbl/util/misc.h>
 
@@ -41,6 +45,16 @@
 #define CO5300_SLEEP_OUT_DELAY_US 200000u
 #define CO5300_SLEEP_IN_DELAY_US  200000u
 
+// Panel transactions run in thread context with interrupts/preemption enabled.
+static void prv_delay(uint32_t us) {
+  if (!pbl_kernel_is_started()) {
+    delay_us(us);
+    return;
+  }
+  PBL_ASSERTN(!pbl_in_isr() && !pbl_irq_is_locked() && pbl_kernel_is_running());
+  pbl_sleep_us(us);
+}
+
 static const struct pbl_panel_co5300 *prv_co5300(const struct pbl_panel *panel) {
   return container_of(panel, const struct pbl_panel_co5300, panel);
 }
@@ -67,15 +81,15 @@ static int prv_prepare(const struct pbl_panel *panel) {
   int ret = pbl_gpio_set(&co5300->reset, true);
   if (ret != 0)
     return ret;
-  delay_us(CO5300_RESET_PRE_DELAY_US);
+  prv_delay(CO5300_RESET_PRE_DELAY_US);
   ret = pbl_gpio_set(&co5300->reset, false);
   if (ret != 0)
     return ret;
-  delay_us(CO5300_RESET_PULSE_US);
+  prv_delay(CO5300_RESET_PULSE_US);
   ret = pbl_gpio_set(&co5300->reset, true);
   if (ret != 0)
     return ret;
-  delay_us(CO5300_RESET_SETTLE_US);
+  prv_delay(CO5300_RESET_SETTLE_US);
   const struct {
     uint8_t command;
     uint8_t value;
@@ -99,7 +113,7 @@ static int prv_prepare(const struct pbl_panel *panel) {
   ret = prv_command(co5300, CO5300_CMD_SLEEP_OUT, nullptr, 0);
   if (ret != 0)
     return ret;
-  delay_us(CO5300_SLEEP_OUT_DELAY_US);
+  prv_delay(CO5300_SLEEP_OUT_DELAY_US);
   ret = prv_command(co5300, CO5300_CMD_INVERSION_OFF, nullptr, 0);
   if (ret == 0)
     ret = prv_command(co5300, CO5300_CMD_NORMAL_MODE_ON, nullptr, 0);
@@ -136,7 +150,7 @@ static int prv_unprepare(const struct pbl_panel *panel) {
   int ret = prv_command(co5300, CO5300_CMD_SLEEP_IN, nullptr, 0);
 #ifdef CONFIG_T5AI_AMOLED_SLEEP_ON_DISABLE
   if (ret == 0)
-    delay_us(CO5300_SLEEP_IN_DELAY_US);
+    prv_delay(CO5300_SLEEP_IN_DELAY_US);
 #endif
   state->prepared = false;
   return ret;

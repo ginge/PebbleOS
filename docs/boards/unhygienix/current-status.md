@@ -3,6 +3,24 @@
 The latest installation checkpoint below is the current installed state. Dated entries preserve
 the state and evidence at their recorded checkpoint.
 
+## Finding 13 panel delays in source — 22 November 2026
+
+Finding 12's verified touch increment is committed as `41ee66f80`; gitlint passes.
+Finding 13 now has a separate uncommitted change: CO5300 reset and sleep delays
+use existing minimum-duration `pbl_sleep_us()` in valid thread context, retaining
+the original hardware busy-wait fallback before scheduler start. Constants,
+command/error order, native panel locking and board defaults are preserved.
+No shared/common code changes are needed.
+
+All 41 affected host methods pass, including complete panel/timing units and
+context/minimum-delay/error checks. ARM/LTO and all image gates pass; optional
+sleep-in ARM compilation passes. FLASH grows 96 bytes; RAM and six reserved/
+retained section layouts are unchanged. **Finding 13 hardware acceptance remains
+open:** startup and wake/reprepare responsiveness have not been measured for
+this candidate. This source increment has not been flashed or committed. The
+finding-12 installation below remains current. See the [TODO](code-quality-todo.md)
+for commands, evidence and limits. Finding 14 has not been started.
+
 ## Finding 12 touch increment installed — 22 November, 16:43 UTC
 
 Installed AP-only build **27131da0fc4e09587bb24de78e1b362f788c39fe**,

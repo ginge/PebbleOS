@@ -24,6 +24,8 @@ struct pbl_panel_co5300 {
   struct pbl_panel_co5300_state *state;
 };
 extern const struct pbl_panel_co5300 CO5300;
+// Prepare/unprepare sleep after scheduler start: thread context, IRQs/preemption enabled.
+// Before scheduler start they retain the hardware-timed busy-wait fallback.
 extern const struct pbl_panel_ops pbl_panel_co5300_ops;
 int pbl_panel_co5300_init(const struct pbl_device *dev);
 int pbl_panel_co5300_set_brightness(const struct pbl_panel *panel, uint8_t level);
