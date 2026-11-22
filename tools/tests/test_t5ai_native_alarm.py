@@ -1416,6 +1416,38 @@ def cp_hardware_endpoints(source):
 
 
 class NativeAlarmTest(unittest.TestCase):
+    def test_warm_restart_requires_acknowledged_owner_cleanup(self):
+        prefix = AP_PREFIX.replace(
+            "return timeout?-1:0;",
+            "if(op==FAIL_OP){if(BAD_ABI)*abi=0;else return E_ERROR;}\n"
+            " return timeout?-1:0;",
+        )
+        main = r"""
+int main(void){
+ assert(t5ai_native_alarm_init()==E_ERROR);
+ assert(s_faulted && !s_initialized && !t5ai_native_alarm_healthy());
+ const unsigned failed_requests=requests;
+ assert(failed_requests==EXPECTED_REQUESTS);
+ assert(t5ai_native_alarm_init()==E_INVALID_OPERATION);
+ uint32_t gen=0;
+ assert(t5ai_native_alarm_prepare_sleep(100,&gen)==E_INVALID_OPERATION);
+ assert(requests==failed_requests && !locks && !s_alarm_mutex);return 0;
+}
+"""
+        for operation, requests in (("Query", 1), ("Cancel", 2), ("FinishCleanup", 3)):
+            for bad_abi in (0, 1):
+                with self.subTest(operation=operation, bad_abi=bad_abi):
+                    run(
+                        "soc/t5ai/native_alarm.c",
+                        PROTOCOL + prefix,
+                        main,
+                        defines=(
+                            f"FAIL_OP=T5AIAlarm_{operation}",
+                            f"BAD_ABI={bad_abi}",
+                            f"EXPECTED_REQUESTS={requests}",
+                        ),
+                    )
+
     def test_mask_only_hal_balances_irq_and_tick_without_clock_calls(self):
         overlay = json.loads(
             (ROOT / "boards/unhygienix/tuya/cp/variants/sleep-overlay.json").read_text()

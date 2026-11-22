@@ -14,6 +14,16 @@ configuration is separate.
 Run commands from the PebbleOS repository root. Keep supplied build inputs and
 generated validation artifacts under `build/`.
 
+Production AP-only sleep now reports a previous interrupted attempt and validates
+the existing CP alarm owner and awake contract before trying again. Saved reset
+reasons and the prior AP trace are evidence, not automatic admission failures.
+The raw AP-only flasher needs no programming handshake. Keep first-boot serial
+captures: another successful reboot is not evidence that the first boot passed.
+A genuine hung restore still triggers the existing whole-chip reset guards;
+ordinary busy-owner or short-idle-window refusals use normal CPU idle. Current
+runtime ownership and cleanup faults remain guarded. This policy does not
+apply to experimental coordinated CP-sleep diagnostics.
+
 ## Tooling tests after the upstream migration — 15 November
 
 Run the suite from the repository root with the project Python dependencies

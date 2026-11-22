@@ -138,6 +138,8 @@ static uint32_t s_cp_entries_start;
 typedef struct {
   uint32_t magic, generation, stage, inverse;
 } SleepTrace;
+// Keep boot evidence after the next transaction replaces the retained slot.
+static volatile SleepTrace s_boot_sleep_trace;
 static volatile SleepTrace s_sleep_trace
     __attribute__((section(".t5ai_sleep_trace"), aligned(T5AI_SHARED_ALIGNMENT)));
 // SRAM-only cache clean: no flash function may be called after AP publication.
@@ -743,7 +745,10 @@ static void prv_worker(void *context) {
           (unsigned long)s_stats.cp_resources, (unsigned long)s_stats.fault);
     }
 #endif
-    s_phase = s_stats.fault ? SleepFailed : SleepIdle;
+    if (s_stats.fault)
+      prv_fail(s_stats.fault);
+    else
+      s_phase = SleepIdle;
     return;
   }
 #ifdef CONFIG_T5AI_RETAINED_SLEEP_TEST
@@ -846,10 +851,11 @@ void t5ai_sleep_start(void) {
 #ifdef CONFIG_T5AI_RETAINED_SLEEP_TEST
   t5ai_mailbox_channel_dump_previous_timeout();
 #endif
-  if (s_sleep_trace.magic == T5AI_SLEEP_TRACE_MAGIC &&
-      s_sleep_trace.stage == ~s_sleep_trace.inverse)
-    PBL_LOG_DBG("T5SLEEP previous AP stage=%lu gen=%lu", (unsigned long)s_sleep_trace.stage,
-                (unsigned long)s_sleep_trace.generation);
+  s_boot_sleep_trace = s_sleep_trace;
+  if (s_boot_sleep_trace.magic == T5AI_SLEEP_TRACE_MAGIC &&
+      s_boot_sleep_trace.stage == ~s_boot_sleep_trace.inverse)
+    PBL_LOG_DBG("T5SLEEP previous AP stage=%lu gen=%lu", (unsigned long)s_boot_sleep_trace.stage,
+                (unsigned long)s_boot_sleep_trace.generation);
 #ifdef CONFIG_T5AI_RETAINED_SLEEP_TEST
   const uint8_t cp_reason = t5ai_reset_reason_get_boot_cp();
   const bool durable = cp_reason != UINT8_MAX && (cp_reason & T5AI_SLEEP_CP_TRACE_REASON_MASK) ==
@@ -858,14 +864,21 @@ void t5ai_sleep_start(void) {
               durable ? cp_reason & T5AI_SLEEP_CP_TRACE_STAGE_MASK : 0u, durable,
               t5ai_reset_reason_get_boot_ap());
 #endif
-  const bool unfinished = s_sleep_trace.magic == T5AI_SLEEP_TRACE_MAGIC &&
-                          s_sleep_trace.stage == ~s_sleep_trace.inverse &&
-                          s_sleep_trace.stage != SLEEP_TRACE_COMPLETE;
-  if (t5ai_reset_reason_is_sleep_timeout(t5ai_reset_reason_get_boot_ap()) || unfinished) {
+  const bool unfinished = s_boot_sleep_trace.magic == T5AI_SLEEP_TRACE_MAGIC &&
+                          s_boot_sleep_trace.stage == ~s_boot_sleep_trace.inverse &&
+                          s_boot_sleep_trace.stage != SLEEP_TRACE_COMPLETE;
+  const bool interrupted =
+      t5ai_reset_reason_is_sleep_timeout(t5ai_reset_reason_get_boot_ap()) || unfinished;
+  if (interrupted) {
+#if defined(CONFIG_T5AI_RETAINED_SLEEP_WAKE_ONLY) && !defined(CONFIG_T5AI_RETAINED_SLEEP_TEST)
+    PBL_LOG_WRN("T5SLEEP previous interruption AP=%x; revalidating awake contract",
+                t5ai_reset_reason_get_boot_ap());
+#else
     prv_fail(T5AISleepFault_ResumeTimeout);
     if (!pbl_sys_work_try_call(prv_recovery_diagnostic, NULL))
       PBL_LOG_ERR("T5SLEEP recovery diagnostic dropped");
     return;
+#endif
   }
 #ifdef CONFIG_T5AI_RETAINED_SLEEP_TEST
   // A global reset can discard the AP reason and breadcrumb while CP trace survives.
@@ -875,7 +888,7 @@ void t5ai_sleep_start(void) {
 #endif
   s_phase = SleepIdle;
 #ifndef CONFIG_T5AI_RETAINED_SLEEP_TEST
-  if (!pbl_sys_work_try_call(prv_preflight_worker, NULL))
+  if (!pbl_sys_work_try_call(interrupted ? prv_recovery_diagnostic : prv_preflight_worker, NULL))
     PBL_LOG_DBG("T5SLEEP contract preflight deferred");
 #endif
 }

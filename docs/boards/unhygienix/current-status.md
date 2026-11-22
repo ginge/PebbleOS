@@ -1,7 +1,81 @@
-# Unhygienix current status — 21 November 2026
+# Unhygienix current status — 22 November 2026
 
 The latest installation checkpoint below is the current installed state. Dated entries preserve
 the state and evidence at their recorded checkpoint.
+
+## Evidence-preserving sleep retry installed — 22 November, 09:57 UTC
+
+Installed AP-only build `31b50d165281fa78016a880573b910fefe8c69cf`, version
+`v4.41.2-1653-g110701cc8-dirty`, protected SHA-256
+`55c07280616340f63aed9e599594e3fb1a1a89da92ca639aa6bf4cdbfe647e72`.
+The uncommitted programming-handoff alternative below has been removed.
+Production CP-awake AP-only startup keeps/reports prior interruption evidence,
+then uses existing owner cleanup and awake-contract validation before retrying.
+Current runtime guards and diagnostic CP-sleep quarantine remain intact.
+
+The raw AP-only flash took 51.8 s without a programming hold or recovery reset.
+Its first boot at 09:57:43 UTC preserved AP/CP reasons `0x4f/0`, reported the
+interruption and validated contract `0x78f`. At 09:58:18.607 it reported 32 clean
+AP-only returns with zero CP/clock/mask/resource transitions and zero faults.
+Existing SD PFS (new=0), resources, launcher and bonded/encrypted PPoGATT passed.
+The stopped 158.298-second capture received 4161 bytes, one boot and no panic or
+sleep-failure record. Temporary admission probes are absent from this image.
+
+Final validation: 45 sleep/alarm/reset/watchdog methods under ASan/UBSan, 10
+flasher/runner methods, normal ARM/LTO build and all image guards passed. The
+previous boot trace gets a 16-byte ordinary-RAM snapshot; retained/PFS flag
+layouts, CP ABI, timing, calibration and identity are unchanged. Kernel heap
+32800 bytes; unchanged 28 KiB guard. No other partition was programmed/formatted.
+Earlier runs without a 32-return report remain preserved and inconclusive;
+the temporary probe established 20 clean returns in one of those runs.
+No power, electrical, fault-injection or soak qualification is claimed.
+
+Evidence: `build-quality-20261121/sleep-retry-final2-20261122/` and the
+[code-quality progress record](code-quality-todo.md). The operator authorized
+committing this verified increment; further backlog work remains paused. All
+captures are stopped and the device is left running the recorded pre-commit
+image. Finding 7 remains the next backlog section.
+
+## Historical programming-handoff alternative — 22 November, 09:07 UTC
+
+Sleep-admission repair is installed as AP-only candidate build
+`1855111f5362c1deef582b8372760f286b4440b9`, phone version
+`v4.41.2-1653-g110701cc8-dirty`, protected SHA-256
+`b88f37b524e6897c9220cb513876d93596a518dd7eedb687e5034e158f52021b`.
+This includes the committed touch and explicit SD/PFS backend changes plus the
+uncommitted programming handoff. Source changes remain uncommitted for operator
+verification; further backlog work is paused.
+
+The old workflow reproduced `AP=0x4f / CP=0 / reason=4` by reflashing identical
+bytes from verified retained idle. The new workflow uses the pinned CP's
+existing `ap_cmd` bridge to request an AP programming hold, finishes retained
+cleanup and requires a fresh nonce-matched READY before tyutool resets the watch.
+It does not clear fault evidence or relax timeout/admission guards. Missing or
+refused handoffs stop programming; old unsupported or quarantined firmware needs
+an explicit, separately reviewed initial/recovery installation. The hold lasts
+until reset if an attempt is abandoned. See the historical handoff entry in the [progress record](code-quality-todo.md).
+
+Two handoff-controlled AP flashes passed their **first** boot with no recovery
+reset: exact build, reasons `0/0`, contract `0x78f`, 32 clean AP-only returns,
+zero CP/clock/mask/resource transitions and zero faults/panics. Both found existing
+SD PFS (`new=0`), valid resources, launcher startup and bonded/encrypted PPoGATT.
+The final flash started from verified retained idle, received READY in 140 ms,
+programmed the AP in 52.1 s and booted at 09:07:09 UTC. Its stopped capture
+received 3,783 bytes over 160.2 s including programming. The watch is left in
+normal retained idle; no programming hold was requested after this final boot.
+
+Host validation: 41 distinct targeted methods plus 39 image/configuration
+methods, full normal ARM/LTO build and map/CRC/resources/syscall guards. Kernel
+heap 32,768 bytes; retained and pinned PFS buffer addresses/sizes unchanged.
+No CP/resources/PFS/calibration/identity/bond partition was programmed or
+formatted. No power, electrical timing, hardware fault-injection, CP replacement
+or soak qualification is claimed. Manual normal-use verification remains for
+the operator before commit.
+
+Evidence: `build-quality-20261121/sleep-handoff-2-20261122/` and the separate
+baseline/failure/bootstrap/first-handoff directories described in the
+[code-quality progress record](code-quality-todo.md). Next backlog item after
+verification/commit: finding 7.
 
 ## Timer completion-read fix installed — 21 November, 23:47 UTC
 

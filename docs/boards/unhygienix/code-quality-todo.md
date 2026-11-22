@@ -102,21 +102,23 @@ on-watch format or storage qualification.
 
 ### Follow-up: repair post-flash sleep admission (release blocker)
 
-- [ ] Reproduce and explain first-boot `T5SLEEP failed reason=4 gen=0`
+- [x] Reproduce and explain first-boot `T5SLEEP failed reason=4 gen=0`
   with AP/CP reset sources `0x4f/0`, preserving the original failure traces.
   Reason 4 is `T5AISleepFault_ResumeTimeout`, not a generic budget rejection;
   inspect the reset-reason and unfinished retained-trace admission paths.
   `drivers/watchdog/t5ai.c` intentionally writes `0x4f` while arming the retained
   watchdog guard and restores the previous reason only after return. A reset
   during that interval is not automatically proof of a spurious fault.
-- [ ] Distinguish a real interrupted retained return from stale boot/reset
-  evidence after AP programming. Repair the responsible lifecycle boundary
-  without clearing evidence blindly or weakening admission/ownership guards.
-- [ ] Acceptance: first boot after an authorized AP-only flash admits the
-  qualified CP-awake path when safe; genuine interrupted returns, invalid
-  contracts, late replies and uncertain cleanup remain quarantined. Preserve
-  reset/retained layouts, numeric ABI, hardware timing and CP defaults.
-- [ ] Record exact image/configuration and first-failure/first-boot evidence;
+- [x] Preserve and report previous reset/retained evidence without treating it
+  as a new runtime fault in production AP-only mode. Revalidate the surviving
+  CP alarm owner and awake contract before admitting a fresh attempt. The
+  operator accepts a reboot if a genuine sleep/restore hang recurs.
+- [x] Acceptance: first boot after an authorized raw AP-only flash admits the
+  CP-awake path when safe, without a programming handshake or recovery reset.
+  Current-boot invalid contracts, late replies, ownership faults and uncertain
+  cleanup remain guarded. Preserve reset/retained layouts, numeric ABI,
+  hardware timing and CP defaults; keep diagnostic CP-sleep modes conservative.
+- [x] Record exact image/configuration and first-failure/first-boot evidence;
   do not use a subsequent manual reset as proof of a fix. Host tests alone
   cannot qualify retained sleep. Investigate after finding 6, before the
   broader sleep/architecture cleanup in findings 7–8.
@@ -834,3 +836,308 @@ that is the observed cause, whether an actual guard expired, or which quiescence
 reset-intent boundary should change. Do not suppress `0x4f`, clear valid evidence,
 relax ownership checks or enable CP deep sleep as a workaround. Preserve first-
 boot traces and investigate the lifecycle distinction before choosing a repair.
+
+
+### Historical alternative — 22 November, AP-only programming handoff (superseded)
+
+Reproduced the failure using **identical** current-HEAD source and AP artifacts
+(`110701cc8`, build ID `2c37f3329018607139b9a9bc7f0a8e7a25941c56`). The first
+AP-only installation booted with AP/CP reasons `0/0`, contract `0x78f`, existing
+32 MiB SD (`new=0`), valid resources, bonded/encrypted PPoGATT reconnection and
+32 AP-only returns with zero CP/clock/mask/resource transitions and zero faults.
+Reflashing the very same bytes from that healthy retained-idle runtime produced
+first-boot AP/CP reasons `0x4f/0`, reason 4 at generation 0, CP previous stage /
+generation `0/0`, and boot PMU reset word `0x4f000003`. Both writes took 51.8 s;
+no intervening manual recovery reset was used. This establishes a programming
+lifecycle dependency, rather than a version-dependent admission regression.
+The original watchdog guard tags an armed interval with `0x4f`; an external
+programming reset does not execute the AP's guard-restore path. The firmware
+cannot safely infer programming intent from the same timeout marker used for
+a genuinely interrupted retained return.
+
+Repair scope: the existing pinned CP `ap_cmd` bridge is present in the received
+CP shell help. Add an AP/SoC-local receiver for its existing log-channel input,
+without changing CP firmware, shared Pebble C, pinned message numbers or native
+message layout. A fresh 16-hex-digit nonce is copied into AP-owned storage before
+the CP command-buffer ACK. Deferred, bounded work asks the retained coordinator
+to stop new entries, finish existing return/cancel/cleanup and validate its awake
+contract. Only a clean idle coordinator emits `T5FLASH READY <nonce>`; faults,
+unfinished evidence, timeout and uncertain cleanup never do. The programming
+hold lasts until reset; there is no automatic clearing of fault evidence or
+automatic recovery reset. New AP flashing requires this reply; pbl's runner
+requires one before each reset-producing write. CRC/range/version and provenance
+guards still precede any device command. Dry-run / validation remain read-only.
+
+The new complete production receiver and real kernel tick unit run with real
+kernel, mailbox, timeout and sleep headers under ASan/UBSan. Modeled endpoints
+cover the CP-owned input lease and buffer reuse, strict command length/range /
+nonce validation, duplicates, mismatched requests, deferred polling, failure and
+timeout. Coordinator scenarios cover queued preparations, armed cancellation,
+pending resume events, failed cleanup, unfinished traces, live timeout markers
+and sticky owner faults; the existing coordinator harness still models SRAM WFI
+and hardware endpoints. Host tests require a complete fresh nonce-matched line,
+reject echo/stale/partial replies, and verify refusal/missing console prevent the
+runner from invoking tyutool. Restoring pre-fix admission behavior in memory is
+rejected by the new regression; production source was not altered for that proof.
+
+Validation so far:
+
+```sh
+ASAN_OPTIONS=detect_leaks=0 /tmp/pebble-quality-venv/bin/python -m unittest \
+  tools.tests.test_t5ai_programming tools.tests.test_unhygienix_runner \
+  tools.tests.test_t5ai_retained_sleep tools.tests.test_t5ai_reset \
+  tools.tests.test_t5ai_sleep_guard -v
+# 40 tests passed; /tmp/pebble-sleep-validation.log
+ASAN_OPTIONS=detect_leaks=0 /tmp/pebble-quality-venv/bin/python -m unittest \
+  tools.tests.test_t5ai_config tools.tests.test_unhygienix_boards \
+  tools.tests.test_unhygienix_image tools.tests.test_unhygienix_image_packaging -v
+# 39 tests passed; /tmp/pebble-sleep-image-tests.log
+# Normal ARM/LTO: same environment and pbl build command recorded above;
+# /tmp/pebble-sleep-final-build.log, successful CRC/map/resources/syscall guards.
+```
+
+Candidate build ID `1855111f5362c1deef582b8372760f286b4440b9`, protected SHA-256
+`b88f37b524e6897c9220cb513876d93596a518dd7eedb687e5034e158f52021b`.
+Kernel heap 32,768 bytes remains above the 28,672-byte guard. Retained sections
+remain at exactly `0x280103a0` (136 bytes) / `0x28010440` (16 bytes); the 8,192-byte
+PFS flag buffer remains at `0x60020000`. System resources are byte-identical.
+No watchdog period, clock/lead/deadline, retained structure, AP/CP numeric ABI,
+partition, calibration, Bluetooth identity or CP default was changed.
+
+The one-time bootstrap used the preserved HEAD flasher against the old AP's
+already-quarantined, awake runtime; that bootstrap is not handoff qualification
+and there is no production bypass option. Candidate installed by AP-only write
+in 52.0 s and booted with reasons `0/0` / contract `0x78f`. A direct no-flash
+handoff then returned a fresh READY in 139 ms. The subsequent normal AP flash
+entry point received a new READY in 140 ms before programming and first-booted
+with reasons `0/0` / contract `0x78f`, without a post-flash recovery reset.
+Both normal handoff-controlled flashes now passed their **first** boot: one AP
+banner, zero panics, exact installed build ID, reasons `0/0`, contract `0x78f`,
+32 clean AP-only returns, zero CP/clock/mask/resource transitions and fault zero.
+Both reopened the existing SD volume (`new=0`), found valid resources, launched
+the launcher and restored bonded/encrypted PPoGATT. The second trial began from
+the first trial's verified retained-idle runtime, reproducing the old failure's
+precondition. Its fresh READY took **140 ms**, followed by a **52.1 s** AP-only
+write and the successful first boot at **09:07:09 UTC**. There was no post-flash
+manual/automatic recovery reset, rollback, CP rewrite or provisioning. The
+first controlled write took 52.0 s; its first boot was 09:04:11 UTC.
+
+The stopped successful captures received 3,782 / 3,783 bytes over 160.4 / 160.2 s
+respectively (including programming and roughly 108 s after first boot bytes).
+The additional dedicated-flasher entry-point regression passed along with the
+other four programming tests (`/tmp/pebble-sleep-final-entry-tests.log`), proving
+that missing/same console and a refused handoff cannot invoke tyutool in either
+supported AP entry point. Total distinct targeted methods: 41 plus 39 image /
+configuration methods. Ruff and changed-hunk clang-format checks pass.
+
+Evidence roots under `build-quality-20261121/`: `sleep-baseline-20261122/`,
+`sleep-reflash-20261122/` (failure), `sleep-candidate-20261122/` (bootstrap), and
+`sleep-handoff-1-20261122/` and `sleep-handoff-2-20261122/`. Each preserves exact images/map/config/dictionary /
+hashes, first-boot UART bytes/chunk times and flash evidence. The handoff JSON
+preserves literal bytes and nonce result. No CP/resources/storage/identity/bond
+partition was programmed or formatted. CP replacement, abandoned-hold recovery,
+electrical timing, repeated fault injection and long-duration qualification are
+not established by these bounded tests. Work remains uncommitted for operator
+verification, as requested; broader backlog work stays paused after this issue.
+
+
+**Historical handoff scope (superseded by the boot-retry implementation below):** the AP-only post-programming admission issue was repaired
+and verified in two bounded first-boot trials. The independent same-image
+failure remains preserved. The watchdog timeout namespace, marker and startup
+quarantine decision are unchanged, so unexpected interrupted-return evidence
+continues to refuse admission; the new workflow avoids creating that evidence
+by waiting for a clean AP handoff before the external reset. No general retained-
+sleep, storage, electrical or release/soak qualification is implied.
+
+**Paused for operator verification before commit.** Leave build
+`1855111f5362c1deef582b8372760f286b4440b9` installed; captures are stopped and the
+final boot is running normal retained idle (no programming hold was requested
+after that boot). Changes are uncommitted. Unrelated planning edits in
+`boards/unhygienix/tuya/REMAINING_TASKS.md` and `power-todo.md` remain untouched.
+After review/commit, the next ordered backlog item is finding 7; no work on it
+was started in this increment.
+
+
+### 22 November: investigate evidence-preserving boot retry
+
+The operator permits reboot on a genuine failed sleep attempt and requested
+investigation of retaining evidence without disabling subsequent sleep. This
+reassesses the cross-boot quarantine requirement above; the programming-handoff
+implementation remains uncommitted and is not the selected final solution.
+
+The current startup branch treats saved AP reasons `0x40..0x4f` or a valid
+unfinished AP trace as a new runtime fault, before validating the new boot.
+This is inherited local policy from earlier coordinated CP-sleep diagnostics.
+It is separate from current-boot ownership/cleanup quarantine. The AP native
+alarm initializer already queries the surviving CP generation and requires
+Cancel and FinishCleanup responses for that owner before initializing. The CP
+rejects unsafe cleanup (including active resources or analog ownership), and
+the coordinator separately checks the awake contract. No ABI or retained-layout
+change is needed to exercise this existing path after a previous interrupted
+attempt. Existing SRAM restore, missing-controller-event and watchdog paths
+already reset the whole chip on a hung return.
+
+A temporary experiment in `/tmp/investigate_t5ai_sleep_retry.py` changes only
+an in-memory copy of the startup policy: log previous interruption, run the
+existing diagnostic/contract initialization, and allow a fresh AP-only attempt
+when validated. Production source was not changed by the experiment. Command:
+
+```
+PYTHONPATH=. ASAN_OPTIONS=detect_leaks=0 /tmp/pebble-quality-venv/bin/python /tmp/investigate_t5ai_sleep_retry.py
+```
+
+Result: 48 cases passed under ASan/UBSan (16 saved reasons, each with healthy
+initialization, failed initialization, and deferred peripheral votes). The
+previous AP stage/generation and saved reason survive startup; successful new
+attempts complete cleanup; failed initialization remains faulted and cannot
+enter. This reuses the existing modeled coordinator harness, including modeled
+WFI/MMIO and alarm endpoints; it does not qualify hardware restoration or prove
+surviving CP cleanup end-to-end. A harness-only zero-startup-delay compiler
+warning was corrected by retaining the production 30-second delay in the
+experiment and advancing modeled time; production timing was unchanged.
+
+Remaining: implement a minimal AP-only startup policy with a snapshot/report of
+previous evidence before the next transaction overwrites its retained slot;
+keep experimental coordinated-CP modes conservative. Verify actual native
+alarm initialization failures and cleanup refusal, then build and capture the
+first boot after a raw AP-only programming reset without the handoff. Distinguish
+ordinary admission vetoes (busy owners or inadequate idle window) from fatal
+sleep/restore failures: normal vetoes should not cause reboot. Current runtime
+sticky faults still disable retained sleep, so a separate explicit policy change
+would be needed if those should reboot instead. Repeated genuine failures may
+reboot repeatedly under the requested retry policy; no boot-counter framework
+has been introduced. Preserve first-failure host captures. This investigation
+is not implementation completion or hardware qualification; no new checkbox is
+checked and no flash, reset or commit was performed.
+
+Existing production alarm/reset/watchdog regression validation also passed:
+`ASAN_OPTIONS=detect_leaks=0 /tmp/pebble-quality-venv/bin/python -m unittest
+tools.tests.test_t5ai_native_alarm tools.tests.test_t5ai_reset
+tools.tests.test_t5ai_sleep_guard` — 26 test methods in 42.261 seconds,
+including 98 modeled CP alarm cases and 39 AP alarm cases. Evidence:
+`/tmp/investigate_t5ai_sleep_existing.log` and
+`/tmp/investigate_t5ai_sleep_retry.log`. `git diff --check` passed.
+
+
+### 22 November: implement boot retry; preserve first missing-return checkpoint
+
+Replaced the uncommitted programming handshake with a T5AI-only startup policy.
+The previous AP trace is copied using its production SleepTrace type into a
+16-byte volatile ordinary-RAM snapshot before another attempt can replace the
+retained slot. Production CP-awake AP-only mode reports previous interruption
+and runs existing owner cleanup/awake-contract validation. Experimental CP-sleep
+modes and all current-boot guards remain conservative. Removed this task's
+uncommitted programming receiver/API, host helper, flasher/runner requirements
+and associated tests; their prior source is backed up under
+`/tmp/sleep-handoff-before-replacement/` and existing hardware evidence remains.
+Unrelated pre-existing changes in REMAINING_TASKS.md and power-todo.md are untouched.
+
+Host validation: 44 methods in retained-sleep/native-alarm/reset/watchdog modules
+passed under ASan/UBSan (145.383 s), including 23 new boot-policy scenarios and
+six failed-initialization/cleanup/ABI cases against the full native AP alarm
+unit. Existing diagnostic quarantine tests remain unchanged. Ten existing
+runner/flasher tests passed (17.548 s). The final volatile-snapshot change was
+rechecked with the 23-case boot-policy method (2.445 s). Ruff without cache,
+formatting and diff checks passed. A sandbox-only Ruff cache write failure was
+resolved with --no-cache; it was not a source failure. Normal ARM/LTO builds,
+log hash, map/layout, CRC/vector/current-version, resources and syscall guards
+passed. Build logs: `/tmp/sleep-retry-build.log` and
+`/tmp/sleep-retry-final-build.log`.
+
+Frozen first candidate: build ID `a6c8e503689790c77b26e3450c42a8ceedfc4544`,
+protected SHA-256 `0e101e6bb5c71b76146a237ab8ca31d61f3312f2b257db32445a3a2992a24e46`,
+AP physical range `0x132000..0x2e0f18` (exclusive). Retained data is still
+136 bytes at 0x280103a0, AP trace 16 bytes at 0x28010440 and private PFS flags
+8192 bytes at 0x60020000. Resources match the previous installed pack.
+The host lab file has no configured watches; actual host enumeration and a
+CP help response (752 bytes) verified the dual UART before capture.
+
+Raw AP-only flash without handoff completed in 51.7 s. Its FIRST boot at
+09:43:50 UTC retained AP/CP reasons `0x4f/0`, reported the interruption and
+boot PMU `0x4f000003`, validated contract `0x78f`, opened existing SD PFS
+(new=0), found valid resources, launched and restored bonded/encrypted PPoGATT.
+There was one boot and no sleep-failure/panic record. However, the expected
+32-return report did NOT appear in the 180.3-second capture (4502 bytes,
+including programming). This is an incomplete sleep validation, not success.
+A same-boot continuation is preserved separately; no recovery reset was used
+to hide the missing checkpoint. Evidence: `build-quality-20261121/sleep-retry-1-20261122/`.
+
+A temporary one-shot SysWorkq diagnostic is being used to read coordinator
+phase, owner/fault state, physical/logical/HCI readiness, deadline budget and
+attempt/return counters after 60 seconds. It changes no admission decisions and
+will be removed before final validation. No checkbox is checked for this new
+policy until retained returns are actually observed. No CP, resource, storage,
+calibration, identity or bond partition has been programmed or formatted.
+
+
+### 22 November: evidence-preserving boot retry implemented and verified
+
+**Final production scope:** only `soc/t5ai/sleep.c` changes. A saved interrupted
+attempt now prompts a warning and the existing startup diagnostic/owner-cleanup/
+awake-contract checks in production CP-awake AP-only mode. A volatile 16-byte
+ordinary-RAM copy retains the previous AP trace throughout subsequent attempts.
+Saved boot reasons remain intact. Existing watchdog/SRAM/missing-controller
+reset guards, runtime ownership/cleanup quarantine and experimental CP-sleep
+quarantine remain unchanged. No new boot-counter/recovery framework, programming
+mode, CP command/API, partition or retained layout was added. A hung return may
+still reboot through the existing guards, as accepted by the operator.
+
+Also route a latched post-wake fault through `prv_fail()` after successful
+cleanup. Previously this path silently assigned SleepFailed; it now logs the
+real fault while preserving the same closed admission and owner-fault state.
+A new normal-mode late-wake regression checks exact fault reporting, completed
+cleanup and refusal of a subsequent entry. No deadline threshold was relaxed.
+This fixes an observability gap found during validation; an actual late wake
+was not established as the cause of the earlier missing 32-return report.
+
+The temporary one-shot diagnostic image (build
+`df5da8922fab4c3ae5345a45e0bbb5d77279f86d`) first-booted with `0x4f/0` and at
+09:52:43 UTC reported phase=Idle, initialized=1, owners=0, faulted=0,
+physical/logical/HCI readiness=7, 23 requests, 20 returns, 3 aborts, fault=0,
+rejection=0 and startup settling complete. It established real sleep progress
+rather than merely a successful boot. Its 170-second capture still did not
+receive the 32-return report, so that run is not counted as passing the full
+checkpoint. The earlier missing-report runs remain inconclusive as to cause.
+Probe code was removed before the final build and installation. Its source,
+image and raw evidence are preserved under `sleep-retry-probe-20261122/`.
+
+Final normal ARM/LTO build passed all generated image guards; log:
+`/tmp/sleep-retry-fault-log-build.log`. The full final retained-sleep,
+native-alarm, reset and watchdog suites passed **45 methods** in 60.167 seconds
+under ASan/UBSan (`/tmp/sleep-retry-final-validation.log`). This includes all
+unchanged diagnostic-quarantine cases, new production boot-retry cases,
+failed warm-owner cleanup/ABI cases and late-wake reporting. The restored
+flasher/runner's **10 methods** also passed. Ruff check/format, clang-format
+and `git diff --check` pass. Host endpoint/WFI models remain host evidence;
+no tests were changed to ignore an unsafe result.
+
+**Installed final image:** build ID `31b50d165281fa78016a880573b910fefe8c69cf`,
+version `v4.41.2-1653-g110701cc8-dirty`, raw SHA-256
+`c97738d3597d22f0d27ff9af423695cdf3a5e092a6ca01fc904d355c1f80ddba`,
+protected SHA-256 `55c07280616340f63aed9e599594e3fb1a1a89da92ca639aa6bf4cdbfe647e72`.
+The raw AP-only flash took 51.8 seconds, physical range
+`0x132000..0x2e0f18` exclusive. No programming hold/handshake or extra recovery
+reset was used. Its FIRST boot at **09:57:43 UTC** retained AP/CP reset sources
+`0x4f/0` and boot PMU reset `0x4f000003`, reported the previous interruption,
+and validated contract `0x78f`. At **09:58:18.607 UTC** it reported **32 AP-only
+returns, zero CP/clock/mask/resource transitions and zero faults**. The stopped
+capture has 4161 bytes over 158.298 seconds including programming, exactly one
+boot, the expected build ID and no panic/sleep-failure record. Existing SD PFS
+(new=0), valid resources, launcher and bonded/encrypted PPoGATT recovery passed.
+This is the final image's first boot, not a later successful reset.
+
+The kernel heap is 32800 bytes with the unchanged 28 KiB guard. Pinned retained
+and PFS flag sections match the addresses/sizes recorded above; resources remain
+byte-identical. No CP/resources/PFS/calibration/identity/bond partition was
+programmed or formatted, no shared/common Pebble source changed, and ABI,
+active clock policy and timing constants are unchanged. No fault-injection,
+electrical, power or soak qualification is claimed. Capture processes are
+stopped; the device is left running the final production image in normal idle.
+
+Reviewable evidence and exact production/test source snapshots:
+`build-quality-20261121/sleep-retry-final2-20261122/`. Installed source identity
+was checked against the frozen candidate. The removed handoff alternative and
+all first-missing-checkpoint evidence remain separately preserved. This follow-up
+is complete at the recorded host/build/bounded-hardware scope. The operator
+subsequently authorized committing this verified increment. **Further backlog
+work remains paused.** The next unresolved backlog section is finding 7.

@@ -32,6 +32,7 @@ static time_t pbl_realtime(void){return wall;}
 static bool in_idle;
 static unsigned cleanup_finishes;
 #define PBL_LOG_ERR(...) assert(!in_idle)
+#define PBL_LOG_WRN(...) assert(!in_idle)
 #define PBL_LOG_DBG(fmt,...) do { \
  assert(!in_idle); \
  if(strstr(fmt,"T5SLEEP votes") || strstr(fmt,"T5SLEEP check entries") || \
@@ -359,6 +360,112 @@ int main(void){
 
 
 class RetainedSleep(unittest.TestCase):
+    def test_ap_only_boot_retry_preserves_evidence_and_validates_contract(self):
+        prefix = PREFIX.replace("#define CONFIG_T5AI_RETAINED_SLEEP_TEST 1", "")
+        prefix = prefix.replace(
+            "#define PBL_LOG_WRN(...) assert(!in_idle)",
+            "static unsigned previous_warnings;\n"
+            "#define PBL_LOG_WRN(...) do {assert(!in_idle);++previous_warnings;} while(0)",
+        )
+        main = (
+            MAIN[: MAIN.index("int main(void)")]
+            + r"""
+int main(void){
+ boot_reason=REASON;
+ s_sleep_trace=(SleepTrace){.magic=T5AI_SLEEP_TRACE_MAGIC,.generation=73,
+   .stage=T5AISleepStage_AP_Published,.inverse=~(uint32_t)T5AISleepStage_AP_Published};
+ if(TRACE==1)s_sleep_trace.stage=SLEEP_TRACE_COMPLETE,s_sleep_trace.inverse=~SLEEP_TRACE_COMPLETE;
+ if(TRACE==2)s_sleep_trace.magic=0;
+ if(TRACE==3)s_sleep_trace.inverse=0;
+ const SleepTrace previous=s_sleep_trace;
+ if(MODE==1)contract_bad=true;
+ if(MODE==2)cp_contract_ready=false;
+ if(MODE==3)drop=true;
+ t5ai_sleep_start();
+ assert(!memcmp((const void *)&s_boot_sleep_trace,&previous,sizeof(previous)));
+ if(MODE==3){assert(!queued && !s_initialized);drop=false;}
+ else {assert(queued);worker();}
+ assert(boot_reason==REASON && !arms && !ram_entries);
+ assert(!memcmp((const void *)&s_sleep_trace,&previous,sizeof(previous)));
+ assert(previous_warnings==((REASON>=0x40 && REASON<=0x4f)||TRACE==0));
+ if(MODE==1){
+   assert(s_phase==SleepFailed && s_stats.fault==T5AISleepFault_Contract);
+   assert(t5ai_sleep_blockers().faulted);idle_service(aon+3200);
+   assert(!queued && !enter(aon+3200));
+ }else{
+   assert(s_phase==SleepIdle && !s_stats.fault && !t5ai_sleep_blockers().faulted);
+   if(MODE==2){assert(!s_initialized);cp_contract_ready=true;}
+   aon+=SLEEP_START_DELAY_MS*SLEEP_AON_PER_MS;
+   prepare(aon+3200);assert(s_initialized && enter(aon+3200));
+   idle_service(aon+3200);worker();
+   assert(s_phase==SleepIdle && !s_stats.fault && cleanup_finishes==1);
+   assert(s_sleep_trace.stage==SLEEP_TRACE_COMPLETE && boot_reason==REASON);
+   assert(!memcmp((const void *)&s_boot_sleep_trace,&previous,sizeof(previous)));
+ }
+ assert(!locks);return 0;
+}
+"""
+        )
+        cases = [(reason, 0, 0) for reason in range(0x40, 0x50)]
+        cases += [(0, trace, 0) for trace in range(4)]
+        cases += [(0x4F, 0, mode) for mode in range(1, 4)]
+        for reason, trace, mode in cases:
+            with self.subTest(reason=reason, trace=trace, mode=mode):
+                run(
+                    "soc/t5ai/sleep.c",
+                    "#include <stdbool.h>\n#include <stdint.h>\n"
+                    + HEADER
+                    + prefix
+                    + BLOCKERS,
+                    main,
+                    defines=(
+                        "CASE=31",
+                        "CONFIG_T5AI_RETAINED_SLEEP_WAKE_ONLY",
+                        f"REASON={reason}",
+                        f"TRACE={trace}",
+                        f"MODE={mode}",
+                    ),
+                    # Preserve the production startup delay in this normal-mode test.
+                    transform=lambda text: transform(text).replace(
+                        "(CASE == 18 ? 30000u : 0u)", "30000u"
+                    ),
+                )
+
+    def test_ap_only_late_wake_reports_fault_after_cleanup(self):
+        prefix = PREFIX.replace("#define CONFIG_T5AI_RETAINED_SLEEP_TEST 1", "")
+        prefix = prefix.replace(
+            "#define PBL_LOG_ERR(...) assert(!in_idle)",
+            "static unsigned errors;\n"
+            "#define PBL_LOG_ERR(...) do {assert(!in_idle);++errors;} while(0)",
+        )
+        main = (
+            MAIN[: MAIN.index("int main(void)")]
+            + r"""
+int main(void){
+ t5ai_sleep_start();worker();
+ aon+=SLEEP_START_DELAY_MS*SLEEP_AON_PER_MS;
+ const uint32_t deadline=aon+3200;prepare(deadline);
+ elapsed=3201;assert(enter(deadline));
+ assert(s_stats.fault==T5AISleepFault_Deadline && s_stats.late_aon==1);
+ assert(t5ai_sleep_blockers().faulted && !errors);
+ idle_service(aon+3200);worker();
+ assert(cleanup_finishes==1 && s_phase==SleepFailed && errors==1);
+ assert(s_stats.fault==T5AISleepFault_Deadline);
+ idle_service(aon+3200);assert(!queued && !enter(aon+3200));
+ assert(!locks);return 0;
+}
+"""
+        )
+        run(
+            "soc/t5ai/sleep.c",
+            "#include <stdbool.h>\n#include <stdint.h>\n" + HEADER + prefix + BLOCKERS,
+            main,
+            defines=("CASE=31", "CONFIG_T5AI_RETAINED_SLEEP_WAKE_ONLY"),
+            transform=lambda text: transform(text).replace(
+                "(CASE == 18 ? 30000u : 0u)", "30000u"
+            ),
+        )
+
     def test_startup_preflight_defers_missing_peripheral_votes(self):
         main = (
             MAIN[: MAIN.index("int main(void)")]
