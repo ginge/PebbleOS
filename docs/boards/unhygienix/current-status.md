@@ -3,6 +3,27 @@
 The latest installation checkpoint below is the current installed state. Dated entries preserve
 the state and evidence at their recorded checkpoint.
 
+## Finding 14 committed; finding 15 independent IPC initialization in source — 22 November
+
+Finding 14 is committed as **77ccc46e2**; gitlint passes. Finding 15 now removes
+SARADC route setup from flash initialization and makes repeated flash init reuse
+its connection. SARADC retains its existing lazy, idempotent setup. Definite
+failure retry and ambiguous-operation quarantine are preserved. No shared/common
+production changes were needed; both sequential socket allocation orders pass.
+
+All **53 focused host methods** and full default ARM/LTO/image gates pass.
+Configuration, memory usage and six reserved/retained layouts are unchanged.
+A broader run passes 59/60: one older HCI logging-pressure fixture fails to
+compile because it lacks the event notification dependency. Committed HEAD
+reproduces that failure; the current complete HCI work/ACL suites pass. Repair
+that fixture before using it for finding 16. Exact evidence and limits are in
+the [TODO checkpoint](code-quality-todo.md).
+
+Finding 15 is **uncommitted and unflashed**, paused for review. No hardware action
+was performed. The installed default finding-13/14 image below remains current;
+its disconnected-cell, panel and transport limitations remain open. Next source
+item is finding 16, actual-thread logging recursion.
+
 ## Findings 13/14 installed and bench-checked — 22 November, 17:33 UTC
 
 Installed default AP build **80136932e2a39db7789df18cfc8c67f37424debd**,

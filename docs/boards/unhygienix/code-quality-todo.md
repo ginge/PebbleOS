@@ -222,11 +222,12 @@ within the recorded bench scope. Warning/soak limits are retained below.
 
 ### 15. Separate flash and ADC initialization ownership
 
-- [ ] Remove SARADC initialization ownership from `t5ai_flash_ipc_init()`.
+- [x] Remove SARADC initialization ownership from `t5ai_flash_ipc_init()`.
   Keep shared MB-IPC initialization in the transport and make flash/SARADC
   explicit, idempotent clients with any required socket order documented.
-- [ ] Acceptance: either client's failure/retry is independently covered and
-  storage startup does not depend unnecessarily on ADC setup.
+- [x] Acceptance: either client's failure/retry is independently covered and
+  storage startup does not depend unnecessarily on ADC setup (production-unit
+  host fault tests; no new on-watch qualification).
 
 ### 16. Track logging recursion by actual thread identity
 
@@ -2409,3 +2410,54 @@ changes are now installed and the bounded passed checks above are recorded,
 but the full acceptance checkboxes remain open for those explicit limits.
 No source fix or new commit was made during this flash/bench task. Finding 15
 has not been started.
+
+
+### Finding 14 committed; finding 15 independent IPC clients — 2026-11-22
+
+At the operator's request, committed finding 14 as **77ccc46e2**
+(`t5ai: deliver battery updates from events and deadlines`), with DCO/AI trailers
+and passing gitlint. Only the eight reviewed finding-14 files were staged.
+The combined finding-13/14 bench and its limitations above remain unchanged:
+the battery stays disconnected, real-cell/idle-energy checks remain open, and
+the screenshot send-buffer failure is preserved. No new hardware action was
+performed during this increment.
+
+Reinspection of committed HEAD confirms the finding-15 dependency: flash init
+registers the SARADC notification route and returns its error before opening the
+independent flash connection. The complete committed flash unit, compiled with
+the new fixture, fails an executed success assertion when that route is made to
+fail. This is an actual storage-startup dependency, not an environment failure.
+
+Removed the SARADC include/call from flash initialization. Successful repeated
+flash initialization now reuses the existing connection; an established socket
+that has been quarantined remains unavailable. Definite connect rejection can
+still retry through the transport. Missing replies still poison the socket and
+cannot be retried into reuse. SARADC already owns idempotent route setup and
+calls it lazily from each acquisition; its production implementation is unchanged.
+Shared MB-IPC setup stays in the transport. Only the flash driver and client API
+comments change; no shared/common production code changes were required.
+
+Socket order: normal serialized startup still initializes flash before the first
+battery acquisition. The transport has two slots and routes by CPU/port tuple,
+not array index. Both sequential allocation orders work with pinned flash ports
+16/1 and SARADC ports 17/2. Concurrent first-time transport/client initialization
+is not newly guaranteed or tested. Do not clear a poisoned slot to recover a
+client; storage/ADC lifetime ownership and terminal quarantine remain unchanged.
+
+Validation and evidence:
+
+- Baseline command: `ASAN_OPTIONS=detect_leaks=0 /tmp/pebble-quality-venv/bin/python -m unittest tools.tests.test_t5ai_saradc tools.tests.test_tuya_flash tools.tests.test_t5ai_flash_read_lease tools.tests.test_t5ai_flash_completion -v`: **18 methods pass**.
+- Six new `tools.tests.test_t5ai_ipc_init` methods use complete production flash, SARADC and MB-IPC units with real headers, Kconfig, kernel synchronization types, timing conversion, private wire helpers and `kernel/tick.c`. Only private symbol names are disambiguated to combine units; functions are not extracted or stripped and wire/type layouts are not copied. CP acknowledgements, route registration, IRQ/kernel endpoints and scheduling remain modeled.
+- ASan/UBSan cases cover ADC-route failure/retry without blocking flash, shared-transport route failure/retry without recreating synchronization, definite flash rejection/retry, ambiguous connect quarantine, repeated success and later flash quarantine, both allocation orders, and ADC timeout without losing flash availability. ADC connect is deliberately left pending for timeout checks; existing SARADC tests cover acquisition/notification behavior.
+- Focused command: `PATH=/tmp/pebble-quality-venv/bin:$PATH ASAN_OPTIONS=detect_leaks=0 /tmp/pebble-quality-venv/bin/python -m unittest tools.tests.test_t5ai_ipc_init tools.tests.test_t5ai_saradc tools.tests.test_tuya_flash tools.tests.test_t5ai_flash_read_lease tools.tests.test_t5ai_flash_completion tools.tests.test_t5ai_flash_cache tools.tests.test_t5ai_flash_priority tools.tests.test_t5ai_battery tools.tests.test_t5ai_battery_events tools.tests.test_t5ai_hci_work tools.tests.test_t5ai_hci_sleep tools.tests.test_t5ai_hci_acl -v`: **53 methods pass**.
+- A broader run replacing the three HCI modules with `tools.tests.test_t5ai_mailbox_failures` passes **59/60** methods. The remaining `test_hci_exhaustion_does_not_wait_for_logger` fails to compile: its extracted HCI helper calls `t5ai_hci_notify_work()` without a fixture declaration/implementation. Reproduced identically using all three inputs from committed HEAD in a temporary tree. This is a preexisting harness dependency, not a target regression or a clean broad-suite pass. The complete HCI work/ACL suites above pass. **New dependency for finding 16:** repair that logging-pressure fixture faithfully before relying on it; preserve its nonblocking/logger-ownership assertions.
+- The first new fixture compile failed because its semaphore endpoint used the wrong field/signature and combined units collided on private logging identifiers. Corrected it to real `backend.count`, `void pbl_sem_give`, production tick conversion and private-name disambiguation; no production guards were weakened.
+- `PATH=ARM_TOOLCHAIN:/tmp/pebble-quality-venv/bin:$PATH cmake --build build-quality-finding9-candidate -j 8`: full default ARM/LTO, layout, protected CRC, resource-size and syscall gates pass. FLASH **1,667,136** bytes and RAM **96,640** are unchanged against finding 14; display PSRAM **126,912**, DMA **14,976** and PFS **8,192** remain unchanged. Actual map comparison verifies identical addresses/sizes for all six reserved/retained sections; `.config` is byte-identical. Existing generated-declaration LTO warnings remain.
+- Ruff check/format, Clang Format 22 and `git diff --check` pass. Both unrelated planning-file hashes are unchanged. Before/candidate source, reproduction and failure logs, test/build commands/results, default config/map/ELF/dictionary/raw/protected images, review patch/state, verification and SHA-256 manifest are retained under `build-quality-20261121/ipc-init-finding15/`.
+
+Finding 15 is implemented and host-verified, **uncommitted and unflashed**, for
+review. Host tests do not qualify CP firmware, physical startup or charging.
+The previously installed default finding-13/14 image remains on the watch.
+Next ordered source item is **finding 16, actual-thread logging recursion**,
+including the newly identified logging-pressure harness repair. Prior battery,
+panel and transport bench limitations remain open.

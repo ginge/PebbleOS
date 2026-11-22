@@ -9,6 +9,7 @@
 /* Completion runs on the mailbox owner, or inline on a local submission failure.
  * It must not wait or start service work. */
 typedef void (*T5AISaradcCompletion)(status_t status, uint16_t peak, void *context);
+// Idempotent route setup, also performed lazily by request; independent of flash init.
 status_t t5ai_saradc_init(void);
 /* One bounded asynchronous acquisition; E_BUSY if another is active. */
 status_t t5ai_saradc_request(uint8_t channel, uint8_t samples, T5AISaradcCompletion callback,

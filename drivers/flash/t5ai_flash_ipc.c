@@ -25,7 +25,6 @@
 #include <pbl/kernel/thread.h>
 #include <pbl/soc/t5ai/mb_ipc.h>
 #include <pbl/soc/t5ai/rtc.h>
-#include <pbl/soc/t5ai/saradc_ipc.h>
 
 PBL_LOG_MODULE_DECLARE(driver_flash, CONFIG_DRIVER_FLASH_LOG_LEVEL);
 
@@ -180,11 +179,10 @@ static uint32_t prv_crc32(const void *data, size_t length) {
 }
 
 status_t t5ai_flash_ipc_init(void) {
-  status_t status = t5ai_mb_ipc_init();
-  if (FAILED(status)) {
-    return status;
+  if (s_flash_socket != NULL) {
+    return s_flash_available ? S_SUCCESS : E_INVALID_OPERATION;
   }
-  status = t5ai_saradc_init();
+  status_t status = t5ai_mb_ipc_init();
   if (FAILED(status)) {
     return status;
   }

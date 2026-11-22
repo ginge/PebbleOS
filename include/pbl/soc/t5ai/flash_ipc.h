@@ -2,16 +2,17 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #pragma once
 
+#include "system/status_codes.h"
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-
-#include "system/status_codes.h"
 
 /*
  * Pebble-side boundary to the CP-owned flash server. Addresses are logical
  * flash offsets; the CP server owns controller access and 34:32 protection.
  */
+// Flash client only: repeat success is a no-op; a quarantined socket stays unavailable.
 status_t t5ai_flash_ipc_init(void);
 // False after an ambiguous transaction; no retry or reconnect may reuse it.
 bool t5ai_flash_ipc_is_available(void);
