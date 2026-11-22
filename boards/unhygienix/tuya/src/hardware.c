@@ -123,7 +123,7 @@ OPERATE_RET tuya_hardware_init(void) {
   s_frame->free_cb = prv_frame_done;
 
   TDD_TP_CST92XX_INFO_T touch = {0};
-  touch.rst_pin = TUYA_GPIO_NUM_42;
+  touch.rst_pin = TUYA_GPIO_NUM_43;
   touch.i2c_cfg.port = BUS;
   touch.i2c_cfg.scl_pin = TUYA_GPIO_NUM_20;
   touch.i2c_cfg.sda_pin = TUYA_GPIO_NUM_21;

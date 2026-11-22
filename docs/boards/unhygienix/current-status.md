@@ -3,6 +3,46 @@
 The latest installation checkpoint below is the current installed state. Dated entries preserve
 the state and evidence at their recorded checkpoint.
 
+## Finding 20 source work complete; both increments uncommitted — 22 November
+
+Finding 20b documents the optional Tuya application separately from the production
+AP and active CP tooling. It corrects only the optional app's touch reset from
+GPIO42 to GPIO43, using the existing schematic/native-device evidence. Native
+wiring is unchanged. Comparison checks preserve panel/bus geometry, intentionally
+distinct battery calibration, and the existing one-pixel touch rounding difference.
+
+All **69 affected methods pass**, no skips; finding 20a's separate **37 checksum
+methods pass** as previously recorded. A complete-unit reference/native touch
+comparison runs under ASan/UBSan. Static source comparisons do not replace a
+full optional SDK build or hardware qualification. See the [reference boundary](../../../boards/unhygienix/tuya/README.md)
+and [TODO checkpoint](code-quality-todo.md).
+
+**Both finding 20a and 20b remain uncommitted and unflashed**, paused for review.
+HEAD remains **6f437a5a0**. No hardware operation occurred; the installed
+finding-15/16 image and bench limits remain current. The flash table stays pending
+target timing proof. Earlier unchecked graphics, NimBLE placement and panel/battery
+acceptance items remain open; finding 20 does not close them.
+
+## Finding 19b committed; finding 20a checksum evaluation — 22 November
+
+Finding 19b is committed as **6f437a5a0**; DCO/AI trailers and gitlint pass.
+Finding 20a adds complete-unit vendor/AP/native checksum comparisons and records
+why the flash table should stay. The evaluation adapter matches vendor vectors,
+but takes about twice the table's time at 256–65,535 bytes on this host. Target
+lease/timing proof is still required before removal. SARADC's full accumulator
+and MIPC's polynomial, seed and exact payload span are explicitly preserved.
+
+All **37 affected methods pass**, with no skips. The new 32-bit complete-unit
+comparison runs with ASan/UBSan, real headers/types/Kconfig and pinned vendor
+inputs. Production checksum implementations and shared CRC code remain unchanged;
+host timing does not qualify BK7258 timing or hardware behavior. See the
+[checksum boundaries](checksums.md) and [TODO checkpoint](code-quality-todo.md).
+
+Finding 20a is **uncommitted and unflashed**, paused for review. No hardware action
+was performed; the installed finding-15/16 image and bench limits remain current.
+Next is finding 20's optional Tuya application boundary and
+pin/orientation/geometry/calibration comparisons. Finding 20 remains open.
+
 ## Finding 19a committed; finding 19b readable overlays — 22 November
 
 Finding 19a is committed as **c0c742356**; DCO/AI trailers and gitlint pass.

@@ -271,12 +271,12 @@ within the recorded bench scope. Warning/soak limits are retained below.
 
 ### 20. Clarify checksum and reference-source boundaries
 
-- [ ] Evaluate native CRC primitives through adapters proven against vendor
+- [x] Evaluate native CRC primitives through adapters proven against vendor
   vectors; remove the duplicate flash CRC table only after equivalence and
   performance checks. Preserve unusual SARADC/MIPC checksum semantics explicitly.
-- [ ] Document the optional Tuya application as a separate reference and add
+- [x] Document the optional Tuya application as a separate reference and add
   comparison checks for pins, orientation, geometry and calibration.
-- [ ] Acceptance: checksum vectors remain byte-identical; configuration
+- [x] Acceptance: checksum vectors remain byte-identical; configuration
   discrepancies are resolved using hardware evidence before either side changes.
 
 ## Changes to retain unless new evidence warrants revision
@@ -2834,3 +2834,155 @@ provisioning or formatting action was performed. The installed finding-15/16
 image and all recorded bench warnings/limits remain current. The next ordered
 source item is **20: checksum and reference-source boundaries**; evaluate vendor
 vectors/performance before considering removal of any duplicate CRC implementation.
+
+### Finding 19b committed; finding 20a checksum evaluation — 2026-11-22
+
+Committed finding 19b as **6f437a5a0** (`unhygienix: keep CP overlay additions
+as readable source`) after verifying all 98 sealed evidence files and 80 review
+files. DCO/AI trailers and gitlint pass. Unrelated planning files were excluded.
+The inherited exact-fragment trailing space remains intentionally preserved.
+
+Reassessment confirms the duplicate flash table but does **not** establish that
+replacing it is a sound runtime improvement. Native CRC-32 uses complemented
+state, while CP flash uses zero seed/no final XOR. Added an evaluation-only
+adapter and complete-unit equivalence/performance checks. **Retained all
+production checksum implementations and shared CRC code.** No live driver,
+protocol, storage, timing, ownership, quarantine or calibration behavior changes.
+The [checksum boundary document](checksums.md) records exact flash, SARADC and
+MIPC semantics, API differences, covered bytes and the remaining timing gate.
+
+Validation:
+
+- New harness compiles complete AP flash IPC, SARADC IPC, MIPC and native CRC
+  translation units and complete pinned vendor flash/SARADC servers and
+  `bk_crc.c`. Real headers, Kconfig, types and constants are used; no extracted
+  functions, duplicated vendor tables/layouts or hardware/OS mocks. Vendor clean
+  tracked inputs and locked revisions are checked. Small wrappers call static
+  checksum entry points, with unused sections discarded by the linker.
+- Initial 64-bit vendor compilation failed because its actual `size_t` typedef
+  is 32-bit. Installed `-m32` support resolves that without editing vendor types.
+  Initial sanitizer linking retained unused firmware exports and thus required
+  OS symbols; hidden visibility lets section GC discard those unrelated paths.
+  The final complete compared units and vector fixture all run with ASan/UBSan.
+  Failed setup logs remain separate. Vendor GCC-specific attribute and legacy
+  implicit-declaration warnings remain visible; only vendor compilation allows
+  its existing implicit declaration as a warning, matching the pinned GCC's
+  language treatment. No production prototype or guard was weakened.
+- AP/vendor/native flash results match over four patterns, alignments 0–3,
+  all lengths 0–2048 and larger boundaries through 65,535 bytes, all one-byte
+  values, empty/NULL-empty input and the fixed `123456789` vector **0x2dfd2d88**.
+  SARADC agrees for lengths 0–64 over the same alignments/patterns and retains
+  the full 32-bit accumulator; its fixed vector is **0x47ffc2a2**, not a byte.
+  MIPC agrees with vendor `hnd_crc8` for all 256 seeds and lengths 0–128; fixed
+  seed-0xff vector is **0x7f**. The real MIPC data structure confirms its pinned
+  20-byte span starting at `result`, excluding the list and final flags word.
+- The unsanitized same-unit benchmark uses nontrivial payload bytes, a volatile
+  sink, CLOCK_MONOTONIC and medians of five trials. AP table/native adapter ns
+  per call: **32: 23/75; 256: 380/807; 2048: 3301/6674; 4096: 6652/13506;
+  65535: 107291/216425**. Native costs **2.02–2.12x** at 256–65535 bytes and
+  **3.26x** at 32 bytes on this host run. Earlier zero-data exploratory timing
+  is preserved separately and is not the reported nontrivial-payload result.
+  These are host figures, not BK7258 timing, lease or power qualification.
+  The 1,024-byte duplicate table stays; target timing/lease proof is still
+  required before considering its removal. No deadline or guard is relaxed.
+- Final affected command: `UNHYGIENIX_CRC_VENDOR_FLAGS=/home/baz/.cache/unhygienix-cp-production-cleanup-20261108/build/bk7258/tuya_app/bk7258/armino/driver/CMakeFiles/__armino_driver.dir/flags.make ASAN_OPTIONS=detect_leaks=0 /tmp/pebble-quality-venv/bin/python -m unittest tools.tests.test_t5ai_checksums tools.tests.test_tuya_flash tools.tests.test_t5ai_saradc tools.tests.test_t5ai_flash_completion tools.tests.test_t5ai_flash_read_lease tools.tests.test_t5ai_flash_cache tools.tests.test_t5ai_flash_priority tools.tests.test_t5ai_mailbox_failures -v`. **37 methods pass, none skipped** (`final-tests.log`); the new optional dependency is explicitly required for the vendor-header comparison, rather than hidden as a passing test.
+- Reproducible sanitized and unsanitized objects/executables, generated Kconfig,
+  vendor flags/revisions, commands, source/hash snapshots, vectors, failed and
+  passing setup logs and timing CSV are under
+  `build-quality-20261121/checksum-finding20a/`. Ruff, Clang Format and whitespace
+  checks plus finding-19b commit gitlint pass. Both unrelated planning-file
+  hashes remain unchanged. No AP/CP runtime source changed, so no firmware
+  rebuild or new on-watch qualification is asserted.
+
+Finding 20a's evaluation is **uncommitted and unflashed**, paused for review.
+No watch/phone, flash/reset, provisioning or format action was performed. The
+installed finding-15/16 image and all earlier bench limits remain current.
+Finding 20 remains open: next is documenting the optional Tuya application
+boundary and adding pin/orientation/geometry/calibration comparisons. Resolve
+any configuration discrepancy with existing hardware evidence before changing
+either implementation. Target CRC timing remains a dependency of any future
+flash-table removal, not a reason to make that replacement now.
+
+### Finding 20b optional-reference boundary and comparisons — 2026-11-22
+
+Continued at the operator's `next` request **without committing finding 20a**.
+Both finding-20 increments remain uncommitted; HEAD is still **6f437a5a0**.
+The finding-20a evidence seal is preserved. Its shared TODO/status journal files
+advance here; its checksum tests/document and runtime-preservation decision remain.
+
+Added [`boards/unhygienix/tuya/README.md`](../../../boards/unhygienix/tuya/README.md)
+to distinguish the optional `src/` peripheral application from production AP
+board/drivers/SoC code and from the active production CP inputs in `cp/`.
+It explains private SDK staging, external reference workspace ownership and the
+limits of optional-app output. No reference-workspace production source was edited.
+
+The comparison found a real reset-pin discrepancy: optional `touch.rst_pin`
+used GPIO42, while the working AP uses reset43/interrupt42. The new comparison
+first fails **42 != 43** against committed source. Corrected **only the optional
+app's reset assignment to GPIO43**. This follows existing hardware evidence,
+not blind agreement with another source: the touch review records the schematic
+pin table, fitted-device identity and working native touch/disable-enable tests.
+The archived manufacturer schematic is preserved in the reference workspace at
+`artifacts/touch-power-20261113/schematic.pdf`, SHA-256
+**8ce9c02095ac6f903ef6036a18a15e692957860788b2734e20b48415070d04b9**.
+Its text was inspected read-only in this session; no new hardware probe occurred.
+The pinned upstream vendor app's GPIO42 reset declaration is left untouched and
+explicitly documented as conflicting reference material. Native wiring/behavior
+was not changed, and the optional app correction is not newly hardware-qualified.
+
+Other differences require preservation rather than forced convergence:
+
+- Both paths use 466×466 physical RGB565, a rectangular 260×260 ARGB2222 canvas,
+  QSPI0/80 MHz/reset29/X-offset6, shared I2C0 SCL20/SDA21, RTC0x51, power19,
+  Back18/Select12, amplifier28 and active-low charge30. Static source checks
+  cover the declarations; no fake C device layout is introduced.
+- Production touch mirrors **after** integer scaling; optional `hardware_core`
+  mirrors **before** scaling. They preserve the same direction but differ by
+  zero or one logical pixel. A new behavioral comparison links the complete
+  actual reference core with the complete native CST92xx driver and touch class,
+  using existing real types/configuration and modeled hardware endpoints.
+  All 466 axis inputs and opposite-axis pairs retain the documented difference;
+  reference inputs at 466 are rejected. No production mapping, ACK/palm,
+  release, timing or recovery behavior changes.
+- Both battery paths use channel15/P13 and peak-of16 acquisition. The optional
+  main deliberately requests raw samples with no supplied calibration; its API
+  accepts caller-measured two-point calibration. Production retains board
+  low2716/span2854 and divider2510/510. No coefficients are copied into the
+  reference app and no calibrated volts are inferred from raw reference logs.
+  The current bench remains battery-disconnected; actual-cell limits stay open.
+
+Validation:
+
+- New `tools.tests.test_unhygienix_reference` has four methods covering the
+  pin contract, geometry/bus/format/orientation declarations, explicit calibration
+  distinction and the complete-unit touch comparison. Pin baseline failure and
+  subsequent passing results are saved separately. The static checks require
+  exactly one selected scalar declaration, exposing missing/ambiguous matches;
+  they are source checks, not compiler/hardware proof of the full board.
+- Extended only the test harness's optional `extra_sources` link input to include
+  the complete reference core alongside the real native units. Existing default
+  callers and assertions are unchanged. The new behavioral comparison runs with
+  ASan/UBSan; no function body is extracted or copied for this comparison.
+- `ASAN_OPTIONS=detect_leaks=0 /tmp/pebble-quality-venv/bin/python -m unittest tools.tests.test_unhygienix_reference tools.tests.test_tuya_hardware tools.tests.test_tuya_kernel tools.tests.test_t5ai_touch_instances tools.tests.test_t5ai_touch tools.tests.test_t5ai_battery tools.tests.test_t5ai_battery_events tools.tests.test_unhygienix_boards -v`: **69 methods pass, no skips**. Includes existing reference core/runtime, staging ownership and native touch/battery/board guards. The separately sealed finding-20a checksum run remains **37 methods pass, no skips**.
+- Ruff check/format and whitespace checks pass. Clang Format 23.1.5 accepts the
+  actual changed line 126. A whole-file check fails on the optional application's
+  pre-existing include/macro alignment; the original file shows those same
+  failures in `format-baseline.log`. Unrelated formatting is left untouched.
+  No complete optional Tuya SDK build, AP/CP firmware rebuild or on-watch test
+  was run. Host coverage does not qualify the optional app or calibration.
+- Evidence: `build-quality-20261121/reference-boundary-finding20b/` contains
+  original optional source, baseline failure, comparisons/final logs, schematic
+  text/hash provenance, before/source snapshots, review patch/state and SHA-256
+  manifest. Its review snapshot includes finding20a's still-uncommitted files
+  plus the final shared progress journals. Both unrelated planning-file hashes
+  remain unchanged; vendor trees and native AP/CP runtime sources are unchanged.
+
+Finding 20's source evaluation/reference work is complete and host-verified;
+**20a and 20b remain uncommitted and unflashed**, paused for review. No hardware
+flash/reset, power, phone, provision or format operation was performed. The
+installed finding-15/16 image and earlier warnings/bench limits remain current.
+Retaining the flash table is deliberate: any future replacement still requires
+BK7258 timing/read-lease proof. Earlier unchecked work remains visible rather
+than being closed by this increment: finding10 graphics benchmark/acceptance,
+finding11 supported NimBLE pool placement, and the panel/battery hardware
+acceptance limits. No new numbered source item follows finding20.

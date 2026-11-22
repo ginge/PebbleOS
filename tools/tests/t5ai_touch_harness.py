@@ -10,7 +10,7 @@ from tools.tests.test_t5ai_config import load_config
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def run_touch(checks, gesture_hook="", setup=True):
+def run_touch(checks, gesture_hook="", setup=True, extra_sources=()):
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory)
         config = load_config("unhygienix")
@@ -56,6 +56,7 @@ def run_touch(checks, gesture_hook="", setup=True):
                 str(path / "config.h"),
                 str(path / "test.c"),
                 str(ROOT / "kernel/tick.c"),
+                *[str(ROOT / source) for source in extra_sources],
                 "-o",
                 str(path / "test"),
             ],
