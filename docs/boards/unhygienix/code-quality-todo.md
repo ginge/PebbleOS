@@ -8,7 +8,8 @@ backlog, linked from the existing [power TODO](power-todo.md) and
 The review covered the board, SoC, drivers, CP integration, tooling, tests and
 shared-code changes. Vendor interfaces relevant to the port were examined;
 this is not an exhaustive line-by-line audit of every vendor SDK file.
-Runtime risks below are static findings, not newly reproduced hardware faults.
+The original review described static risks. The progress record below also
+records subsequent hardware observations, including the 21 November timer panic.
 
 ## Execution order and constraints
 
@@ -75,13 +76,13 @@ promotion of an unqualified image. Existing hardware release blockers remain.
 
 ### 5. Replace touch queue-internals interception
 
-- [ ] Replace spare-event-byte timestamps and direct message-queue backing
+- [x] Replace spare-event-byte timestamps and direct message-queue backing
   storage edits in `soc/t5ai/touch_queue.{c,h}` with explicitly owned,
   timestamped samples in a bounded input buffer and a defined delivery boundary.
-- [ ] Preserve touchdown/liftoff and navigation barriers, the latest two
+- [x] Preserve touchdown/liftoff and navigation barriers, the latest two
   velocity samples, acquisition time and the application `TouchEvent` ABI.
   Justify any unavoidable narrow shared extension before implementing it.
-- [ ] Acceptance: burst, wrap, app-switch, queue-pressure and gesture-velocity
+- [x] Acceptance: burst, wrap, app-switch, queue-pressure and gesture-velocity
   regressions pass without depending on private queue fields.
 
 ### 6. Replace SD/PFS allocation-order and linker hooks
@@ -408,19 +409,176 @@ UART variants add `-DCONFIG_T5AI_UART_IDLE_GATING=1`,
 `delay_init()` precedes early console setup in the native boot sequence; the
 new UART polling delay does not introduce an uninitialized-timer dependency.
 
-**Next unresolved item: finding 5.** Reinspection confirms that the default
-Unhygienix touch integration still stamps spare event-union bytes, accesses
-`pbl_msgq` backing storage/count/tail directly, and wraps event put, queue
-put/get and recognizer dispatch. Replacing this needs an explicitly owned
-sample buffer and a boundary across acquisition, KernelMain wake/navigation
-stamping, app forwarding and recognizer delivery. KernelMain mutates navigation
-and task masking before forwarding, so bypassing it with direct recognizer
-callbacks would change behavior. Acquisition time and the latest two velocity
-samples must survive this path, app switches and queue pressure. Existing touch
-fixtures duplicate public layouts and cannot establish the ABI safety of a
-replacement. No touch/PFS/shared implementation was changed in these four
-increments; findings 5–20 remain open. Any required shared extension must be
-justified and tested for stock targets before implementation.
+### Increment 5 — owned touch samples and public delivery boundaries
+
+Resumed on `tuya` at `a253674e7`. The two pre-existing planning-link edits
+remain untouched. Reinspection confirmed the spare-union-byte timestamp and
+private queue-storage mutation in the enabled Unhygienix path.
+
+Replaced both with a board-owned pool of 96 timestamped `TouchEvent` samples.
+The existing callback-event envelope carries a token; it never carries a
+private sample pointer into an app. Tokens are expanded to ordinary touch
+events at the public delivery boundary. KernelMain tokens remain envelopes
+until `event_take_timeout()` finishes native callback accounting, then expand
+before the unchanged launcher wake/navigation handling. Forwarded app samples
+retain that acquisition timestamp and the full production `PebbleTaskBitset`.
+No shared extension or change to `TouchEvent`, `PebbleEvent`, event numbers,
+SDK/Gabbro ABI, native queue layout or stock code was needed.
+
+Coalescing edits only owned pending samples. The latest two consecutive motion
+samples are retained; touchdown/liftoff, navigation-state changes and unrelated
+messages are barriers. A rejected transition also ends the coalescing tail.
+Ownership transfers after native dequeue, under the IRQ lock; a producer racing
+that transfer can update still-owned motion without editing native queue slots.
+Queued samples belong to a native app thread generation. Old-generation samples
+become ordinary null events when consumed by a replacement app, including an
+unprivileged app. Cleanup consumers release the records normally; failed queue
+publication releases its record. Duplicate/invalid tokens cannot republish an
+already-owned record. Unrelated app queues do not invalidate touch timing.
+
+The source retains public `event_put`, `event_take_timeout`, queue put/get and
+recognizer wrappers, plus the existing pan clock adapter. Their purpose and
+non-LTO boundaries are explicit in the SoC build file; replacing broader build
+interception remains finding 7. Only the public queue configuration `msg_size`
+is inspected. There is no access to queue backend fields or backing storage.
+The ARM pool occupies **3,072 bytes** of `.bss`; no retained or partition layout
+was changed. Full firmware linking is still required to assess total SRAM/flash
+headroom. Allocation exhaustion follows the existing failure contract: the void
+input event API fails stop; app publication returns an allocation/queue error,
+without silently coalescing away transitions or weakening the service's guards.
+
+Validation:
+
+```sh
+ASAN_OPTIONS=detect_leaks=0 /tmp/pebble-quality-venv/bin/python -m unittest \
+  tools.tests.test_t5ai_touch_queue tools.tests.test_t5ai_touch -v
+```
+
+**17 passed.** The new fixtures compile the complete board transport, native
+message queue, pan, recognizer, geometry and tick-conversion translation units
+with real headers/types and board Kconfig. Only execution-state/time, scheduler
+and public event-loop endpoints are modeled. Cases cover Main backlog, full-width
+acquisition time, actual pan velocity (1,000 px/s after delayed delivery), bursts,
+wrap, dequeue/producer interleaving, transition/navigation/unrelated-message
+barriers, queue/pool exhaustion, failed publication, app switches, cleanup and
+unprivileged fallback. No functions are extracted and no public layouts are
+recreated. A second executable uses LTO across the same non-LTO public seams as
+the production integration. Normal execution uses ASan/UBSan; LTO uses UBSan.
+The installed LLVM gold plugin fails to link ASan constructors with LTO (discarded
+constructor-section references), a tooling limitation; the normal ASan and LTO
+UBSan runs both pass. Assertions and production guards remain enabled.
+
+Existing stock suites were built and run independently, without the board
+transport, using temporary tools/dependencies:
+
+```sh
+PATH=/tmp/pebble-quality-venv/bin:$PATH cmake -S tests \
+  -B /tmp/pebble-quality-stock-tests -G Ninja \
+  -DCMAKE_C_COMPILER=clang-21 -DPBL_TEST_IMAGES=OFF \
+  -DPython3_EXECUTABLE=/tmp/pebble-quality-venv/bin/python
+PATH=/tmp/pebble-quality-venv/bin:$PATH CCACHE_DISABLE=1 cmake --build \
+  /tmp/pebble-quality-stock-tests --target test_pan test_recognizer_manager \
+  test_recognizer_competition test_touch_nav test_touch_service -j 4
+/tmp/pebble-quality-venv/bin/ctest --test-dir /tmp/pebble-quality-stock-tests \
+  --output-on-failure \
+  -R '(test_pan|test_touch_service|test_touch_nav|test_recognizer_manager|test_recognizer_competition)$'
+```
+
+**All five stock suite executables passed** (Emery configuration). Initial build
+failures were missing nanopb/protoc and a read-only ccache directory; temporary
+`nanopb`, `grpcio-tools`, CMake/Ninja and `CCACHE_DISABLE=1` resolved them without
+source changes. These were tooling failures, not touch regressions. Targeted
+logs are `/tmp/pebble-quality-touch-final.log`,
+`/tmp/pebble-quality-stock-{config,build,ctest}.log` (ephemeral).
+
+The ARM command recorded above also passes for `soc/t5ai/touch_queue.c`, adding
+`-Isubsys -Ibuild/src/fw` for the real syscall/font declaration dependencies,
+with default configuration and `-DCONFIG_T5AI_IO_PROFILE=1`. The generated font
+header is included but no font keys are used. Ruff, clang-format 23 and
+`git diff --check` pass. No hardware was operated or qualified; a full
+firmware/release link, on-watch latency and runtime SRAM headroom remain unverified.
+
+**Next unresolved item: finding 6.** The SD adapter still intercepts the next
+PFS allocation and exports `__wrap_ftl_*`. Reinspection confirms the allocation
+is the page-flags cache inside `prv_build_page_flags_cache()`, not a generic PFS
+heap requirement. The next increment needs an explicitly selected SD FTL backend
+and a specific page-flags buffer boundary. Existing stock PFS unit tests disable
+that cache under `UNITTEST`, so they must be supplemented by cache-enabled
+production-unit coverage before replacing ownership behavior. Any shared
+extension must preserve default heap allocation and be justified before editing.
+
+
+### Operator-requested AP flash — 21 November, 23:36 UTC
+
+The operator explicitly requested “flash first”, superseding the earlier
+source-only/no-flash restriction for this installation. Flashed the current
+working tree at HEAD `a253674e7`, including the uncommitted finding-5 transport;
+no later source edit is represented by this image. Frozen source patch/files,
+ELF/map/config/dictionary, raw/protected AP and logs are under
+`build-quality-20261121/flash-20261121/`. Build ID:
+`12a02047368b739cd94cfbbfb0d5b4fa90790909`. Phone version:
+`v4.41.2-1650-ga253674e7-dirty`.
+
+Built from a fresh directory with the same effective normal configuration as
+`build-tuya-upstream`. The first attempt encountered missing Python build
+packages; temporary environment installation resolved these tooling failures.
+The optional zopfli optimizer initially changed PNG compression bytes. Removing
+it from the temporary environment and regenerating candidate PNG outputs made
+`system_resources.pbpack` byte-identical to the previous normal build; no
+resource partition write was required. No production generator or guard changed.
+The full firmware link, image map, CRC protection, current-version, resource-size
+and syscall checks passed. Kernel heap is **32,800 bytes**, above the unchanged
+28 KiB guard. The link emits generated app-API LTO type-mismatch warnings;
+full logs are preserved and those shared-code warnings were not changed here.
+
+Commands used (temporary environment contains the needed build packages):
+
+```sh
+PATH=/tmp/pebble-quality-venv/bin:$ARM_TOOLCHAIN/bin:/usr/bin:/bin \
+  PYTHONPATH=tools/libs/pbl-cli CCACHE_DISABLE=1 \
+  /tmp/pebble-quality-venv/bin/python -m pbl -b build-quality-20261121 \
+  configure --board unhygienix \
+  -DPython3_EXECUTABLE=/tmp/pebble-quality-venv/bin/python
+# Same environment for: python -m pbl -b build-quality-20261121 build
+/tmp/pebble-quality-venv/bin/python tools/flash_unhygienix_firmware.py \
+  --raw build-quality-20261121/flash-20261121/pebbleos.bin \
+  --protected build-quality-20261121/flash-20261121/pebbleos.t5ai-crc.bin \
+  --tyutool /tmp/pebble-quality-tyutool \
+  --port /dev/serial/by-id/usb-1a86_USB_Dual_Serial_5C75025844-if00 --flash
+```
+
+`ARM_TOOLCHAIN` above denotes the existing Arm GNU 14.2.rel1 installation at
+`/home/baz/pebble/build/arm_gnu_toolchain/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi`.
+The temporary tyutool wrapper invokes the existing 3.2.9 executable with
+`-b 460800`. Actual write succeeded in **51.8 seconds**, AP-only physical range
+`0x132000..0x2e0f5c` (end exclusive). Protected SHA-256:
+`ca8df3bde36d05dd79ceb75b1eec8720d600dbcd9fbee02b1b6183fd97cafca2`.
+The dedicated script verified CRC blocks, vectors, range and checkout metadata
+before writing; the current-version guard was not bypassed. The exact previous
+cleanup AP remains preserved at
+`build-tuya-upstream/imu-motion-20261115/cleanup/` (protected SHA-256
+`560c3d28d679b68a6baaa579fb99807d5de8be474085969a254e97854ff72193`).
+CP, resource, PFS, identity/calibration and bond partitions were not programmed.
+
+**Hardware failure preserved, not qualified:** the 120-second capture received
+8,910 bytes, 5 AP boot banners and 4 early panics at
+`0x02136a51`, around 0.183 seconds into those boots. Exact-ELF `addr2line`
+resolves the panic to `prv_timer_count()` / `soc/t5ai/delay.c:47` (latch readiness
+assertion). The eventual boot confirms the exact build ID, AP/CP reset sources
+`0x71/0x10`, contract `0x78f`, existing SD PFS (`new=0`), valid system resources,
+launcher startup and encrypted/bonded PPoGATT phone reconnection. This later
+success does not erase the first failure. The capture is stopped; no additional
+commanded reset, rollback or flash was issued. No on-watch gesture, timing,
+latency, power or soak qualification is claimed.
+
+**Next unresolved item is reopened finding 3**, before finding 6: determine why
+the new bounded timer read rejects startup latches and extend production-unit
+coverage for the real startup/clock behavior. The deadline/fallback model passes
+host injection but did not predict these panics. Do not weaken or remove the
+guard, increase its bound without evidence, or treat eventual boot as acceptance.
+The finding-5 full-link limitation is now resolved; its hardware gesture and
+runtime headroom qualification remains open.
+
 
 ### Finding 3 repair — 21 November, 23:47 UTC
 

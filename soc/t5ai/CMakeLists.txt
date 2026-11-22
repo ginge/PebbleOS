@@ -291,7 +291,10 @@ endif()
 
 if(CONFIG_T5AI_TOUCH_QUEUE_COALESCE)
   pbl_library_sources(touch_queue.c)
-  foreach(symbol event_put pbl_msgq_put pbl_msgq_get recognizer_manager_handle_touch_event)
+  # Owned samples cross public event/queue boundaries as callback envelopes.
+  # Expand Main tokens after events.c has completed callback accounting.
+  foreach(symbol event_put event_take_timeout pbl_msgq_put pbl_msgq_get
+      recognizer_manager_handle_touch_event)
     pbl_link_options(-Wl,--wrap=${symbol})
   endforeach()
   function(t5ai_touch_queue_boundaries)

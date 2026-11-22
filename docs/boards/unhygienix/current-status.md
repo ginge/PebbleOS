@@ -1,7 +1,53 @@
-# Unhygienix current status — 15 November 2026
+# Unhygienix current status — 21 November 2026
 
 The latest installation checkpoint below is the current installed state. Dated entries preserve
 the state and evidence at their recorded checkpoint.
+
+## Timer completion-read fix installed — 21 November, 23:47 UTC
+
+The operator-requested item 3 repair is AP-only installed, build ID
+`a967c9ad05ee7835cc8b8fe9d1ec7934a0cc97d4`, version
+`v4.41.2-1650-ga253674e7-dirty`. Hardware diagnosis proved that the polling loop
+observed completion, then a separate status read observed busy and falsely
+panicked before either bound expired. The repair preserves the first readiness
+observation and all timeout/fatal/timing/setup guards. Four host sanitizer suites,
+a control reproducing the duplicate-read fault, the full ARM/LTO build and image
+checks pass. No common source changed; the prior touch changes are included.
+
+The stopped 150.3-second capture spans flashing and approximately 94 seconds
+after the first boot bytes. It received 3,788 bytes: **one AP
+boot, zero panics**, exact build ID, existing SD PFS (`new=0`), valid resources
+and launcher startup. Bonded encrypted PPoGATT recovery observed:
+**yes**. The known post-flash reset sources `0x4f/0` and
+sleep-admission reason 4 remain an unresolved release blocker. No separate
+reset or rollback was issued. CP/resources/PFS/calibration/identity/bonds were
+not programmed. No wider hardware qualification is claimed.
+
+Evidence is frozen in `build-quality-20261121/timer-fix-1/`; the diagnostic
+and original failed traces remain separate. See the
+[code-quality progress record](code-quality-todo.md) for the proof, commands,
+hashes and remaining limits. Next backlog item is finding 6.
+
+## Code-quality candidate installed — 21 November, 23:36 UTC
+
+At the operator's request, AP-only flashed the current dirty tree at `a253674e7`,
+including the owned touch sample transport. Build ID
+`12a02047368b739cd94cfbbfb0d5b4fa90790909`, phone version
+`v4.41.2-1650-ga253674e7-dirty`. CP/resources/PFS/calibration/identity/bonds
+were not programmed. Fresh normal build and image/layout guards pass; kernel
+heap is 32,800 bytes and the resource pack exactly matches the previous build.
+
+**Not qualified:** the stopped 120-second UART capture records 4 early
+panics in the bounded timer-latch read (`soc/t5ai/delay.c:47`) before an eventual
+successful startup. Final boot reports AP/CP reset sources `0x71/0x10`, contract
+`0x78f`, existing SD PFS (`new=0`), valid resources and launcher startup; the
+bonded, encrypted phone PPoGATT session reopens. No additional commanded reset
+or flash was issued. The early panics remain a release blocker and reopen
+finding 3 before further backlog work. Frozen artifacts, exact dictionary and
+first-failure trace are in `build-quality-20261121/flash-20261121/`.
+See the [code-quality progress record](code-quality-todo.md) for commands,
+hashes, limitations and the next investigation. Touch/latency/soak hardware
+qualification is still open.
 
 ## Cleanup installed — 15 November, 22:47 UTC
 
