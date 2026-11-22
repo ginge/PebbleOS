@@ -4,6 +4,7 @@
 import unittest
 
 from tools.tests.native_t5ai_harness import DISPLAY_PREFIX, run
+from tools.tests.t5ai_panel_harness import run_panel
 from tools.tests.test_t5ai_panel_init import PREFIX as PANEL_PREFIX
 
 DISPLAY = (
@@ -62,8 +63,8 @@ PANEL = PANEL_PREFIX.replace(
     "static uint8_t brightness;", "static uint8_t brightness;static bool power_phase;"
 )
 PANEL = PANEL.replace(
-    "static void delay_us(unsigned us){",
-    "static void delay_us(unsigned us){if(power_phase){assert(us==200000);++delays;return;}",
+    "void delay_us(uint32_t us){",
+    "void delay_us(uint32_t us){if(power_phase){assert(us==200000);++delays;return;}",
 )
 PANEL = PANEL.replace(
     " static const uint8_t commands[]=",
@@ -74,13 +75,13 @@ PANEL = PANEL.replace(
 )
 PANEL_MAIN = r"""
 int main(void){
- brightness=s_brightness=35;assert(prv_prepare(&CO5300.panel)==0 && s_prepared);
+ brightness=panel_state.brightness=35;assert(prv_prepare(&CO5300.panel)==0 && panel_state.prepared);
  power_phase=true;calls=delays=0;
- assert(prv_unprepare(&CO5300.panel)==0 && !s_prepared && calls==1 && delays==1);
- brightness=0;assert(pbl_panel_co5300_set_brightness(0)==0 && !s_brightness && calls==1);
- brightness=77;assert(pbl_panel_co5300_set_brightness(77)==0 && s_brightness==77 && calls==1);
- s_prepared=true;fail_at=2;assert(prv_unprepare(&CO5300.panel)==-EIO && !s_prepared && delays==1);
- assert(pbl_panel_co5300_set_brightness(77)==0 && calls==2);
+ assert(prv_unprepare(&CO5300.panel)==0 && !panel_state.prepared && calls==1 && delays==1);
+ brightness=0;assert(pbl_panel_co5300_set_brightness(&CO5300.panel,0)==0 && !panel_state.brightness && calls==1);
+ brightness=77;assert(pbl_panel_co5300_set_brightness(&CO5300.panel,77)==0 && panel_state.brightness==77 && calls==1);
+ panel_state.prepared=true;fail_at=2;assert(prv_unprepare(&CO5300.panel)==-EIO && !panel_state.prepared && delays==1);
+ assert(pbl_panel_co5300_set_brightness(&CO5300.panel,77)==0 && calls==2);
  return 0;
 }
 """
@@ -94,7 +95,8 @@ struct pbl_backlight_state {uint8_t brightness;};
 struct pbl_backlight {struct pbl_backlight_state *state;int dev;};
 struct pbl_backlight_ops {int (*init)(const struct pbl_backlight *);int (*set_brightness)(const struct pbl_backlight *,uint8_t);uint8_t (*get_level)(const struct pbl_backlight *,uint8_t);int (*refresh)(const struct pbl_backlight *);};
 static uint8_t raw;
-static int pbl_panel_co5300_set_brightness(uint8_t level){raw=level;return 0;}
+static const struct {int panel;} CO5300;
+static int pbl_panel_co5300_set_brightness(const int *panel,uint8_t level){assert(panel==&CO5300.panel);raw=level;return 0;}
 #define PBL_BACKLIGHT_STATE_DEFINE(n) static struct pbl_backlight_state state
 #define PBL_BACKLIGHT_INIT(...) {&state,0}
 #define PBL_DEVICE_REGISTER(...)
@@ -124,8 +126,7 @@ class DisplayPowerTest(unittest.TestCase):
         )
 
     def test_sleep_settle_error_and_cached_brightness(self):
-        run(
-            "drivers/panel/co5300.c",
+        run_panel(
             PANEL,
             PANEL_MAIN,
             defines=["CONFIG_T5AI_AMOLED_SLEEP_ON_DISABLE"],

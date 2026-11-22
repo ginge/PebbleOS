@@ -15,7 +15,7 @@ static uint8_t prv_get_level(const struct pbl_backlight *bl, uint8_t brightness)
 }
 
 static int prv_set_brightness(const struct pbl_backlight *bl, uint8_t brightness) {
-  return pbl_panel_co5300_set_brightness(prv_get_level(bl, brightness));
+  return pbl_panel_co5300_set_brightness(&CO5300.panel, prv_get_level(bl, brightness));
 }
 
 static int prv_init(const struct pbl_backlight *bl) {

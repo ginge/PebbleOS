@@ -256,22 +256,23 @@ static const struct pbl_spi_t5ai s_qspi0 = {
 };
 PBL_DEVICE_REGISTER(s_qspi0, &s_qspi0.bus.dev);
 static const struct pbl_panel_timing s_panel_timing = {.hactive = 466, .vactive = 466};
-PBL_DEVICE_STATE_DEFINE(CO5300);
+PBL_PANEL_CO5300_STATE_DEFINE(CO5300);
 const struct pbl_panel_co5300 CO5300 = {
   .panel = PBL_PANEL_INIT(CO5300, "co5300-panel", pbl_panel_co5300_init, &pbl_panel_co5300_ops,
                           PBL_DEVICE_DEPS(&s_qspi0.bus.dev, &T5AI_GPIO.dev), &s_panel_timing,
                           PBL_PANEL_BUS_FORMAT_RGB565),
   .spi = PBL_SPI_DEV(&s_qspi0.bus, 0, 80000000u, PBL_SPI_MODE_0),
   .reset = PBL_GPIO(&T5AI_GPIO, 29, 0),
+  .state = &CO5300_panel_state,
 };
 PBL_DEVICE_REGISTER(CO5300, &CO5300.panel.dev);
 PBL_DISPLAY_STATE_DEFINE(T5AI_DISPLAY);
 // The rectangular AMOLED exposes every pixel of the Gabbro logical canvas.
 static const uint8_t s_round_mask[PBL_DISPLAY_HEIGHT / 2] = {0};
-const struct pbl_display T5AI_DISPLAY = PBL_DISPLAY_INIT(
-    T5AI_DISPLAY, "co5300", &pbl_display_co5300_ops, PBL_DEVICE_DEPS(&CO5300.panel.dev),
-    PBL_DISPLAY_WIDTH, PBL_DISPLAY_HEIGHT, PBL_DISPLAY_FORMAT_ARGB2222, false,
-    .round_mask = s_round_mask);
+const struct pbl_display T5AI_DISPLAY =
+    PBL_DISPLAY_INIT(T5AI_DISPLAY, "co5300", &pbl_display_co5300_ops,
+                     PBL_DEVICE_DEPS(&CO5300.panel.dev), PBL_DISPLAY_WIDTH, PBL_DISPLAY_HEIGHT,
+                     PBL_DISPLAY_FORMAT_ARGB2222, false, .round_mask = s_round_mask);
 PBL_DEVICE_REGISTER(T5AI_DISPLAY, &T5AI_DISPLAY.dev);
 
 // P13/channel 15, 2M/510K divider and meter calibration from the Waveshare board.

@@ -58,10 +58,11 @@ DISPLAY_PREFIX = r"""
 #define PBL_FOREVER 0
 #define PBL_LOG_MODULE_DEFINE(...)
 struct pbl_mutex { bool held; };
-struct pbl_mutex co5300_lock;
+static struct {struct pbl_mutex lock;} panel_state;
+#define co5300_lock panel_state.lock
 struct pbl_panel {int unused;};
 struct pbl_spi_dev {int unused;};
-static const struct {struct pbl_panel panel;struct pbl_spi_dev spi;} CO5300;
+static const struct {struct pbl_panel panel;struct pbl_spi_dev spi;typeof(panel_state) *state;} CO5300={.state=&panel_state};
 struct pbl_spi_xfer {const void *tx_buf;void *rx_buf;uint32_t len;uint8_t tx_nbits;};
 struct pbl_display_state {bool rotated;};
 struct pbl_display {struct pbl_display_state *state;uint16_t width,height;};

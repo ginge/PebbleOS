@@ -3,6 +3,42 @@
 The latest installation checkpoint below is the current installed state. Dated entries preserve
 the state and evidence at their recorded checkpoint.
 
+## Finding 12 panel increment installed — 22 November, 16:15 UTC
+
+At the operator's request, installed AP-only build
+**46c239607873ce2c9f770bc26a81fc34e6a5586a**, version
+`v4.41.2-1659-g8782bc225-dirty`, protected SHA-256
+`9540ef6846fa459996d7fedbd71c84bfdd81fcf71da6448773febfb47ec0a6c6`.
+The uncommitted native-panel increment is now on the watch. Flash completed in
+52.0 seconds without programming CP/resource/PFS/calibration images or clearing
+bonds. Graphics/draw-profile bench and retained CP-awake sleep configuration
+match the validated source checkpoint; HCI event waits are on.
+
+UART confirms the new build reached Launcher, retained existing PFS/resources
+and 30 apps, completed all 15 graphics output checks, and recorded 32 AP-only
+sleep returns with zero recorded sleep faults. Physical-panel visual and wider
+UI qualification are not established by these records. The phone companion was
+restarted but did not reconnect within the bounded readiness check; its logs
+are preserved. Capture stopped cleanly and no new commit was made.
+See the [TODO flash checkpoint](code-quality-todo.md) for evidence and limits.
+CST92xx migration and full finding-12 acceptance remain open.
+
+## Finding 12 CO5300 native-instance state in source — 22 November 2026
+
+Finding 11's placement guard increment is committed as `8782bc225`; its supported
+storage-hook replacement remains open. Finding 12 now has an uncommitted panel
+increment: CO5300 callbacks use their supplied native instance, with brightness,
+prepared/display state and transaction locking in board-owned instance state.
+The local display/backlight consumers use the same per-panel mutex/argument.
+Commands, timings, wiring and initialization dependencies are preserved.
+
+A complete committed-unit probe reproduced the old ignored-device GPIO routing.
+All 16 affected tests pass, including real-header two-panel isolation and exact
+sequence/fault tests under sanitizers. ARM/LTO and image gates pass with unchanged
+memory usage. Touch migration, full finding-12 acceptance and hardware verification
+remain open. See the [TODO progress record](code-quality-todo.md).
+No new flash was performed; the installed finding-10 checkpoint below applies.
+
 ## Finding 11 placement guards in source — 22 November 2026
 
 Finding 10 is committed as `e0985d9a5`; its performance/reconnect limits remain

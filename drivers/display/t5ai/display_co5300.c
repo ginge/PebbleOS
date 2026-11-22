@@ -126,7 +126,7 @@ static int prv_init(const struct pbl_display *disp) {
 }
 static int prv_enable(const struct pbl_display *disp) {
   (void)disp;
-  pbl_mutex_lock(&co5300_lock, PBL_FOREVER);
+  pbl_mutex_lock(&CO5300.state->lock, PBL_FOREVER);
 #ifdef CONFIG_T5AI_AMOLED_SLEEP_ON_DISABLE
   int ret = 0;
   if (s_reprepare) {
@@ -141,12 +141,12 @@ static int prv_enable(const struct pbl_display *disp) {
 #else
   const int ret = pbl_panel_enable(&CO5300.panel);
 #endif
-  pbl_mutex_unlock(&co5300_lock);
+  pbl_mutex_unlock(&CO5300.state->lock);
   return ret;
 }
 static int prv_disable(const struct pbl_display *disp) {
   (void)disp;
-  pbl_mutex_lock(&co5300_lock, PBL_FOREVER);
+  pbl_mutex_lock(&CO5300.state->lock, PBL_FOREVER);
 #ifdef CONFIG_T5AI_AMOLED_SLEEP_ON_DISABLE
   int ret = 0;
   if (!s_sleep_complete) {
@@ -160,7 +160,7 @@ static int prv_disable(const struct pbl_display *disp) {
 #else
   const int ret = pbl_panel_disable(&CO5300.panel);
 #endif
-  pbl_mutex_unlock(&co5300_lock);
+  pbl_mutex_unlock(&CO5300.state->lock);
   return ret;
 }
 static int prv_rotated(const struct pbl_display *disp, bool rotated) {
@@ -175,10 +175,10 @@ static int prv_update(const struct pbl_display *disp, const struct pbl_display_b
 #ifdef CONFIG_T5AI_DISPLAY_PROFILE
   const uint32_t start = t5ai_rtc_get_raw_ticks();
 #endif
-  pbl_mutex_lock(&co5300_lock, PBL_FOREVER);
+  pbl_mutex_lock(&CO5300.state->lock, PBL_FOREVER);
 #ifdef CONFIG_T5AI_AMOLED_SLEEP_ON_DISABLE
   if (s_disabled) {
-    pbl_mutex_unlock(&co5300_lock);
+    pbl_mutex_unlock(&CO5300.state->lock);
     return -EHOSTDOWN;
   }
   if (s_full_redraw) {
@@ -239,7 +239,7 @@ retry:
   if (ret == 0)
     s_full_redraw = false;
 #endif
-  pbl_mutex_unlock(&co5300_lock);
+  pbl_mutex_unlock(&CO5300.state->lock);
 #ifdef CONFIG_T5AI_DISPLAY_PROFILE
   g_t5ai_draw_stats.frames++;
   g_t5ai_draw_stats.last_update_ticks = (uint32_t)t5ai_rtc_get_raw_ticks() - start;
@@ -252,10 +252,10 @@ retry:
 }
 static int prv_clear(const struct pbl_display *disp) {
   (void)disp;
-  pbl_mutex_lock(&co5300_lock, PBL_FOREVER);
+  pbl_mutex_lock(&CO5300.state->lock, PBL_FOREVER);
 #ifdef CONFIG_T5AI_AMOLED_SLEEP_ON_DISABLE
   if (s_disabled) {
-    pbl_mutex_unlock(&co5300_lock);
+    pbl_mutex_unlock(&CO5300.state->lock);
     return -EHOSTDOWN;
   }
 #endif
@@ -268,7 +268,7 @@ static int prv_clear(const struct pbl_display *disp) {
     if (ret != 0)
       break;
   }
-  pbl_mutex_unlock(&co5300_lock);
+  pbl_mutex_unlock(&CO5300.state->lock);
   return ret;
 }
 const struct pbl_display_ops pbl_display_co5300_ops = {

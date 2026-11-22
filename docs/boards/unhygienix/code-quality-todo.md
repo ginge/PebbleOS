@@ -187,12 +187,19 @@ increment below does not claim a supported storage-hook migration.
 
 ### 12. Move singleton driver configuration into native devices
 
-- [ ] In `drivers/panel/co5300.c` and the CST92xx touch driver, obtain the
-  actual device instance from the class argument and store mutable state in it.
-- [ ] Move pins, bus references, orientation and dimensions to board device
-  configuration instead of global objects and hardcoded driver constants.
+- [x] CO5300: obtain the actual device instance from the class argument and
+  store mutable state and serialization in that instance.
+- [ ] CST92xx: migrate its mutable state, work, retry and IRQ ownership into
+  the actual touch instance.
+- [x] CO5300: consume the supplied instance's board-defined SPI/reset wiring;
+  preserve existing board timing configuration.
+- [ ] CST92xx: move pins, bus references, orientation and dimensions into board
+  device configuration instead of globals and hardcoded driver constants.
 - [ ] Acceptance: existing board behavior and initialization order are preserved;
-  driver behavior can be exercised with a separately configured test instance.
+  both drivers can be exercised with separately configured test instances.
+
+The panel-only source increment below passes host isolation and sequence tests.
+Touch migration and hardware verification remain open; finding 12 is not complete.
 
 ### 13. Use scheduler sleeps for long panel delays
 
@@ -1958,3 +1965,122 @@ before any shared/upstream API change. No finding-12 work or automatic commit.
 
 Operator requested committing the verified finding-11 guard increment and moving
 to finding 12. The supported-storage-hook migration above remains open.
+
+
+### Finding 12, native CO5300 panel state — 22 November 2026
+
+Committed the verified finding-11 guard increment as `8782bc225` at the operator's
+request; gitlint passed. Its explicit supported-storage-hook migration remains
+open. Work moves to finding 12 in independently reviewable driver increments.
+
+The existing panel/display-power/backlight baseline passed seven methods against
+that commit. A separate real-header probe compiled the complete committed
+`co5300.c` and supplied a second native instance to its init function. A hardware
+endpoint requiring the second reset GPIO returned `-EXDEV` (-18): the committed
+driver ignored the argument and used `CO5300.reset`. This reproduces the native
+instance-routing defect; it does not demonstrate a failure on the current board's
+single panel. Original source/header, probe, output and config are preserved.
+
+`pbl_panel_co5300_state` now holds the existing desired/applied brightness,
+prepared/valid/display flags and shared transaction mutex. The board creates
+that state with `PBL_PANEL_CO5300_STATE_DEFINE` and attaches it to its const
+native device. Panel callbacks recover the containing device from the class
+argument; device init uses its actual device argument. Every reset and command
+uses that instance's GPIO/SPI descriptor. No driver operation references the
+board `CO5300` singleton. The local brightness entry now takes a panel argument.
+
+Board-local backlight passes `&CO5300.panel`. The T5AI display's existing critical
+sections use that panel's state mutex, preserving serialization with brightness
+changes and completion outside the lock. Device metadata/dependencies, reset
+pin 29, active polarity, SPI bus/mode/80 MHz setting, panel timing 466 x 466,
+register values, command/error order and all 20/120/200 ms delays are unchanged.
+No common Pebble, generic class or upstream source changed. Display conversion,
+logical geometry, touch orientation, calibration and the installed dim/default
+policies are unchanged. This panel-only increment does not make the T5AI display
+controller a general multi-panel driver or alter its fixed conversion buffers.
+Long busy waits are explicitly still finding 13.
+
+Validation completed:
+
+- CO5300 sequence/cache/sleep tests now compile the complete production unit
+  with real production headers, types, native mutex/timeouts and generated
+  Unhygienix configuration under Clang 21 + ASan/UBSan. No includes/functions
+  are stripped. Hardware/mutex/delay calls remain modeled endpoints. Explicit
+  sleep-disabled and sleep-enabled variants retain exact reset delays, all
+  fourteen init/enable command failure sites, GPIO failures, desired/applied
+  brightness freshness, repeated requests and sleep-error checks.
+- New `test_t5ai_panel_instances` uses the real native state/device macros and
+  two differently configured panels (distinct SPI bus/frequency/mode and reset
+  port/pin/polarity). It deliberately defines no `CO5300` singleton. It checks
+  supplied-device init/error routing, command traces, brightness/display/reset
+  isolation and independent mutexes, with both sleep settings. An initial new
+  fixture expected nine lock acquisitions for eight brightness calls; its
+  bookkeeping was corrected to eight and each call now independently asserts
+  one matching lock/unlock. This was a fixture-count failure, not a driver fault.
+- `PATH=/tmp/pebble-quality-venv/bin:$PATH python -m unittest tools.tests.test_t5ai_panel_instances tools.tests.test_t5ai_panel_init tools.tests.test_t5ai_panel_power_cache tools.tests.test_t5ai_display_power tools.tests.test_t5ai_backlight tools.tests.test_t5ai_display_batch tools.tests.test_t5ai_display_class tools.tests.test_t5ai_display_recovery tools.tests.test_t5ai_display_rotation tools.tests.test_t5ai_display_buffer tools.tests.test_t5ai_display_worker tools.tests.test_t5ai_display_startup tools.tests.test_t5ai_board_psram`: all 16 methods pass. Existing display/backlight tests still use their older modeled class layouts; their endpoint wiring was adapted to the new panel argument/state-lock path without removing assertions. They are not recorded as full real-header integration tests.
+- `cmake --build build-quality-finding9-candidate -j 8`: ARM/LTO and image-layout,
+  resource-size, CRC and syscall guards pass; existing generated-declaration
+  LTO warnings remain. FLASH 1,666,608 bytes, RAM 96,544, display PSRAM
+  126,912/131,072, DMA 14,976 and PFS metadata 8,192, unchanged from the preceding
+  build. Pinned partitions, CP ABI and retained/linker layout sources are untouched.
+- Ruff check/format, Clang Format and `git diff --check` pass. Unrelated
+  `REMAINING_TASKS.md` and `power-todo.md` hashes remain unchanged. Frozen
+  source/tests, patch, baseline reproduction, build/config/map/ELF/images and
+  logs/hashes are under `build-quality-20261121/panel-instances-finding12/`.
+
+**Next unresolved:** CST92xx native-instance migration, including IRQ/work/timer
+context and generation safety, board I2C/GPIO bindings and the exact existing
+coordinate transform. Keep its recovery/ownership ordering intact. This panel
+increment is uncommitted for review. No new hardware operation, flash, reset or
+storage write was performed; the previously installed finding-10 image remains
+installed. Host tests and compilation do not qualify the new source on hardware.
+
+
+### Finding 12, authorized panel flash — 22 November, 16:15 UTC
+
+At the operator's explicit request, flashed the exact sealed panel-increment AP
+image from `panel-instances-finding12/`; its manifest and all 15 live review
+source files matched before flashing. Source remains uncommitted. The lab
+inventory was empty (no configured lab file); host enumeration verified the
+CH342 if00/if02 ports, neither held by another process, and actual received
+UART bytes were verified. No CP, resources, calibration or filesystem image was
+flashed and no bonds were cleared or hardware formatted/provisioned.
+
+Guarded AP-only flashing completed in **52.0 seconds**, physical range
+`0x132000..0x2e2524` (exclusive). Installed build
+**46c239607873ce2c9f770bc26a81fc34e6a5586a**, version
+`v4.41.2-1659-g8782bc225-dirty`, protected SHA-256
+`9540ef6846fa459996d7fedbd71c84bfdd81fcf71da6448773febfb47ec0a6c6`.
+Raw SHA-256 `2841d5d41f244ac909305a007ceeb0e9b8453c72d06c1f55bf97b52b1056a84e`.
+The existing draw-profile/one-shot graphics benchmark diagnostic configuration
+is preserved: all three graphics options and HCI event waits enabled, retained
+CP-awake AP sleep enabled, display/HCI profiling disabled. Diagnostic defaults
+in source were not changed for this flash.
+
+The received new build ID confirms the installed image. Boot revalidated the
+existing awake contract after AP source 0x4f / CP source 0 (authorized programming
+reset), found existing SD PFS (`new=0`), valid system resources and 30 stored apps,
+and reached Launcher at 16:15:19. All 15 one-shot graphics samples completed
+with `ok=1` at 240 MHz / production 32,000 Hz AON. At 16:15:42, the same image
+reported 32 AP-only sleep returns with CP/clocks/masks/resources/fault all zero.
+This is bounded startup/render/sleep evidence, not physical-panel visual,
+energy, touch or broad UI qualification.
+
+The phone companion was stopped during flashing and restarted after boot.
+No connected watch appeared during the approximately 30-second readiness check;
+phone logcat/readiness evidence is retained and Bluetooth remained enabled.
+No additional watch reset or pairing repair was attempted. Buffered pre-flash
+UART contains old-image connection failures and must not be attributed to the
+new image. The final new-image capture contains one boot banner; there was no
+additional boot banner during the observation. Vendor startup warnings and
+service mutex timing messages remain in the complete trace.
+
+Evidence: `build-quality-20261121/panel-instances-finding12/device-20261122-161404/` contains exact images/config/map/ELF/dictionary,
+flash output, timestamped received bytes, decoded log, phone attempts and a new
+hash manifest. Capture stopped cleanly after 165.901 seconds
+with 4,513 bytes. No capture, soak or task ADB forwarding remains
+active. Earlier source/hardware seals were preserved. Main finding-12 acceptance
+and CST92xx native-instance migration remain open; no automatic commit.
+
+Operator requested committing the flashed panel increment and continuing with
+the remaining finding-12 CST92xx migration. Phone/visual limits remain open.

@@ -33,7 +33,7 @@ static inline bool pbl_device_is_ready(const struct pbl_device *d) {return d->re
             "pbl/util/misc.h": """#include <stddef.h>
 #define container_of(ptr,type,member) ((type *)((char *)(ptr)-offsetof(type,member)))
 """,
-            "pbl/drivers/panel/co5300.h": "int pbl_panel_co5300_set_brightness(unsigned char);\n",
+            "pbl/drivers/panel/co5300.h": "#pragma once\nstruct pbl_panel {int unused;};\nextern const struct {struct pbl_panel panel;} CO5300;\nint pbl_panel_co5300_set_brightness(const struct pbl_panel *,unsigned char);\n",
             "pbl/drivers/display/t5ai.h": """#pragma once
 #include <stdint.h>
 #define T5AI_AMOLED_MIN_BRIGHTNESS 8u
@@ -45,7 +45,10 @@ void display_co5300_set_brightness(uint8_t);
 #include <stdint.h>
 static unsigned writes;
 static uint8_t level;
-int pbl_panel_co5300_set_brightness(uint8_t value) { ++writes; level = value; return 0; }
+#include <pbl/drivers/panel/co5300.h>
+typedef typeof(CO5300) TestPanel;
+const TestPanel CO5300 = {0};
+int pbl_panel_co5300_set_brightness(const struct pbl_panel *panel,uint8_t value) { assert(panel==&CO5300.panel);++writes; level = value; return 0; }
 #include CLASS_SOURCE
 #include DRIVER_SOURCE
 int main(void) {
