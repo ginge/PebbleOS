@@ -19,40 +19,54 @@ BOARD = ROOT / "boards/unhygienix/tuya/cp/variants"
 SDK = ROOT / "third_party/hal_tuya/TuyaOpen-T5AI"
 OPEN = ROOT / "third_party/hal_tuya/TuyaOpen"
 LOCK = ROOT / "boards/unhygienix/tuya/sdk.lock.json"
-NATIVE_ALARM_ABI = 0x50424167
-NATIVE_ALARM_COMMAND = 0x70
-NATIVE_ALARM_WAKE = 0x71
-NATIVE_ALARM_MIN_TICKS = 64
-NATIVE_ALARM_MAX_TICKS = 16000
+PROTOCOL = ROOT / "include/pbl/soc/t5ai/sleep_protocol.h"
 
-CONTRACT = [
-    0x55435031,
-    16,
-    20,
-    4,
-    12,
-    0,
-    1,
-    2,
-    2,
-    20,
-    22,
-    30,
-    91,
-    93,
-    101,
-    122,
-    9,
-    12,
-    38,
-    4,
-    5,
-    6,
-    64,
-    66,
-    78,
-    75,
-]
+
+def contract_fields(path=BOARD / "contract.def"):
+    """Read the same ordered probe definition included by the vendor C unit."""
+    fields = {}
+    for line in path.read_text().splitlines():
+        if line.startswith(("/*", "//")) or not line.strip():
+            continue
+        match = re.fullmatch(
+            r"CP_CONTRACT\(([a-z][a-z0-9_]*), (0x[0-9a-f]+), (.+)\)", line
+        )
+        if not match or match[1] in fields:
+            raise ValueError("Invalid or duplicate CP contract field")
+        fields[match[1]] = int(match[2], 16)
+    if not fields:
+        raise ValueError("Empty CP contract")
+    return fields
+
+
+def native_alarm_contract(path=PROTOCOL):
+    """Use the scalar definitions shared by AP and CP, without a second copy."""
+    text = path.read_text()
+    values = []
+    for field in ("ABI", "COMMAND", "WAKE", "MIN_TICKS", "MAX_TICKS"):
+        matches = re.findall(
+            rf"^#define T5AI_PM_NATIVE_ALARM_{field}\s+(0x[0-9a-fA-F]+|[0-9]+)u$",
+            text,
+            re.MULTILINE,
+        )
+        if len(matches) != 1:
+            raise ValueError(f"Missing or ambiguous native alarm field: {field}")
+        values.append(int(matches[0], 0))
+    return values
+
+
+# Keep the recipe attributes used by the package verifier, derived from the header.
+(
+    NATIVE_ALARM_ABI,
+    NATIVE_ALARM_COMMAND,
+    NATIVE_ALARM_WAKE,
+    NATIVE_ALARM_MIN_TICKS,
+    NATIVE_ALARM_MAX_TICKS,
+) = native_alarm_contract()
+
+CONTRACT_FIELDS = contract_fields()
+# Preserve the existing manifest's ordered array representation.
+CONTRACT = list(CONTRACT_FIELDS.values())
 REQUIRED = {
     "get_info_item",
     "save_info_item",
@@ -131,6 +145,7 @@ def overlay(stage, sleep_contract=False):
     target = stage / "t5_os/projects/tuya_app/cp"
     for source, name in [
         (BOARD / "contract.c", "unhygienix_cp_contract.c"),
+        (BOARD / "contract.def", "unhygienix_cp_contract.def"),
         (BOARD / "flash_contract.S", "unhygienix_flash_contract.S"),
         (BOARD / "mbedtls.h", "unhygienix_mbedtls.h"),
         (BOARD / "build.cmake", "unhygienix.cmake"),
@@ -345,13 +360,10 @@ def inspect(elf_path, config_path, wifi, sleep_contract=False):
             item = matches[0]
             section = elf.get_section(item["st_shndx"])
             offset = item["st_value"] - section["sh_addr"]
-            if list(struct.unpack("<5I", section.data()[offset : offset + 20])) != [
-                NATIVE_ALARM_ABI,
-                NATIVE_ALARM_COMMAND,
-                NATIVE_ALARM_WAKE,
-                NATIVE_ALARM_MIN_TICKS,
-                NATIVE_ALARM_MAX_TICKS,
-            ]:
+            if (
+                list(struct.unpack("<5I", section.data()[offset : offset + 20]))
+                != native_alarm_contract()
+            ):
                 raise ValueError("Native alarm ABI contract changed")
         missing = REQUIRED - defined
         if missing:
@@ -401,11 +413,7 @@ def inspect(elf_path, config_path, wifi, sleep_contract=False):
         section = elf.get_section(symbol["st_shndx"])
         offset = symbol["st_value"] - section["sh_addr"]
         data = section.data()[offset : offset + symbol["st_size"]]
-        if (
-            len(data) != 4 * len(CONTRACT)
-            or list(struct.unpack("<26I", data)) != CONTRACT
-        ):
-            raise ValueError("Compiled CP mailbox/HCI/PM ABI mismatch")
+        verify_contract(data)
     return {
         "wifi": wifi,
         "abi_contract": CONTRACT,
@@ -413,6 +421,17 @@ def inspect(elf_path, config_path, wifi, sleep_contract=False):
         "wifi_symbols_present": sorted(WIFI & defined),
         "bluetooth_only_calibration": "bk_cal_if_init" in defined,
     }
+
+
+def verify_contract(data):
+    if len(data) != 4 * len(CONTRACT_FIELDS):
+        raise ValueError("Compiled CP mailbox/HCI/PM ABI mismatch: size")
+    import struct
+
+    actual = struct.unpack(f"<{len(CONTRACT_FIELDS)}I", data)
+    for (name, expected), value in zip(CONTRACT_FIELDS.items(), actual, strict=True):
+        if value != expected:
+            raise ValueError(f"Compiled CP mailbox/HCI/PM ABI mismatch: {name}")
 
 
 def inspect_libraries(output, wifi):

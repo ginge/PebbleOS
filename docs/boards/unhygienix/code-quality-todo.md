@@ -262,7 +262,7 @@ within the recorded bench scope. Warning/soak limits are retained below.
 
 ### 19. Make CP contracts and overlays readable
 
-- [ ] Give `tools/unhygienix_cp_build.py`'s positional contract named fields
+- [x] Give `tools/unhygienix_cp_build.py`'s positional contract named fields
   and generate duplicated protocol constants from one definition.
 - [ ] Store substantial overlay additions as readable source or reviewable
   patches instead of escaped replacement strings.
@@ -2698,3 +2698,67 @@ No hardware operation was performed; the installed finding-15/16 image and its
 recorded warnings/bench limitations remain current. Warm reboot/power interruption
 on silicon and cross-image bench acceptance are not claimed from these tests.
 Paused for review before the next ordered item, **19: CP contracts and overlays**.
+
+### Finding 18 committed; finding 19a named CP contract — 2026-11-22
+
+Committed finding 18 as **271ee99fd** (`t5ai: consolidate retained word access`).
+All 41 sealed evidence files and the 16 review-file hashes matched before staging;
+unrelated planning changes were excluded. The initial commit message exceeded
+body-line limits; wrapped that message and amended the newly created commit.
+DCO/AI trailers and `gitlint --commits 'HEAD^..HEAD'` now pass.
+
+Reassessment confirms the 26-position Python contract duplicates the C probe's
+meaning and native-alarm scalar values duplicate the production AP/CP header.
+This increment adds ordered, named fields in board-local `contract.def`, with
+pinned expected values beside actual vendor expressions. The complete C probe
+includes this definition; Python reads its named expected fields and reports the
+mismatched field. The manifest retains its existing ordered array representation.
+Staging copies the definition alongside the probe, and existing top-level board
+input provenance automatically hashes it. Native-alarm expected values now derive
+from `include/pbl/soc/t5ai/sleep_protocol.h`; package-verifier recipe attributes
+remain available with derived values. No shared production code or protocol
+header changes are needed. No CP instruction, ABI value, overlay, calibration,
+identity, storage, partition, hash pin or relocation guard is changed.
+
+Validation:
+
+- Before editing, `python -m unittest tools.tests.test_unhygienix_cp_variants tools.tests.test_unhygienix_cp_flash_contract tools.tests.test_unhygienix_cp_manifest tools.tests.test_unhygienix_cp_wake_audit -v` under the existing test venv completes **32 methods: 21 pass, 11 skipped**. Linked off/on packages are not supplied; Unicorn is absent. Skips are tooling/artifact limits, not regressions or CP qualification.
+- Five new tests freeze all 26 pre-refactor values, reject a changed byte in each
+  named field and wrong lengths, reject empty/malformed/duplicate definitions,
+  compile the complete production AP/CP header for native scalar equivalence,
+  reject missing/duplicate/unsupported scalar definitions, and exercise the
+  packaging consumer's derived ABI attribute plus rejection of unreviewed input.
+  The ARM test compiles the complete probe with actual vendor headers and build
+  flags, rather than recreating mailbox/IPC/PM types or layouts.
+- Separate baseline/candidate ARM compilation with pinned **GCC 10.3-2021.10**
+  proves the complete probe's **104 bytes identical**. Exact commands, flags,
+  object files and extracted vectors are saved. Header/config include paths come
+  from the existing read-only production-cleanup CP cache, not a fresh full SDK
+  build. No cached source or object was modified. This is probe equivalence,
+  not a fresh full off/on CP-link qualification.
+- The complete old and new inspectors both accept the existing cached Wi-Fi-off
+  `app.elf`/`sdkconfig` and return identical reports, including all service symbols,
+  calibration callbacks and ABI values. Existing staging/flash notification,
+  manifest, RF, mailbox lifetime and wake-call rejection checks also pass.
+- Final command uses `/tmp/pebble-quality-venv/bin/python -m unittest` with
+  `tools.tests.test_unhygienix_cp_contract_fields`, `test_unhygienix_cp_variants`,
+  `test_unhygienix_cp_flash_contract`, `test_unhygienix_cp_manifest`,
+  `test_unhygienix_cp_wake_audit`, `test_unhygienix_cp_phy_contract`,
+  `test_unhygienix_cp_rf`, `test_unhygienix_cp_mailbox_lifetime` (all prefixed
+  `tools.tests.`). Environment `UNHYGIENIX_CP_CONTRACT_FLAGS` points to the
+  production-cleanup cache's `armino/cp/CMakeFiles/__armino_cp.dir/flags.make`;
+  `UNHYGIENIX_CP_CONTRACT_CC` selects the pinned GCC above. **44 methods:
+  32 pass, 12 skipped**. Skips require linked off/on packages and/or Unicorn.
+- Ruff check/format, Clang Format 23.1.5 and whitespace checks pass. A consumer
+  search caught the package verifier's existing `NATIVE_ALARM_ABI` attribute;
+  preserved the header-derived compatibility attributes and added its check.
+  No validity guard or test expectation was relaxed. Both unrelated planning-file
+  hashes remain unchanged. Evidence, source snapshots, review patch, commands,
+  equivalence reports and seal: `build-quality-20261121/cp-contract-finding19a/`.
+
+Finding 19a is **uncommitted and unflashed**, paused for review as a small
+independent increment. No watch/phone, flash/reset, provisioning or format action
+was performed. The installed finding-15/16 image and all earlier bench limits
+remain current. Finding 19 is **not complete**: next is the escaped overlay-source
+cleanup, with exact staged-output equivalence, vendor hashes, replacement counts,
+relocation and ABI checks retained. Finding 20 has not started.

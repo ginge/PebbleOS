@@ -3,6 +3,23 @@
 The latest installation checkpoint below is the current installed state. Dated entries preserve
 the state and evidence at their recorded checkpoint.
 
+## Finding 18 committed; finding 19a named CP contract — 22 November
+
+Finding 18 is committed as **271ee99fd**; DCO/AI trailers and gitlint pass.
+Finding 19a gives the CP ABI probe named fields in one board-local definition
+shared by C and Python. Native-alarm values derive from the production AP/CP
+header. Existing manifest representation, protocol values and guards remain.
+
+Validation completes **44 methods: 32 pass, 12 skipped** for missing linked off/on
+packages or Unicorn. Complete baseline/candidate ARM probes compiled with actual
+vendor headers produce identical **104-byte** contracts. Both inspectors accept
+the existing cached Wi-Fi-off link with identical reports. This does not qualify
+a fresh full CP build or hardware behavior. See the [TODO checkpoint](code-quality-todo.md).
+
+Finding 19a is **uncommitted and unflashed**, paused for review. No hardware action
+was performed; the installed finding-15/16 image and bench limits remain current.
+Next is finding 19's readable overlay-source cleanup; finding 19 remains open.
+
 ## Finding 17 committed; finding 18 retained interfaces — 22 November
 
 Finding 17 is committed as **20d0df44c**; DCO/AI trailers and gitlint pass.
