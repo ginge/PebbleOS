@@ -4,6 +4,7 @@
 import unittest
 
 from tools.tests.native_t5ai_harness import run
+from tools.tests.t5ai_touch_harness import run_touch
 
 QMI_PREFIX = r"""
 #include <assert.h>
@@ -28,20 +29,6 @@ int main(void){
  return 0;
 }
 """
-TOUCH_PREFIX = r"""
-#include <assert.h>
-#include <stdbool.h>
-#include <stdint.h>
-static uint8_t report[10];static unsigned reads,resets,errors,fail_probes;
-static bool prv_read_report(uint8_t *data){assert(data==report);return ++reads>fail_probes;}
-static void prv_reset(bool run){assert(run);++resets;}
-#define PBL_LOG_ERR(...) (++errors)
-"""
-TOUCH_MAIN = r"""
-int main(void){for(fail_probes=0;fail_probes<=3;++fail_probes){reads=resets=errors=0;
- bool ok=probe();assert(ok==(fail_probes<3));assert(reads==(fail_probes<3?fail_probes+1:3));assert(resets==(fail_probes<2?fail_probes:2));assert(errors==!ok);}
- return 0;}
-"""
 
 
 def qmi_probe(source):
@@ -55,14 +42,6 @@ def qmi_probe(source):
     )
 
 
-def touch_probe(source):
-    start = source.index(
-        "  bool detected = false;", source.index("static int prv_touch_init(")
-    )
-    end = source.index("  prv_reset(false);", start)
-    return "static bool probe(void){\n" + source[start:end] + "\nreturn detected;}"
-
-
 class SensorStartupTest(unittest.TestCase):
     def test_imu_retries_bus_and_identity_failures_but_rejects_permanent_faults(self):
         run(
@@ -73,9 +52,18 @@ class SensorStartupTest(unittest.TestCase):
         )
 
     def test_touch_retries_probe_and_reset_with_a_fixed_budget(self):
-        run(
-            "drivers/touch/cst92xx/cst92xx_t5ai.c",
-            TOUCH_PREFIX,
-            TOUCH_MAIN,
-            transform=touch_probe,
-        )
+        for failed in range(4):
+            with self.subTest(failed_probes=failed):
+                run_touch(
+                    f"hw[0].fail_probe_count={failed};\n"
+                    + r"""
+ report(false,0,0);
+ assert(pbl_touch_dev_init(&devices[0].touch.dev)==0);
+ unsigned failures=hw[0].fail_probe_count;
+ assert(reads==(failures<3?failures+1:3));
+ assert(resets==1+(failures<2?failures:2));
+ assert(errors==(failures==3));
+ assert(!reset_pin && primary->initialized && !irq_enabled);
+""",
+                    setup=False,
+                )

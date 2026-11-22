@@ -189,17 +189,18 @@ increment below does not claim a supported storage-hook migration.
 
 - [x] CO5300: obtain the actual device instance from the class argument and
   store mutable state and serialization in that instance.
-- [ ] CST92xx: migrate its mutable state, work, retry and IRQ ownership into
+- [x] CST92xx: migrate its mutable state, work, retry and IRQ ownership into
   the actual touch instance.
 - [x] CO5300: consume the supplied instance's board-defined SPI/reset wiring;
   preserve existing board timing configuration.
-- [ ] CST92xx: move pins, bus references, orientation and dimensions into board
+- [x] CST92xx: move pins, bus references, orientation and dimensions into board
   device configuration instead of globals and hardcoded driver constants.
-- [ ] Acceptance: existing board behavior and initialization order are preserved;
+- [x] Acceptance: existing board behavior and initialization order are preserved;
   both drivers can be exercised with separately configured test instances.
 
-The panel-only source increment below passes host isolation and sequence tests.
-Touch migration and hardware verification remain open; finding 12 is not complete.
+Panel and touch source increments below pass host isolation and sequence tests.
+Targeted on-watch touch checks now pass with operator confirmation; finding 12 is complete
+within the recorded bench scope. Warning/soak limits are retained below.
 
 ### 13. Use scheduler sleeps for long panel delays
 
@@ -2084,3 +2085,123 @@ and CST92xx native-instance migration remain open; no automatic commit.
 
 Operator requested committing the flashed panel increment and continuing with
 the remaining finding-12 CST92xx migration. Phone/visual limits remain open.
+
+
+### Finding 12, native CST92xx instance and touch class — 22 November 2026
+
+Committed the flashed panel increment as `c645d1134` at the operator's request;
+gitlint passed. The installed panel image and its phone/visual limitations are
+unchanged. This separate touch increment is uncommitted and has not been flashed.
+
+The old touch/startup baseline passed 16 methods. Inspection confirmed a single
+global enable/contact/generation state, work/timer objects, I2C/GPIO bindings and
+reports routed through global `TOUCH`. This is an instance-ownership dependency;
+this pass does not claim a new failure on the current one-touchscreen board.
+
+The driver-specific native device now **embeds `struct pbl_touch`**, as other
+native touch drivers do. `PBL_CST92XX_T5AI_STATE_DEFINE` retains the normal touch
+class state/lock and adds private controller state. The generated public role
+remains exactly `const struct pbl_touch *const TOUCH = &T5AI_TOUCH.touch;`.
+Enable/disable reference counts, last sample, property transforms and reporting
+still use the unchanged production touch class. No shared/class code is replaced.
+
+GPIO, IRQ, I2C and coordinate configuration moved to the board's const device:
+same I2C0 / address 0x5a, falling-edge INT 42, reset 43, GPIO flags, native 466 x
+466 and logical 260 x 260. Both inversions are now expressed by existing touch
+class properties. The driver scales first, using truncating integer arithmetic;
+the real class then inverts. Every native axis value 0..465 reproduces the prior
+`259 - floor(raw * 260 / 466)` result. Cached coordinates are pre-orientation;
+initial cached values are chosen so an idle/error/palm report before any contact
+still delivers logical (0,0). Liftoff/ACK-echo/palm retain the last coordinates.
+Touch service ranges remain 260 x 260 and no second orientation transform was
+found in consumers; shell info now truthfully reports both inversion properties.
+New zero-sized configuration guards reject division-by-zero geometry before
+touch I/O/work setup. Valid board initialization/dependency order is preserved.
+
+Each instance owns its mutex, coalesced work, retry/watchdog objects and counters.
+IRQ registration carries the actual device as its argument. Work callbacks
+recover the owner from the embedded work member; retry and queued generations
+remain checked under the same IRQ/hardware lock boundaries. Input listeners are
+still called after releasing the I2C lock, with the generation rechecked after
+palm delivery. No per-event allocation, queue-depth change, retry shortening or
+new ownership/quarantine policy was introduced. Reset 5/50 ms, 20 ms active poll,
+80 ms transfer retry, three-failure reset threshold, 1,000 ms recovery/watchdog
+and idle backoff remain unchanged. Existing non-detection logging/init policy
+and register-read/report ACK order are preserved.
+
+Validation completed:
+
+- Replaced empty-header/fake-layout touch scaffolding with the complete driver,
+  complete unmodified `drivers/touch/touch.c`, real headers/native device and
+  work/timeout types, generated board configuration and complete `kernel/tick.c`.
+  No function extraction or source-include stripping. Clang 21 O1 + ASan/UBSan
+  exercise modeled GPIO/I2C/IRQ/work/input endpoints. The I2C endpoint models
+  `pbl_i2c_transfer`, retaining the real inline read/write API and message flags.
+- All fourteen existing touch behavior methods retain their assertions, adapted
+  to native instance state. Touch startup now exercises the complete init/class
+  path rather than extracted retry code. Probe attempts/reset budget, IRQ storms
+  during failed I/O, coalescing, lost edges, stale work/generation, palm ordering,
+  reentrant disable, invalid reports, ACK echoes and idle backoff still pass.
+- New two-device checks use distinct buses/addresses, GPIO/IRQ controllers,
+  resolutions and inversion/swap properties. They verify class user counts,
+  correct IRQ argument, queue/retry/reset/state isolation, and a canceled old
+  retry preserving new-generation work. Another case exhausts every value of
+  each native axis, checks initial idle (0,0), exact prior rounding, and invalid
+  boundaries. A real-class palm listener drops its reference without deadlock
+  or an extra raw sample. Reset-delay checks require the hardware lock and the
+  correct reset level; zero geometry/controller-init errors fail before touch I/O.
+- Broader pass: `python -m unittest tools.tests.test_t5ai_touch tools.tests.test_t5ai_touch_instances tools.tests.test_t5ai_sensor_startup tools.tests.test_t5ai_touch_queue tools.tests.test_t5ai_build_integration tools.tests.test_t5ai_config tools.tests.test_t5ai_panel_instances tools.tests.test_t5ai_panel_init tools.tests.test_t5ai_panel_power_cache tools.tests.test_t5ai_display_power tools.tests.test_t5ai_backlight tools.tests.test_t5ai_board_psram tools.tests.test_t5ai_nimble_pools tools.tests.test_unhygienix_image`: 57 methods pass. After adding real-class palm-listener coverage and strengthening reset assertions, the final focused touch/instance/startup run passes all 20 methods. Existing unrelated fixture limitations remain as previously documented.
+- `cmake --build build-quality-finding9-candidate -j 8`: final ARM/LTO and layout,
+  CRC, resource-size and syscall gates pass. Generated role C points to the
+  embedded `pbl_touch`. FLASH 1,666,656 bytes (+48); RAM 96,576 (+32), with the
+  existing minimum-heap guard intact. Display PSRAM 126,912/131,072, DMA 14,976
+  and PFS metadata 8,192 are unchanged. Actual pre/post map comparison confirms
+  unchanged retained, sleep-trace, framebuffer, board-cache, PFS and DMA section
+  addresses/sizes. Pinned AP/CP ABI, partition/layout sources, calibration,
+  Bluetooth identity and Gabbro compatibility are untouched.
+- The complete touch translation unit also compiles with real ARM production
+  options plus `CONFIG_T5AI_IO_PROFILE=1`, including the per-instance queued-at
+  field. This is a compile-only optional-path check, not runtime diagnostic
+  qualification or a fully linked alternate profile.
+- Initial host fixture compilation tried redefining the real inline I2C helpers
+  and collided with a local output-field macro; those were harness setup failures
+  corrected at the transfer endpoint/fixture naming. A compile-command probe
+  initially assumed GCC without Ninja's ccache launcher; direct GCC compilation
+  resolved that tooling assumption. No target regression or guard relaxation is
+  claimed from these failures. Logs are retained separately from passing runs.
+- Ruff check/format, Clang Format and `git diff --check` pass. Unrelated
+  `REMAINING_TASKS.md` and `power-todo.md` hashes remain unchanged. Sources/tests,
+  before-state files, logs, generated roles, config/map/ELF/images and hashes are
+  under `build-quality-20261121/touch-instances-finding12/`.
+
+**Next unresolved finding-12 acceptance:** on-watch touch behavior after this
+refactor: startup, corners/axes, drag/hold/liftoff, palm and disable/re-enable,
+plus the existing fault/connection observation limits. Host/model checks do not
+qualify hardware. Source is uncommitted for review; no flash, reset or storage
+operation accompanied this increment. The prior panel-only image remains on
+the watch. Do not advance to finding 13 before reviewing this increment.
+
+
+### Finding 12 touch increment flashed and checked — 2026-11-22, 16:43 UTC
+
+Installed exact sealed build **27131da0fc4e09587bb24de78e1b362f788c39fe**,
+`v4.41.2-1660-gc645d1134-dirty`. Protected SHA-256
+`ab045507fadf2632afbb56e95aacd0f4b96aeb4f307592863422bdb6b2b665ae`;
+raw SHA-256 `d5f986289354293d4fbbae17e9669f27bd18d22f8be99727911317f25e06efed`.
+Verified all 37 sealed evidence hashes and all 12 source snapshots against the
+live tree before flashing. `pbl lab --json` has no configured inventory; host
+CH342 if00/if02 enumeration and free-port checks supplied the actual ports.
+
+- Guarded `tools/flash_unhygienix_firmware.py --raw CASE/pebbleos.bin --protected CASE/pebbleos.t5ai-crc.bin --tyutool /tmp/pebble-quality-tyutool --port /dev/serial/by-id/usb-1a86_USB_Dual_Serial_5C75025844-if00 --flash`: passed in 52.0 seconds; AP-only physical range 0x132000..0x2e2546 exclusive. No CP/resources/PFS/calibration programming, bond clearing or formatting.
+- Captured actual if02 UART bytes at 460800 and decoded with the candidate dictionary. New build reaches Launcher, existing SD PFS `new=0`, valid resources and 30 apps. All 15 graphics output checks pass. AP-only sleep records 32 returns with `fault=0`; one commanded-flash boot, no subsequent AP boot/assert/hard-fault observed.
+- Operator reports **all interactions work normally** for four-direction navigation, corner taps, drag/hold/liftoff, palm cover and recovery. Separately reports **disable/re-enable passes** using Settings → Display → Touch and buttons. Five post-release draw-profile batches corroborate physical-input/render activity; they do not expose exact coordinates. Host exhaustive-axis and two-instance checks remain the coordinate/isolation evidence.
+- Phone companion restarted after flash. Initial connection disconnected with reason 0x213, then successfully reconnected without another watch reset or bond clearing. Live checks pass three pongs, expected version, Ping app state and full 260×260/67,600-byte screenshot; screenshot SHA-256 `b6d5c82dbf2981eab6d81c1423280443ffbce119c80156457f5136f9e3b3eadc` matches the earlier capture. First connection trace/logcat preserved; this is not 25-cycle or cold-boot qualification.
+- **Retained limitation:** at 16:43:25.511, one `CST92xx report transfer failed (1 total)` log precedes successful subsequent interactions. No later failure log appears, but the driver logs first/every 64, so an exact final failure count cannot be inferred. No induced hardware I2C fault/reset qualification or causal attribution to this refactor. Monitor this warning in later touch/I2C work; do not suppress it. Two `Animation 2 does not exist` errors also occur; identical errors exist in the earlier graphics control capture. Existing bootloader/CP startup diagnostics are retained.
+- Evidence: `build-quality-20261121/touch-instances-finding12/device-20261122-164153/`, including flash log, raw UART, timestamps, decoded log, phone data/screenshot, operator record and separate hardware SHA-256 manifest. Capture stopped cleanly; phone forward removed, companion left running. Unrelated planning-file hashes unchanged.
+
+Finding 12 targeted acceptance is complete: real-class two-instance isolation,
+sequence/layout checks and operator hardware behavior pass. This short bench
+is not a broad hardware or overnight-soak qualification. Source remains
+uncommitted; paused for review. Next ordered item is **finding 13, scheduler
+sleeps for long panel delays**. Historical unflashed statements above describe
+the preceding source checkpoint.

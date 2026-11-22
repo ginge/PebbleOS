@@ -225,9 +225,7 @@ static void prv_i2c_irq_handler(void) {
 PBL_IRQ_CONNECT(I2C0, 5, prv_i2c_irq_handler, , 0);
 PBL_QMI8658_DEFINE(T5AI_QMI8658, &T5AI_I2C0.bus, 0x6b, &T5AI_GPIO, &T5AI_GPIO_INTC, 9);
 static const struct pbl_i2c_dev s_pcf85063 = PBL_I2C_DEV(&T5AI_I2C0.bus, 0x51);
-static const struct pbl_i2c_dev s_cst92xx = PBL_I2C_DEV(&T5AI_I2C0.bus, 0x5a);
 const struct pbl_i2c_dev *const I2C_PCF85063 = &s_pcf85063;
-const struct pbl_i2c_dev *const I2C_CST92XX = &s_cst92xx;
 
 PBL_GPIO_KEYS_DEFINE(
     s_buttons, "buttons",
@@ -236,11 +234,20 @@ PBL_GPIO_KEYS_DEFINE(
     PBL_GPIO_KEYS_KEY("Select", PBL_GPIO(&T5AI_GPIO, 12, PBL_GPIO_ACTIVE_LOW | PBL_GPIO_PULL_UP),
                       PBL_INPUT_KEY_SELECT, 40));
 
-PBL_TOUCH_STATE_DEFINE(T5AI_TOUCH);
-const struct pbl_touch T5AI_TOUCH =
-    PBL_TOUCH_INIT(T5AI_TOUCH, "cst92xx", &T5AI_I2C0.bus.dev, &pbl_touch_cst92xx_t5ai_ops,
-                   .size_x = PBL_DISPLAY_WIDTH, .size_y = PBL_DISPLAY_HEIGHT);
-PBL_DEVICE_REGISTER(T5AI_TOUCH, &T5AI_TOUCH.dev);
+PBL_CST92XX_T5AI_STATE_DEFINE(T5AI_TOUCH);
+const struct pbl_cst92xx_t5ai T5AI_TOUCH = {
+  .touch = PBL_TOUCH_INIT(T5AI_TOUCH, "cst92xx", &T5AI_I2C0.bus.dev, &pbl_touch_cst92xx_t5ai_ops,
+                          .size_x = PBL_DISPLAY_WIDTH, .size_y = PBL_DISPLAY_HEIGHT,
+                          .inverted_x = true, .inverted_y = true),
+  .state = &T5AI_TOUCH_cst92xx_state,
+  .i2c = PBL_I2C_DEV(&T5AI_I2C0.bus, 0x5a),
+  .interrupt = PBL_IRQ_SPEC(&T5AI_GPIO_INTC, 42, PBL_IRQ_TYPE_EDGE_FALLING),
+  .interrupt_input = PBL_GPIO(&T5AI_GPIO, 42, 0),
+  .reset = PBL_GPIO(&T5AI_GPIO, 43, 0),
+  .native_width = 466,
+  .native_height = 466,
+};
+PBL_DEVICE_REGISTER(T5AI_TOUCH, &T5AI_TOUCH.touch.dev);
 
 PBL_PINCTRL_STATE_DEFINE(s_qspi0_pins, &T5AI_PINCTRL, T5AI_PIN(22, 3, T5AI_PIN_DRIVE(3)),
                          T5AI_PIN(23, 3, T5AI_PIN_DRIVE(3) | T5AI_PIN_PULL_UP),

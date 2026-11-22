@@ -3,6 +3,46 @@
 The latest installation checkpoint below is the current installed state. Dated entries preserve
 the state and evidence at their recorded checkpoint.
 
+## Finding 12 touch increment installed — 22 November, 16:43 UTC
+
+Installed AP-only build **27131da0fc4e09587bb24de78e1b362f788c39fe**,
+`v4.41.2-1660-gc645d1134-dirty`, protected SHA-256
+`ab045507fadf2632afbb56e95aacd0f4b96aeb4f307592863422bdb6b2b665ae`.
+Guarded flash passed in 52 seconds. UART confirms Launcher, existing resources,
+PFS and 30 apps, all 15 graphics output checks, and 32 AP sleep returns with
+zero recorded sleep faults. Operator confirms direction/corner/drag/hold/release,
+palm/recovery and touch disable/re-enable checks pass. Finding 12's targeted
+acceptance is complete; broader qualification remains outside this short bench.
+
+Phone protocol checks pass three pongs, version/app queries and a complete
+260×260 screenshot matching the earlier Ping image. An initial Bluetooth
+connection dropped before the successful session. One early touch report-transfer
+failure log is retained; no later failure log appears, but logging is rate-limited
+and does not establish an exact final count. Two animation errors also occurred
+in an earlier control. See the [TODO checkpoint](code-quality-todo.md) for full
+commands, evidence and limits. Capture is stopped and forward removed. Source
+is uncommitted; paused before finding 13. No CP/resource/storage programming or
+bond clearing was performed.
+
+## Finding 12 CST92xx native-instance migration in source — 22 November 2026
+
+Panel work is committed as `c645d1134`. The uncommitted touch increment keeps the
+normal `pbl_touch` class embedded in the native CST92xx device. Board `TOUCH`
+points to `&T5AI_TOUCH.touch`; class reference counts, reporting and last sample
+remain stock. Private state/work/retry objects and hardware descriptors now
+belong to the supplied instance. Board scaling/inversion reproduces every prior
+axis value and initial idle (0,0), with unchanged timing/recovery policy.
+
+The broader regression pass has 57 passing methods; the final focused pass has
+20 passing touch/startup methods, including real-class listener disable and
+two-device isolation. ARM/LTO and all image gates pass. Growth is 48 bytes FLASH
+and 32 bytes RAM; retained/reserved layouts are unchanged. The complete real
+class/driver units use real types/configuration under host sanitizers, with
+hardware/work execution modeled. On-watch touch verification remains open.
+
+No new firmware has been flashed or committed for this increment. The installed
+panel-only checkpoint below remains current. See the [TODO record](code-quality-todo.md).
+
 ## Finding 12 panel increment installed — 22 November, 16:15 UTC
 
 At the operator's request, installed AP-only build

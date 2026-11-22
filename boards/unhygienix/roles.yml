@@ -11,7 +11,7 @@ display:
   symbol: "&T5AI_DISPLAY"
   include: pbl/soc/t5ai/devices.h
 touch:
-  symbol: "&T5AI_TOUCH"
+  symbol: "&T5AI_TOUCH.touch"
   include: pbl/soc/t5ai/devices.h
 flash:
   symbol: "&T5AI_FLASH"
