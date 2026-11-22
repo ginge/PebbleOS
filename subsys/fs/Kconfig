@@ -17,6 +17,20 @@ config FS_PFS
     help
       PFS, the wear-leveled file system on the external NOR flash.
 
+config FS_PFS_CUSTOM_FTL
+    bool
+    depends on FS_PFS
+    help
+      The platform supplies the PFS translation functions instead of the
+      stock NOR-region implementation.
+
+config FS_PFS_CUSTOM_PAGE_FLAGS
+    bool
+    depends on FS_PFS
+    help
+      The platform supplies the page-flags cache allocator and release
+      functions. Ordinary PFS allocations still use the kernel heap.
+
 config FS_PFS_SHELL_LITTER
     bool "PFS litter shell command"
     depends on FS_PFS && SHELL

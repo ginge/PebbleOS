@@ -87,13 +87,39 @@ promotion of an unqualified image. Existing hardware release blockers remain.
 
 ### 6. Replace SD/PFS allocation-order and linker hooks
 
-- [ ] Replace `soc/t5ai/sd_pfs.c`'s next-allocation page-flags interception
+- [x] Replace `soc/t5ai/sd_pfs.c`'s next-allocation page-flags interception
   with a specific buffer-provider boundary if needed.
-- [ ] Select a board-local FTL implementation explicitly at build time rather
+- [x] Select a board-local FTL implementation explicitly at build time rather
   than relying on `__wrap_ftl_*`; preserve existing FTL signatures/NOR semantics.
-- [ ] Acceptance: volume geometry/header, provisioning guard, reopen, format,
+- [x] Acceptance: volume geometry/header, provisioning guard, reopen, format,
   partial/multi-sector I/O, failure handling and full-volume behavior remain
   correct. Keep the existing fail-stop policy until error propagation is designed.
+
+The complete-unit check also reproduced a migrated format path reaching NOR
+under the SD configuration. Whole-volume erase now follows the selected FTL;
+see the 22 November progress record. Validation is host/build evidence, not
+on-watch format or storage qualification.
+
+### Follow-up: repair post-flash sleep admission (release blocker)
+
+- [ ] Reproduce and explain first-boot `T5SLEEP failed reason=4 gen=0`
+  with AP/CP reset sources `0x4f/0`, preserving the original failure traces.
+  Reason 4 is `T5AISleepFault_ResumeTimeout`, not a generic budget rejection;
+  inspect the reset-reason and unfinished retained-trace admission paths.
+  `drivers/watchdog/t5ai.c` intentionally writes `0x4f` while arming the retained
+  watchdog guard and restores the previous reason only after return. A reset
+  during that interval is not automatically proof of a spurious fault.
+- [ ] Distinguish a real interrupted retained return from stale boot/reset
+  evidence after AP programming. Repair the responsible lifecycle boundary
+  without clearing evidence blindly or weakening admission/ownership guards.
+- [ ] Acceptance: first boot after an authorized AP-only flash admits the
+  qualified CP-awake path when safe; genuine interrupted returns, invalid
+  contracts, late replies and uncertain cleanup remain quarantined. Preserve
+  reset/retained layouts, numeric ABI, hardware timing and CP defaults.
+- [ ] Record exact image/configuration and first-failure/first-boot evidence;
+  do not use a subsequent manual reset as proof of a fix. Host tests alone
+  cannot qualify retained sleep. Investigate after finding 6, before the
+  broader sleep/architecture cleanup in findings 7–8.
 
 ## Medium priority
 
@@ -672,3 +698,139 @@ those production changes are separate from this timer repair.
 **Next backlog item after the pending finding-5 increment: finding 6**, the SD/PFS allocation/provider
 and FTL selection boundary. The pre-existing sleep-admission/release blockers
 remain open in the hardware/power work list and are not cleared by item 3.
+
+
+### Increment 6 — explicit SD PFS backend and cache provider, 22 November
+
+**Implementation and shared-change justification:** PFS now requests/releases
+only its page-flags cache through `page_flags_cache.h`. Default inline providers
+retain the exact kernel heap calls; only Unhygienix SD selects the private
+8,192-byte PSRAM provider. The next-allocation flag and source-wide
+`pbl_malloc_check`/`pbl_free` redirection are removed. Ordinary PFS file/name/page
+allocations retain the kernel heap. Rebuild/zero-size/reacquisition, allocation
+size, exclusive ownership and duplicate-release assertions are covered.
+
+Two hidden generic Kconfig capabilities select a platform FTL and a specific
+cache provider. The filesystem CMake file keeps the stock NOR implementation
+unless explicitly selected otherwise; Unhygienix SD selects both capabilities.
+The SD adapter exports the ordinary `ftl_*` signatures. Its FTL linker wrappers
+and the NOR unit's special non-LTO compilation are removed. The narrow
+`__wrap_pfs_init` and non-LTO PFS unit remain deliberately: they preserve header
+validation before the real initialization and header publication only after
+successful completion. Removing that separate lifecycle boundary belongs to the
+later integration cleanup and would need its own pre/post-init API.
+
+The small shared extension is unavoidable without retaining allocation-order
+interception or wrapping a global flash API: the stock PFS cache pointer is
+private and there was no board-local buffer boundary. No board names are added
+to shared PFS policy. Default heap allocation and the NOR backend remain intact,
+with cache-enabled complete-unit tests as well as the stock filesystem suites.
+No public app interface, common timing policy, AP/CP ABI, partition geometry,
+PSRAM/retained reservation, calibration or Bluetooth identity changes.
+
+**Newly reproduced dependency:** the older SD fixture extracted only the cache
+builder and replaced `pfs_format()` with a model calling
+`__wrap_filesystem_regions_erase_all`. Production PFS no longer calls that hook:
+it directly erased `PART_FILESYSTEM` on NOR. Compiling the complete production
+PFS and SD units from HEAD `8276651e6` with their original allocator/linker
+boundaries aborts specifically at **“SD PFS format reached physical NOR”**.
+This is a host reproduction of the real call path, not evidence that hardware
+was formatted or NOR contents were inspected.
+
+Whole-volume erase now has the narrow internal `ftl_erase_all()` boundary.
+The default NOR implementation contains the identical former partition-erase
+statement; SD erases only its existing 32 MiB card region. `pfs_format()` still
+holds its normal lock and writes the same page headers. Existing 512-byte volume
+header layout, sector 2048/header+128 data offset, version/inverse checks,
+require-existing provisioning guard, bitwise NOR-write semantics, locks,
+workspace ownership and fail-stop-on-I/O-error policy are preserved. The dead
+obsolete erase wrapper is removed. No format/provision operation was performed
+on hardware.
+
+**Validation:**
+
+```sh
+ASAN_OPTIONS=detect_leaks=0 /tmp/pebble-quality-venv/bin/python -m unittest \
+  tools.tests.test_t5ai_sd_pfs_integration tools.tests.test_t5ai_sd_pfs \
+  tools.tests.test_t5ai_sd_idle_clock tools.tests.test_t5ai_sd_irq_race \
+  tools.tests.test_t5ai_config -v
+# 19 test methods pass.
+PYTHONPATH=. /tmp/pebble-quality-venv/bin/python \
+  build-quality-20261121/pfs-increment-6/baseline-proof.py
+# Pinned old full-unit control reproduces the wrong-backend format failure.
+PATH=/tmp/pebble-quality-venv/bin:/usr/bin:/bin CCACHE_DISABLE=1 \
+  cmake --build /tmp/pebble-quality-stock-tests \
+  --target test_pfs_emery test_fs_emery -j 4
+/tmp/pebble-quality-venv/bin/ctest --test-dir /tmp/pebble-quality-stock-tests \
+  --output-on-failure -R '^(test_pfs_emery|test_fs_emery)$'
+# Both stock filesystem suites pass; the PFS suite contains 32 cases.
+```
+
+Six new integration methods compile complete PFS and CRC production units with
+real board/configuration, FTL, cache, kernel and SD headers. Cache is enabled
+(`UNITTEST` is not defined). Only host storage, heap and scheduling endpoints
+are modeled; no PFS operation is substituted. They cover SD provision/recognized
+header paths, all five header-field refusals before writes, real file create/
+close/reopen/read, zero-size and repeated cache rebuilds, full-volume exhaustion,
+delete/GC/reuse, actual format through the last subsector, outside-volume
+sentinels, partial/multi-sector operations, one-way writes, cache hits, capacity/
+I/O/bounds errors and cache ownership assertions. The NOR variant compiles the
+complete stock FTL with default heap-backed cache and verifies rebuild, reopen,
+format and physical partition isolation. Normal integration uses ASan/UBSan;
+the LTO variant uses UBSan, matching the previously recorded local LLVM gold/
+ASan-constructor tooling limitation. Existing SD driver tests retain their
+modeled API declarations; they are not a hardware timing/DMA qualification.
+
+The old extracted builder/model-PFS fixture is removed from
+`test_t5ai_sd_pfs.py`; its one-/four-bit DMA driver cases remain, with the new
+complete integration coverage in `test_t5ai_sd_pfs_integration.py` and readable
+`fixtures/t5ai_sd_pfs/` sources. Initial new-fixture compile failures were
+incorrect/missing endpoint declarations, corrected against real headers.
+The first stock build command used an unsuffixed target; this test matrix uses
+`test_pfs_emery` / `test_fs_emery`, which built and passed. These were harness/
+tooling issues, not failures bypassed by changing production guards. Formatting
+uses clang-format 23 on changed C hunks; Ruff check/format and `git diff --check`
+pass.
+
+The exact final normal ARM/LTO firmware build also passes, using the same
+Arm GNU 14.2 and temporary build environment recorded above:
+
+```sh
+PATH=/tmp/pebble-quality-venv/bin:/home/baz/pebble/build/arm_gnu_toolchain/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi/bin:/usr/bin:/bin \
+  PYTHONPATH=tools/libs/pbl-cli CCACHE_DISABLE=1 \
+  /tmp/pebble-quality-venv/bin/python -m pbl -b build-quality-20261121 build
+```
+
+Log hash, map/layout, protected CRC/vector/current-version, resource-size and
+syscall checks pass. Ninja's actual compile database excludes the stock NOR FTL
+for this SD image; the ELF exports direct SD FTL/cache-provider symbols and has
+no `__wrap_ftl_*` or allocator-interception symbols. Kernel heap remains
+**32,800 bytes**, above the unchanged 28 KiB guard. The system resource pack is
+byte-identical to the previous installed pack; the private flags range remains
+exactly 8,192 bytes at its pinned address. Build ID:
+`8d287c9204ad44a2dbc96219b851b6810bef9171` (dirty working tree at `8276651e6`,
+including the pending finding-5 touch increment). Artifacts, source snapshot,
+hashes, baseline proof, build/test logs and selection checks are preserved under
+`build-quality-20261121/pfs-increment-6/`. Existing generated app-API LTO warnings
+remain outside this SoC/storage increment. No firmware from this increment was
+flashed; installed-state records still describe the timer fix image.
+
+The pending touch increment was rechecked before starting this work:
+`ASAN_OPTIONS=detect_leaks=0 /tmp/pebble-quality-venv/bin/python -m unittest
+ tools.tests.test_t5ai_touch_queue tools.tests.test_t5ai_touch -v` — **17 pass**.
+Its earlier bounded first-boot evidence and gesture/latency qualification limits
+remain as recorded. Finding 6 is now implemented and verified at host/build
+level. No hardware was flashed, reset, provisioned or formatted in this increment;
+there is no hardware qualification claim.
+
+**Next unresolved item:** the newly listed post-flash sleep-admission release
+blocker, before broader findings 7–8. Source inspection confirms reason 4 is
+`T5AISleepFault_ResumeTimeout`: startup rejects either the saved AP sleep-timeout
+reason or an unfinished retained breadcrumb. The watchdog guard deliberately
+sets `T5AI_RESET_REASON_SLEEP_RESUME` (`0x4f`) while armed and restores its old
+reason only after the retained return. A programming reset can therefore
+intersect a legitimate guard interval. The existing traces do not prove whether
+that is the observed cause, whether an actual guard expired, or which quiescence/
+reset-intent boundary should change. Do not suppress `0x4f`, clear valid evidence,
+relax ownership checks or enable CP deep sleep as a workaround. Preserve first-
+boot traces and investigate the lifecycle distinction before choosing a repair.

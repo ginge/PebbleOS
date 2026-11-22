@@ -199,6 +199,10 @@ void ftl_erase_subsector(uint32_t size, uint32_t offset) {
   prv_ftl_operation(nullptr /* not needed for erase */, size, offset, FTLEraseSubsector);
 }
 
+void ftl_erase_all(void) {
+  pbl_flash_partition_erase(PART_FILESYSTEM, 0U, PART_FILESYSTEM_SIZE);
+}
+
 void ftl_format(void) {
 }
 

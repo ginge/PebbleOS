@@ -341,27 +341,16 @@ if(CONFIG_T5AI_IO_PROFILE)
   pbl_library_sources(io_profile.c)
 endif()
 
-# Keep stock PFS and its NOR implementation intact on every other target.
+# Kconfig explicitly selects the SD FTL and its private page-flags provider.
 if(CONFIG_T5AI_SD_PFS)
   pbl_library_sources(sd_pfs.c)
-  # GNU --wrap needs unresolved calls at link time, including with release LTO.
+  # Retain the pre/post-init header guard and publication boundary with LTO.
   function(t5ai_sd_pfs_call_boundaries)
     set_property(SOURCE ${PBL_BASE}/subsys/fs/pfs/pfs.c
-      DIRECTORY ${PBL_BASE}/subsys/fs APPEND PROPERTY COMPILE_DEFINITIONS
-      pbl_malloc_check=t5ai_sd_pfs_malloc_check pbl_free=t5ai_sd_pfs_free)
-    foreach(pair "subsys/fs|pfs/pfs.c" "subsys/fs|pfs/flash_translation.c")
-      string(REPLACE "|" ";" parts "${pair}")
-      list(GET parts 0 directory)
-      list(GET parts 1 source)
-      set_property(SOURCE ${PBL_BASE}/${directory}/${source}
-        DIRECTORY ${PBL_BASE}/${directory} APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
-    endforeach()
+      DIRECTORY ${PBL_BASE}/subsys/fs APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
   endfunction()
   cmake_language(DEFER DIRECTORY ${CMAKE_SOURCE_DIR} CALL t5ai_sd_pfs_call_boundaries)
-  foreach(symbol pfs_init ftl_read ftl_write ftl_erase_sector ftl_erase_subsector
-                 ftl_get_size ftl_format ftl_populate_region_list)
-    pbl_link_options(-Wl,--wrap=${symbol})
-  endforeach()
+  pbl_link_options(-Wl,--wrap=pfs_init)
 endif()
 
 # Reject mailbox-owner logs before shared log-state/PULSE locks without changing

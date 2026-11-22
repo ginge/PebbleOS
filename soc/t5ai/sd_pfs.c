@@ -1,7 +1,8 @@
 /* SPDX-FileCopyrightText: 2026 Barry Carter <barry.carter@gmail.com> */
 /* SPDX-License-Identifier: Apache-2.0 */
 
-#include "pbl/kernel/malloc.h"
+#include "flash_translation.h"
+#include "page_flags_cache.h"
 #include "pfs.h"
 
 #include <string.h>
@@ -29,27 +30,18 @@ static uint8_t *s_work;
 static bool s_new_volume;
 static uint8_t s_page_flags[T5AI_PFS_FLAGS_PSRAM_SIZE]
     __attribute__((section(".t5ai_pfs_flags"), aligned(32)));
-static bool s_page_flags_requested, s_page_flags_in_use;
+static bool s_page_flags_in_use;
 _Static_assert(sizeof(s_page_flags) == VOLUME_SIZE / 4096u, "SD PFS flags capacity");
 
-// Only PFS's calls are redirected; other kernel allocations keep their allocator.
-void *t5ai_sd_pfs_malloc_check(size_t bytes) {
-  if (s_page_flags_requested) {
-    PBL_ASSERTN(bytes == sizeof(s_page_flags) && !s_page_flags_in_use);
-    s_page_flags_requested = false;
-    s_page_flags_in_use = true;
-    return s_page_flags;
-  }
-  return pbl_malloc_check(bytes);
+uint8_t *pfs_page_flags_cache_alloc(size_t bytes) {
+  PBL_ASSERTN(bytes == sizeof(s_page_flags) && !s_page_flags_in_use);
+  s_page_flags_in_use = true;
+  return s_page_flags;
 }
 
-void t5ai_sd_pfs_free(void *ptr) {
-  if (ptr == s_page_flags) {
-    PBL_ASSERTN(s_page_flags_in_use);
-    s_page_flags_in_use = false;
-    return;
-  }
-  pbl_free(ptr);
+void pfs_page_flags_cache_free(uint8_t *cache) {
+  PBL_ASSERTN(cache == s_page_flags && s_page_flags_in_use);
+  s_page_flags_in_use = false;
 }
 
 typedef struct {
@@ -87,7 +79,7 @@ static uint8_t *prv_sector(uint32_t sector) {
   return s_cache[slot];
 }
 
-void __wrap_ftl_read(void *buffer, size_t size, uint32_t offset) {
+void ftl_read(void *buffer, size_t size, uint32_t offset) {
   prv_bounds(offset, size);
   pbl_mutex_lock(&s_lock, PBL_FOREVER);
   s_work = t5ai_sd_lock_workspace();
@@ -116,7 +108,7 @@ void __wrap_ftl_read(void *buffer, size_t size, uint32_t offset) {
   pbl_mutex_unlock(&s_lock);
 }
 
-void __wrap_ftl_write(const void *buffer, size_t size, uint32_t offset) {
+void ftl_write(const void *buffer, size_t size, uint32_t offset) {
   prv_bounds(offset, size);
   pbl_mutex_lock(&s_lock, PBL_FOREVER);
   s_work = t5ai_sd_lock_workspace();
@@ -172,33 +164,31 @@ static void prv_erase(uint32_t size, uint32_t offset) {
   pbl_mutex_unlock(&s_lock);
 }
 
-void __wrap_ftl_erase_sector(uint32_t size, uint32_t offset) {
+void ftl_erase_sector(uint32_t size, uint32_t offset) {
   PBL_ASSERTN(size == 65536u && !(offset % size));
   prv_erase(size, offset);
 }
 
-void __wrap_ftl_erase_subsector(uint32_t size, uint32_t offset) {
+void ftl_erase_subsector(uint32_t size, uint32_t offset) {
   PBL_ASSERTN(size == 4096u && !(offset % size));
   prv_erase(size, offset);
 }
 
-void __wrap_filesystem_regions_erase_all(void) {
+void ftl_erase_all(void) {
   prv_erase(VOLUME_SIZE, 0);
 }
 
-uint32_t __wrap_ftl_get_size(void) {
+uint32_t ftl_get_size(void) {
   return VOLUME_SIZE;
 }
 
-void __wrap_ftl_format(void) {
+void ftl_format(void) {
 }
 
-void __wrap_ftl_populate_region_list(void) {
+void ftl_populate_region_list(void) {
   // Never probe NOR regions or grow the card volume using flash addresses.
-  PBL_ASSERTN(!s_page_flags_requested);
-  s_page_flags_requested = true;
   pfs_set_size(VOLUME_SIZE, false);
-  PBL_ASSERTN(!s_page_flags_requested && s_page_flags_in_use);
+  PBL_ASSERTN(s_page_flags_in_use);
   if (s_new_volume) {
     pfs_format(true);
   } else if (pfs_active()) {

@@ -5,8 +5,11 @@ pbl_library()
 pbl_library_sources(fs.c)
 pbl_library_sources_ifdef(CONFIG_SHELL shell.c)
 pbl_library_sources_ifdef(CONFIG_FS_PFS
-  pfs/flash_translation.c
   pfs/pfs.c
   pfs/pfs_fs.c
 )
 pbl_library_sources_ifdef(CONFIG_FS_PFS_SHELL_LITTER pfs/pfs_debug_shell.c)
+
+if(CONFIG_FS_PFS AND NOT CONFIG_FS_PFS_CUSTOM_FTL)
+  pbl_library_sources(pfs/flash_translation.c)
+endif()

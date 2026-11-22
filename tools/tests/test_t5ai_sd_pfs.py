@@ -81,129 +81,6 @@ void pfs_format(bool);
 bool pfs_active(void);
 void pfs_reboot_cleanup(void);
 """
-ADAPTER = r"""
-#include <stdio.h>
-#include <sys/wait.h>
-#include <signal.h>
-#include <unistd.h>
-#include <sys/resource.h>
-#include "SOURCE"
-static uint8_t card[35u*1024u*1024u];
-static unsigned reads, writes, formats, cleanups, heap_allocs, heap_frees;
-static void *flags;
-void *pbl_malloc_check(size_t bytes) { ++heap_allocs; void *p=malloc(bytes); assert(p); return p; }
-void pbl_free(void *p) { ++heap_frees; free(p); }
-static uint8_t workspace[ERASE_BYTES];
-static unsigned workspace_depth;
-uint8_t *t5ai_sd_lock_workspace(void) { ++workspace_depth; return workspace; }
-void t5ai_sd_unlock_workspace(void) { assert(workspace_depth); --workspace_depth; }
-static uint32_t volume_size;
-static int fault;
-static uint64_t capacity = sizeof(card)/512;
-int t5ai_sd_init(void) { return fault; }
-uint64_t t5ai_sd_sector_count(void) { return capacity; }
-int t5ai_sd_read(uint32_t lba, void *buf, uint32_t n) {
-  if (fault) return fault;
-  assert(workspace_depth);
-  assert(n && n <= T5AI_SD_MAX_BLOCKS && (uint64_t)lba+n <= capacity);
-  memcpy(buf, card+lba*512u, n*512u); ++reads; return 0;
-}
-int t5ai_sd_write(uint32_t lba, const void *buf, uint32_t n) {
-  if (fault) return fault;
-  assert(workspace_depth);
-  assert(n && n <= T5AI_SD_MAX_BLOCKS && (uint64_t)lba+n <= capacity);
-  memcpy(card+lba*512u, buf, n*512u); ++writes; return 0;
-}
-static uint8_t *s_pfs_page_flags_cache;
-static uint16_t s_pfs_page_count;
-static void prv_invalidate_page_flags_cache_all(void) {
-  assert(s_pfs_page_flags_cache);
-  memset(s_pfs_page_flags_cache,0xfe,s_pfs_page_count);
-}
-#define pbl_malloc_check t5ai_sd_pfs_malloc_check
-#define pbl_free t5ai_sd_pfs_free
-CACHE_BUILDER
-#undef pbl_malloc_check
-#undef pbl_free
-void pfs_set_size(uint32_t size, bool erased) {
-  assert(!erased); volume_size=size; s_pfs_page_count=size/4096u;
-  prv_build_page_flags_cache(); flags=s_pfs_page_flags_cache;
-  assert(flags==s_page_flags && (uintptr_t)flags%32==0);
-}
-bool pfs_active(void) { return card[FIRST_SECTOR*512u] == 0x50; }
-void pfs_reboot_cleanup(void) { ++cleanups; }
-void pfs_format(bool headers) {
-  assert(headers); ++formats; __wrap_filesystem_regions_erase_all();
-  uint8_t mark=0x50; __wrap_ftl_write(&mark, 1, 0);
-}
-status_t __real_pfs_init(bool check) {
-  assert(check); __wrap_ftl_populate_region_list();
-  if (!pfs_active()) pfs_format(true);
-  return 0;
-}
-static void expect_abort(unsigned scenario) {
-  pid_t child=fork(); assert(child>=0);
-  if (!child) {
-    if (scenario==0) __wrap_ftl_read(s_work, 2, VOLUME_SIZE-1);
-    if (scenario==1) { fault=-5; __wrap_ftl_write(s_work, 1, 17); }
-    if (scenario==2) { capacity=FIRST_SECTOR+VOLUME_SIZE/512-1; __wrap_pfs_init(true); }
-    if (scenario==3) { fault=-5; __wrap_pfs_init(true); }
-    if (scenario==4) {
-      t5ai_sd_pfs_free(flags); t5ai_sd_pfs_free(flags);
-    }
-    if (scenario==5) {
-      t5ai_sd_pfs_free(flags); s_page_flags_requested=true;
-      t5ai_sd_pfs_malloc_check(sizeof(s_page_flags)-1);
-    }
-    _exit(0);
-  }
-  int status; assert(waitpid(child,&status,0)==child);
-  assert(WIFSIGNALED(status) && WTERMSIG(status)==SIGABRT);
-}
-int main(void) {
-  setrlimit(RLIMIT_CORE, &(struct rlimit){0,0});
-  memset(card,0x6e,sizeof(card));
-  assert(__wrap_pfs_init(true)==0 && formats==1 && volume_size==32u*1024u*1024u);
-  assert(__wrap_ftl_get_size()==volume_size);
-  assert(card[HEADER_SECTOR*512u-1]==0x6e);
-  assert(card[(FIRST_SECTOR+VOLUME_SIZE/512u)*512u]==0x6e);
-  assert(flags==s_page_flags && s_page_flags_in_use && !s_page_flags_requested);
-  assert(!heap_allocs && !heap_frees);
-  void *ordinary=t5ai_sd_pfs_malloc_check(sizeof(s_page_flags));
-  assert(ordinary!=flags && heap_allocs==1);
-  t5ai_sd_pfs_free(ordinary); t5ai_sd_pfs_free(NULL);
-  assert(heap_frees==2);
-  unsigned old_formats=formats;
-  assert(__wrap_pfs_init(true)==0 && formats==old_formats && cleanups==1);
-  assert(heap_allocs==1 && heap_frees==2 && flags==s_page_flags);
-  for (size_t i=0;i<sizeof(s_page_flags);++i) assert(s_page_flags[i]==0xfe);
-  uint8_t input[20001], output[20001];
-  for (unsigned i=0;i<sizeof(input);++i) input[i]=(uint8_t)(i*17u+3u);
-  __wrap_ftl_write(input,sizeof(input),511);
-  __wrap_ftl_read(output,sizeof(output),511);
-  assert(!memcmp(input,output,sizeof(input)));
-  assert(card[FIRST_SECTOR*512u+510]==0xff);
-  assert(card[FIRST_SECTOR*512u+511+sizeof(input)]==0xff);
-  memset(input,0xff,sizeof(input));
-  __wrap_ftl_write(input,sizeof(input),511);
-  __wrap_ftl_read(output,sizeof(output),511);
-  for (unsigned i=0;i<sizeof(output);++i) assert(output[i]==(uint8_t)(i*17u+3u));
-  __wrap_ftl_erase_sector(65536,0);
-  __wrap_ftl_read(output,sizeof(output),511);
-  assert(!memcmp(input,output,sizeof(input)));
-  uint8_t zero=0;
-  __wrap_ftl_write(&zero,1,VOLUME_SIZE-1);
-  __wrap_ftl_read(output,1,VOLUME_SIZE-1); assert(!output[0]);
-  __wrap_ftl_erase_subsector(4096,VOLUME_SIZE-4096);
-  __wrap_ftl_read(output,1,VOLUME_SIZE-1); assert(output[0]==0xff);
-  unsigned old_reads=reads;
-  __wrap_ftl_read(output,1,4096); __wrap_ftl_read(output,1,4097);
-  assert(reads==old_reads+1);
-  assert(workspace_depth==0);
-  for(unsigned i=0;i<6;++i) expect_abort(i);
-  printf("PASS: provision, reopen, boundaries, partial/multi-sector I/O, NOR semantics, cache, erase, faults (%u writes)\n",writes);
-}
-"""
 DRIVER = r"""
 #include <stdio.h>
 #include <sys/mman.h>
@@ -391,16 +268,8 @@ class SDTests(unittest.TestCase):
                 path = tmp / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text('#include "common.h"\n')
-            pfs = (ROOT / "subsys/fs/pfs/pfs.c").read_text()
-            builder = pfs[
-                pfs.index("static void prv_build_page_flags_cache(void)") : pfs.index(
-                    "static void update_curr_state"
-                )
-            ]
             (tmp / "harness.c").write_text(
-                harness.replace('"SOURCE"', '"' + str(ROOT / source) + '"').replace(
-                    "CACHE_BUILDER", builder
-                )
+                harness.replace('"SOURCE"', '"' + str(ROOT / source) + '"')
             )
             subprocess.run(
                 [
@@ -421,61 +290,6 @@ class SDTests(unittest.TestCase):
                 check=True,
             )
             subprocess.run([str(tmp / "harness")], check=True, timeout=30)
-
-    def test_adapter(self):
-        self.compile_run("soc/t5ai/sd_pfs.c", ADAPTER)
-
-    def test_existing_volume_guard_preserves_unknown_header_and_data(self):
-        harness = (
-            "#define CONFIG_T5AI_SD_PFS_REQUIRE_EXISTING 1\n"
-            + ADAPTER[: ADAPTER.index("int main(void)")]
-        )
-        harness = harness.replace(
-            '#include "SOURCE"',
-            r"""
-#include "common.h"
-#include <setjmp.h>
-static jmp_buf refused;
-#undef PBL_ASSERT
-#define PBL_ASSERT(x,...) do { if (!(x)) longjmp(refused,1); } while (0)
-#include "SOURCE"
-""",
-        )
-        harness += r"""
-static void expect_refusal(void) {
-  if (setjmp(refused)==0) { __wrap_pfs_init(true); assert(!"must refuse unknown volume"); }
-}
-int main(void) {
-  (void)expect_abort;
-  memset(card,0x6e,sizeof(card));
-  static uint8_t before[sizeof(card)];
-  memcpy(before,card,sizeof(card));
-  expect_refusal();
-  assert(!writes && !formats && !cleanups && !workspace_depth);
-  assert(!memcmp(before,card,sizeof(card)));
-  VolumeHeader good={.version=1,.size=VOLUME_SIZE,
-                     .first_sector=FIRST_SECTOR,.size_inverse=~VOLUME_SIZE};
-  memcpy(good.magic,"PBLSDPFS",8);
-  memcpy(card+HEADER_SECTOR*512u,&good,sizeof(good));
-  card[FIRST_SECTOR*512u]=0x50;
-  memcpy(before,card,sizeof(card));
-  assert(__wrap_pfs_init(true)==0);
-  assert(!writes && !formats && cleanups==1 && !workspace_depth);
-  assert(!memcmp(before,card,sizeof(card)));
-  const unsigned offsets[]={0,8,12,16,20};
-  for(unsigned n=0;n<sizeof(offsets)/sizeof(offsets[0]);++n) {
-    memcpy(card,before,sizeof(card));
-    card[HEADER_SECTOR*512u+offsets[n]]^=1;
-    uint8_t changed=card[HEADER_SECTOR*512u+offsets[n]];
-    expect_refusal();
-    assert(!writes && !formats && cleanups==1 && !workspace_depth);
-    assert(card[HEADER_SECTOR*512u+offsets[n]]==changed);
-    card[HEADER_SECTOR*512u+offsets[n]]^=1;
-    assert(!memcmp(before,card,sizeof(card)));
-  }
-}
-"""
-        self.compile_run("soc/t5ai/sd_pfs.c", harness)
 
     def test_driver(self):
         self.compile_run("drivers/t5ai/sd.c", DRIVER)

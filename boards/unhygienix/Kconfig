@@ -11,6 +11,8 @@ config BOARD_UNHYGIENIX
 config T5AI_SD_PFS
     bool "Use a disposable 32 MiB TF-card PFS (AP SDIO/DMA)"
     depends on BOARD_UNHYGIENIX && FS_PFS
+    select FS_PFS_CUSTOM_FTL
+    select FS_PFS_CUSTOM_PAGE_FLAGS
     default n
     help
       Use a private card area instead of internal-flash PFS. Initializing an

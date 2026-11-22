@@ -4,6 +4,7 @@
 #include "pfs.h"
 
 #include "flash_translation.h"
+#include "page_flags_cache.h"
 
 #include <inttypes.h>
 #include <stddef.h>
@@ -314,7 +315,7 @@ static void prv_build_page_flags_cache(void) {
 
   // if it already exists, free it first
   if (s_pfs_page_flags_cache) {
-    pbl_free(s_pfs_page_flags_cache);
+    pfs_page_flags_cache_free(s_pfs_page_flags_cache);
     s_pfs_page_flags_cache = nullptr;
   }
 
@@ -324,7 +325,8 @@ static void prv_build_page_flags_cache(void) {
   }
 
   // allocate the new cache
-  s_pfs_page_flags_cache = pbl_malloc_check(s_pfs_page_count * sizeof(*s_pfs_page_flags_cache));
+  s_pfs_page_flags_cache =
+      pfs_page_flags_cache_alloc(s_pfs_page_count * sizeof(*s_pfs_page_flags_cache));
 
   // read and set each of the page flags into the cache
   prv_invalidate_page_flags_cache_all();
@@ -2054,7 +2056,7 @@ void pfs_format(bool write_erase_headers) {
   }
 
   // clear out all pages
-  pbl_flash_partition_erase(PART_FILESYSTEM, 0U, PART_FILESYSTEM_SIZE);
+  ftl_erase_all();
   prv_invalidate_page_flags_cache_all();
 
   if (write_erase_headers) {

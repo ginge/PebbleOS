@@ -68,6 +68,9 @@ void ftl_read(void *buffer, size_t size, uint32_t offset);
  */
 void ftl_write(const void *buffer, size_t size, uint32_t offset);
 
+/** @brief Erase the complete filesystem backing store. */
+void ftl_erase_all(void);
+
 /**
  * @brief Format all regions of the translation space.
  *
