@@ -109,7 +109,7 @@ class SDPFSIntegrationTests(unittest.TestCase):
         for name in ("FS_PFS_CUSTOM_FTL", "FS_PFS_CUSTOM_PAGE_FLAGS"):
             self.assertEqual(config.syms[name].str_value, "n")
         section = (
-            (ROOT / "soc/t5ai/CMakeLists.txt")
+            (ROOT / "soc/t5ai/cmake/production.cmake")
             .read_text()
             .split("if(CONFIG_T5AI_SD_PFS)", 1)[1]
             .split("# Reject mailbox-owner", 1)[0]

@@ -7,11 +7,25 @@ set(T5AI_CP_STOCK "" CACHE FILEPATH "Hash-verified stock Unhygienix CP image")
 function(pbl_unhygienix_firmware)
   set(protected ${PROJECT_BINARY_DIR}/pebbleos.t5ai-crc.bin)
   set(checked ${PROJECT_BINARY_DIR}/pebbleos.image-layout.ok)
+  # Record the actual link declarations, including enabled diagnostic wrappers.
+  get_target_property(link_options pebbleos LINK_OPTIONS)
+  string(REGEX MATCHALL "--wrap=[A-Za-z_][A-Za-z_0-9]*" wraps "${link_options}")
+  list(TRANSFORM wraps REPLACE "--wrap=" "")
+  list(REMOVE_DUPLICATES wraps)
+  list(SORT wraps)
+  list(JOIN wraps "\n" wrap_lines)
+  set(wrap_manifest ${PROJECT_BINARY_DIR}/t5ai-link-wrappers.txt)
+  file(CONFIGURE OUTPUT ${wrap_manifest} CONTENT "${wrap_lines}\n" @ONLY)
   add_custom_command(OUTPUT ${checked}
+    COMMAND ${PYTHON_EXECUTABLE} ${PBL_BASE}/tools/check_unhygienix_build_integration.py
+            --elf ${PROJECT_BINARY_DIR}/pebbleos.elf --config ${PROJECT_BINARY_DIR}/.config
+            --wraps ${wrap_manifest} --nm ${CMAKE_NM}
     COMMAND ${PYTHON_EXECUTABLE} ${PBL_BASE}/tools/check_unhygienix_image_map.py
             ${PROJECT_BINARY_DIR}/pebbleos.map
     COMMAND ${CMAKE_COMMAND} -E touch ${checked}
     DEPENDS pebbleos ${PBL_BASE}/tools/check_unhygienix_image_map.py
+            ${PBL_BASE}/tools/check_unhygienix_build_integration.py ${wrap_manifest}
+            ${PROJECT_BINARY_DIR}/.config
     WORKING_DIRECTORY ${PBL_BASE} VERBATIM)
   add_custom_command(OUTPUT ${protected}
     COMMAND ${PYTHON_EXECUTABLE} ${PBL_BASE}/tools/unhygienix_image.py

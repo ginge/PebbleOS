@@ -34,7 +34,8 @@ Evidence: `build-quality-20261121/sleep-retry-final2-20261122/` and the
 [code-quality progress record](code-quality-todo.md). The operator authorized
 committing this verified increment; further backlog work remains paused. All
 captures are stopped and the device is left running the recorded pre-commit
-image. Finding 7 remains the next backlog section.
+image. Finding 7 build integration is now complete at host/build scope without
+flashing this source change; finding 8 is the next backlog section.
 
 ## Historical programming-handoff alternative — 22 November, 09:07 UTC
 

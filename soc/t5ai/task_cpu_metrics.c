@@ -30,7 +30,6 @@ static void prv_snapshot(bool report) {
   uint32_t count = 0, omitted = 0;
   pbl_irq_lock();
   uint32_t at = T5AI_AON_RTC_COUNT_LOW;
-  uint32_t ticks = pbl_uptime_ticks();
   for (struct pbl_thread *t = pbl_all_threads; t; t = t->backend.all_next) {
     if (count == TASK_LIMIT) {
       ++omitted;

@@ -127,12 +127,12 @@ on-watch format or storage qualification.
 
 ### 7. Make production build integration explicit
 
-- [ ] Separate diagnostic instrumentation from production integration in
+- [x] Separate diagnostic instrumentation from production integration in
   `soc/t5ai/CMakeLists.txt`; inventory renames, source suppression, wrappers and
   source-specific compilation changes.
-- [ ] Prefer explicit backend selection and a few documented extension points.
+- [x] Prefer explicit backend selection and a few documented extension points.
   Remove empty CPU-metrics deferred-function scaffolding.
-- [ ] Acceptance: release/LTO links select exactly the intended implementations;
+- [x] Acceptance: release/LTO links select exactly the intended implementations;
   retained interception has a documented purpose and link-level verification.
 
 ### 8. Separate qualified sleep from experimental modes
@@ -1141,3 +1141,103 @@ all first-missing-checkpoint evidence remain separately preserved. This follow-u
 is complete at the recorded host/build/bounded-hardware scope. The operator
 subsequently authorized committing this verified increment. **Further backlog
 work remains paused.** The next unresolved backlog section is finding 7.
+
+
+### 22 November: finding 7 — explicit production build integration
+
+Reassessed at `e5af7e6e1` on branch `tuya`, preserving the two pre-existing
+unrelated edits in REMAINING_TASKS.md and power-todo.md. The 398-line SoC CMake
+file still mixed production integration and diagnostic instrumentation, used
+HEADER_FILE_ONLY to suppress two stock sources, and scheduled an empty
+CPU-metrics deferred callback. The SD FTL already had explicit backend selection
+from finding 6; that boundary was retained rather than reimplemented.
+
+Production rules now live in `soc/t5ai/cmake/production.cmake`; optional
+instrumentation lives in `diagnostics.cmake`. The top-level file retains native
+SoC sources, fixed memory scripts, assembly roots and size policy. All 11
+surviving diagnostic deferred-function bodies compare byte-for-byte with HEAD;
+Kconfig gates remain unchanged. The empty CPU-metrics callback was removed.
+The real ARM diagnostic compile then exposed an existing unused `ticks` read in
+`task_cpu_metrics.c`; removed that dead read and kept -Werror enabled. CPU metrics
+and reminder profiler objects now compile together against production headers.
+This is object/configuration coverage, not a fully linked diagnostic matrix.
+
+The SoC-local backend selector explicitly removes exactly one stock source from
+its owning target and requires exactly one selected local implementation. It
+replaces global source suppression for process regions and flash-log storage,
+without editing shared code or the stock target's remaining sources/properties.
+Upstream target/source drift, duplicate stock sources and a missing local
+backend fail configuration. Disabled flash logging is covered separately.
+The existing unsupported flash-log-storage policy and STAR-MC1 non-shareable
+app/worker mapping are preserved; no storage contents are changed.
+
+A release configure also exposed an inherited unconditional console boundary:
+CONFIG_RELEASE=y disables CONSOLE, so its deferred set_property addressed a
+non-existent directory. Console-only wrappers and the no-LTO boundary now follow
+CONFIG_CONSOLE. Normal console behavior and mailbox-owner exclusions are intact;
+the actual console-disabled release build succeeds. This remains a board-local
+manual release configuration; no release-matrix inclusion was added.
+
+The existing image-validation gate now checks the final ELF using toolchain nm.
+Its wrapper manifest comes from the ELF target's actual link options, including
+common allocator and enabled diagnostic wrappers. Undeclared resolved wrappers
+or missing selected production console/touch/PFS boundaries prevent packaging;
+no symbols are artificially retained to satisfy the check. Backend ownership is
+checked at configure time. Graphics/log-state renames and remaining touch/PFS/
+console interception are inventoried with their purpose and LTO requirements in
+[build integration](build-integration.md). Broader graphics API replacement and
+benchmarking remain finding 10, not an excuse to change shared code here.
+
+Validation:
+
+- All **1194 normal compilation commands are exactly unchanged**, with no
+  added/removed translation units or source-specific flag/rename changes. All
+  **12 normal wrapper declarations are unchanged**. Diagnostic deferred bodies
+  also compare unchanged, apart from removal of the empty callback.
+- **15 focused host test methods pass**: real CMake backend selection/drift,
+  missing/undeclared ELF boundary rejection, existing complete-unit touch/PFS
+  LTO behavior and diagnostic configuration compatibility. The final fixture
+  lint adjustment was rechecked separately (3 methods). SD failure-injection
+  panic output is expected and remains asserted; no guard was relaxed.
+- Normal and CONFIG_RELEASE=y **ARM/LTO full builds pass**, including the new
+  integration gate and existing map/partition/heap, CRC, log-hash, resources and
+  syscall checks. Normal build ID `d24e3773957df8abc96c12c93308d93f5214f778`;
+  release build ID `411fcc60bf68ac4be617a0bcb0682c67b9e4d721`.
+- A compatible CPU-metrics/reminder diagnostic configuration and both selected
+  real ARM objects pass. Other diagnostic combinations retain their rules but
+  were not all compiled or linked in this increment.
+- Ruff check/format and git diff --check pass. No production shared/common C or
+  CMake files changed. Numeric ABI, retained/partition layouts, timing constants,
+  calibration, identity, Gabbro compatibility and ownership guards are unchanged.
+
+Commands/logs are preserved under
+`build-quality-20261121/build-integration-finding7/`, including baseline/final
+Ninja compile databases and link commands, normal/release ELF/map/config/images,
+actual wrapper manifests, hashes, source snapshots and result.json.
+Build commands used the existing Arm GNU 14.2 / temporary Python environment:
+
+```
+PATH=/tmp/pebble-quality-venv/bin:/home/baz/pebble/build/arm_gnu_toolchain/arm-gnu-toolchain-14.2.rel1-x86_64-arm-none-eabi/bin:/usr/bin:/bin \
+  PYTHONPATH=tools/libs/pbl-cli CCACHE_DISABLE=1 \
+  /tmp/pebble-quality-venv/bin/python -m pbl -b build-quality-20261121 build
+```
+
+The release directory was configured with `-DCONFIG_RELEASE=y`; the diagnostic
+directory with `-DCONFIG_T5AI_TASK_CPU_METRICS=y -DCONFIG_T5AI_REMINDER_PROFILE=y`.
+Focused test commands and repeatable build commands are in the integration doc.
+
+Tooling/repair distinctions: the first configure-only fixture invocation found
+an unusable cmake on the inherited PATH (PermissionError); selecting the existing
+temporary tool environment fixed it. An initial validator prototype omitted
+allocator wrappers by reading only the SoC/global contributed options; reading
+the actual ELF target options fixed that validator bug. Neither was a runtime
+regression. The console-disabled configure error and unused diagnostic variable
+were actual pre-existing source/build defects, repaired without weakening guards.
+Initial failure logs are preserved alongside the successful results.
+
+Finding 7 is complete at host/build scope. **No hardware was flashed, reset,
+provisioned or formatted**, and no hardware/power/soak qualification is claimed.
+The installed sleep-retry image remains `31b50d165281fa78016a880573b910fefe8c69cf`.
+Per the operator's section-by-section instruction, commit this increment and
+pause. **Next unresolved item: finding 8**, separating production CP-awake sleep
+from experimental modes while preserving the pinned protocol and transitions.

@@ -14,6 +14,9 @@ configuration is separate.
 Run commands from the PebbleOS repository root. Keep supplied build inputs and
 generated validation artifacts under `build/`.
 
+See the [build-integration inventory](build-integration.md) for explicit local
+backends, retained interception boundaries and the post-link validation gate.
+
 Production AP-only sleep now reports a previous interrupted attempt and validates
 the existing CP alarm owner and awake contract before trying again. Saved reset
 reasons and the prior AP trace are evidence, not automatic admission failures.

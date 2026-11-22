@@ -83,7 +83,7 @@ class TouchQueueTest(unittest.TestCase):
                 subprocess.run([*args, "-c", str(unit), "-o", str(obj)], check=True)
                 objects.append(str(obj))
             integration = (
-                (ROOT / "soc/t5ai/CMakeLists.txt")
+                (ROOT / "soc/t5ai/cmake/production.cmake")
                 .read_text()
                 .split("if(CONFIG_T5AI_TOUCH_QUEUE_COALESCE)", 1)[1]
                 .split("  endfunction()", 1)[0]
